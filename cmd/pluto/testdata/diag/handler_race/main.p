@@ -44,7 +44,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	limit = 20
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	flags := x86.SaveFlagsCli()
 	ticks = 0
 	x86.RestoreFlags(flags)

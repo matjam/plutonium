@@ -42,13 +42,13 @@ func TestKernelPanic(t *testing.T) {
 		{"explicit", `scenario explicit
 kernel panic on cpu 2
 panic: kernel explicit
-    main\.main \(FILE:118\)
+    main\.main \(FILE:113\)
 `, false},
 		{"bounds", `scenario bounds
 kernel panic on cpu 2
 panic: runtime error: index out of range \[5\] with length 3
-    main\.get \(FILE:97\)
-    main\.main \(FILE:120\)
+    main\.get \(FILE:92\)
+    main\.main \(FILE:115\)
 `, false},
 		{"fault", `scenario fault
 kernel panic on cpu 2
@@ -60,7 +60,7 @@ fault at the bad address: true
 		{"nested", `scenario nested
 kernel panic on cpu 2
 panic: kernel nested
-    main\.main \(FILE:118\)
+    main\.main \(FILE:113\)
 `, true},
 	}
 	for _, c := range cases {

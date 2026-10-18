@@ -41,7 +41,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	alloc.SetDefault(&heap)
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }`, []string{"main.p:13:2: b.used is written here with no lock that guards it", "the interrupt handler timer", "E3502"}},
@@ -78,7 +78,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	alloc.SetDefault(&pool{})
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }`, []string{"main.p:23:2: p.free is written here with no lock that guards it", "E3502"}},
@@ -113,7 +113,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	alloc.SetDefault(&heap)
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }`},
@@ -153,7 +153,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	alloc.SetDefault(&heap)
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }`},
@@ -178,7 +178,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	alloc.SetDefault(none{})
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }`},
@@ -212,7 +212,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	alloc.SetDefault(&heap)
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }`},
@@ -241,7 +241,7 @@ func timer(f *x86.InterruptFrame) {}
 
 func main() {
 	alloc.SetDefault(&heap)
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }`},

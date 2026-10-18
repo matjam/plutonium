@@ -27,6 +27,9 @@ func unchecked() {}
 //pu:noinline because it is hot
 func hot() {}
 
+//pu:interrupt fast
+func fastIRQ() {}
+
 func main() {
 	//pu:noinline
 	println(build())

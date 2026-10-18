@@ -12,22 +12,43 @@ import (
 // CPU, not called: the backend gives them an entry and exit sequence that
 // saves every register and returns with iretq. Lowering checks their
 // signatures, rejects direct calls and func values, and expands
-// x86.HandlerAddr, the only way to take a handler's address.
+// x86.InterruptGate and x86.TrapGate, the only ways to put a handler's address
+// in the interrupt table (spec section 20.8).
 
-// handlerAddrFunc is the intrinsic that yields a handler's entry address.
-const handlerAddrFunc = "pluto/arch/x86.HandlerAddr"
+// The attribute byte each constructor of the interrupt table's entries puts in
+// the entry: present, privilege level 0, and the gate type (abi.md section
+// 10.5).
+const (
+	interruptGateAttr = 0x8E
+	trapGateAttr      = 0x8F
+)
 
-// hasDirective reports whether a doc comment carries //pu:name.
+// isGateFunc reports whether fn is x86.InterruptGate or x86.TrapGate.
+func isGateFunc(fn *types2.Func) bool {
+	return fn.Pkg() != nil && fn.Pkg().Path() == x86Path && (fn.Name() == "InterruptGate" || fn.Name() == "TrapGate")
+}
+
+// hasDirective reports whether a doc comment carries //pu:name. The
+// directive //pu:interrupt trap is a form of //pu:interrupt.
 func hasDirective(doc *ast.CommentGroup, name string) bool {
 	for _, d := range directives(doc) {
-		if d == name {
+		if d == name || name == "interrupt" && d == "interrupt trap" {
 			return true
 		}
 	}
 	return false
 }
 
-// isInterrupt reports whether fn is declared //pu:interrupt.
+// isTrapHandler reports whether a doc comment declares //pu:interrupt trap.
+func isTrapHandler(doc *ast.CommentGroup) bool { return hasDirective(doc, "interrupt trap") }
+
+// isTrapHandler reports whether fn is declared //pu:interrupt trap.
+func (l *Lowerer) isTrapHandler(fn *types2.Func) bool {
+	d := l.decls[fn.Origin()]
+	return d != nil && isTrapHandler(d.decl.Doc)
+}
+
+// isInterrupt reports whether fn is declared //pu:interrupt, in either form.
 func (l *Lowerer) isInterrupt(fn *types2.Func) bool {
 	d := l.decls[fn.Origin()]
 	return d != nil && hasDirective(d.decl.Doc, "interrupt")
@@ -96,26 +117,62 @@ func isErrorCode(T types2.Type) bool {
 	return ok && (u.Kind() == types2.Uint64 || u.Kind() == types2.Uintptr)
 }
 
-// handlerAddr expands x86.HandlerAddr(h): the address of handler h's code.
-func (s *fnState) handlerAddr(e *ast.CallExpr, T types2.Type) value {
-	var fn *types2.Func
-	if len(e.Args) == 1 {
+// gateCall expands x86.InterruptGate(h, selector, ist) and
+// x86.TrapGate(h, selector, ist): the table entry that enters handler h. The
+// handler must be named in the call, and be of the form the constructor takes
+// (spec section 20.8, abi.md section 10.5). The entry is built by the
+// package's gateAt from h's address.
+func (s *fnState) gateCall(e *ast.CallExpr, gate *types2.Func) []value {
+	trap := gate.Name() == "TrapGate"
+	sig := gate.Type().(*types2.Signature)
+	T := sig.Results().At(0).Type()
+	form := "//pu:interrupt function"
+	if trap {
+		form = "//pu:interrupt trap function"
+	}
+	var h *types2.Func
+	if len(e.Args) == 3 {
 		if id := identOf(ast.Unparen(e.Args[0])); id != nil {
-			fn, _ = s.info.Uses[id].(*types2.Func)
+			h, _ = s.info.Uses[id].(*types2.Func)
 		}
 	}
-	if fn == nil || !s.l.isInterrupt(fn) {
-		s.l.errorf(e.Pos(), diag.HandlerAddrArg, "x86.HandlerAddr: argument must name a //pu:interrupt function")
-		return s.zeroValue(T)
+	switch {
+	case h == nil || !s.l.isInterrupt(h):
+		s.l.errorf(e.Pos(), diag.GateArg, "x86.%s: the first argument must name a %s", gate.Name(), form)
+		return []value{s.zeroValue(T)}
+	case s.l.isTrapHandler(h) != trap:
+		is, other := "a //pu:interrupt function, not a trap handler", "x86.InterruptGate"
+		if !trap {
+			is, other = "a //pu:interrupt trap function", "x86.TrapGate"
+		}
+		s.l.errorf(e.Pos(), diag.GateArg, "x86.%s: %s is %s; install it with %s", gate.Name(), h.Name(), is, other)
+		return []value{s.zeroValue(T)}
 	}
-	addr := s.funcAddr(s.l.funcSym(fn, nil))
-	return scalarValue(s.newValue(ssa.OpBitcast, s.l.scalarType(T), addr), T)
+	at, _ := gate.Pkg().Scope().Lookup("gateAt").(*types2.Func)
+	if at == nil {
+		s.l.internalf(e.Pos(), "pluto/arch/x86 has no gateAt")
+		return []value{s.zeroValue(T)}
+	}
+	atSig := at.Type().(*types2.Signature)
+	addr := s.funcAddr(s.l.funcSym(h, nil))
+	attr := int64(interruptGateAttr)
+	if trap {
+		attr = trapGateAttr
+	}
+	p := atSig.Params()
+	args := []value{
+		scalarValue(s.newValue(ssa.OpBitcast, s.l.scalarType(p.At(0).Type()), addr), p.At(0).Type()),
+		s.exprAs(e.Args[1], p.At(1).Type()),
+		s.exprAs(e.Args[2], p.At(2).Type()),
+		scalarValue(s.constInt(s.l.scalarType(p.At(3).Type()), attr), p.At(3).Type()),
+	}
+	return s.emitCall(callee{sym: s.l.funcSym(at, nil)}, atSig, nil, args, e.Pos())
 }
 
 // checkNotHandler reports a call or func value of an interrupt handler,
 // which only the CPU may enter.
 func (s *fnState) checkNotHandler(sym *ssa.Sym, pos token.Pos, what string) {
 	if s.l.interruptSyms[sym] {
-		s.l.errorf(pos, diag.InterruptHandlerV, "interrupt handler %s cannot be %s; use x86.HandlerAddr for its address", sym.Name, what)
+		s.l.errorf(pos, diag.InterruptHandlerV, "interrupt handler %s cannot be %s; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table", sym.Name, what)
 	}
 }

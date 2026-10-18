@@ -74,8 +74,8 @@ func mul64(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
 const x86Path = "pluto/arch/x86"
 
 func init() {
-	// Every function of pluto/arch/x86 except HandlerAddr (see
-	// handlerAddr) is one OpIntrinsic named after it.
+	// Every instruction function of pluto/arch/x86 is one OpIntrinsic named
+	// after it. The gate constructors are expanded by gateCall.
 	for _, name := range []string{
 		"Cli", "Sti", "StiHlt", "Hlt", "Pause", "SaveFlagsCli", "RestoreFlags",
 		"Inb", "Inw", "Inl", "Outb", "Outw", "Outl",
@@ -112,7 +112,7 @@ func machine(name string) intrinsicFn {
 }
 
 // intrinsic lowers a call to an intrinsic function, if fn is one.
-// x86.HandlerAddr is handled by handlerAddr (interrupt.go).
+// x86.InterruptGate and x86.TrapGate are handled by gateCall (interrupt.go).
 func (s *fnState) intrinsic(fn *types2.Func, e *ast.CallExpr) ([]value, bool) {
 	if fn.Pkg() == nil {
 		return nil, false

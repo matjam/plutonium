@@ -248,7 +248,8 @@ type spawn struct {
 	root    origins   // the function the task runs: rFunc, rLit, or a parameter
 	args    []origins // its arguments, receiver first
 	multi   bool      // may run more than once, so several instances at a time
-	handler bool      // an interrupt handler the program installs (x86.HandlerAddr), not a task
+	handler bool      // an interrupt handler the program installs (x86.InterruptGate, x86.TrapGate), not a task
+	trap    bool      // a handler entered through a trap gate: its body is not an interrupt-disabled region
 	via     []frame
 	desc    string // "task worker(...)"
 }
@@ -266,7 +267,7 @@ func (s *spawn) key() string {
 		}
 		b.WriteString("/")
 	}
-	fmt.Fprintf(&b, "|%v|%v", s.multi, s.handler)
+	fmt.Fprintf(&b, "|%v|%v|%v", s.multi, s.handler, s.trap)
 	return b.String()
 }
 

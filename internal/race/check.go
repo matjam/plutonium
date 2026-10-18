@@ -78,7 +78,7 @@ func (a *analyzer) check() {
 			seen[k] = true
 			tw.sum = &summary{}
 			base := &state{pub: map[ast.Node]bool{}, spawned: true}
-			if sp.handler && a.cpuOn {
+			if sp.handler && !sp.trap && a.cpuOn {
 				base.locks = handlerRegions(f.decl.Pos())
 			}
 			tw.apply(f, sp.args, sp.pos, f.name, base, nil)

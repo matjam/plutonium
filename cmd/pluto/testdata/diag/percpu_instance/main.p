@@ -77,7 +77,7 @@ func enabled() {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	again()
 	rec(nil, 2)
 	twice()

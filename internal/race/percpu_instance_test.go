@@ -135,7 +135,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	x86.Cli()
 	rt.DisablePreemption()
 	p := &ticks
@@ -158,7 +158,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	x86.Cli()
 	rt.DisablePreemption()
 	p := &ticks
@@ -185,7 +185,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	x86.Cli()
 	rt.DisablePreemption()
 	p := &stats
@@ -347,7 +347,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	x86.Cli()
 	p := &ticks
 	*p++
@@ -368,7 +368,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	x86.Cli()
 	rt.DisablePreemption()
 	p := &ticks
@@ -393,7 +393,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	x86.Cli()
 	rt.DisablePreemption()
 	p := &ticks
@@ -419,7 +419,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	rt.DisablePreemption()
 	p := &ticks
 	*p++

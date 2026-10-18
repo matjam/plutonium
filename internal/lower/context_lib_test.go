@@ -42,7 +42,7 @@ func TestInterruptContextLibrary(t *testing.T) {
 				"func work() {}\n\nfunc readConfig() {\n\tmu.Lock()\n\tmu.Unlock()\n}\n\n" +
 				"var _ = rt.MinStackSize\nvar _ = time.Second\n\n" +
 				"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\t" + c.body + "\n}\n\n" +
-				"func main() { _ = x86.HandlerAddr(keyboard) }\n"
+				"func main() { _ = x86.InterruptGate(keyboard, 0x08, 0) }\n"
 			got := lowerModeError(t, src, hosted)
 			if len(c.want) == 0 && got != "" {
 				t.Fatalf("unexpected error:\n%s", got)

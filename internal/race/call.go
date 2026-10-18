@@ -94,13 +94,13 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		if fn.Pkg().Path() == "pluto/sync/atomic" && fn.Type().(*types2.Signature).Recv() == nil {
 			return w.atomicCall(e, fn)
 		}
-		if fn.Pkg().Path() == "pluto/arch/x86" && fn.Name() == "HandlerAddr" && w.a.handlerOf(e) != nil {
+		if h, trap := w.a.handlerOf(e); h != nil {
 			// Installing an interrupt handler starts a party that runs at
 			// any point where interrupts are enabled, on any processor and
 			// on several at once (spec section 19.3, Interrupt handlers).
-			w.value(e.Args[0])
-			h := w.a.handlerOf(e)
-			w.spawn(&spawn{pos: e.Pos(), root: origins{h.asValue()}, multi: true, handler: true, desc: "handler " + h.name})
+			w.value(e.Args[1])
+			w.value(e.Args[2])
+			w.spawn(&spawn{pos: e.Pos(), root: origins{h.asValue()}, multi: true, handler: true, trap: trap, desc: "handler " + h.name})
 			return pad(nil, 1)
 		}
 	}
@@ -919,7 +919,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 			w.sum.addCrossing(&cc)
 		}
 		for _, sp := range s.spawns {
-			ns := &spawn{pos: sp.pos, multi: sp.multi, handler: sp.handler, desc: sp.desc, via: append([]frame{fr}, sp.via...)}
+			ns := &spawn{pos: sp.pos, multi: sp.multi, handler: sp.handler, trap: sp.trap, desc: sp.desc, via: append([]frame{fr}, sp.via...)}
 			for _, o := range sp.root {
 				for _, v := range substitute(o.vp, args) {
 					ns.root.add(origin{vp: v})

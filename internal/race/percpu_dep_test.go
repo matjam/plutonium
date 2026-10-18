@@ -239,7 +239,7 @@ func timer(f *x86.InterruptFrame) {
 	ticks = x + 1
 }
 
-func main() { _ = x86.HandlerAddr(timer) }`},
+func main() { _ = x86.InterruptGate(timer, 0x08, 0) }`},
 }
 
 func TestPerCPUDepAccepted(t *testing.T) {
@@ -595,7 +595,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	x := ticks
 	ticks = x + 1
 }`, []string{"main.p:15:2: ticks = ... uses the per-CPU variable ticks outside a region with interrupts disabled, which it needs because the interrupt handler timer also uses it"}, 1},

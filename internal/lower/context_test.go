@@ -26,7 +26,7 @@ func wait()
 
 var mu Mutex
 
-func main() { _ = x86.HandlerAddr(keyboard) }
+func main() { _ = x86.InterruptGate(keyboard, 0x08, 0) }
 
 `
 

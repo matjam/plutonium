@@ -23,7 +23,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	println(ticks.Load())
 }`},
 	{"atomic functions", `
@@ -40,7 +40,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	println(atomic.LoadInt64(&ticks))
 }`},
 	{"an rt.Lock held at every access", `
@@ -64,7 +64,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	mu.Lock()
 	n := head
 	mu.Unlock()
@@ -82,7 +82,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	table[1] = 7
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 }`},
 	{"a non-blocking send to a channel", `
 import "pluto/arch/x86"
@@ -98,7 +98,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	<-events
 }`},
 	{"a handler that touches only its frame and per-CPU data", `
@@ -113,7 +113,7 @@ func fault(f *x86.InterruptFrame, code uint64) {
 	f.RIP += 2
 }
 
-func main() { _ = x86.HandlerAddr(fault) }`},
+func main() { _ = x86.InterruptGate(fault, 0x08, 0) }`},
 	{"a handler that reads what only it and the main task read", `
 import "pluto/arch/x86"
 
@@ -125,7 +125,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	println(limit)
 }`},
 }
@@ -158,7 +158,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	alloc.SetDefault(bump{})
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }`})
@@ -191,7 +191,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	alloc.SetDefault(bump{})
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }`, []string{"main.p:13:2: next is written here with no lock that guards it", "the interrupt handler timer", "E3502"}})
@@ -223,7 +223,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	println(ticks)
 }`, []string{"main.p:8:2: ticks is written here with no lock that guards it, while another task or an interrupt handler may use it",
 		"the interrupt handler timer installed at main.p:12", "E3502"}},
@@ -238,7 +238,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 }`, []string{"main.p:8:2: count is written here with no lock that guards it", "the interrupt handler timer", "E3502"}},
 	{"a read without the guard", `
 import (
@@ -259,7 +259,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	println(state)
 }`, []string{"main.p:21:10: state is read here without holding mu, which guards it", "the interrupt handler timer", "E3503"}},
 	{"volatile is not enough", `
@@ -273,7 +273,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	println(ticks)
 }`, []string{"ticks is written here with no lock that guards it", "the interrupt handler timer", "E3502"}},
 	{"an interrupt-disabled region is not enough", `
@@ -287,7 +287,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	f := x86.SaveFlagsCli()
 	ticks = 0
 	x86.RestoreFlags(f)
@@ -307,7 +307,7 @@ func timer(f *x86.InterruptFrame) {
 func work() { record(2) }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	task work()
 }`, []string{"main.p:6:22: log[i] is written here with no lock that guards it", "E3502"}},
 	{"a lock of a mutex a handler cannot take", `
@@ -327,7 +327,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	mu.Lock()
 	n = 2
 	mu.Unlock()

@@ -53,5 +53,5 @@ func main() {
 	rt.EnablePreemption()
 	count()
 	countIrqs()
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 }

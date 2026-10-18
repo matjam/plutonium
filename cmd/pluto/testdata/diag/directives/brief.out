@@ -5,4 +5,5 @@ $DIR/main.p:15:1: //pu:percpu is in the wrong place: it goes in the doc comment 
 $DIR/main.p:18:1: //pu:inline is in the wrong place: it goes in the doc comment of a function, not of a package-level variable
 $DIR/main.p:21:1: //pu:nobounds was replaced by //pu:nochecks
 $DIR/main.p:27:1: //pu:noinline takes no argument, found "because it is hot"
-$DIR/main.p:31:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here
+$DIR/main.p:30:1: //pu:interrupt takes no argument but trap, found "fast"
+$DIR/main.p:34:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here

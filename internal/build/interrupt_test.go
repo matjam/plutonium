@@ -37,8 +37,13 @@ func caller(f *x86.InterruptFrame, code uint64) {
 //pu:interrupt
 func floats(f *x86.InterruptFrame) { f.RIP = uint64(float64(f.RIP)*1.5 + 2) }
 
+var idt [3]x86.Gate
+
 func main() {
-	println(x86.HandlerAddr(leaf) != 0, x86.HandlerAddr(caller) != 0, x86.HandlerAddr(floats) != 0)
+	idt[0] = x86.InterruptGate(leaf, 0x08, 0)
+	idt[1] = x86.InterruptGate(caller, 0x08, 0)
+	idt[2] = x86.InterruptGate(floats, 0x08, 0)
+	println(len(idt))
 }
 `
 	lines := func(asm string) []string {

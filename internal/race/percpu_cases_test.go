@@ -191,7 +191,7 @@ func work() {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	task work()
 	rt.Yield()
 }`},
@@ -207,7 +207,7 @@ func timer(f *x86.InterruptFrame) {
 	seen[1] = seen[0]
 }
 
-func main() { _ = x86.HandlerAddr(timer) }`},
+func main() { _ = x86.InterruptGate(timer, 0x08, 0) }`},
 	{"a func literal called in the region", `
 import "pluto/rt"
 
@@ -359,7 +359,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	rt.DisablePreemption()
 	ticks++
 	rt.EnablePreemption()
@@ -381,7 +381,7 @@ func timer(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 }`, []string{"main.p:13:2: ticks++ uses the per-CPU variable ticks outside a region with interrupts disabled"}},
 	{"a task with no region beside a handler", `
 import (
@@ -400,7 +400,7 @@ func work() {
 }
 
 func main() {
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	task work()
 	rt.Yield()
 }`, []string{"main.p:14:2: ticks++ uses the per-CPU variable ticks outside a region with interrupts disabled"}},

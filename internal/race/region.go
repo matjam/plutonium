@@ -823,8 +823,10 @@ func handlerRegions(pos token.Pos) lockset {
 	return ls.with(regionAt(regPreempt, pos), true)
 }
 
-// handlerOf returns the handler a call of x86.HandlerAddr installs.
-func (a *analyzer) handlerOf(c *ast.CallExpr) *function {
+// handlerOf returns the handler a call of x86.InterruptGate or x86.TrapGate
+// installs, and whether it is a trap handler (//pu:interrupt trap), entered
+// through a trap gate, whose body is not an interrupt-disabled region.
+func (a *analyzer) handlerOf(c *ast.CallExpr) (h *function, trap bool) {
 	var id *ast.Ident
 	switch f := ast.Unparen(c.Fun).(type) {
 	case *ast.Ident:
@@ -832,12 +834,12 @@ func (a *analyzer) handlerOf(c *ast.CallExpr) *function {
 	case *ast.SelectorExpr:
 		id = f.Sel
 	}
-	if id == nil {
-		return nil
+	if id == nil || len(c.Args) != 3 {
+		return nil, false
 	}
 	fn, ok := a.uses[id].(*types2.Func)
-	if !ok || fn.Pkg() == nil || fn.Pkg().Path() != "pluto/arch/x86" || fn.Name() != "HandlerAddr" {
-		return nil
+	if !ok || fn.Pkg() == nil || fn.Pkg().Path() != "pluto/arch/x86" || fn.Name() != "InterruptGate" && fn.Name() != "TrapGate" {
+		return nil, false
 	}
 	var arg *ast.Ident
 	switch x := ast.Unparen(c.Args[0]).(type) {
@@ -847,13 +849,30 @@ func (a *analyzer) handlerOf(c *ast.CallExpr) *function {
 		arg = x.Sel
 	}
 	if arg == nil {
-		return nil
+		return nil, false
 	}
-	h, _ := a.uses[arg].(*types2.Func)
-	if h == nil {
-		return nil
+	hf, _ := a.uses[arg].(*types2.Func)
+	if hf == nil {
+		return nil, false
 	}
-	return a.funcs[h.Origin()]
+	f := a.funcs[hf.Origin()]
+	if f == nil || f.decl == nil {
+		return nil, false
+	}
+	return f, isTrapDecl(f.decl)
+}
+
+// isTrapDecl reports whether a function is declared //pu:interrupt trap.
+func isTrapDecl(d *ast.FuncDecl) bool {
+	if d.Doc == nil {
+		return false
+	}
+	for _, c := range d.Doc.List {
+		if name, ok := strings.CutPrefix(c.Text, "//pu:"); ok && strings.Join(strings.Fields(name), " ") == "interrupt trap" {
+			return true
+		}
+	}
+	return false
 }
 
 // sortedCPU orders entries by position for stable reports.

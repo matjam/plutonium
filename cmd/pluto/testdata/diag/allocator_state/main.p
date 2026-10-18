@@ -39,7 +39,7 @@ func timer(f *x86.InterruptFrame) {
 
 func main() {
 	alloc.SetDefault(&heap)
-	_ = x86.HandlerAddr(timer)
+	_ = x86.InterruptGate(timer, 0x08, 0)
 	q := new(int)
 	_ = q
 }

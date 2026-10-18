@@ -171,9 +171,55 @@ func FPUBegin(area *FPUState)
 //pu:noescape
 func FPUEnd(area *FPUState)
 
-// HandlerAddr returns the entry address of the //pu:interrupt function h,
-// for an IDT gate. The compiler expands it; h must name a handler, and
-// anything else is a compile error. Through a func value it panics.
-func HandlerAddr(h any) uintptr {
-	panic("x86.HandlerAddr must be called with a //pu:interrupt function")
+// A Gate is one 16-byte entry of an interrupt descriptor table. The
+// constructors InterruptGate and TrapGate are the way to make one that enters
+// a handler (language spec section 20.8); a table is an array of Gate and
+// Lidt loads its address. A Gate has no exported fields: putting a handler's
+// address into the table as a raw word is unsafe code (section 20.1).
+type Gate struct {
+	offsetLow  uint16
+	selector   uint16
+	ist        uint8 // the interrupt stack table index, in the low three bits
+	attr       uint8 // present, privilege level 0, and the gate type
+	offsetMid  uint16
+	offsetHigh uint32
+	_          uint32
+}
+
+// InterruptGate returns the table entry that enters the //pu:interrupt
+// function h through an interrupt gate: the processor clears the interrupt
+// flag on entry, so the handler's body runs with maskable interrupts
+// disabled. selector is the code segment selector the handler runs in and ist
+// the interrupt stack table index (0 for none, or 1 to 7).
+//
+// The compiler expands the call and puts h's address in the entry. h must be
+// the name of a //pu:interrupt function; a func value, an indirect use, a
+// handler of the other form and any other argument are compile errors.
+func InterruptGate(h any, selector uint16, ist uint8) Gate {
+	panic("x86.InterruptGate must be called with a //pu:interrupt function")
+}
+
+// TrapGate returns the table entry that enters the //pu:interrupt trap
+// function h through a trap gate: the processor leaves the interrupt flag as
+// it was, so the handler can be entered again while it runs, and its body is
+// not a region with interrupts disabled. The arguments are those of
+// InterruptGate; h must be the name of a //pu:interrupt trap function.
+func TrapGate(h any, selector uint16, ist uint8) Gate {
+	panic("x86.TrapGate must be called with a //pu:interrupt trap function")
+}
+
+// gateAt builds the entry for the handler at addr. The compiler calls it
+// from its expansion of InterruptGate (attr 0x8E: present, privilege level 0,
+// interrupt gate) and TrapGate (attr 0x8F: a trap gate).
+//
+//pu:inline
+func gateAt(addr uintptr, selector uint16, ist uint8, attr uint8) Gate {
+	return Gate{
+		offsetLow:  uint16(addr),
+		selector:   selector,
+		ist:        ist & 7,
+		attr:       attr,
+		offsetMid:  uint16(addr >> 16),
+		offsetHigh: uint32(uint64(addr) >> 32),
+	}
 }

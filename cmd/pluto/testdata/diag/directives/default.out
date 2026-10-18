@@ -90,7 +90,21 @@ $DIR/main.p:27:1: //pu:noinline takes no argument, found "because it is hot"
     (see "Directives" in the Plutonium spec, section 20.3)
     (run "pluto explain E2603" for a longer explanation)
 
-$DIR/main.p:31:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here
+$DIR/main.p:30:1: //pu:interrupt takes no argument but trap, found "fast"
+    //pu:interrupt marks an interrupt handler, entered through an interrupt
+    gate. Its only argument is trap, for a handler entered through a trap gate,
+    which can be entered again while it runs. Any other text would be ignored,
+    and the function would be a handler of the plain form. Put an explanation on
+    a line of its own.
+    Go's //go: directives ignore text they do not expect. Plutonium directives
+    change what the program means, so they are read exactly.
+    Write the directive alone, or with trap, and the explanation above it:
+        // fast
+        //pu:interrupt
+    (see "Directives" in the Plutonium spec, section 20.3)
+    (run "pluto explain E2603" for a longer explanation)
+
+$DIR/main.p:34:2: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here
     A directive does something only where the compiler looks for it.
     //pu:noinline goes in the doc comment of a function, directly above it; it
     is not above any declaration here.

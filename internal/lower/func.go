@@ -523,7 +523,7 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 		case "nochecks":
 			s.f.Pragmas |= ssa.PragmaNoBounds
 			s.f.Pragmas &^= ssa.PragmaGenCheck
-		case "interrupt":
+		case "interrupt", "interrupt trap":
 			s.f.Pragmas |= ssa.PragmaInterrupt
 		case "nosimd":
 			s.f.Pragmas |= ssa.PragmaNoSIMD

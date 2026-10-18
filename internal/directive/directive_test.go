@@ -61,6 +61,11 @@ func TestCheck(t *testing.T) {
 		{"floating", "package p\n\n//pu:noinline\n\nfunc f() {}\n", []string{"E2602: //pu:noinline is in the wrong place: it goes in the doc comment of a function, directly above it; it is not above any declaration here"}},
 		{"build late", "package p\n\n//pu:build amd64\nfunc f() {}\n", []string{"E2602: //pu:build is in the wrong place: it goes before the package clause, where it chooses whether the file is part of the build; here it is ignored"}},
 		{"noinline before package", "//pu:noinline\n\npackage p\n", []string{"E2602: //pu:noinline is in the wrong place: it goes in the doc comment of a function; it is before the package clause here"}},
+		{"interrupt", "package p\n\n//pu:interrupt\nfunc f() {}\n", nil},
+		{"interrupt trap", "package p\n\n//pu:interrupt trap\nfunc f() {}\n", nil},
+		{"interrupt other argument", "package p\n\n//pu:interrupt fast\nfunc f() {}\n", []string{`E2603: //pu:interrupt takes no argument but trap, found "fast"`}},
+		{"interrupt trap and more", "package p\n\n//pu:interrupt trap fast\nfunc f() {}\n", []string{`E2603: //pu:interrupt takes no argument but trap, found "trap fast"`}},
+		{"interrupt trap on a variable", "package p\n\n//pu:interrupt trap\nvar v int\n", []string{"E2602: //pu:interrupt is in the wrong place: it goes in the doc comment of a function, not of a package-level variable"}},
 		{"arg given", "package p\n\n//pu:inline hot\nfunc f() {}\n", []string{`E2603: //pu:inline takes no argument, found "hot"`}},
 		{"arg missing", "package p\n\n//pu:extern\nfunc f()\n\n//pu:section\nvar v int\n", []string{
 			"E2603: //pu:extern needs an argument: the name of the C symbol",

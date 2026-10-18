@@ -64,13 +64,21 @@ func badcode(f *x86.InterruptFrame, c string) {}
 
 func plain() {}
 
+//pu:interrupt trap
+func reentrant(f *x86.InterruptFrame) {}
+
 func main() {
 	timer(nil)          // E2573: call
 	defer fault(nil, 0) // E2573: defer
 	f := timer          // E2573: func value
 	_ = f
-	_ = x86.HandlerAddr(timer)
-	_ = x86.HandlerAddr(plain) // E2572
+	_ = x86.InterruptGate(timer, 0x08, 0)
+	_ = x86.InterruptGate(plain, 0x08, 0) // E2572
 	g := timer
-	_ = x86.HandlerAddr(g) // E2572
+	_ = x86.InterruptGate(g, 0x08, 0) // E2572
+	_ = x86.TrapGate(reentrant, 0x08, 0)
+	_ = x86.TrapGate(timer, 0x08, 0)          // E2572: a plain handler needs an interrupt gate
+	_ = x86.InterruptGate(reentrant, 0x08, 0) // E2572: a trap handler needs a trap gate
+	h := x86.InterruptGate                    // E2572: the constructors take a name
+	_ = h
 }

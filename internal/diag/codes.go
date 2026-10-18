@@ -50,7 +50,7 @@ const (
 	StackDirective      Code = "E2560" // a malformed //pu:stack, or one not on main in a hosted build
 	InterruptDecl       Code = "E2570" // a //pu:interrupt function that cannot be a handler
 	InterruptSig        Code = "E2571" // a handler with the wrong parameters or results
-	HandlerAddrArg      Code = "E2572" // x86.HandlerAddr of something other than a handler
+	GateArg             Code = "E2572" // x86.InterruptGate or x86.TrapGate of something other than a handler of its form
 	InterruptHandlerV   Code = "E2573" // a handler called, or used as a value
 	NoPanicHandler      Code = "E2580" // a freestanding or kernel build without a //pu:panic function
 	DupPanicHandler     Code = "E2581" // more than one //pu:panic function

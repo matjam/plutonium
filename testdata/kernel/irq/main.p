@@ -39,18 +39,13 @@ func onPanic(p *rt.Panic) {
 	}
 }
 
-// An IDT gate is 16 bytes: the handler address split around the selector
-// and type fields.
-var idt [256][2]uint64
+// The interrupt descriptor table: one 16-byte gate for each vector, entered
+// through an interrupt gate (x86.InterruptGate), which clears the interrupt
+// flag on entry.
+var idt [256]x86.Gate
 
 // idtr is the 10-byte operand of lidt: limit, then base.
 var idtr [10]byte
-
-func setGate(vec int, h uintptr) {
-	addr := uint64(h)
-	idt[vec][0] = addr&0xFFFF | 0x08<<16 | 0x8E<<40 | (addr>>16&0xFFFF)<<48
-	idt[vec][1] = addr >> 32
-}
 
 // What the handlers record is atomic: a handler is a party in the data race
 // rules (language spec section 19.3), and may run on several processors.
@@ -84,8 +79,8 @@ func generalProtection(f *x86.InterruptFrame, code uint64) {
 
 func main() int64 {
 	rt.SetConsole(serialWrite)
-	setGate(0x80, x86.HandlerAddr(soft))
-	setGate(13, x86.HandlerAddr(generalProtection))
+	idt[0x80] = x86.InterruptGate(soft, 0x08, 0)
+	idt[13] = x86.InterruptGate(generalProtection, 0x08, 0)
 	*(*uint16)(unsafe.Pointer(&idtr[0])) = uint16(len(idt)*16 - 1)
 	*(*uintptr)(unsafe.Pointer(&idtr[2])) = uintptr(unsafe.Pointer(&idt))
 	lidt(unsafe.Pointer(&idtr))

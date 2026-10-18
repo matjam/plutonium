@@ -32,5 +32,5 @@ func keyboard(f *x86.InterruptFrame) {
 }
 
 func main() {
-	_ = x86.HandlerAddr(keyboard)
+	_ = x86.InterruptGate(keyboard, 0x08, 0)
 }

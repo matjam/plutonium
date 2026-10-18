@@ -40,29 +40,52 @@ $DIR/main.p:60:1: interrupt handler badframe: first parameter must be a pointer 
 $DIR/main.p:63:1: interrupt handler badcode: error code must be uint64, not string
     (explained above; run "pluto explain E2571" for more)
 
-$DIR/main.p:68:2: interrupt handler main.timer cannot be called; use x86.HandlerAddr for its address
+$DIR/main.p:71:2: interrupt handler main.timer cannot be called; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table
     An interrupt handler saves every register and returns with iretq, so
     ordinary code cannot call it, and it is not an ordinary func value. Use
-    x86.HandlerAddr to get its address for the interrupt table.
-    Take its address for the table:
-        addr := x86.HandlerAddr(timer)
+    x86.InterruptGate (or x86.TrapGate for a //pu:interrupt trap handler) to
+    enter it in the interrupt table.
+    Enter it in the table:
+        idt[32] = x86.InterruptGate(timer, 0x08, 0)
     (see "Interrupts" in the Plutonium spec, section 20.10)
     (run "pluto explain E2573" for a longer explanation)
 
-$DIR/main.p:70:7: interrupt handler main.timer cannot be used as a func value; use x86.HandlerAddr for its address
+$DIR/main.p:73:7: interrupt handler main.timer cannot be used as a func value; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table
     (explained above; run "pluto explain E2573" for more)
 
-$DIR/main.p:73:6: x86.HandlerAddr: argument must name a //pu:interrupt function
-    x86.HandlerAddr gives the address of an interrupt handler for the interrupt
-    table. Its argument must name a function marked //pu:interrupt.
+$DIR/main.p:76:6: x86.InterruptGate: the first argument must name a //pu:interrupt function
+    x86.InterruptGate and x86.TrapGate build the entry of the interrupt table
+    that enters a handler, and the compiler puts the handler's address in it. So
+    the first argument must be the name of a handler, known when the program is
+    compiled: a function marked //pu:interrupt for InterruptGate, and a function
+    marked //pu:interrupt trap for TrapGate. A func value, a handler of the
+    other form, a call through a variable and any other expression are errors.
+    The form decides how the processor enters the handler. An interrupt gate
+    clears the interrupt flag, and a handler of the plain form relies on that:
+    its body is a region with interrupts disabled. A trap gate leaves the flag
+    as it was, which is what a handler that can be entered again needs.
+    Pass the name of a handler of the form the constructor takes:
+        //pu:interrupt
+        func timer(f *x86.InterruptFrame) { ... }
+
+        idt[32] = x86.InterruptGate(timer, 0x08, 0)
     (see "pluto/arch/x86" in the Plutonium spec, section 20.8)
     (run "pluto explain E2572" for a longer explanation)
 
-$DIR/main.p:74:7: interrupt handler main.timer cannot be used as a func value; use x86.HandlerAddr for its address
+$DIR/main.p:77:7: interrupt handler main.timer cannot be used as a func value; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table
     (explained above; run "pluto explain E2573" for more)
 
-$DIR/main.p:75:6: x86.HandlerAddr: argument must name a //pu:interrupt function
+$DIR/main.p:78:6: x86.InterruptGate: the first argument must name a //pu:interrupt function
     (explained above; run "pluto explain E2572" for more)
 
-$DIR/main.p:69:8: interrupt handler main.fault cannot be called; use x86.HandlerAddr for its address
+$DIR/main.p:80:6: x86.TrapGate: timer is a //pu:interrupt function, not a trap handler; install it with x86.InterruptGate
+    (explained above; run "pluto explain E2572" for more)
+
+$DIR/main.p:81:6: x86.InterruptGate: reentrant is a //pu:interrupt trap function; install it with x86.TrapGate
+    (explained above; run "pluto explain E2572" for more)
+
+$DIR/main.p:82:7: x86.InterruptGate cannot be used as a func value: it must be called with the name of a handler
+    (explained above; run "pluto explain E2572" for more)
+
+$DIR/main.p:72:8: interrupt handler main.fault cannot be called; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table
     (explained above; run "pluto explain E2573" for more)

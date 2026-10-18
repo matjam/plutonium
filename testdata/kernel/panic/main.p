@@ -77,15 +77,10 @@ func pageFault(f *x86.InterruptFrame, code uint64) {
 	rt.PanicFault(rt.MemoryFault, uintptr(x86.ReadCR2()), uintptr(f.RIP), uintptr(f.RSP), 0)
 }
 
-// An IDT gate is 16 bytes: the handler address split around the selector
-// and type fields.
-var idt [256][2]uint64
-
-func setGate(vec int, h uintptr) {
-	addr := uint64(h)
-	idt[vec][0] = addr&0xFFFF | 0x08<<16 | 0x8E<<40 | (addr>>16&0xFFFF)<<48
-	idt[vec][1] = addr >> 32
-}
+// The interrupt descriptor table: one 16-byte gate for each vector, entered
+// through an interrupt gate (x86.InterruptGate), which clears the interrupt
+// flag on entry.
+var idt [256]x86.Gate
 
 var idtr x86.DescriptorTablePointer
 
@@ -107,8 +102,8 @@ func main() int64 {
 	x86.WriteGSBase(uintptr(b))
 	rt.SetCPU(2)
 
-	setGate(0x80, x86.HandlerAddr(soft))
-	setGate(14, x86.HandlerAddr(pageFault))
+	idt[0x80] = x86.InterruptGate(soft, 0x08, 0)
+	idt[14] = x86.InterruptGate(pageFault, 0x08, 0)
 	idtr = x86.NewDescriptorTablePointer(uintptr(unsafe.Pointer(&idt)), len(idt)*16)
 	x86.Lidt(&idtr)
 

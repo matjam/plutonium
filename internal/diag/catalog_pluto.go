@@ -763,8 +763,9 @@ func init() {
 			Spec: pspec("20.10", "Interrupts"),
 		},
 		&Entry{
-			Code: HandlerAddrArg, Name: "HandlerAddrArg",
-			Text: "x86.HandlerAddr gives the address of an interrupt handler for the interrupt table. Its argument must name a function marked //pu:interrupt.",
+			Code: GateArg, Name: "GateArg",
+			Text: "x86.InterruptGate and x86.TrapGate build the entry of the interrupt table that enters a handler, and the compiler puts the handler's address in it. So the first argument must be the name of a handler, known when the program is compiled: a function marked //pu:interrupt for InterruptGate, and a function marked //pu:interrupt trap for TrapGate. A func value, a handler of the other form, a call through a variable and any other expression are errors.\nThe form decides how the processor enters the handler. An interrupt gate clears the interrupt flag, and a handler of the plain form relies on that: its body is a region with interrupts disabled. A trap gate leaves the flag as it was, which is what a handler that can be entered again needs.",
+			Fix:  &Fix{Intro: "Pass the name of a handler of the form the constructor takes", Code: "//pu:interrupt\nfunc timer(f *x86.InterruptFrame) { ... }\n\nidt[32] = x86.InterruptGate(timer, 0x08, 0)"},
 			Spec: pspec("20.8", "pluto/arch/x86"),
 		},
 		&Entry{
@@ -813,8 +814,8 @@ func init() {
 		},
 		&Entry{
 			Code: InterruptHandlerV, Name: "InterruptHandlerV",
-			Text: "An interrupt handler saves every register and returns with iretq, so ordinary code cannot call it, and it is not an ordinary func value. Use x86.HandlerAddr to get its address for the interrupt table.",
-			Fix:  &Fix{Intro: "Take its address for the table", Code: "addr := x86.HandlerAddr(timer)"},
+			Text: "An interrupt handler saves every register and returns with iretq, so ordinary code cannot call it, and it is not an ordinary func value. Use x86.InterruptGate (or x86.TrapGate for a //pu:interrupt trap handler) to enter it in the interrupt table.",
+			Fix:  &Fix{Intro: "Enter it in the table", Code: "idt[32] = x86.InterruptGate(timer, 0x08, 0)"},
 			Spec: pspec("20.10", "Interrupts"),
 		},
 		&Entry{
@@ -903,7 +904,7 @@ func init() {
 		},
 		&Entry{
 			Code: UnknownDirective, Name: "UnknownDirective",
-			Text:    "A comment that starts with //pu: and no space is a directive: an instruction to the compiler. This one has a name the compiler does not know, so it would do nothing. A misspelt directive that was ignored could silently leave out an interrupt handler, a per-CPU variable or an inlining request, so the compiler reports it.\nThe directives are: build, inline, noinline, nochecks, extern, export, section, interrupt, noreturn, noescape, resultholds, panic, blocking, scheduler, nosimd, fpu, percpu and stack.\nA comment that is only a note should start with // and a space.",
+			Text:    "A comment that starts with //pu: and no space is a directive: an instruction to the compiler. This one has a name the compiler does not know, so it would do nothing. A misspelt directive that was ignored could silently leave out an interrupt handler, a per-CPU variable or an inlining request, so the compiler reports it.\nThe directives are: build, inline, noinline, nochecks, extern, export, section, interrupt (and its form interrupt trap), noreturn, noescape, resultholds, panic, blocking, scheduler, nosimd, fpu, percpu and stack.\nA comment that is only a note should start with // and a space.",
 			Why:     "Go ignores unknown //go: comments, which makes a typo easy to miss. Plutonium directives change what the program means, so a typo must not go unnoticed.",
 			Fix:     &Fix{Intro: "Use one of the directives, spelt exactly", Code: "//pu:interrupt\nfunc timer(frame *x86.InterruptFrame) { ... }"},
 			Spec:    pspec("20.3", "Directives"),

@@ -68,7 +68,7 @@ var directives = map[string]info{
 	"extern":    {atFunc, needsArg, "the name of the C symbol"},
 	"export":    {atFunc, optionalArg, ""},
 	"section":   {atFunc | atVar, needsArg, "the name of the section"},
-	"interrupt": {atFunc, noArg, ""},
+	"interrupt": {atFunc, optionalArg, "trap"},
 	"noreturn":  {atFunc, noArg, ""},
 	"noescape":  {atFunc, noArg, ""},
 	// resultholds is for the standard library; the escape analysis
@@ -251,6 +251,14 @@ func checkOne(pos token.Position, name, arg string, owner ownerInfo, hasOwner, b
 }
 
 func argCheck(pos token.Position, name, arg string, info info) *diag.Diagnostic {
+	if name == "interrupt" && arg != "" && arg != "trap" {
+		// The one form of the directive: a handler entered through a trap
+		// gate (language spec sections 20.3 and 20.10).
+		d := diag.New(pos, diag.DirectiveArgument, "//pu:interrupt takes no argument but trap, found %q", arg)
+		d.Text = "//pu:interrupt marks an interrupt handler, entered through an interrupt gate. Its only argument is trap, for a handler entered through a trap gate, which can be entered again while it runs. Any other text would be ignored, and the function would be a handler of the plain form. Put an explanation on a line of its own."
+		d.Fix = &diag.Fix{Intro: "Write the directive alone, or with trap, and the explanation above it", Code: "// " + arg + "\n" + Prefix + name}
+		return d
+	}
 	switch {
 	case info.arg == noArg && arg != "":
 		d := diag.New(pos, diag.DirectiveArgument, "//pu:%s takes no argument, found %q", name, arg)

@@ -66,10 +66,20 @@ func TestInterruptErrors(t *testing.T) {
 			"interrupt handler main.h cannot be called"},
 		{"func value", "//pu:interrupt\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { g := h; _ = g }\n",
 			"interrupt handler main.h cannot be used as a func value"},
-		{"HandlerAddr of a plain function", "func h(f *x86.InterruptFrame) {}\n\nfunc main() { _ = x86.HandlerAddr(h) }\n",
-			"x86.HandlerAddr: argument must name a //pu:interrupt function"},
-		{"HandlerAddr of a value", "func main() { _ = x86.HandlerAddr(3) }\n",
-			"x86.HandlerAddr: argument must name a //pu:interrupt function"},
+		{"InterruptGate of a plain function", "func h(f *x86.InterruptFrame) {}\n\nfunc main() { _ = x86.InterruptGate(h, 0x08, 0) }\n",
+			"x86.InterruptGate: the first argument must name a //pu:interrupt function"},
+		{"InterruptGate of a value", "func main() { _ = x86.InterruptGate(3, 0x08, 0) }\n",
+			"x86.InterruptGate: the first argument must name a //pu:interrupt function"},
+		{"InterruptGate of a func value", "//pu:interrupt\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { g := h; _ = x86.InterruptGate(g, 0x08, 0) }\n",
+			"x86.InterruptGate: the first argument must name a //pu:interrupt function"},
+		{"InterruptGate of a trap handler", "//pu:interrupt trap\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { _ = x86.InterruptGate(h, 0x08, 0) }\n",
+			"x86.InterruptGate: h is a //pu:interrupt trap function; install it with x86.TrapGate"},
+		{"TrapGate of an interrupt handler", "//pu:interrupt\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { _ = x86.TrapGate(h, 0x08, 0) }\n",
+			"x86.TrapGate: h is a //pu:interrupt function, not a trap handler; install it with x86.InterruptGate"},
+		{"TrapGate of a plain function", "func h(f *x86.InterruptFrame) {}\n\nfunc main() { _ = x86.TrapGate(h, 0x08, 0) }\n",
+			"x86.TrapGate: the first argument must name a //pu:interrupt trap function"},
+		{"a gate constructor as a func value", "func main() { g := x86.InterruptGate; _ = g }\n",
+			"x86.InterruptGate cannot be used as a func value"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -97,7 +107,12 @@ func timer(f *x86.InterruptFrame) { n++ }
 //pu:interrupt
 func fault(f *x86.InterruptFrame, c uint64) { code = c }
 
-func main() { println(x86.HandlerAddr(timer), x86.HandlerAddr(fault)) }
+var idt [2]x86.Gate
+
+func main() {
+	idt[0] = x86.InterruptGate(timer, 0x08, 0)
+	idt[1] = x86.InterruptGate(fault, 0x08, 0)
+}
 `)
 	for _, name := range []string{"main.timer", "main.fault"} {
 		var f *ssa.Func

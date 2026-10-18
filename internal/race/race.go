@@ -30,7 +30,7 @@
 //     piece of data under the guard rule, with the lock found in the struct
 //     the map is a field of or at package level (checkMaps).
 //
-// Interrupt handlers the program installs (x86.HandlerAddr) are parties of
+// Interrupt handlers the program installs (x86.InterruptGate, x86.TrapGate) are parties of
 // the first three rules like tasks that may run several at once; the
 // allocators a handler may reach are followed too (region.go). The regions
 // of section 19.3 (preemption or interrupts disabled, an rt.Lock held) are
@@ -575,7 +575,7 @@ func (a *analyzer) mayStartTasks() bool {
 }
 
 // scanUnit reports whether a unit's code starts a task itself, and which
-// interrupt handlers it installs (x86.HandlerAddr).
+// interrupt handlers it installs (x86.InterruptGate, x86.TrapGate).
 func (a *analyzer) scanUnit(u *unit) (spawns bool, handlers []*function) {
 	for _, f := range u.fns {
 		if f.body == nil {
@@ -586,8 +586,8 @@ func (a *analyzer) scanUnit(u *unit) (spawns bool, handlers []*function) {
 			case *ast.TaskStmt:
 				spawns = true
 			case *ast.CallExpr:
-				if len(n.Args) == 1 {
-					if h := a.handlerOf(n); h != nil {
+				if len(n.Args) == 3 {
+					if h, _ := a.handlerOf(n); h != nil {
 						handlers = append(handlers, h)
 					}
 				}

@@ -198,13 +198,7 @@ func idle() {
 // ----------------------------------------------------------------------------
 // Interrupts: the PIT at 1 kHz on vector 32, through the remapped PIC.
 
-var idt [256][2]uint64
-
-func setGate(vec int, h uintptr) {
-	addr := uint64(h)
-	idt[vec][0] = addr&0xFFFF | 0x08<<16 | 0x8E<<40 | (addr>>16&0xFFFF)<<48
-	idt[vec][1] = addr >> 32
-}
+var idt [256]x86.Gate
 
 // The timer handler shares these with the tasks, so they are atomic: a
 // handler is a party in the data race rules (language spec section 19.3),
@@ -266,7 +260,7 @@ func startTimer() {
 	x86.Outb(0x43, 0x36)
 	x86.Outb(0x40, 1193&0xFF)
 	x86.Outb(0x40, 1193>>8)
-	setGate(32, x86.HandlerAddr(timer))
+	idt[32] = x86.InterruptGate(timer, 0x08, 0)
 	ptr := x86.NewDescriptorTablePointer(uintptr(unsafe.Pointer(&idt)), len(idt)*16)
 	x86.Lidt(&ptr)
 	x86.Sti()

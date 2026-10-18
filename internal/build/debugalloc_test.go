@@ -563,7 +563,8 @@ func handler(f *x86.InterruptFrame) { last.Store(rt.CallerPC()) }
 func main() {
 	a, b := where(), where()
 	c, d := here(), here()
-	println(a != 0, a != b, c != 0, c != d, x86.HandlerAddr(handler) != 0)
+	gate := x86.InterruptGate(handler, 0x08, 0)
+	println(a != 0, a != b, c != 0, c != d, gate != x86.Gate{})
 }
 `
 	for _, level := range []int{0, 2} {

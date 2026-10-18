@@ -352,6 +352,8 @@ type DescriptorTablePointer packed [10]byte { limit uint16; base  uint64 }  [val
   // A DescriptorTablePointer is the operand of Lgdt and Lidt: the table's limit (its size in bytes minus one) and its linear address.
 type FPUState aligned[[512]byte, 16]  [value]
   // An FPUState holds the x87, MMX and SSE state that FXSAVE stores.
+type Gate struct { _ unexported }  [value]
+  // A Gate is one 16-byte entry of an interrupt descriptor table.
 type InterruptFrame struct { RIP, CS, RFLAGS, RSP, SS uint64 }  [value]
   // InterruptFrame is what the CPU pushes when it delivers an interrupt or exception, lowest address first.
 func Cli()
@@ -362,10 +364,10 @@ func GSLoad32(off uintptr) uint32
 func GSLoad64(off uintptr) uint64
 func GSStore32(off uintptr, v uint32)
 func GSStore64(off uintptr, v uint64)
-func HandlerAddr(h any) uintptr
 func Hlt()
 func Inb(port uint16) uint8
 func Inl(port uint16) uint32
+func InterruptGate(h any, selector uint16, ist uint8) Gate
 func Invlpg(addr uintptr)
 func Inw(port uint16) uint16
 func Lgdt(p *DescriptorTablePointer)
@@ -389,6 +391,7 @@ func SaveFlagsCli() uint64
 func Sti()
 func StiHlt()
 func Swapgs()
+func TrapGate(h any, selector uint16, ist uint8) Gate
 func WriteCR0(v uint64)
 func WriteCR3(v uint64)
 func WriteCR4(v uint64)

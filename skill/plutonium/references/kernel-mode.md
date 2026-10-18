@@ -65,13 +65,14 @@ Ordinary hosted code needs only the first group.
 | `//pu:stack 8M` | `func main`, hosted | main runs on a stack of that size |
 | `//pu:extern name`, `//pu:export [name]` | function | C linkage (System V convention); signatures limited to integers, floats, bool, pointers, boxes, packed, structs of those (E2511) |
 | `//pu:section name` | function or variable | link into that section |
-| `//pu:interrupt` | function | interrupt or exception handler (below) |
+| `//pu:interrupt` | function | interrupt or exception handler, entered through an interrupt gate (`x86.InterruptGate`): its body is an interrupt-disabled region until `x86.Sti` (below) |
+| `//pu:interrupt trap` | function | the same handler entered through a trap gate (`x86.TrapGate`), so it can be re-entered: its body is not an interrupt-disabled region. `trap` is the only argument (E2603 otherwise) |
 | `//pu:panic` | function | the panic handler `func(p *rt.Panic)` |
 | `//pu:scheduler` | package variable | the scheduler backend |
 | `//pu:percpu` | package variable | one copy per CPU, via `GS` (kernel mode only: E2551 elsewhere) |
 | `//pu:fpu` | function | may use floats in kernel mode; caller saved FPU state |
 | `//pu:blocking` | function | may wait in a way the compiler cannot see; handlers must not reach it |
-| `//pu:nosimd` | function | no vector instructions (implied in kernel mode and for handlers) |
+| `//pu:nosimd` | function | no vector instructions (implied in kernel mode and for handlers of either form) |
 | `//pu:noescape`, `//pu:noreturn` | body-less function | promises about assembly/C (retired on functions with a body) |
 | `//pu:nochecks` | function | removes bounds and generation checks: unsafe code, measured use only |
 | `//pu:resultholds p` | standard library only | (E3008 elsewhere) |
@@ -160,8 +161,9 @@ Each function expands inline to its instruction and is a compiler barrier: `Cli`
 `Pause`, `SaveFlagsCli`, `RestoreFlags`; port I/O `Inb/Inw/Inl`, `Outb/Outw/Outl`; `Rdmsr`, `Wrmsr`;
 `ReadCR0/2/3/4`, `WriteCR0/3/4`, `Invlpg`; `Lgdt`, `Lidt`, `Ltr`; `Cpuid`, `Rdtsc`, `Rdtscp`; `Swapgs`,
 `ReadGSBase`, `WriteGSBase`, `GSLoad64/32`, `GSStore64/32`; `FPUBegin(area)`, `FPUEnd(area)`;
-`HandlerAddr(h)` (the address of a `//pu:interrupt` function for the IDT; its argument must name the function, E2572);
-`NewDescriptorTablePointer`; types `DescriptorTablePointer`, `FPUState` (`aligned[[512]byte, 16]`),
+`InterruptGate(h, selector, ist)` and `TrapGate(h, selector, ist)` (the 16-byte `Gate` that enters a handler; `h` must name a
+`//pu:interrupt` function, `TrapGate` a `//pu:interrupt trap` one, E2572);
+`NewDescriptorTablePointer`; types `Gate`, `DescriptorTablePointer`, `FPUState` (`aligned[[512]byte, 16]`),
 `InterruptFrame` (`RIP, CS, RFLAGS, RSP, SS`). The package is unsafe code except `Cli`, `Sti`, `SaveFlagsCli`,
 `RestoreFlags`. See `stdlib-system.md` for the exact list.
 
@@ -171,7 +173,22 @@ A `//pu:interrupt` function is entered by the processor: a plain function with a
 (the frame: any pointer type, `unsafe.Pointer` or `uintptr`) or two (the frame and a `uint64`/`uintptr` error code,
 for the vectors that push one; the signature decides the stack layout). The compiler saves registers and returns
 with `iretq`; changing the frame (`f.RIP += 2`) takes effect on return. It is never inlined, cannot be called,
-deferred or used as a value (E2573); install it with `x86.HandlerAddr`.
+deferred or used as a value (E2573); install it in the interrupt table with a typed gate, `x86.InterruptGate(timer, 0x08, 0)`,
+which returns the `x86.Gate` (a table is an array of `Gate`; `x86.Lidt` loads it).
+
+- **The gate is what makes the handler's body safe.** An interrupt gate clears the interrupt flag on entry, so the body
+  of a plain `//pu:interrupt` handler is a region with interrupts disabled, until a call of `x86.Sti` (or
+  `StiHlt`) or of a function that may switch tasks. Per-CPU data the handler shares with code it interrupts needs no
+  other protection inside that stretch. A raw word written into the table (an address stored as an integer through
+  `unsafe.Pointer`) is unsafe code: the typed gate is how the compiler knows every installed handler is entered with
+  interrupts disabled.
+- **A handler that can be entered again** says so: `//pu:interrupt trap` (the only argument the directive takes; any
+  other is E2603). It is installed only with `x86.TrapGate`, which leaves the interrupt flag as it was, and its body is
+  not an interrupt-disabled region: per-CPU data it shares is protected by a region the handler opens itself
+  (`x86.SaveFlagsCli` ... `x86.RestoreFlags`). The wrong constructor for the form is E2572, and so is a gate
+  constructor used as a func value or given anything but the name of a handler.
+- Exceptions and nonmaskable interrupts are not held off by an interrupt gate; a handler for one must not use data the
+  interrupted code may be changing.
 
 - **Nothing a handler (or the panic handler, or the scheduler's `Wake`) can reach may wait.** No channel send or
   receive except as a `select` with `default`, no `range` over a channel, no `sync.Mutex.Lock`, `WaitGroup.Wait`,
@@ -193,6 +210,7 @@ import (
 	"pluto/arch/x86"
 	"pluto/rt"
 	"pluto/sync/atomic"
+	"unsafe"
 )
 
 //pu:panic
@@ -220,9 +238,13 @@ func pageFault(f *x86.InterruptFrame, code uint64) { // a vector that pushes an 
 	rt.PanicFault(rt.MemoryFault, uintptr(x86.ReadCR2()), uintptr(f.RIP), uintptr(f.RSP), 0)
 }
 
+var idt [256]x86.Gate
+
 func main() {
-	_ = x86.HandlerAddr(timer)
-	_ = x86.HandlerAddr(pageFault)
+	idt[32] = x86.InterruptGate(timer, 0x08, 0)
+	idt[14] = x86.InterruptGate(pageFault, 0x08, 0)
+	idtr := x86.NewDescriptorTablePointer(uintptr(unsafe.Pointer(&idt)), len(idt)*16)
+	x86.Lidt(&idtr)
 	lock.Lock()
 	queued = 0
 	lock.Unlock()
@@ -234,13 +256,23 @@ func main() {
 `//pu:percpu var v T` gives each processor its own copy, addressed through `GS` (the kernel points `GS` at the CPU's
 block, `rt.SetCPU(n)` tells the runtime which CPU it is). Constant initializers only (E2550), not with
 `//pu:section` (E2552), kernel mode only (E2551). A **lone load or store** of a whole variable of at most a word is
-allowed anywhere (through a pointer from `&v` the rule is stricter: when a handler also uses the variable, every
+allowed anywhere, provided the store does not depend on an earlier load of the same variable (below); through a pointer from `&v` the rule is stricter: when a handler also uses the variable, every
 load or store through the pointer needs interrupts disabled, except a store that is a whole statement and writes
 the whole word-sized variable, D34). Every other access (`v++`, `v += x`, read and write in one expression, larger values,
-pointer-receiver calls, `&v`) must sit in a **non-migrating region**: after `rt.DisablePreemption()` (usually
+pointer-receiver calls, `&v`, and a **store whose value or controlling condition depends on an earlier load of the same
+variable**) must sit in a **non-migrating region**: after `rt.DisablePreemption()` (usually
 `defer rt.EnablePreemption()`), with interrupts masked (`x86.Cli`/`Sti`, `SaveFlagsCli`/`RestoreFlags`), or with an
 `rt.Lock` held; and in an interrupt-disabled region if a handler also touches it. Otherwise E2022. A pointer from
 `&v` may not be used after its region (E2023).
+
+The dependent store is a read-modify-write written as two statements: `x := ticks; ticks = x + 1`, or
+`if current == idle { current = next }`. The dependence is followed through locals, copies of structs, arithmetic,
+conditions, loops and calls (a result depends on its arguments and on what the callee loads; a callee that stores the
+variable from its argument, or in a branch the caller's condition controls, counts as a store at the call); where it
+cannot see a call (a func value, a body-less function) it assumes the result depends on all the arguments, and the
+error says so. The load and the store must be in **one** region, not in two regions one after the other. Two lone
+accesses that do not depend on each other (`log(current)` here, `current = t` there, `t` not computed from `current`)
+stay allowed anywhere.
 
 ```pluto-compile mode=kernel
 package main
@@ -299,6 +331,40 @@ var ticks uint64
 
 func main() {
 	ticks++ // the task could migrate between the load and the store
+}
+```
+
+```pluto-error E2022 mode=kernel
+package main
+
+import (
+	"pluto/arch/x86"
+	"pluto/rt"
+)
+
+//pu:panic
+func onPanic(p *rt.Panic) {
+	for {
+		x86.Hlt()
+	}
+}
+
+type Thread struct{ id int }
+
+var idle, next Thread
+
+//pu:percpu
+var current *Thread
+
+func main() {
+	if current == &idle {
+		current = &next // controlled by the load of current: needs one region around both
+	}
+	rt.DisablePreemption()
+	if current == &idle {
+		current = &next // fine: the load and the store are in one region
+	}
+	rt.EnablePreemption()
 }
 ```
 

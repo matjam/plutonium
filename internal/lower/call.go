@@ -88,8 +88,8 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 	// Static calls of declared functions.
 	if id := staticFuncIdent(fun, s.info); id != nil {
 		if fn, ok := s.info.Uses[id].(*types2.Func); ok {
-			if fn.Pkg() != nil && fn.Pkg().Path()+"."+fn.Name() == handlerAddrFunc {
-				return []value{s.handlerAddr(e, s.typeOf(e))}
+			if isGateFunc(fn) {
+				return s.gateCall(e, fn)
 			}
 			if types2.IsErrorsNew(fn) {
 				return s.errorsNew(e, fn)
@@ -879,6 +879,9 @@ func (l *Lowerer) methodExprThunk(R types2.Type, fn *types2.Func, path []int, ta
 // static closure record holding its code pointer.
 func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos) *ssa.Value {
 	s.l.errorsNewValue(fn, pos, "used as a func value")
+	if isGateFunc(fn) {
+		s.l.errorf(pos, diag.GateArg, "x86.%s cannot be used as a func value: it must be called with the name of a handler", fn.Name())
+	}
 	if fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" && countIntrinsics[fn.Name()] {
 		s.l.errorf(pos, diag.NotYetSupported, "rt.%s is expanded inline by the compiler and cannot be used as a func value", fn.Name())
 	}

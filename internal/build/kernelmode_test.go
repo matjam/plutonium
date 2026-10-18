@@ -501,7 +501,7 @@ import (
 
 // A handler is a party in the data race rules, so what it shares is atomic.
 var count atomic.Int64
-var idt [2]uintptr
+var idt [2]x86.Gate
 
 //pu:noinline
 func work() { count.Add(2) }
@@ -519,8 +519,8 @@ func ftick(f *x86.InterruptFrame) {
 }
 
 func main() {
-	idt[0] = x86.HandlerAddr(tick)
-	idt[1] = x86.HandlerAddr(ftick)
+	idt[0] = x86.InterruptGate(tick, 0x08, 0)
+	idt[1] = x86.InterruptGate(ftick, 0x08, 0)
 }
 `
 	listing, err := kernelCompile(t, src, 2)
