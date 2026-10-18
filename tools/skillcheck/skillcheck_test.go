@@ -73,9 +73,15 @@ func TestSkillExamples(t *testing.T) {
 	if len(all) == 0 {
 		t.Fatal("the skill has no checked blocks")
 	}
+	// The blocks build in parallel but only a few at a time, so that the
+	// check does not slow down the timing-sensitive tests that run beside
+	// it in go test ./...
+	slots := make(chan struct{}, 3)
 	for _, b := range all {
 		t.Run(b.Name(), func(t *testing.T) {
 			testguard.Parallel(t)
+			slots <- struct{}{}
+			defer func() { <-slots }()
 			checkBlock(t, b)
 		})
 	}
