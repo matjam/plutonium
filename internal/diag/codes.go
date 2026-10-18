@@ -32,33 +32,34 @@ const (
 // range-over-func loop) is folded into E2530, the one rule for a defer in any
 // loop (language spec section 12.19); they are retired.
 const (
-	NotYetSupported   Code = "E2500" // a construct the compiler cannot compile yet
-	ExternWithBody    Code = "E2510" // a //pu:extern function with a body
-	BadCSignature     Code = "E2511" // a //pu:extern or //pu:export signature C cannot express
-	DuplicateExport   Code = "E2512" // two functions exported under one symbol
-	GenericExport     Code = "E2513" // a generic function with //pu:export
-	KernelFloat       Code = "E2520" // floating point in kernel mode outside //pu:fpu
-	DeferInLoop       Code = "E2530" // defer inside a loop
-	TooManyDefers     Code = "E2531" // more than 64 defers in one function
-	DeferBuiltin      Code = "E2532" // defer of a builtin such as copy
-	DeferLitCapture   Code = "E2534" // a literal deferred in a range-over-func loop body captures the body's variables
-	ErrorsNewValue    Code = "E2542" // errors.New used other than by calling it
-	PerCPUInit        Code = "E2550" // a per-CPU variable with a non-constant initialiser
-	PerCPUMode        Code = "E2551" // //pu:percpu outside kernel mode
-	PerCPUSection     Code = "E2552" // //pu:percpu with //pu:section
-	StackDirective    Code = "E2560" // a malformed //pu:stack, or one not on main in a hosted build
-	InterruptDecl     Code = "E2570" // a //pu:interrupt function that cannot be a handler
-	InterruptSig      Code = "E2571" // a handler with the wrong parameters or results
-	HandlerAddrArg    Code = "E2572" // x86.HandlerAddr of something other than a handler
-	InterruptHandlerV Code = "E2573" // a handler called, or used as a value
-	NoPanicHandler    Code = "E2580" // a freestanding or kernel build without a //pu:panic function
-	DupPanicHandler   Code = "E2581" // more than one //pu:panic function
-	PanicHandlerDecl  Code = "E2582" // a //pu:panic function that cannot be the panic handler
-	PanicHandlerRet   Code = "E2583" // a panic handler that can return
-	ContextWaits      Code = "E2584" // an interrupt handler or the panic handler can reach code that waits
-	ContextSpawns     Code = "E2585" // an interrupt handler or the panic handler can reach a task statement
-	InitAllocates     Code = "E2586" // package initialization in a freestanding build can reach an allocation
-	InitSpawns        Code = "E2587" // package initialization can reach task creation
+	NotYetSupported     Code = "E2500" // a construct the compiler cannot compile yet
+	ExternWithBody      Code = "E2510" // a //pu:extern function with a body
+	BadCSignature       Code = "E2511" // a //pu:extern or //pu:export signature C cannot express
+	DuplicateExport     Code = "E2512" // two functions exported under one symbol
+	GenericExport       Code = "E2513" // a generic function with //pu:export
+	KernelFloat         Code = "E2520" // floating point in kernel mode outside //pu:fpu
+	UnprintableArgument Code = "E2521" // an argument of print or println that cannot be printed (an owner type, a struct, slice, map and so on)
+	DeferInLoop         Code = "E2530" // defer inside a loop
+	TooManyDefers       Code = "E2531" // more than 64 defers in one function
+	DeferBuiltin        Code = "E2532" // defer of a builtin such as copy
+	DeferLitCapture     Code = "E2534" // a literal deferred in a range-over-func loop body captures the body's variables
+	ErrorsNewValue      Code = "E2542" // errors.New used other than by calling it
+	PerCPUInit          Code = "E2550" // a per-CPU variable with a non-constant initialiser
+	PerCPUMode          Code = "E2551" // //pu:percpu outside kernel mode
+	PerCPUSection       Code = "E2552" // //pu:percpu with //pu:section
+	StackDirective      Code = "E2560" // a malformed //pu:stack, or one not on main in a hosted build
+	InterruptDecl       Code = "E2570" // a //pu:interrupt function that cannot be a handler
+	InterruptSig        Code = "E2571" // a handler with the wrong parameters or results
+	HandlerAddrArg      Code = "E2572" // x86.HandlerAddr of something other than a handler
+	InterruptHandlerV   Code = "E2573" // a handler called, or used as a value
+	NoPanicHandler      Code = "E2580" // a freestanding or kernel build without a //pu:panic function
+	DupPanicHandler     Code = "E2581" // more than one //pu:panic function
+	PanicHandlerDecl    Code = "E2582" // a //pu:panic function that cannot be the panic handler
+	PanicHandlerRet     Code = "E2583" // a panic handler that can return
+	ContextWaits        Code = "E2584" // an interrupt handler or the panic handler can reach code that waits
+	ContextSpawns       Code = "E2585" // an interrupt handler or the panic handler can reach a task statement
+	InitAllocates       Code = "E2586" // package initialization in a freestanding build can reach an allocation
+	InitSpawns          Code = "E2587" // package initialization can reach task creation
 
 	// Tasks and the scheduler.
 	GoCapturingLiteral Code = "E2590" // go of a function literal that captures variables

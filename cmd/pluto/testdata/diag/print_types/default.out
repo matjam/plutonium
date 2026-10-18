@@ -10,8 +10,8 @@ $DIR/main.p:18:10: cannot print a value of type main.Fd
         import "pluto/fmt"
 
         fmt.Println(x)
-    (see "No silent failures" in the Plutonium spec, section 21.2)
-    (run "pluto explain E2500" for a longer explanation)
+    (see "Bootstrapping" in the Plutonium spec, section 13.12)
+    (run "pluto explain E2521" for a longer explanation)
 
 $DIR/main.p:19:10: cannot print a value of type main.Pair
     print and println write a boolean, an integer (an enum too), a
@@ -23,11 +23,11 @@ $DIR/main.p:19:10: cannot print a value of type main.Pair
         import "pluto/fmt"
 
         fmt.Println(x)
-    (see "No silent failures" in the Plutonium spec, section 21.2)
-    (run "pluto explain E2500" for a longer explanation)
+    (see "Bootstrapping" in the Plutonium spec, section 13.12)
+    (run "pluto explain E2521" for a longer explanation)
 
 $DIR/main.p:21:10: cannot print a value of type []int
-    (explained above; run "pluto explain E2500" for more)
+    (explained above; run "pluto explain E2521" for more)
 
 $DIR/main.p:23:10: cannot print a value of type error
-    (explained above; run "pluto explain E2500" for more)
+    (explained above; run "pluto explain E2521" for more)

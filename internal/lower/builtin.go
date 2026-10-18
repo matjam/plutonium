@@ -498,7 +498,7 @@ func exprText(n ast.Node) string {
 // address, and any owner type, even over an integer (language spec section
 // 13.12).
 func (s *fnState) unprintable(a ast.Node, T types2.Type) {
-	d := &diag.Diagnostic{Code: diag.NotYetSupported, Msg: fmt.Sprintf("cannot print a value of type %s", T)}
+	d := &diag.Diagnostic{Code: diag.UnprintableArgument, Msg: fmt.Sprintf("cannot print a value of type %s", T)}
 	d.Text = "print and println write a boolean, an integer (an enum too), a floating-point number, a string, or the address of a pointer or function. They have no form for other types, so a program that prints them gets the same text from every compiler, and they work in a program that has no standard library."
 	d.Fix = &diag.Fix{Intro: "To print a value of another type, use pluto/fmt", Code: "import \"pluto/fmt\"\n\nfmt.Println(x)"}
 	if types2.IsOwner(T) {

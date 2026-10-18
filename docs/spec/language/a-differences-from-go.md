@@ -54,7 +54,7 @@ program finishes, not what an operation means.
 | a goroutine started by an `init` function or a package-level initializer | compile error: initialization starts no task | start the task from `main` | 15.2 |
 | `defer` in a loop where a path can reach the `defer` statement again | compile error (E2530): each `defer` statement has one slot in the frame | call a function that defers, once per iteration | 12.19 |
 | a deferred literal in the body of a range-over-func loop that captures the body's own variables | compile error (E2534) | defer in the enclosing function, or pass the variables as arguments | 12.11 |
-| `print` and `println` of a slice, map, interface, struct or other type Go prints in its own form | compile error | `fmt` | 13.12 |
+| `print` and `println` of a slice, map, interface, struct or other type Go prints in its own form | compile error (E2521) | `fmt` | 13.12 |
 | string literals that are not valid UTF-8 (`"\xff"`) | compile error | `[]byte{0xff}` for binary data | 4.11 |
 | `s[i:j]`, `s[i:]`, `s[:j]`, `s[:]` on a string | compile error (E2019): a string holds valid UTF-8 and a byte cut could split a rune | `strings.Slice(s, i, j)` and `strings.SliceFrom(s, i)` (panic off a rune boundary); `strings.Cut`, `strings.TrimPrefix`, `strings.HasPrefix`; `strings.Truncate(s, n)` | 11.12, 7.3 |
 | `errors.New(s)` with a non-constant `s`; `errors.New` taken as a value or deferred | compile error (E2008, E2542) | `fmt.Errorf("%s", s)`; call `errors.New` directly with a constant | 16.3 |

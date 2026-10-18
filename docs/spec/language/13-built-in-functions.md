@@ -534,7 +534,7 @@ the first lines of a kernel.
 A floating-point argument in kernel mode counts as a use of floating point and is allowed only in a
 `//pu:fpu` function (section 20.7, Floating point in kernel mode). It is printed as its bit pattern
 (`float64=0x4020000000000000`), because the console code of a kernel cannot use the floating-point unit.
-An owner type cannot be printed, even when its underlying type is an integer: write `int32(fd)`, so that printing never raises the question of a move. Other types cannot be printed either.
+An owner type cannot be printed, even when its underlying type is an integer: write `int32(fd)`, so that printing never raises the question of a move. Other types cannot be printed either (E2521).
 
 **Where.** In a hosted build `print` and `println` write to standard error, with a system call that
 never waits. In a freestanding build they write with the function registered by `rt.SetConsole`.

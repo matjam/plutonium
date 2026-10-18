@@ -683,6 +683,12 @@ func init() {
 			Spec: pspec("20.7", "Floating point in kernel mode"),
 		},
 		&Entry{
+			Code: UnprintableArgument, Name: "UnprintableArgument",
+			Text: "print and println can write a boolean, an integer (an enum too), a floating-point number, a string, or a type whose underlying type is one of these. They can also write the address of a pointer or function. They cannot write an owner type, even when its underlying type is an integer, and they cannot write a struct, array, slice, map, or interface. They have no form for these, so a program that prints them gets the same text from every compiler, and they work in a program that has no standard library.\nTo print another value, use fmt. To print the number inside an owner, convert it first: the conversion reads the value without moving it.",
+			Fix:  &Fix{Intro: "Convert an integer field, or use fmt", Code: "println(int32(fd))\n\nimport \"pluto/fmt\"\n\nfmt.Println(x)"},
+			Spec: pspec("13.12", "Bootstrapping"),
+		},
+		&Entry{
 			Code: DeferInLoop, Name: "DeferInLoop",
 			Text:    "A defer statement in a loop would add a deferred call on every iteration, and each needs room in the function's stack frame until it returns. Plutonium gives every deferred call a fixed slot in the frame, so a defer statement may run at most once in each call of the function.\nThis defer is allowed in a loop only if every path from it leaves every loop that contains it before it can reach the defer again. A path leaves by return, by a call of panic or of a function that never returns, by goto to a label outside the loop, by a break that ends the loop, or by a labeled continue of a loop outside it. An unlabeled continue does not leave. The rule is the same for a for statement, a range statement, the body of a loop over a function (for x := range seq) and a loop made by a backward goto.\nIf the deferred call should run at the end of each iteration, move the loop body into a function of its own; its defer then runs at the end of each iteration.",
 			Why:     "Go keeps the deferred calls of a loop in a list on the heap. Plutonium never allocates behind the program's back, and kernel stacks are small and fixed.",

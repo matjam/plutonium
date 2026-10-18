@@ -123,7 +123,7 @@ against the corrected specification. The immediate implementation order is:
      E3307 and E3303 unchanged.
 114. **`print` and `println` argument types and float format** (done, `28c8e545`; decision D19; sections 13.12,
      A.2, A.4). Accept a value whose underlying type is boolean, integer (enums included), floating-point or
-     string; report the existing unprintable-argument error for an owner type, even over an integer, and for
+     string; report the unprintable-argument error (E2521) for an owner type, even over an integer, and for
      other types (catalog fix names `fmt` and `int32(fd)`). The float format is the shortest form
      of Go 1.27.2 (D19 withdrew the older fixed form), which the compiler already prints. Kernel-mode floats keep the bit-pattern form. Tests: defined integer
      types and enums, an owner over `int32` rejected.
