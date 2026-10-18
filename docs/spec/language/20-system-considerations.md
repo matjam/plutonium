@@ -581,9 +581,17 @@ These rules apply:
   variable, the access must be inside an interrupt-disabled region (section 19.3). An access outside the
   region it needs is a compile error (E2022). The error names the access and says whether a handler makes
   disabled interrupts necessary.
-- A pointer from `&v` is bounded by the region it was taken in. It may be kept only in local variables,
-  and may not be used after the region ends, sent on a channel or passed to a task. A use outside the
-  region is a compile error (E2023).
+- A pointer from `&v` is bounded by the region it was taken in, which is one run of that region: the same
+  code run again opens another region, whether by the next iteration of a loop, a jump back with `goto`, a
+  recursive call or a second call of a function literal. It may be kept only in local variables, and not
+  in a variable that lives across such a run (one declared before the loop or the label, or a variable of
+  the enclosing function that a function literal captures). It may not be used after the region ends or in
+  a later region, even one opened at the same place in the source, sent on a channel, passed to a task,
+  stored anywhere but in a local variable, or returned. A function that receives the pointer may use it
+  only inside a region that its caller held at the call and the function has not released; a region the
+  function opens itself is another region. The analysis counts a region once, so the first release of a
+  kind (the first `rt.EnablePreemption`, for example) ends it even if its opening was nested: this errs
+  toward rejecting. A use outside the region is a compile error (E2023).
 - Two lone accesses in separate statements may reach the copies of two different processors, because the
   task can migrate between them. That is defined behavior, not a data race.
 - The kernel gives each processor its block and points `GS` at it before that processor touches a per-CPU
