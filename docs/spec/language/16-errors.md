@@ -104,7 +104,8 @@ exists, in interrupt context and in every build mode.
 - A package-level `var ErrX = errors.New("x")` is evaluated once, so it is one error for the whole
   program, as in Go.
 - A counter that has reached its maximum (2^64 - 1 evaluations of one site) panics at the next
-  evaluation (section 17.1, Panics). It never wraps to a value that would make two errors equal.
+  evaluation (section 17.1, Panics). It never wraps to a value that would make two errors equal. Reaching it is
+  not possible in practice: it takes about 584 years at one evaluation per nanosecond.
 - Since each call site has its own type, `errors.New` must be called directly. Taking its value
   (`f := errors.New`) or deferring it is a compile error (E2542).
 
