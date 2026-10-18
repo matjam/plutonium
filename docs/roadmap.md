@@ -59,7 +59,7 @@ against the corrected specification. The immediate implementation order is:
      `strings.Truncate` and `utf8.RuneStartBefore`; add the `tools/go2pu` rewrite table. Tests: E2019 for
      typed, untyped, constant and named string operands, panics for both bounds, no panic for
      `Index`-derived cuts, no call in the SSA of a simple use. Includes item 74.
-105. **Normal termination follows Go** (done, `3bb04e01`; decision D10; sections 12.12, 14.5, 15.4, 19.1, 19.7;
+105. **Normal termination follows Go** (done, `3bb04e01`; review fixes `8b3b99bc`, decision D31; decision D10; sections 12.12, 14.5, 15.4, 19.1, 19.7;
      abi.md 12.10; memory-model.md 3.9; debug-allocator.md Leaks). After `main` returns, one scheduler
      transition closes admission and counts running application tasks and in-flight callbacks (`lib/pluto/rt`
      `sched.p`, `join.p`, `rt_linux.p` `mainOnStack`). With none: cancel pending application timer
@@ -83,7 +83,7 @@ against the corrected specification. The immediate implementation order is:
      proves are views of the frame, and name one offending conversion (package and line) in the crossing
      error. Tests: a `shared[T]` returned as `error`, `fmt.Println(sh)` not counting, a `chan any` crossing
      error naming the conversion.
-108. **Func values that may be closures of a frame at a task start** (done, `3d0a8a7c`; decision D13; sections
+108. **Func values that may be closures of a frame at a task start** (done, `3d0a8a7c`; review test `bf23da1e`; decision D13; sections
      11.5, 12.12, 17.1, 18.3, 19.4; abi.md 12.6). Report E3004 where a func value that section 18.3 may place
      in a frame reaches a `task` start, `wg.Task`, `rt.Go` or `time.AfterFunc` argument, and E3003 at a call
      that passes such a closure to a function whose summary starts a task with it (path in the message). Keep
@@ -146,7 +146,7 @@ against the corrected specification. The immediate implementation order is:
      field crosses a byte boundary or a byte-level field is not byte-aligned; the fix shows a nested `packed
      be uint16` field. Check the `IPv4Header` example and add the `Frag` field. Tests: IPv4 header bytes on
      both endiannesses, E2021.
-118. **Per-CPU access regions; E2022 and E2023** (done, `046f09c3`; decision D24; sections 19.3, 20.9; memory-
+118. **Per-CPU access regions; E2022 and E2023** (done, `046f09c3`; review fixes `0fd6f59d`; decision D24; sections 19.3, 20.9; memory-
      model.md 6.4). Infer non-migrating regions (preemption disabled, maskable interrupts disabled, `rt.Lock`
      held; on every path, across calls, deferred release counting) and interrupt-disabled regions (also the
      body of a `//pu:interrupt` handler up to a call that may switch tasks), in `internal/race`. Exempt
