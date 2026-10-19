@@ -909,7 +909,7 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		return w.boxView(x)
 	}
 	_, known := isDirect(from)
-	if w.a.isDirectType(from) {
+	if w.a.isDirectConv(from) {
 		switch {
 		case types2.PointerShaped(from):
 			return shapeOut(v, from)

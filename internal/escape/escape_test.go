@@ -1104,6 +1104,35 @@ import "pluto/alloc"
 func box[T any](x T) any { return x }
 func main() { _, _ = box(1), box(alloc.New[int]()) }`},
 
+	// Converting a value of an interface type to another interface copies
+	// nothing, so a generic conversion whose instantiations are interfaces and
+	// pointers boxes nothing in the frame (go2pu's translation of the walker
+	// of internal/syntax/ast).
+	{"generic conversion of interface and pointer instantiations", `
+type Node interface{ Pos() int }
+type Expr interface {
+	Node
+	exprNode()
+}
+type Ident struct{ n int }
+func (i *Ident) Pos() int { return i.n }
+func (i *Ident) exprNode() {}
+type Visitor interface{ Visit(n Node) }
+type keeper struct{}
+var saved Node
+func (keeper) Visit(n Node) { saved = n }
+func walkList[N Node](v Visitor, list []N) {
+	for _, n := range list {
+		v.Visit(n)
+	}
+}
+var exprs = []Expr{&Ident{1}}
+var idents = []*Ident{{2}}
+func main() {
+	walkList(Visitor(keeper{}), exprs)
+	walkList(Visitor(keeper{}), idents)
+}`},
+
 	{"closure called locally", `
 func apply(f func()) { f() }
 func main() {

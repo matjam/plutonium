@@ -617,6 +617,26 @@ func (a *analyzer) isDirectType(T types2.Type) bool {
 	return true
 }
 
+// isDirectConv is isDirectType for the source of a conversion to an interface:
+// an instantiation that is itself an interface is converted without a copy
+// (the data word moves over), so it does not make the conversion box.
+func (a *analyzer) isDirectConv(T types2.Type) bool {
+	tp, ok := types2.Unalias(T).(*types2.TypeParam)
+	if !ok {
+		d, _ := isDirect(T)
+		return d
+	}
+	for _, t := range a.tparamTypes(tp) {
+		if isInterface(t) {
+			continue
+		}
+		if d, _ := isDirect(t); !d {
+			return false
+		}
+	}
+	return true
+}
+
 // ----------------------------------------------------------------------------
 // Candidates for dynamic calls
 
