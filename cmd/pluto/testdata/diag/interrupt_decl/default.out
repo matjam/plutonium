@@ -58,8 +58,9 @@ $DIR/main.p:76:6: x86.InterruptGate: the first argument must name a //pu:interru
     that enters a handler, and the compiler puts the handler's address in it. So
     the first argument must be the name of a handler, known when the program is
     compiled: a function marked //pu:interrupt for InterruptGate, and a function
-    marked //pu:interrupt trap for TrapGate. A func value, a handler of the
-    other form, a call through a variable and any other expression are errors.
+    marked //pu:interrupt trap for TrapGate. A func value, a deferred or started
+    call, a handler of the other form, a call through a variable and any other
+    expression are errors.
     The form decides how the processor enters the handler. An interrupt gate
     clears the interrupt flag, and a handler of the plain form relies on that:
     its body is a region with interrupts disabled. A trap gate leaves the flag

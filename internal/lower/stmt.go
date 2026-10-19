@@ -1245,6 +1245,9 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 	}
 	bit := len(root.defers)
 	call := st.Call
+	if s.rejectGateStart(call, "deferred") {
+		return
+	}
 	// The function value and the arguments are evaluated now, calls first
 	// (order.go).
 	s.callsFirst(call)

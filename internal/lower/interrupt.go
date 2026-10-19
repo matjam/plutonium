@@ -176,3 +176,20 @@ func (s *fnState) checkNotHandler(sym *ssa.Sym, pos token.Pos, what string) {
 		s.l.errorf(pos, diag.InterruptHandlerV, "interrupt handler %s cannot be %s; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table", sym.Name, what)
 	}
 }
+
+// rejectGateStart reports a call of x86.InterruptGate or x86.TrapGate that a
+// defer or task statement would run later: the constructor expands only where
+// its result is used, with the handler named in the call, so a deferred or
+// started one has no table entry to build (spec section 20.8, E2572).
+func (s *fnState) rejectGateStart(call *ast.CallExpr, how string) bool {
+	id := staticFuncIdent(ast.Unparen(call.Fun), s.info)
+	if id == nil {
+		return false
+	}
+	fn, ok := s.info.Uses[id].(*types2.Func)
+	if !ok || !isGateFunc(fn) {
+		return false
+	}
+	s.l.errorf(call.Pos(), diag.GateArg, "x86.%s cannot be %s: it must be called with the name of a handler, and its result used", fn.Name(), how)
+	return true
+}

@@ -121,17 +121,27 @@ func Retired() []string {
 }
 
 // Split returns the name and the argument of the directive in a comment's
-// text, and whether the comment is a directive at all.
+// text, and whether the comment is a directive at all. Any run of white
+// space (spaces and tabs) separates the name from the argument and the words
+// of the argument, and counts as one space: the compiler reads a directive
+// the same way wherever it looks for it (Normalize).
 func Split(text string) (name, arg string, ok bool) {
 	rest, ok := strings.CutPrefix(text, Prefix)
 	if !ok {
 		return "", "", false
 	}
-	name, arg, _ = strings.Cut(strings.TrimSpace(rest), " ")
-	if i := strings.IndexByte(name, '\t'); i >= 0 {
-		name, arg = name[:i], name[i+1:]
+	words := strings.Fields(rest)
+	if len(words) == 0 {
+		return "", "", true
 	}
-	return name, strings.TrimSpace(arg), true
+	return words[0], strings.Join(words[1:], " "), true
+}
+
+// Normalize returns the text of a directive, without its prefix, with every
+// run of white space as one space: "interrupt  trap" and "interrupt<tab>trap"
+// are "interrupt trap".
+func Normalize(text string) string {
+	return strings.Join(strings.Fields(text), " ")
 }
 
 // Check reports every //pu: comment of f that the compiler would otherwise

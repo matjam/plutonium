@@ -393,6 +393,9 @@ type goArg struct {
 // otherwise stay in this frame.
 func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	call := st.Call
+	if s.rejectGateStart(call, "started by a task statement") {
+		return
+	}
 	fun := ast.Unparen(call.Fun)
 	if lit, ok := fun.(*ast.FuncLit); ok {
 		if caps := s.capturedVars(lit); len(caps) > 0 {

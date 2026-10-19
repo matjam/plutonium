@@ -1,0 +1,5 @@
+$DIR/main.p:26:8: x86.InterruptGate cannot be deferred: it must be called with the name of a handler, and its result used
+$DIR/main.p:27:8: x86.InterruptGate cannot be deferred: it must be called with the name of a handler, and its result used
+$DIR/main.p:28:8: x86.TrapGate cannot be deferred: it must be called with the name of a handler, and its result used
+$DIR/main.p:30:2: interrupt handler main.spaced cannot be called; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table
+$DIR/main.p:31:6: x86.InterruptGate: spaced is a //pu:interrupt trap function; install it with x86.TrapGate

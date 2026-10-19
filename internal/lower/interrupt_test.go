@@ -80,6 +80,24 @@ func TestInterruptErrors(t *testing.T) {
 			"x86.TrapGate: the first argument must name a //pu:interrupt trap function"},
 		{"a gate constructor as a func value", "func main() { g := x86.InterruptGate; _ = g }\n",
 			"x86.InterruptGate cannot be used as a func value"},
+		{"a deferred gate constructor with a function that is no handler", "func h(f *x86.InterruptFrame) {}\n\nfunc main() { defer x86.InterruptGate(h, 0x08, 0) }\n",
+			"x86.InterruptGate cannot be deferred"},
+		{"a deferred gate constructor with a handler", "//pu:interrupt\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { defer x86.InterruptGate(h, 0x08, 0) }\n",
+			"x86.InterruptGate cannot be deferred"},
+		{"a deferred gate constructor with main", "func main() { defer x86.InterruptGate(main, 0x08, 0) }\n",
+			"x86.InterruptGate cannot be deferred"},
+		{"a deferred trap gate constructor with nil", "func main() { defer x86.TrapGate(nil, 0x08, 0) }\n",
+			"x86.TrapGate cannot be deferred"},
+		{"a gate constructor started by a task statement", "//pu:interrupt\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { task x86.InterruptGate(h, 0x08, 0) }\n",
+			"x86.InterruptGate cannot be started by a task statement"},
+		{"a trap handler written with two spaces, installed with InterruptGate", "//pu:interrupt  trap\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { _ = x86.InterruptGate(h, 0x08, 0) }\n",
+			"x86.InterruptGate: h is a //pu:interrupt trap function; install it with x86.TrapGate"},
+		{"a trap handler written with a tab, installed with InterruptGate", "//pu:interrupt\ttrap\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { _ = x86.InterruptGate(h, 0x08, 0) }\n",
+			"x86.InterruptGate: h is a //pu:interrupt trap function; install it with x86.TrapGate"},
+		{"a trap handler written with two spaces, called", "//pu:interrupt  trap\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { h(nil) }\n",
+			"interrupt handler main.h cannot be called"},
+		{"a trap handler written with a tab, called", "//pu:interrupt\ttrap\nfunc h(f *x86.InterruptFrame) {}\n\nfunc main() { h(nil) }\n",
+			"interrupt handler main.h cannot be called"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -132,6 +150,39 @@ func main() {
 		}
 		if name == "main.timer" && (len(f.Exports) != 1 || f.Exports[0] != "isr_timer") {
 			t.Errorf("%s: exports %v, want [isr_timer]", name, f.Exports)
+		}
+	}
+}
+
+// A trap handler is a trap handler however the white space between the
+// directive and its argument is written: the lowering, the directive check
+// and the race analysis read the directive the same way.
+func TestTrapDirectiveWhiteSpace(t *testing.T) {
+	for _, dir := range []string{"//pu:interrupt trap", "//pu:interrupt  trap", "//pu:interrupt\ttrap", "//pu:interrupt \t trap"} {
+		prog := lowerSource(t, `package main
+
+import "pluto/arch/x86"
+
+var n uint64
+
+`+dir+`
+func h(f *x86.InterruptFrame) { n++ }
+
+var idt [1]x86.Gate
+
+func main() { idt[0] = x86.TrapGate(h, 0x08, 0) }
+`)
+		found := false
+		for _, g := range prog.Funcs {
+			if g.Name == "main.h" {
+				found = true
+				if g.Pragmas&ssa.PragmaInterrupt == 0 {
+					t.Errorf("%q: main.h is not marked as an interrupt handler", dir)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%q: main.h not lowered", dir)
 		}
 	}
 }

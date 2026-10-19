@@ -94,6 +94,10 @@ func TestSplit(t *testing.T) {
 		{"//pu:extern  strlen ", "extern", "strlen"},
 		{"//pu:extern\tstrlen", "extern", "strlen"},
 		{"//pu:", "", ""},
+		{"//pu:interrupt  trap", "interrupt", "trap"},
+		{"//pu:interrupt\ttrap", "interrupt", "trap"},
+		{"//pu:interrupt \t trap", "interrupt", "trap"},
+		{"//pu:interrupt\t trap ", "interrupt", "trap"},
 	} {
 		name, arg, ok := Split(tt.text)
 		if !ok || name != tt.name || arg != tt.arg {

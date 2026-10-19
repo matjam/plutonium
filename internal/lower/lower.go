@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/directive"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/scoped"
@@ -412,7 +413,7 @@ func directives(doc *ast.CommentGroup) []string {
 	var out []string
 	for _, c := range doc.List {
 		if d, ok := strings.CutPrefix(c.Text, "//pu:"); ok {
-			out = append(out, strings.TrimSpace(d))
+			out = append(out, directive.Normalize(d))
 		}
 	}
 	return out
