@@ -555,6 +555,29 @@ var accepted = []struct {
 	name string
 	src  string
 }{
+	// A function used as a value can be called through a func value only if
+	// the code that makes the value runs: racy is made a value only in a
+	// function nothing calls, so the call of g in main cannot reach it.
+	{"a func value made only in unreachable code is not a callee", `
+var n int
+
+var hook func()
+
+func racy() {
+	task func() { n++ }()
+	n++
+}
+
+func neverCalled() {
+	hook = racy
+}
+
+func main() {
+	if hook != nil {
+		hook()
+	}
+}`},
+
 	{"shared box lent to an interface from the frame", `
 import "pluto/alloc"
 

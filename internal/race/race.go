@@ -54,6 +54,7 @@ package race
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -195,6 +196,7 @@ type analyzer struct {
 	units               []*unit
 	byName              map[string][]*function // methods by name
 	values              []*function            // functions and literals used as values
+	valuesAt            map[*unit][]*function  // the values each unit makes (mayStartTasks)
 	program             *function
 	inits               []*function
 
@@ -391,42 +393,59 @@ func (a *analyzer) collectLits(u *unit, outer *function, body ast.Node) {
 // candidates of calls through func values whose origin is unknown.
 func (a *analyzer) scanValues() {
 	seen := map[*function]bool{}
-	note := func(f *function) {
-		if f != nil && !seen[f] {
-			seen[f] = true
-			a.values = append(a.values, f)
+	a.valuesAt = map[*unit][]*function{}
+	for pi, p := range a.prog.Packages {
+		var site *unit // the unit whose code is scanned
+		note := func(f *function) {
+			if f == nil {
+				return
+			}
+			if !seen[f] {
+				seen[f] = true
+				a.values = append(a.values, f)
+			}
+			if site != nil && !slices.Contains(a.valuesAt[site], f) {
+				a.valuesAt[site] = append(a.valuesAt[site], f)
+			}
 		}
-	}
-	for _, p := range a.prog.Packages {
+		init := a.inits[pi].unit
 		for _, file := range p.Files {
 			called := map[ast.Expr]bool{}
-			ast.Inspect(file, func(n ast.Node) bool {
-				switch n := n.(type) {
-				case *ast.CallExpr:
-					called[ast.Unparen(stripIndex(n.Fun))] = true
-				case *ast.Ident:
-					if called[n] {
-						return true
-					}
-					if fn, ok := p.Info.Uses[n].(*types2.Func); ok {
-						note(a.funcs[fn.Origin()])
-					}
-				case *ast.SelectorExpr:
-					if called[n] {
-						return true
-					}
-					if sel := p.Info.Selections[n]; sel != nil && (sel.Kind() == types2.MethodVal || sel.Kind() == types2.MethodExpr) {
-						if fn, ok := sel.Obj().(*types2.Func); ok {
-							note(a.funcs[fn.Origin()])
-						}
-					}
-				case *ast.FuncLit:
-					if !called[n] {
-						note(a.lits[n])
+			for _, d := range file.Decls {
+				site = init
+				if fd, ok := d.(*ast.FuncDecl); ok {
+					if obj, ok := p.Info.Defs[fd.Name].(*types2.Func); ok && a.funcs[obj] != nil {
+						site = a.funcs[obj].unit
 					}
 				}
-				return true
-			})
+				ast.Inspect(d, func(n ast.Node) bool {
+					switch n := n.(type) {
+					case *ast.CallExpr:
+						called[ast.Unparen(stripIndex(n.Fun))] = true
+					case *ast.Ident:
+						if called[n] {
+							return true
+						}
+						if fn, ok := p.Info.Uses[n].(*types2.Func); ok {
+							note(a.funcs[fn.Origin()])
+						}
+					case *ast.SelectorExpr:
+						if called[n] {
+							return true
+						}
+						if sel := p.Info.Selections[n]; sel != nil && (sel.Kind() == types2.MethodVal || sel.Kind() == types2.MethodExpr) {
+							if fn, ok := sel.Obj().(*types2.Func); ok {
+								note(a.funcs[fn.Origin()])
+							}
+						}
+					case *ast.FuncLit:
+						if !called[n] {
+							note(a.lits[n])
+						}
+					}
+					return true
+				})
+			}
 		}
 	}
 }
@@ -502,10 +521,17 @@ func (a *analyzer) objOf(id *ast.Ident) types2.Object {
 func (a *analyzer) mayStartTasks() bool {
 	reach := map[*unit]bool{}
 	var work []*unit
+	// A function used as a value can be called through a func value only
+	// once code that makes the value is reachable.
+	live := map[*function]bool{}
+	var dyn []*unit
 	add := func(u *unit) {
 		if u != nil && !reach[u] {
 			reach[u] = true
 			work = append(work, u)
+			for _, f := range a.valuesAt[u] {
+				live[f] = true
+			}
 		}
 	}
 	for _, f := range a.inits {
@@ -543,24 +569,39 @@ func (a *analyzer) mayStartTasks() bool {
 			for c := range u.callee {
 				add(c)
 			}
-			for _, f := range a.values {
-				if reach[f.unit] {
-					continue
-				}
-				if u.dynAll {
-					add(f.unit)
-					continue
-				}
-				for _, sig := range u.dynSigs {
-					if sameShape(f.sig, sig) {
-						add(f.unit)
-						break
-					}
-				}
+			if u.dynAll || len(u.dynSigs) > 0 {
+				dyn = append(dyn, u)
 			}
 		}
 	}
-	drain()
+	// settle drains the work list, then lets the values that are live reach
+	// the calls through func values found so far, until nothing is added.
+	settle := func() {
+		for {
+			drain()
+			for _, u := range dyn {
+				for _, f := range a.values {
+					if reach[f.unit] || !live[f] {
+						continue
+					}
+					if u.dynAll {
+						add(f.unit)
+						continue
+					}
+					for _, sig := range u.dynSigs {
+						if sameShape(f.sig, sig) {
+							add(f.unit)
+							break
+						}
+					}
+				}
+			}
+			if len(work) == 0 {
+				return
+			}
+		}
+	}
+	settle()
 	if len(a.handlers) > 0 {
 		// A handler that allocates calls the Alloc and Free of the
 		// allocators the program installs (section 20.10): they are part
@@ -568,7 +609,7 @@ func (a *analyzer) mayStartTasks() bool {
 		for _, f := range a.allocatorMethods() {
 			add(f.unit)
 		}
-		drain()
+		settle()
 	}
 	a.reach = reach
 	// One task alone cannot race, but a handler is a party beside it, and
