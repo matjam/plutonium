@@ -746,7 +746,7 @@ func (a *analyzer) checkPerCPU(uses []*cpuEntry, groups []*group) {
 			// A store whose value or condition depends on a load of the
 			// variable needs the load in the same region.
 			irq := len(handlers[u.v]) > 0
-			if u.dep != nil && !(x.locks.regionHeld(irq) && u.spanned(x.locks, irq)) {
+			if u.dep != nil && (!x.locks.regionHeld(irq) || !u.spanned(x.locks, irq)) {
 				a.add(fmt.Sprintf("cpuacc|%d", x.pos), a.cpuAccessError(x, handlers[u.v]))
 			}
 		}
