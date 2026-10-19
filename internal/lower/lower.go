@@ -89,10 +89,13 @@ type Lowerer struct {
 	perCPUSelfSym     *ssa.Sym                     // pluto.percpu.self, once a per-CPU variable exists
 	genPanic          *ssa.Sym                     // pluto/rt.panicStale, under GenCheck
 	types             *typeTable
-	flowSums          map[string]*flowSummary        // closureflow.go, by instance symbol name
-	flowStack         []string                       // summaries being computed
-	flowTent          []string                       // tentative summaries
-	flowMin           int                            // the outermost summary being computed that was read
+	flowSums          map[string]*flowSummary // closureflow.go, by instance symbol name
+	flowStack         []string                // summaries being computed
+	flowTent          []string                // tentative summaries
+	flowMin           int                     // the outermost summary being computed that was read
+	funcTypes         []*types2.Named         // named func types with methods (closureflow.go)
+	funcTypesDone     bool
+	flowVersion       int                            // counts the growths of any summary (closureSummary)
 	flowReported      map[token.Pos]bool             // returned closure records already reported
 	noRet             map[*types2.Func]int           // which functions never return (noreturn.go)
 	regionLayouts     map[*ssa.Sym]*regionLayout     // closure regions (regions.go)

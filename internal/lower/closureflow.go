@@ -180,6 +180,11 @@ type flowSummary struct {
 	// -1 once final; otherwise the depth of the outermost summary being
 	// computed that it depends on (closureSummary).
 	depth int
+
+	fn      *types2.Func // the function and its type arguments, to analyse again
+	targs   []types2.Type
+	running bool // on the stack: being analysed
+	version int  // flowVersion when its last analysis began
 }
 
 func newClosureFlow(l *Lowerer, info *types2.Info, tmap *typeMap, sig *types2.Signature, body *ast.BlockStmt) *closureFlow {
@@ -243,9 +248,49 @@ func (f *closureFlow) typeOf(e ast.Expr) types2.Type {
 }
 
 // carries reports whether a value of type T can hold a func value.
-func carries(T types2.Type) bool { return mayHoldFunc(T, map[types2.Type]bool{}) }
+func (l *Lowerer) carries(T types2.Type) bool { return l.mayHoldFunc(T, map[types2.Type]bool{}) }
 
-func mayHoldFunc(T types2.Type, seen map[types2.Type]bool) bool {
+// funcTypesWithMethods returns the named func types of the program that have
+// methods: the only func values that an interface with methods can hold.
+func (l *Lowerer) funcTypesWithMethods() []*types2.Named {
+	if !l.funcTypesDone {
+		l.funcTypesDone = true
+		for _, p := range l.prog.Packages {
+			scope := p.Types.Scope()
+			for _, name := range scope.Names() {
+				tn, _ := scope.Lookup(name).(*types2.TypeName)
+				if tn == nil {
+					continue
+				}
+				if n, ok := types2.Unalias(tn.Type()).(*types2.Named); ok && n.NumMethods() > 0 {
+					if _, ok := n.Underlying().(*types2.Signature); ok {
+						l.funcTypes = append(l.funcTypes, n)
+					}
+				}
+			}
+		}
+	}
+	return l.funcTypes
+}
+
+// interfaceMayHoldFunc reports whether a value of interface type t can be a
+// func value. A func value of an unnamed type has no methods, so an interface
+// with methods holds one only if a named func type with methods implements it:
+// ast.Expr, for one, does not, and the result of a call of that type holds no
+// closure.
+func (l *Lowerer) interfaceMayHoldFunc(t *types2.Interface) bool {
+	if t.NumMethods() == 0 || !t.IsMethodSet() {
+		return true
+	}
+	for _, n := range l.funcTypesWithMethods() {
+		if n.TypeParams().Len() > 0 || types2.Implements(n, t) {
+			return true
+		}
+	}
+	return false
+}
+
+func (l *Lowerer) mayHoldFunc(T types2.Type, seen map[types2.Type]bool) bool {
 	if T == nil {
 		return true
 	}
@@ -258,34 +303,36 @@ func mayHoldFunc(T types2.Type, seen map[types2.Type]bool) bool {
 		// An unsafe.Pointer may hold a closure record (rt.Go passes one to
 		// the check that it may start a task).
 		return t.Kind() == types2.UnsafePointer
-	case *types2.Signature, *types2.Interface, *types2.TypeParam:
+	case *types2.Signature, *types2.TypeParam:
 		return true
+	case *types2.Interface:
+		return l.interfaceMayHoldFunc(t)
 	case *types2.Pointer:
-		return mayHoldFunc(t.Elem(), seen)
+		return l.mayHoldFunc(t.Elem(), seen)
 	case *types2.Slice:
-		return mayHoldFunc(t.Elem(), seen)
+		return l.mayHoldFunc(t.Elem(), seen)
 	case *types2.Array:
-		return mayHoldFunc(t.Elem(), seen)
+		return l.mayHoldFunc(t.Elem(), seen)
 	case *types2.Chan:
-		return mayHoldFunc(t.Elem(), seen)
+		return l.mayHoldFunc(t.Elem(), seen)
 	case *types2.Map:
-		return mayHoldFunc(t.Key(), seen) || mayHoldFunc(t.Elem(), seen)
+		return l.mayHoldFunc(t.Key(), seen) || l.mayHoldFunc(t.Elem(), seen)
 	case *types2.Struct:
 		for i := 0; i < t.NumFields(); i++ {
-			if mayHoldFunc(t.Field(i).Type(), seen) {
+			if l.mayHoldFunc(t.Field(i).Type(), seen) {
 				return true
 			}
 		}
 		return false
 	case *types2.Tuple:
 		for i := 0; i < t.Len(); i++ {
-			if mayHoldFunc(t.At(i).Type(), seen) {
+			if l.mayHoldFunc(t.At(i).Type(), seen) {
 				return true
 			}
 		}
 		return false
 	case *types2.Wrapper:
-		return mayHoldFunc(t.Elem(), seen)
+		return l.mayHoldFunc(t.Elem(), seen)
 	}
 	return true
 }
@@ -295,9 +342,9 @@ func mayHoldFunc(T types2.Type, seen map[types2.Type]bool) bool {
 // or a value of a type parameter, which may be a pointer. What is stored
 // there through another pointer can be read through it, and a callee given
 // it can store there.
-func refers(T types2.Type) bool { return mayReach(T, map[types2.Type]bool{}) }
+func (l *Lowerer) refers(T types2.Type) bool { return l.mayReach(T, map[types2.Type]bool{}) }
 
-func mayReach(T types2.Type, seen map[types2.Type]bool) bool {
+func (l *Lowerer) mayReach(T types2.Type, seen map[types2.Type]bool) bool {
 	if T == nil {
 		return true
 	}
@@ -313,34 +360,34 @@ func mayReach(T types2.Type, seen map[types2.Type]bool) bool {
 	case *types2.Interface, *types2.TypeParam:
 		return true
 	case *types2.Pointer:
-		return carries(t.Elem())
+		return l.carries(t.Elem())
 	case *types2.Slice:
-		return carries(t.Elem())
+		return l.carries(t.Elem())
 	case *types2.Chan:
-		return carries(t.Elem())
+		return l.carries(t.Elem())
 	case *types2.Map:
-		return carries(t.Key()) || carries(t.Elem())
+		return l.carries(t.Key()) || l.carries(t.Elem())
 	case *types2.Array:
-		return mayReach(t.Elem(), seen)
+		return l.mayReach(t.Elem(), seen)
 	case *types2.Struct:
 		for i := 0; i < t.NumFields(); i++ {
-			if mayReach(t.Field(i).Type(), seen) {
+			if l.mayReach(t.Field(i).Type(), seen) {
 				return true
 			}
 		}
 		return false
 	case *types2.Tuple:
 		for i := 0; i < t.Len(); i++ {
-			if mayReach(t.At(i).Type(), seen) {
+			if l.mayReach(t.At(i).Type(), seen) {
 				return true
 			}
 		}
 		return false
 	case *types2.Wrapper:
 		if t.IsPointer() {
-			return carries(t.Elem())
+			return l.carries(t.Elem())
 		}
-		return mayReach(t.Elem(), seen)
+		return l.mayReach(t.Elem(), seen)
 	}
 	return true
 }
@@ -645,7 +692,7 @@ func paramIdent(lit *ast.FuncLit, i int) *ast.Ident {
 // may see whatever was stored there through another pointer.
 func (f *closureFlow) expr(e ast.Expr) bitset {
 	m := f.expr1(e)
-	if e != nil && !f.pool.empty() && refers(f.typeOf(e)) {
+	if e != nil && !f.pool.empty() && f.l.refers(f.typeOf(e)) {
 		if tv, ok := f.info.Types[e]; !ok || (!tv.IsType() && tv.Value == nil) {
 			m = m.or(f.pool)
 		}
@@ -663,7 +710,7 @@ func (f *closureFlow) expr1(e ast.Expr) bitset {
 	switch e := e.(type) {
 	case *ast.CallExpr:
 		m := f.call(e)
-		if !carries(f.typeOf(e)) {
+		if !f.l.carries(f.typeOf(e)) {
 			return nil
 		}
 		if tv, ok := f.info.Types[e.Fun]; !ok || !tv.IsType() {
@@ -673,7 +720,7 @@ func (f *closureFlow) expr1(e ast.Expr) bitset {
 	case *ast.KeyValueExpr:
 		return f.expr(e.Key).or(f.expr(e.Value))
 	}
-	if !carries(f.typeOf(e)) {
+	if !f.l.carries(f.typeOf(e)) {
 		return nil
 	}
 	switch e := e.(type) {
@@ -953,7 +1000,7 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 		}
 		if i == 0 && recv != nil && !f.isPointer(recv) {
 			f.assign(recv, m) // a pointer method changes the receiver itself
-		} else if refers(f.typeOf(a)) {
+		} else if f.l.refers(f.typeOf(a)) {
 			// Through a pointer, slice, map, channel or interface; what a
 			// func value captured is changed by calling it (storeState).
 			f.assign(&ast.StarExpr{X: a}, m)
@@ -1200,11 +1247,25 @@ func (f *closureFlow) callee(c *ast.CallExpr) (*types2.Func, []types2.Type) {
 
 // closureSummary returns what g, instantiated with targs, does with its
 // parameters.
+//
+// Summaries of functions that call each other depend on one another. A
+// function is analysed again until its summary stops growing, and a summary
+// computed from one still being computed (further out on the stack, or the
+// function's own) is tentative: it stays valid for the callers that are
+// themselves being computed, and is final once the outermost of them
+// finishes. Whenever any summary grows, flowVersion advances; a tentative
+// summary computed at an earlier version is analysed once more, once, when a
+// function being computed reads it, so a group of n mutually recursive
+// functions costs a few analyses of each, not a number that grows with the
+// depth of the calls among them.
 func (l *Lowerer) closureSummary(g *types2.Func, targs []types2.Type) *flowSummary {
 	key := funcSymName(g, targs)
 	if s := l.flowSums[key]; s != nil {
 		if s.depth >= 0 {
 			l.flowMin = min(l.flowMin, s.depth)
+			if !s.running && s.version != l.flowVersion {
+				l.closureAgain(s, key)
+			}
 		}
 		return s
 	}
@@ -1214,12 +1275,8 @@ func (l *Lowerer) closureSummary(g *types2.Func, targs []types2.Type) *flowSumma
 		l.flowSums[key] = s
 		return s
 	}
-	// Recursive calls see the summary as it is computed, starting empty,
-	// and the function is analysed again until it stops growing. A summary
-	// computed from one still being computed is tentative, and is computed
-	// again on each round.
 	depth := len(l.flowStack)
-	s := &flowSummary{depth: depth, store: map[int]bitset{}, callArgs: map[int]bitset{}}
+	s := &flowSummary{depth: depth, fn: g, targs: targs, store: map[int]bitset{}, callArgs: map[int]bitset{}}
 	l.flowSums[key] = s
 	if scoped.StartsTaskWithFunc(g) {
 		// The runtime's and the library's task starts (spec section 12.12):
@@ -1232,26 +1289,24 @@ func (l *Lowerer) closureSummary(g *types2.Func, targs []types2.Type) *flowSumma
 		}
 	}
 	l.flowStack = append(l.flowStack, key)
+	s.running = true
 	outer := l.flowMin
 	mark := len(l.flowTent)
-	var tmap *typeMap
-	if len(targs) > 0 {
-		tmap = newTypeMap(l, d.obj, targs)
-	}
 	low := depth
 	for {
+		// Recursive calls see the summary as it is computed, starting
+		// empty, and the function is analysed again until a round changes
+		// no summary at all.
+		version := l.flowVersion
 		l.flowMin = depth + 1
-		f := newClosureFlow(l, d.pkg.Info, tmap, d.obj.Type().(*types2.Signature), d.decl.Body)
-		f.run()
+		s.version = version
+		l.analyzeFlow(s)
 		low = l.flowMin
-		if !s.merge(f) || low > depth {
+		if l.flowVersion == version || low > depth {
 			break
 		}
-		for _, k := range l.flowTent[mark:] {
-			delete(l.flowSums, k)
-		}
-		l.flowTent = l.flowTent[:mark]
 	}
+	s.running = false
 	l.flowStack = l.flowStack[:depth]
 	if low < depth {
 		// Depends on a summary still being computed further out.
@@ -1268,6 +1323,40 @@ func (l *Lowerer) closureSummary(g *types2.Func, targs []types2.Type) *flowSumma
 	}
 	l.flowMin = min(outer, low)
 	return s
+}
+
+// closureAgain analyses the tentative summary s once more, because some
+// summary has grown since it was computed.
+func (l *Lowerer) closureAgain(s *flowSummary, key string) {
+	pos := len(l.flowStack)
+	own := s.depth
+	l.flowStack = append(l.flowStack, key)
+	s.running = true
+	s.depth = pos
+	outer := l.flowMin
+	l.flowMin = pos + 1
+	s.version = l.flowVersion
+	l.analyzeFlow(s)
+	low := l.flowMin
+	s.running = false
+	l.flowStack = l.flowStack[:pos]
+	s.depth = min(low, own)
+	l.flowMin = min(outer, s.depth)
+}
+
+// analyzeFlow analyses the body of s's function once and merges the result
+// into s, advancing flowVersion if s grew.
+func (l *Lowerer) analyzeFlow(s *flowSummary) {
+	d := l.decls[s.fn.Origin()]
+	var tmap *typeMap
+	if len(s.targs) > 0 {
+		tmap = newTypeMap(l, d.obj, s.targs)
+	}
+	f := newClosureFlow(l, d.pkg.Info, tmap, d.obj.Type().(*types2.Signature), d.decl.Body)
+	f.run()
+	if s.merge(f) {
+		l.flowVersion++
+	}
 }
 
 // merge adds what the analysis f found to s and reports whether s grew.
