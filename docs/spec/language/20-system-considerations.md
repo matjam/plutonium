@@ -602,6 +602,9 @@ These rules apply:
   }
   ```
 
+  The check is conservative where it cannot see: a store that follows a load of the same variable in a
+  function, and whose value or controlling condition it cannot show to be independent of that load, is an error.
+
   Inside `rt.DisablePreemption()` and `rt.EnablePreemption()` (or another non-migrating region) both are
   allowed. Loads and stores that do not depend on each other stay allowed anywhere: `t := current` in one
   statement and `current = u` in another, where `u` was not computed from `current`, are two independent

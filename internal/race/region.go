@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/directive"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
@@ -38,6 +39,11 @@ const (
 	regIRQ            // maskable interrupts disabled, or the body of a handler
 	regLock           // an rt.Lock is held (in kernel mode that disables interrupts too)
 )
+
+// regAll, returned by regionOp, ends the regions in which the task cannot
+// move to another processor and those with interrupts disabled: the task may
+// be switched out here and resume on any processor.
+const regAll = -1
 
 // regionAt names the region of kind k opened at pos.
 func regionAt(k int, pos token.Pos) vpath {
@@ -115,12 +121,13 @@ type cpuUse struct {
 	own    lockset
 	spans  []lockset
 	unspan bool
+	task   bool // the store is made by a task started here
 }
 
 func (u *cpuUse) key() string {
 	k := fmt.Sprintf("%d|%d|%d|%s|%v", u.pos, u.class, u.tag, u.reason, u.lone)
 	if u.dep != nil {
-		k += "|dep|" + u.own.String() + "|" + fmt.Sprint(u.unspan)
+		k += "|dep|" + u.own.String() + "|" + fmt.Sprint(u.unspan, u.task)
 		for _, sp := range u.spans {
 			k += "|" + sp.String()
 		}
@@ -220,7 +227,7 @@ func hasPerCPU(doc *ast.CommentGroup) bool {
 		return false
 	}
 	for _, c := range doc.List {
-		if d, ok := strings.CutPrefix(c.Text, "//pu:"); ok && strings.TrimSpace(d) == "percpu" {
+		if d, ok := strings.CutPrefix(c.Text, "//pu:"); ok && directive.Normalize(d) == "percpu" {
 			return true
 		}
 	}
@@ -403,7 +410,7 @@ func (w *walker) regionOp(e *ast.CallExpr) (kind int, acquire, ok bool) {
 		case "EnablePreemption":
 			return regPreempt, false, true
 		case "Yield", "Preempt":
-			return regIRQ, false, true
+			return regAll, false, true
 		}
 	case "pluto/arch/x86":
 		switch fn.Name() {
@@ -414,6 +421,34 @@ func (w *walker) regionOp(e *ast.CallExpr) (kind int, acquire, ok bool) {
 		}
 	}
 	return 0, false, false
+}
+
+// parkPoint ends the regions in which the task cannot move to another
+// processor, and those with interrupts disabled, at an operation that may
+// switch to another task: a yield, a wait on a channel, a call of the
+// runtime's park, which every wait in the library ends in. The task may
+// resume on another processor (section 19.3).
+func (w *walker) parkPoint() {
+	if !w.a.cpuOn || w.noPark > 0 {
+		return
+	}
+	w.region(regPreempt, false, token.NoPos)
+	w.region(regIRQ, false, token.NoPos)
+}
+
+// isBlocking reports whether a function is marked //pu:blocking: the
+// runtime's park.
+func (a *analyzer) isBlocking(fn *types2.Func) bool {
+	f := a.funcs[fn.Origin()]
+	if f == nil || f.decl == nil || f.decl.Doc == nil {
+		return false
+	}
+	for _, c := range f.decl.Doc.List {
+		if n, _, ok := directive.Split(c.Text); ok && n == "blocking" {
+			return true
+		}
+	}
+	return false
 }
 
 // region opens a region of kind k here, or closes the regions of the kind.
@@ -464,7 +499,7 @@ func (w *walker) cpuSite(id *ast.Ident, v *types2.Var) {
 	if use == nil {
 		use = &cpuUse{v: v, class: cpuRegion, reason: "an access the compiler cannot classify", text: id.Name, pos: id.Pos()}
 	}
-	if ds := w.a.cpuDeps[id.Pos()]; ds != nil {
+	if ds := w.a.cpuDeps[depKey{id.Pos(), v}]; ds != nil {
 		use = w.depUse(use, ds)
 	}
 	w.sum.addAccess(&access{place: vpath{root: root{kind: rGlobal, v: v}}, locks: w.st.locks, rel: w.st.rel, pos: id.Pos(), pre: !w.st.spawned, cpu: use})
@@ -479,6 +514,13 @@ func (w *walker) depUse(use *cpuUse, ds *cpuDepSite) *cpuUse {
 	if use.class == cpuLone || use.reason == "" {
 		u.reason = w.a.depReason(ds)
 	}
+	w.depAttach(&u, ds)
+	return &u
+}
+
+// depAttach makes the use depend on the loads of a site: the regions this
+// function holds at the store, and, for each load, those held at the load too.
+func (w *walker) depAttach(u *cpuUse, ds *cpuDepSite) {
 	u.dep = ds
 	u.own = w.st.ownRegions()
 	u.spans, u.unspan = nil, false
@@ -496,7 +538,6 @@ func (w *walker) depUse(use *cpuUse, ds *cpuDepSite) *cpuUse {
 		}
 		u.spans = append(u.spans, both)
 	}
-	return &u
 }
 
 // cpuCall notes the regions held at a call of a function that loads a per-CPU
@@ -519,12 +560,28 @@ func (w *walker) cpuCallStore(e *ast.CallExpr) {
 	if !w.a.cpuOn || w.frame != nil || w.quiet > 0 {
 		return
 	}
-	ds := w.a.cpuDepCalls[e]
-	if ds == nil {
+	for _, ds := range w.a.cpuDepCalls[e] {
+		use := w.depUse(&cpuUse{v: ds.v, class: cpuRegion, text: "the call of " + ds.callee, pos: e.Pos()}, ds)
+		w.sum.addAccess(&access{place: vpath{root: root{kind: rGlobal, v: ds.v}}, locks: w.st.locks, rel: w.st.rel, pos: e.Pos(), pre: !w.st.spawned, write: true, cpu: use})
+	}
+}
+
+// cpuTaskStore records a task statement that starts a function which stores
+// a per-CPU variable from a value, or under a condition, that depends on a
+// load of it. The task runs later, on any processor: no region of the task
+// that starts it covers the store, however many it holds here.
+func (w *walker) cpuTaskStore(c *ast.CallExpr) {
+	if !w.a.cpuOn || w.frame != nil || w.quiet > 0 {
 		return
 	}
-	use := w.depUse(&cpuUse{v: ds.v, class: cpuRegion, text: "the call of " + ds.callee, pos: e.Pos()}, ds)
-	w.sum.addAccess(&access{place: vpath{root: root{kind: rGlobal, v: ds.v}}, locks: w.st.locks, rel: w.st.rel, pos: e.Pos(), pre: !w.st.spawned, write: true, cpu: use})
+	for _, ds := range w.a.cpuDepCalls[c] {
+		if !ds.task {
+			continue
+		}
+		use := &cpuUse{v: ds.v, class: cpuRegion, text: "the task started with " + ds.callee, pos: c.Pos(), dep: ds, unspan: true, task: true}
+		use.reason = w.a.depReason(ds)
+		w.sum.addAccess(&access{place: vpath{root: root{kind: rGlobal, v: ds.v}}, pos: c.Pos(), write: true, cpu: use})
+	}
 }
 
 // spanned reports whether, for each load a dependent store depends on, a
@@ -585,6 +642,8 @@ func (w *walker) cpuPlace(p vpath, pos token.Pos, locks lockset, rel released, p
 			lone:   write && p.path == "" && types2.SizesFor("gc", "amd64").Sizeof(p.root.v.Type()) <= 8}
 		if inh != nil {
 			u.inhOnly, u.inh = true, *inh
+		} else if ds := w.a.cpuDeps[depKey{pos, p.root.v}]; ds != nil && write {
+			w.depAttach(u, ds)
 		}
 		add(&access{place: vpath{root: root{kind: rGlobal, v: p.root.v}}, locks: locks, rel: rel, pos: pos, pre: pre, write: write, cpu: u})
 	}
@@ -682,6 +741,13 @@ func (a *analyzer) checkPerCPU(uses []*cpuEntry, groups []*group) {
 			// variable also needs interrupts disabled, as for a use by name.
 			if hs := handlers[u.v]; len(hs) > 0 && !u.lone && !x.locks.regionHeld(true) {
 				a.add(fmt.Sprintf("cpuacc|%d", x.pos), a.cpuAccessError(x, hs))
+				continue
+			}
+			// A store whose value or condition depends on a load of the
+			// variable needs the load in the same region.
+			irq := len(handlers[u.v]) > 0
+			if u.dep != nil && !(x.locks.regionHeld(irq) && u.spanned(x.locks, irq)) {
+				a.add(fmt.Sprintf("cpuacc|%d", x.pos), a.cpuAccessError(x, handlers[u.v]))
 			}
 		}
 	}
@@ -718,6 +784,8 @@ func (a *analyzer) cpuAccessError(x *access, handlers []string) *diag.Diagnostic
 	apart := u.dep != nil && x.locks.regionHeld(len(handlers) > 0)
 	var d *diag.Diagnostic
 	switch {
+	case u.task:
+		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s stores the per-CPU variable %s in a task that runs later, from a value that depends on a load made here", u.text, name)
 	case apart:
 		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s uses the per-CPU variable %s in a region that does not also hold the load it depends on", u.text, name)
 	case len(handlers) > 0:
@@ -731,7 +799,9 @@ func (a *analyzer) cpuAccessError(x *access, handlers []string) *diag.Diagnostic
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s has one copy for each processor. This is %s, so the task could move to another processor in the middle of it and read one processor's copy and write another's.", name, reason)
-	if apart {
+	if u.task {
+		b.WriteString(" The task runs later and on any processor, so no region held here covers its store: the task could not have read the value it stores from this processor's copy at the moment it stores it. Pass the task what it needs without loading " + name + " first, or load and store inside the task, in one region.")
+	} else if apart {
 		b.WriteString(" The store is inside a region, but the load it depends on was made outside that region (or in an earlier one), so the task could have moved between the two. The load and the store must be inside the same region.")
 	} else if len(handlers) > 0 {
 		fmt.Fprintf(&b, " The interrupt handler %s also uses %s, so an interrupt on this processor could run in the middle of it as well: it must be inside a region with maskable interrupts disabled (x86.Cli to x86.Sti, x86.SaveFlagsCli to x86.RestoreFlags, or an rt.Lock held), not just with preemption disabled.", strings.Join(handlers, " and "), name)
@@ -868,7 +938,7 @@ func isTrapDecl(d *ast.FuncDecl) bool {
 		return false
 	}
 	for _, c := range d.Doc.List {
-		if name, ok := strings.CutPrefix(c.Text, "//pu:"); ok && strings.Join(strings.Fields(name), " ") == "interrupt trap" {
+		if name, ok := strings.CutPrefix(c.Text, "//pu:"); ok && directive.Normalize(name) == "interrupt trap" {
 			return true
 		}
 	}

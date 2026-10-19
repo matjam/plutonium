@@ -1,0 +1,6 @@
+$DIR/main.p:30:2: ticks = ... uses the per-CPU variable ticks outside a region where the task cannot move to another processor
+$DIR/main.p:37:2: the access through a pointer to ticks uses the per-CPU variable ticks in a region that does not also hold the load it depends on
+$DIR/main.p:46:2: pp.a = ... uses the per-CPU variable pp in a region that does not also hold the load it depends on
+$DIR/main.p:55:2: the call of g uses the per-CPU variable ticks outside a region where the task cannot move to another processor
+$DIR/main.p:62:2: ticks = ... uses the per-CPU variable ticks outside a region where the task cannot move to another processor
+$DIR/main.p:69:2: ticks = ... uses the per-CPU variable ticks outside a region where the task cannot move to another processor

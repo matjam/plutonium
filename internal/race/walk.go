@@ -162,6 +162,7 @@ type walker struct {
 	noFilter bool // deferred calls at the exit: every Scope is still there
 	inlined  int  // depth of literals walked in place
 	conc     bool // a summary: the code walked runs in several scoped tasks at once
+	noPark   int  // inside the communication of a select: the select decided whether to wait
 }
 
 func newWalker(a *analyzer, fn *function) *walker {
@@ -387,12 +388,21 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 			return cc.Body
 		})
 	case *ast.SelectStmt:
+		hasDefault := false
+		for _, c := range st.Body.List {
+			hasDefault = hasDefault || c.(*ast.CommClause).Comm == nil
+		}
+		if !hasDefault {
+			w.parkPoint() // waits for a communication
+		}
 		w.clauses(label, st.Body.List, false, func(c ast.Stmt) []ast.Stmt {
 			cc := c.(*ast.CommClause)
 			if cc.Comm == nil {
 				return cc.Body
 			}
+			w.noPark++ // the select has waited, or has a default case
 			w.stmt(cc.Comm, "")
+			w.noPark--
 			return cc.Body
 		})
 	case *ast.ReturnStmt:
@@ -417,6 +427,7 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 		w.conv(st.Value, elem)
 		w.cross(&crossing{pos: st.Arrow, what: "the value sent on " + exprText(st.Chan), typ: elem, vals: v, expr: st.Value})
 		w.publishAt(v, st.Arrow, "sent on a channel")
+		w.parkPoint()
 	default:
 		panic(fmt.Sprintf("race: unsupported statement %T", st))
 	}
@@ -537,6 +548,11 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 		case *types2.Signature:
 			// Range over a function: it is called with the loop body as
 			// its yield function, which runs here.
+			if w.a.cpuOn {
+				c := w.a.rangeCall(st)
+				w.cpuCall(c)
+				w.cpuCallStore(c)
+			}
 			w.callValue(xv, loopBody(st), st.Pos(), nil, "the iterator of the range loop")
 		default:
 			if types2.MapOf(xt) != nil {
@@ -548,7 +564,11 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 			}
 		}
 	}
+	_, isChan := underlying(xt).(*types2.Chan)
 	w.loop(label, func() *state {
+		if isChan {
+			w.parkPoint() // each iteration waits for a value
+		}
 		exit := w.st.clone()
 		for _, kv := range []struct {
 			e ast.Expr
@@ -977,6 +997,7 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 	}
 	t := w.target(c)
 	args := w.args(c, t.sig)
+	w.cpuTaskStore(c)
 	exprs := argExprs(c, t.sig)
 	var all []origins
 	if t.hasRecv {
@@ -1410,6 +1431,7 @@ func (w *walker) value1(e ast.Expr) origins {
 			return w.addrOf(e.X)
 		case token.ARROW:
 			w.value(e.X)
+			w.parkPoint()
 			return nil
 		}
 		w.value(e.X)

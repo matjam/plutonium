@@ -62,7 +62,11 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		for _, a := range e.Args {
 			w.value(a)
 		}
-		w.region(k, acquire, e.Pos())
+		if k == regAll {
+			w.parkPoint()
+		} else {
+			w.region(k, acquire, e.Pos())
+		}
 		return pad(nil, w.typeOfCallResults(e))
 	}
 	if op, recv := w.lockOp(e); op != "" {
@@ -110,6 +114,9 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	}
 	args := w.args(e, t.sig)
 	w.cpuCallStore(e)
+	if fn := w.calledFunc(e); fn != nil && w.a.isBlocking(fn) {
+		w.parkPoint() // a call of the function that every wait ends in
+	}
 	if fn := w.calledFunc(e); scoped.StartsTaskWithFunc(fn) {
 		// A runtime or library function that starts a task with its func
 		// arguments (language spec section 12.12): the task runs them.

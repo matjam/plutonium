@@ -216,10 +216,12 @@ type analyzer struct {
 	cpuLoadAt    map[token.Pos]int
 	cpuLoadCall  map[loadKey]int
 	cpuCallLoads map[*ast.CallExpr][]int
-	cpuDeps      map[token.Pos]*cpuDepSite
-	cpuDepCalls  map[*ast.CallExpr]*cpuDepSite
+	cpuDeps      map[depKey]*cpuDepSite
+	cpuDepCalls  map[*ast.CallExpr][]*cpuDepSite
 	cpuFn        map[*function]*cpuFnInfo
-	litFx        map[*function]*cpuFnInfo
+	cpuNever     map[*function]int8               // the functions that never return (dep.go)
+	rangeCalls   map[*ast.RangeStmt]*ast.CallExpr // the calls that ranges over funcs make (dep.go)
+	cpuLeave     map[*function]bool               // the functions that can leave their caller without returning to it
 
 	owned   ownedViews // view fields that own what they point to (ownedview.go)
 	declPkg map[*types2.Package]*load.Package
