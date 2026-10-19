@@ -32,6 +32,7 @@ func parseUint(s string, base int, bitSize int) (uint64, error) {
 	if bitSize == 0 {
 		bitSize = 64
 	}
+	s0 := s
 	underscores := false
 	if base == 0 {
 		base = 10
@@ -82,6 +83,9 @@ func parseUint(s string, base int, bitSize int) (uint64, error) {
 			return maxVal, ErrRange
 		}
 		n = n1
+	}
+	if underscores && !underscoreOK(s0) {
+		return 0, ErrSyntax
 	}
 	return n, nil
 }

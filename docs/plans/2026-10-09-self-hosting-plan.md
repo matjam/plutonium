@@ -841,7 +841,7 @@ Sizes are in lines written or changed, not in time.
 | 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 | not started |
 | 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 | translated and differentially tested (2026-10-19; below) |
 | 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion | not started |
-| 6 | Constant package | 2,500-3,500 | hand | medium | - | done in Go (`internal/constant`, 2,800 lines, differential against go/constant; roadmap item 56); the quoting prerequisite is complete; its translation is not started |
+| 6 | Constant package | 2,500-3,500 | hand | medium | - | done in Go (`internal/constant`, 2,800 lines, differential against go/constant; roadmap item 56); the quoting prerequisite is complete; translated and differentially tested (2026-10-19; below) |
 | 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 26,772 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup | not started |
 | 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 | not started |
 | 9 | PlutoniumOS: target and OS layer, integrated assembler and linker, cross-built seed, on-system rebuild | 5,000+ | hand | high | 8, kernel system calls | not started |
@@ -881,7 +881,20 @@ code that makes it is reachable); the closure analysis took a call's interface r
 its summaries of mutually recursive functions grew with the depth of their calls (`closureflow.go`); and the
 escape analysis boxed a generic conversion of interface instantiations (`escape.isDirectConv`).
 
-What remains: the translated parser is not wired into a driver (phase 8), and the dumps are not yet fed to
+Phase 6 status (2026-10-19). `internal/constant` is translated by `tools/go2pu` into
+`selfhost/internal/constant` (2,851 lines, all generated, no hand fixes). The `constdemo` demo
+(`tools/go2pu/testdata/constdemo`) makes every kind of literal (the valid and invalid forms of the
+go/constant tests), the makers, the 512-bit floats in every sign combination and 3,000 random expressions
+(unary, shift, conversions, binary and comparison operators) from its own generator, and prints
+everything the API tells about each value (33,600 lines); `TestDifferential/constdemo` requires the Go and
+the Plutonium build to print the same text at `-O0` and `-O2`. Result: 0 differences. The port found two
+defects, fixed with tests: `pluto/strconv.ParseInt` and `ParseUint` with base 0 accepted misplaced
+underscores (`1__2`, `1_`, `_1`), where Go's `underscoreOK` rejects them (`testdata/lib/strconvint.p`);
+and go2pu did not allocate an escaping slice literal of a named slice type (`nat{x}` is reported by Go
+as `nat{...} escapes to heap`, not `[]T{...}`), so `natUint64` returned a slice of its own frame (the
+compiler rejected the translation).
+
+What remains of phase 4: the translated parser is not wired into a driver (phase 8), and the dumps are not yet fed to
 the translated type checker (phase 7). The pieces of the Go front end that other phases use (`printer`,
 `format`) are "later".
 

@@ -24,6 +24,7 @@ var translations = []struct {
 	{dir: "../../internal/ssa"},
 	{dir: "../../internal/arch/amd64"},
 	{dir: "../../internal/opt"}, // magic.go is ported by hand (math/big)
+	{dir: "../../internal/constant"},
 	{dir: "../../internal/syntax/constraint"},
 	{dir: "../../internal/syntax/token"},
 	{dir: "../../internal/syntax/scanner"},
@@ -36,6 +37,7 @@ var translations = []struct {
 	{dir: "testdata/rewrites", demo: true},
 	{dir: "testdata/scopes", demo: true},     // WaitGroups rewritten to Scopes
 	{dir: "testdata/pudemo", demo: true},     // internal/pu, translated name for name
+	{dir: "testdata/constdemo", demo: true},  // the constant package
 	{dir: "testdata/parsecheck", demo: true}, // the syntax packages, over the repository (TestParseCheck)
 }
 

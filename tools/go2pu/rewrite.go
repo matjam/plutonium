@@ -243,8 +243,9 @@ func (t *fileTr) heapLiteral(n *ast.CompositeLit) (string, bool) {
 		}
 		return t.puNew(t.typeText(T) + t.splice(n)), true
 	}
-	// Go reports a slice literal at its opening brace.
-	if _, ok := T.Underlying().(*types.Slice); ok && t.esc.has(t.fset, n.Lbrace, "[]", "escapes to heap") {
+	// Go reports a slice literal at its opening brace, as "[]T{...}" (or "[]T{}") or, for a
+	// named slice type, "nat{...}".
+	if _, ok := T.Underlying().(*types.Slice); ok && t.esc.has(t.fset, n.Lbrace, "", "} escapes to heap") {
 		typ := ""
 		if n.Type == nil {
 			typ = t.typeText(T)
