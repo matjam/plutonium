@@ -1,6 +1,9 @@
 package compat
 
-import "pluto/os"
+import (
+	"pluto/io"
+	"pluto/os"
+)
 
 // The operating-system name functions of Go's os package return a string
 // that holds the bytes the system gave, valid UTF-8 or not. A Plutonium
@@ -19,3 +22,40 @@ func LookupEnv(key string) (string, bool) { return os.LookupEnvLossy(key) }
 
 // TempDir is os.TempDir with each invalid byte replaced by U+FFFD.
 func TempDir() string { return os.TempDirLossy() }
+
+// Args is os.Args: the program name and its arguments, each invalid byte
+// of an argument replaced by U+FFFD.
+func Args() []string {
+	n := os.NArgs()
+	args := Make[string](n)
+	for i := 0; i < n; i++ {
+		args[i] = os.ArgLossy(i)
+	}
+	return args
+}
+
+// ReadFile is os.ReadFile: the contents of the named file in memory from
+// alloc.Default(), which nothing frees.
+func ReadFile(name string) ([]byte, error) {
+	f := os.Open(name) or return nil, err
+	data, err := ReadAll(&f)
+	_ = f.Close()
+	return data, err
+}
+
+// ReadAll is io.ReadAll: everything r yields until EOF, in memory from
+// alloc.Default().
+func ReadAll(r io.Reader) ([]byte, error) {
+	var data []byte
+	var chunk [16 << 10]byte
+	for {
+		n, err := r.Read(chunk[:])
+		data = Append(data, chunk[:n]...)
+		if err == io.EOF {
+			return data, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+}

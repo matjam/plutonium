@@ -24,13 +24,19 @@ var translations = []struct {
 	{dir: "../../internal/ssa"},
 	{dir: "../../internal/arch/amd64"},
 	{dir: "../../internal/opt"}, // magic.go is ported by hand (math/big)
+	{dir: "../../internal/syntax/constraint"},
+	{dir: "../../internal/syntax/token"},
+	{dir: "../../internal/syntax/scanner"},
+	{dir: "../../internal/syntax/ast"},
+	{dir: "../../internal/syntax/parser"},
 	{dir: "testdata/objdemo", demo: true},
 	{dir: "testdata/ssademo", demo: true},
 	{dir: "testdata/amd64demo", demo: true},
 	{dir: "testdata/optdemo", demo: true},
 	{dir: "testdata/rewrites", demo: true},
-	{dir: "testdata/scopes", demo: true}, // WaitGroups rewritten to Scopes
-	{dir: "testdata/pudemo", demo: true}, // internal/pu, translated name for name
+	{dir: "testdata/scopes", demo: true},     // WaitGroups rewritten to Scopes
+	{dir: "testdata/pudemo", demo: true},     // internal/pu, translated name for name
+	{dir: "testdata/parsecheck", demo: true}, // the syntax packages, over the repository (TestParseCheck)
 }
 
 const selfhostDir = "../../selfhost"
@@ -162,12 +168,10 @@ func TestHandFixNotes(t *testing.T) {
 	}
 	all := strings.Join(res.Notes, "\n")
 	for _, want := range []string{
-		"closure escapes its frame (returned)",
 		"closure escapes its frame (passed to a function that keeps it)",
 		"in an interface: Plutonium boxes it",
 		"recover:",
 		"channel type",
-		"range over a function",
 		"defer in a loop",
 		"sort comparison uses its indexes",
 		"encoding/binary.BigEndian.PutUint32: no translation",
@@ -175,7 +179,6 @@ func TestHandFixNotes(t *testing.T) {
 		"complex: Plutonium has no complex numbers",
 		"pluto/os has no Hostname",
 		"strconv.AppendQuote: Plutonium's takes a vec.Appender destination",
-		`no Plutonium package for import "iter"`,
 	} {
 		if !strings.Contains(all, want) {
 			t.Errorf("no note containing %q in:\n%s", want, all)

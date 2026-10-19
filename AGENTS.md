@@ -269,10 +269,10 @@ Work that remains, in order:
    `skill/plutonium` and `tools/go2pu` with the `os` change. Items 123 to 127 (D37, D38: the dependent-store check
    in `internal/race`, typed `x86.Gate`, `InterruptGate` and `TrapGate`, the `//pu:interrupt trap` form, `x86.Sti`
    ending a handler's region, the hover text and the directive audit) are built.
-2. The self-hosted port (`docs/plans/2026-10-09-self-hosting-plan.md` section 8): the back end is
-   translated and differentially tested in `selfhost/`; next are the SSA reader (phase 3), the syntax
-   packages through `tools/go2pu` (phase 4: parse and print the whole repository with both versions and
-   diff), the constant package translation, then `lower` and `types2`. Re-run the translations after any
+2. The self-hosted port (`docs/plans/2026-10-09-self-hosting-plan.md` section 8): the back end and the syntax
+   packages (`token`, `scanner`, `ast`, `parser`; `TestParseCheck` parses every `.p` and `.go` file of the
+   repository with both versions and compares dumps) are translated and differentially tested in
+   `selfhost/`; next are the SSA reader (phase 3), the constant package translation, then `lower` and `types2`. Re-run the translations after any
    library change (`TestTranslationsUpToDate`).
 3. Loose ends from item 132: `hash.Set` takes no owner keys (spec 7.10) and `vec.Fixed` owns nothing; a
    copy-method error on a container of owners (E3306) points at the library line, not the call; E3309 is

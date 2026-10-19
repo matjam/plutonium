@@ -23,11 +23,15 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 	case *ast.BasicLit:
 		t.checkBinaryString(n)
 	case *ast.Ident:
+		name := goName(n.Name)
 		if t.isHeapUse(n) {
 			if sel, ok := t.parent[n].(*ast.SelectorExpr); ok && sel.X == n {
-				return n.Name, true // x.f and x.m() dereference the pointer themselves
+				return name, true // x.f and x.m() dereference the pointer themselves
 			}
-			return "(*" + n.Name + ")", true
+			return "(*" + name + ")", true
+		}
+		if name != n.Name {
+			return name, true
 		}
 	case *ast.FuncDecl:
 		return t.funcWithHeapParams(n, n.Type, n.Recv, n.Body)
@@ -62,9 +66,6 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 	case *ast.RangeStmt:
 		t.checkHeapRange(n)
-		if _, ok := t.typeOf(n.X).Underlying().(*types.Signature); ok {
-			t.note(n, "range over a function: not supported yet (roadmap item 22)")
-		}
 	case *ast.CallExpr:
 		return t.call(n)
 	case *ast.TypeSpec:
@@ -114,6 +115,19 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// plutoKeywords are the reserved words of Plutonium that are not keywords of
+// Go (language spec appendix B): an identifier of that spelling gets an
+// underscore.
+var plutoKeywords = map[string]bool{"enum": true, "packed": true}
+
+// goName returns the Plutonium spelling of the Go identifier name.
+func goName(name string) string {
+	if plutoKeywords[name] {
+		return name + "_"
+	}
+	return name
 }
 
 // stringSlice translates a slice expression on a string, which Plutonium
@@ -172,7 +186,7 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 		}
 		return t.use(r.pkg, r.local) + "." + r.name, true
 	}
-	if r, ok := special[p+"."+sel.Sel.Name]; ok {
+	if r, ok := t.specialName(p, sel.Sel.Name); ok {
 		t.compat()
 		return r, true
 	}
@@ -447,7 +461,18 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 		if n.Ellipsis.IsValid() {
 			dots = "..."
 		}
-		return fmt.Sprintf("%s.Append(%s%s)", t.compat(), t.list(n.Args), dots), true
+		return fmt.Sprintf("%s.Append%s(%s%s)", t.compat(), t.appendTypeArg(n), t.list(n.Args), dots), true
+	case "new":
+		// Go's new returns a pointer to a fresh variable, which Plutonium's
+		// owned[T] is not: the translation allocates in the phase arena
+		// like every other allocation Go makes on the heap.
+		if len(n.Args) != 1 {
+			return "", false
+		}
+		if tv := t.info.Types[n.Args[0]]; tv.IsType() {
+			return fmt.Sprintf("%s.Alloc[%s]()", t.use(puPkg, "pu"), t.typeText(tv.Type)), true
+		}
+		return t.puNew(t.render(n.Args[0])), true
 	case "make":
 		T := t.typeOf(n)
 		if st, ok := T.Underlying().(*types.Slice); ok {
@@ -468,6 +493,33 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 		t.note(n, "%s: Plutonium has no complex numbers", name)
 	}
 	return "", false
+}
+
+// appendTypeArg returns the explicit element type argument of compat.Append
+// when an appended value is not of the element type itself (a *CaseClause
+// appended to a []Stmt): Go converts the value to the interface, but
+// Plutonium does not infer the type argument from such a call.
+func (t *fileTr) appendTypeArg(n *ast.CallExpr) string {
+	if len(n.Args) < 2 || n.Ellipsis.IsValid() {
+		return ""
+	}
+	st, ok := t.typeOf(n.Args[0]).Underlying().(*types.Slice)
+	if !ok {
+		return ""
+	}
+	for _, a := range n.Args[1:] {
+		at := t.typeOf(a)
+		if at == nil {
+			continue
+		}
+		if b, ok := at.(*types.Basic); ok && b.Info()&types.IsUntyped != 0 {
+			continue
+		}
+		if !types.Identical(at, st.Elem()) {
+			return "[" + t.typeText(st.Elem()) + "]"
+		}
+	}
+	return ""
 }
 
 // intArg renders a size argument of make as an int: make takes any
@@ -639,7 +691,11 @@ func (t *fileTr) closureEscape(lit *ast.FuncLit) string {
 	if !t.captures(lit) || !t.esc.has(t.fset, lit.Pos(), "func literal escapes", "") {
 		return ""
 	}
-	if why := t.escapeContext(lit); why != "" {
+	if why := t.escapeContext(lit); why == "returned" {
+		// A function may return a closure: it is built in a region of the
+		// caller's frame (language spec section 11.5).
+		return ""
+	} else if why != "" {
 		return why
 	}
 	return "passed to a function that keeps it"
@@ -862,7 +918,7 @@ func (t *fileTr) typeText(T types.Type) string {
 func (t *fileTr) namedText(obj *types.TypeName, targs *types.TypeList) string {
 	name := obj.Name()
 	if p := obj.Pkg(); p != nil && p != t.pkg {
-		if r, ok := special[p.Path()+"."+name]; ok {
+		if r, ok := t.specialName(p.Path(), name); ok {
 			t.compat()
 			return r
 		}

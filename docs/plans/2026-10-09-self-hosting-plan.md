@@ -839,13 +839,51 @@ Sizes are in lines written or changed, not in time.
 | 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - | growable arenas (`arena.Chunked`), the OS layer (`os`, `os/exec`, `path/filepath`, `time`, `flag`) and the `pu` mirror package with its go2pu mapping (section 11) done (roadmap items 52 and 56); `strconv.ParseFloat`, `unicode`, `cmp`, `slices` and `container/heap` done (roadmap item 56; Go 1.27's float parsing is fast unrounded scaling, not Eisel-Lemire, and the port follows it); complete `strconv` quoting is native verified (all plain/ASCII/graphic string, rune and Appender forms; [verification](../verification/2026-10-12-strconv-quoting.md)); allocation-free streaming FNV and explicit-key SipHash24 are native verified ([verification](../verification/2026-10-12-streaming-hash.md)); strings with allocators and migrating the compiler to `pu`, including comparable-value serialization and hash key acquisition, remain |
 | 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas | prototype done |
 | 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 | not started |
-| 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 | not started |
+| 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 | translated and differentially tested (2026-10-19; below) |
 | 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion | not started |
 | 6 | Constant package | 2,500-3,500 | hand | medium | - | done in Go (`internal/constant`, 2,800 lines, differential against go/constant; roadmap item 56); the quoting prerequisite is complete; its translation is not started |
 | 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 26,772 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup | not started |
 | 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 | not started |
 | 9 | PlutoniumOS: target and OS layer, integrated assembler and linker, cross-built seed, on-system rebuild | 5,000+ | hand | high | 8, kernel system calls | not started |
 | later | Formatter (`printer`, `format`, `diff`, `tabwriter`, `go/doc/comment`); idiomatic cleanup replacing compat; performance | 4,534 translated + 2,100 library | mixed | low | 8 | not started |
+
+Phase 4 status (2026-10-19). `token`, `scanner`, `ast`, `parser` and the `constraint` package they use
+(a fork of `go/build/constraint`, `internal/syntax/constraint`, which `load` and the printer now import too)
+are translated by `tools/go2pu` into `selfhost/internal/syntax/...` (9,485 lines of Plutonium, all generated;
+`ast/print.go` is left out) and compile with `pluto build`. `TestParseCheck` (`tools/go2pu`) builds the
+`parsecheck` demo from the Go packages and from the translation, at `-O0` and `-O2`, runs both over every `.p`
+and `.go` file of the repository (1,500 files: the tests' inputs, the library, the examples, `selfhost`) and
+over generated inputs (real files cut at three points and with a line removed, 40 errors in one file,
+nesting past the parser's limit of 100,000 levels, a BOM, NUL, CRLF, bad literals, `//line` and `//pu:`
+directives), and requires the same dump: the sorted error list, then every node's kind, position, end and
+detail, then the comments, in both the compiler's mode and the all-errors mode. Result: 0 differences. The one
+deliberate exception is a file that is not valid UTF-8: a Plutonium string holds valid UTF-8, so the text of
+a literal or comment is made with each invalid byte replaced by U+FFFD and its end position differs; for
+such a file only the error list is compared (the parser reports the bytes either way).
+
+The hand-written part is small and lives in the Go sources and `selfhost/compat`, so the translation stays
+mechanical: the parser's `recover` is gone (`parser.bail` sets a flag, makes the scanner's token EOF and
+records no more errors, and `ParseFile` discards the tree, as the Go version did after its panic);
+`scanner.ErrorList.Err` returns a `*ErrorList` (a Plutonium error is a word) and `Scanner.InitList` takes the
+list instead of a handler closure that outlives its frame; `sort` became `slices.SortFunc`; `compat.Mutex`,
+`RWMutex` and `AtomicPointer` (36 lines) stand for the locks and atomics, which go2pu maps in the compiler's
+own packages only; `compat.Args`, `ReadFile` and `ReadAll` (41 lines) are the OS functions the demo needs.
+go2pu gained the `enum` and `packed` renames (Plutonium keywords), `new(T)` to `pu.Alloc`, explicit
+`compat.Append` type arguments, and the `iter`, `slices`, `cmp`, `unicode` and `path/filepath` import maps.
+The parser needs a stack for its recursion: the demo's `main` has `//pu:stack 1G`.
+
+The port found three compiler problems, fixed with tests: the race analysis made every program with
+file I/O reachable to the runtime's task starts through an unused function value (`rt.GoService(runFuncs)`),
+so it ran on the whole parser, whose 90 `End` methods and 170 `parse` functions call each other through
+interfaces and take minutes and tens of gigabytes (`race.mayStartTasks` now counts a function value only when
+code that makes it is reachable); the closure analysis took a call's interface result for a closure
+(`ast.Expr` may hold a func value only if a named func type implements it, `lower.interfaceMayHoldFunc`) and
+its summaries of mutually recursive functions grew with the depth of their calls (`closureflow.go`); and the
+escape analysis boxed a generic conversion of interface instantiations (`escape.isDirectConv`).
+
+What remains: the translated parser is not wired into a driver (phase 8), and the dumps are not yet fed to
+the translated type checker (phase 7). The pieces of the Go front end that other phases use (`printer`,
+`format`) are "later".
 
 Roadmap items that must land first: item 5 (escape errors) before any hand-written compiler code; item 11
 (the errors design) has landed and the port follows it; item 43 (debug allocator) to check
@@ -870,7 +908,7 @@ differential tests.
   the compat package's own Plutonium tests; `TestHandFixNotes` checks that every unsupported construct is
   reported.
 - `selfhost/` (a Plutonium module, `module selfhost`): `compat` (380 lines and tests), `elf` (the
-  `debug/elf` subset), `internal/syntax/token/pos.p` (a stub of `token.Pos` until `token` is translated),
+  `debug/elf` subset), the translations of `internal/syntax/{constraint,token,scanner,ast,parser}` (phase 4; the `token.Pos` stub is gone),
   and the translations of `internal/objfile`, `internal/ssa`, `internal/opt` and `internal/arch/amd64`
   (9,689 lines of Plutonium, 685 references to compat: 182 `Append`, 123 `MapAt`, 72 `NewMap`, 46
   `Clone`, 35 `Sprintf`, and 159 `new(...)` allocations for what Go's escape analysis moves to the heap),

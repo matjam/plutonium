@@ -93,6 +93,11 @@ func (r *Result) Dir(root string) (string, error) {
 // rewritten individually (see special) and the import disappears.
 var stdMap = map[string]string{
 	"bytes":           "pluto/bytes",
+	"cmp":             "pluto/cmp",
+	"iter":            "pluto/iter",
+	"slices":          "pluto/slices",
+	"unicode":         "pluto/unicode",
+	"path/filepath":   "pluto/path/filepath",
 	"errors":          "pluto/errors",
 	"fmt":             "pluto/fmt",
 	"io":              "pluto/io",
@@ -133,6 +138,33 @@ var special = map[string]string{
 	"os.Getenv":    "compat.Getenv",
 	"os.LookupEnv": "compat.LookupEnv",
 	"os.TempDir":   "compat.TempDir",
+	// Go's os.Args, os.ReadFile and io.ReadAll return plain slices and
+	// strings; the library's return owners (vec.Vec) or take accessors.
+	"os.Args":     "compat.Args()",
+	"os.ReadFile": "compat.ReadFile",
+	"io.ReadAll":  "compat.ReadAll",
+}
+
+// syncStubs replace the locks and atomics of the compiler's own packages
+// (internal/...), which run one task, with no-ops. The demos under testdata
+// keep the real ones.
+var syncStubs = map[string]string{
+	"sync.Mutex":          "compat.Mutex",
+	"sync.RWMutex":        "compat.RWMutex",
+	"sync/atomic.Pointer": "compat.AtomicPointer",
+}
+
+// specialName returns the compat replacement of the Go name p.name (p an
+// import path), if there is one.
+func (t *translator) specialName(p, name string) (string, bool) {
+	if r, ok := special[p+"."+name]; ok {
+		return r, true
+	}
+	if strings.HasPrefix(t.goPath, goModule+"/internal/") {
+		r, ok := syncStubs[p+"."+name]
+		return r, ok
+	}
+	return "", false
 }
 
 // appendPkgs are the Go packages whose Append functions take a vec.Appender
@@ -183,6 +215,12 @@ const (
 	ioPkg     = "pluto/io"
 	sortPkg   = "pluto/sort"
 )
+
+// untranslated lists the Go files that have no Plutonium counterpart, by path
+// relative to the Go module, and why. go2pu skips them.
+var untranslated = map[string]string{
+	"internal/syntax/ast/print.go": "the reflection-based debugging printer (plan section 3.6)",
+}
 
 // TranslateDir translates the Go package in dir.
 func TranslateDir(cfg *Config, dir string) (*Result, error) {
@@ -241,7 +279,7 @@ func TranslateDir(cfg *Config, dir string) (*Result, error) {
 		return nil, err
 	}
 	res := &Result{GoPath: goPath}
-	tc := &translator{cfg: cfg, fset: fset, info: info, pkg: pkg, esc: esc, exports: plutoExports(cfg.PlutoRoot)}
+	tc := &translator{goPath: goPath, cfg: cfg, fset: fset, info: info, pkg: pkg, esc: esc, exports: plutoExports(cfg.PlutoRoot)}
 	res.OutPath = tc.mapPath(goPath)
 	tc.indexParents(files)
 	tc.planScopes(files, res)
@@ -253,6 +291,9 @@ func TranslateDir(cfg *Config, dir string) (*Result, error) {
 	for _, f := range files {
 		base := filepath.Base(fset.File(f.Pos()).Name())
 		name := strings.TrimSuffix(base, ".go") + ".p"
+		if _, skip := untranslated[path.Join(strings.TrimPrefix(goPath, goModule+"/"), base)]; skip {
+			continue
+		}
 		if handWritten(filepath.Join(outDir, name)) {
 			res.Kept = append(res.Kept, name)
 			continue
@@ -315,6 +356,7 @@ type translator struct {
 	fset   *token.FileSet
 	info   *types.Info
 	pkg    *types.Package
+	goPath string
 	esc    escapes
 	heap   map[*types.Var]bool // variables Go moves to the heap
 	parent map[ast.Node]ast.Node
@@ -411,6 +453,9 @@ func (t *fileTr) translate() ([]byte, error) {
 	}
 	src, err := format.Source(out.Bytes())
 	if err != nil {
+		if dump := os.Getenv("GO2PU_DUMP_UNFORMATTED"); dump != "" {
+			_ = os.WriteFile(dump, out.Bytes(), 0o644)
+		}
 		return out.Bytes(), fmt.Errorf("%s: formatting the translation: %w", rel, err)
 	}
 	return src, nil
