@@ -32,6 +32,7 @@ type Scanner struct {
 	dir  string       // directory portion of file.Name()
 	src  []byte       // source
 	err  ErrorHandler // error reporting; or nil
+	errs *ErrorList   // errors are added here, if not nil (InitList)
 	mode Mode         // scanning mode
 
 	// scanning state
@@ -134,6 +135,19 @@ const (
 // Note that Init may call err if there is an error in the first character
 // of the file.
 func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode) {
+	s.init(file, src, err, nil, mode)
+}
+
+// InitList is Init with the errors added to errs, as an error handler
+// func(pos token.Position, msg string) { errs.Add(pos, msg) } would, without
+// a function value that refers to the caller's variables (a Plutonium
+// closure cannot outlive its frame; the parser keeps its errors in the
+// parser that holds the scanner).
+func (s *Scanner) InitList(file *token.File, src []byte, errs *ErrorList, mode Mode) {
+	s.init(file, src, nil, errs, mode)
+}
+
+func (s *Scanner) init(file *token.File, src []byte, err ErrorHandler, errs *ErrorList, mode Mode) {
 	// Explicitly initialize all fields since a scanner may be reused.
 	if file.Size() != len(src) {
 		panic(fmt.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src)))
@@ -146,6 +160,7 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 		dir:  dir,
 		src:  src,
 		err:  err,
+		errs: errs,
 		mode: mode,
 
 		ch:          ' ',
@@ -160,7 +175,9 @@ func (s *Scanner) Init(file *token.File, src []byte, err ErrorHandler, mode Mode
 }
 
 func (s *Scanner) error(offs int, msg string) {
-	if s.err != nil {
+	if s.errs != nil {
+		s.errs.Add(s.file.Position(s.file.Pos(offs)), msg)
+	} else if s.err != nil {
 		s.err(s.file.Position(s.file.Pos(offs)), msg)
 	}
 	s.ErrorCount++

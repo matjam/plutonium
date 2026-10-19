@@ -11,7 +11,7 @@ package printer
 
 import (
 	"fmt"
-	"go/build/constraint"
+	"github.com/matjam/plutonium/internal/syntax/constraint"
 	"io"
 	"os"
 	"strings"

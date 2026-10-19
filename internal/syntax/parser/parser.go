@@ -27,9 +27,9 @@ package parser
 import (
 	"fmt"
 	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/constraint"
 	"github.com/matjam/plutonium/internal/syntax/scanner"
 	"github.com/matjam/plutonium/internal/syntax/token"
-	"go/build/constraint"
 	"strings"
 )
 
@@ -78,13 +78,16 @@ type parser struct {
 	// nestLev is used to track and limit the recursion depth
 	// during parsing.
 	nestLev int
+
+	// bailed is set when the parser gives up (see bail): from then on the
+	// input is at its end and no more errors are recorded.
+	bailed bool
 }
 
 func (p *parser) init(file *token.File, src []byte, mode Mode) {
 	p.file = file
 	p.src = src
-	eh := func(pos token.Position, msg string) { p.errors.Add(pos, msg) }
-	p.scanner.Init(p.file, src, eh, scanner.ScanComments)
+	p.scanner.InitList(p.file, src, &p.errors, scanner.ScanComments)
 
 	p.top = true
 	p.mode = mode
@@ -134,7 +137,7 @@ func incNestLev(p *parser) *parser {
 	p.nestLev++
 	if p.nestLev > maxNestLev {
 		p.error(p.pos, "exceeded max nesting depth")
-		panic(bailout{})
+		p.bail()
 	}
 	return p
 }
@@ -147,6 +150,11 @@ func decNestLev(p *parser) {
 
 // Advance to the next token.
 func (p *parser) next0() {
+	if p.bailed {
+		p.tok = token.EOF
+		p.lit = ""
+		return
+	}
 	// Because of one-token look-ahead, print the previous token
 	// when tracing as it provides a more readable output. The
 	// very first token (!p.pos.IsValid()) is not initialized
@@ -276,14 +284,21 @@ func (p *parser) next() {
 	}
 }
 
-// A bailout panic is raised to indicate early termination. pos and msg are
-// only populated when bailing out of object resolution.
-type bailout struct {
-	pos token.Pos
-	msg string
+// bail ends the parse early: the parser behaves as if the input ended at
+// the current token, and records no further errors, so that the parse
+// functions return without doing more work. (Plutonium has no recover, so
+// the parser does not unwind with a panic; the result is the same, because
+// ParseFile discards the tree of a parse that bailed out.)
+func (p *parser) bail() {
+	p.bailed = true
+	p.tok = token.EOF
+	p.lit = ""
 }
 
 func (p *parser) error(pos token.Pos, msg string) {
+	if p.bailed {
+		return
+	}
 	if p.trace {
 		defer un(trace(p, "error: "+msg))
 	}
@@ -299,7 +314,8 @@ func (p *parser) error(pos token.Pos, msg string) {
 			return // discard - likely a spurious error
 		}
 		if n > 10 {
-			panic(bailout{})
+			p.bail()
+			return
 		}
 	}
 

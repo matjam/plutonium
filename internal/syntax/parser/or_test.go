@@ -196,7 +196,7 @@ func TestParseOrErrors(t *testing.T) {
 			t.Errorf("%q: no error", tt.src)
 			continue
 		}
-		got := err.(scanner.ErrorList)[0].Error()
+		got := (*err.(*scanner.ErrorList))[0].Error()
 		if got = strings.TrimPrefix(got, "e.p:"); got != tt.want {
 			t.Errorf("%q:\n got %s\nwant %s", tt.src, got, tt.want)
 		}

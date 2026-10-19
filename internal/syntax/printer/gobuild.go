@@ -5,7 +5,7 @@
 package printer
 
 import (
-	"go/build/constraint"
+	"github.com/matjam/plutonium/internal/syntax/constraint"
 	"slices"
 	"strings"
 	"text/tabwriter"

@@ -94,40 +94,31 @@ func ParseFile(fset *token.FileSet, filename string, src any, mode Mode) (f *ast
 	file := fset.AddFile(filename, -1, len(text))
 
 	var p parser
-	defer func() {
-		if e := recover(); e != nil {
-			// resume same panic if it's not a bailout
-			bail, ok := e.(bailout)
-			if !ok {
-				panic(e)
-			} else if bail.msg != "" {
-				p.errors.Add(p.file.Position(bail.pos), bail.msg)
-			}
-		}
-
-		// set result values
-		if f == nil {
-			// source is not a valid Go source file - satisfy
-			// ParseFile API and return a valid (but) empty
-			// *ast.File
-			f = &ast.File{
-				Name: new(ast.Ident),
-			}
-		}
-
-		// Ensure the start/end are consistent,
-		// whether parsing succeeded or not.
-		f.FileStart = token.Pos(file.Base())
-		f.FileEnd = file.End()
-
-		p.errors.Sort()
-		err = p.errors.Err()
-	}()
-
-	// parse source
 	p.init(file, text, mode)
 	f = p.parseFile()
+	if p.bailed {
+		// The parser gave up (too many errors or too deep a nesting): the
+		// partial tree is discarded.
+		f = nil
+	}
 
+	// set result values
+	if f == nil {
+		// source is not a valid Go source file - satisfy
+		// ParseFile API and return a valid (but) empty
+		// *ast.File
+		f = &ast.File{
+			Name: new(ast.Ident),
+		}
+	}
+
+	// Ensure the start/end are consistent,
+	// whether parsing succeeded or not.
+	f.FileStart = token.Pos(file.Base())
+	f.FileEnd = file.End()
+
+	p.errors.Sort()
+	err = p.errors.Err()
 	return
 }
 
@@ -153,19 +144,6 @@ func ParseExprFrom(fset *token.FileSet, filename string, src any, mode Mode) (ex
 	}
 
 	var p parser
-	defer func() {
-		if e := recover(); e != nil {
-			// resume same panic if it's not a bailout
-			bail, ok := e.(bailout)
-			if !ok {
-				panic(e)
-			} else if bail.msg != "" {
-				p.errors.Add(p.file.Position(bail.pos), bail.msg)
-			}
-		}
-		p.errors.Sort()
-		err = p.errors.Err()
-	}()
 
 	// parse expr
 	file := fset.AddFile(filename, -1, len(text))
@@ -179,6 +157,11 @@ func ParseExprFrom(fset *token.FileSet, filename string, src any, mode Mode) (ex
 	}
 	p.expect(token.EOF)
 
+	if p.bailed {
+		expr = nil
+	}
+	p.errors.Sort()
+	err = p.errors.Err()
 	return
 }
 

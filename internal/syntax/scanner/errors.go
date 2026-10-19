@@ -5,10 +5,11 @@
 package scanner
 
 import (
+	"cmp"
 	"fmt"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"io"
-	"sort"
+	"slices"
 )
 
 // In an [ErrorList], an error is represented by an *Error.
@@ -48,34 +49,37 @@ func (p *ErrorList) Reset() { *p = (*p)[0:0] }
 func (p ErrorList) Len() int      { return len(p) }
 func (p ErrorList) Swap(i, j int) { p[i], p[j] = p[j], p[i] }
 
-func (p ErrorList) Less(i, j int) bool {
-	e := &p[i].Pos
-	f := &p[j].Pos
+func (p ErrorList) Less(i, j int) bool { return compareErrors(p[i], p[j]) < 0 }
+
+// compareErrors orders errors by position, then message.
+func compareErrors(a, b *Error) int {
+	e := &a.Pos
+	f := &b.Pos
 	// Note that it is not sufficient to simply compare file offsets because
 	// the offsets do not reflect modified line information (through //line
 	// comments).
-	if e.Filename != f.Filename {
-		return e.Filename < f.Filename
+	if c := cmp.Compare(e.Filename, f.Filename); c != 0 {
+		return c
 	}
-	if e.Line != f.Line {
-		return e.Line < f.Line
+	if c := cmp.Compare(e.Line, f.Line); c != 0 {
+		return c
 	}
-	if e.Column != f.Column {
-		return e.Column < f.Column
+	if c := cmp.Compare(e.Column, f.Column); c != 0 {
+		return c
 	}
-	return p[i].Msg < p[j].Msg
+	return cmp.Compare(a.Msg, b.Msg)
 }
 
 // Sort sorts an [ErrorList]. *[Error] entries are sorted by position,
 // other errors are sorted by error message, and before any *[Error]
 // entry.
 func (p ErrorList) Sort() {
-	sort.Sort(p)
+	slices.SortFunc(p, compareErrors)
 }
 
 // RemoveMultiples sorts an [ErrorList] and removes all but the first error per line.
 func (p *ErrorList) RemoveMultiples() {
-	sort.Sort(p)
+	p.Sort()
 	var last token.Position // initial last.Line is != any legal error line
 	i := 0
 	for _, e := range *p {
@@ -99,21 +103,22 @@ func (p ErrorList) Error() string {
 	return fmt.Sprintf("%s (and %d more errors)", p[0], len(p)-1)
 }
 
-// Err returns an error equivalent to this error list.
-// If the list is empty, Err returns nil.
+// Err returns an error equivalent to this error list: a *ErrorList, since a
+// pointer fits an interface's data word (a Plutonium error is not boxed in
+// the frame that returns it). If the list is empty, Err returns nil.
 func (p ErrorList) Err() error {
 	if len(p) == 0 {
 		return nil
 	}
-	return p
+	return &p
 }
 
 // PrintError is a utility function that prints a list of errors to w,
-// one error per line, if the err parameter is an [ErrorList]. Otherwise
-// it prints the err string.
+// one error per line, if the err parameter is an [ErrorList] or a
+// *[ErrorList]. Otherwise it prints the err string.
 func PrintError(w io.Writer, err error) {
-	if list, ok := err.(ErrorList); ok {
-		for _, e := range list {
+	if list, ok := err.(*ErrorList); ok {
+		for _, e := range *list {
 			_, _ = fmt.Fprintf(w, "%s\n", e)
 		}
 	} else if err != nil {

@@ -92,7 +92,7 @@ func TestParseGoStmt(t *testing.T) {
 		t.Fatal("go statement accepted")
 	}
 	var got []string
-	for _, e := range err.(scanner.ErrorList) {
+	for _, e := range *err.(*scanner.ErrorList) {
 		got = append(got, e.Error())
 	}
 	want := []string{

@@ -12,7 +12,7 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"go/build/constraint"
+	"github.com/matjam/plutonium/internal/syntax/constraint"
 	"io/fs"
 	"os"
 	"path"
@@ -548,8 +548,8 @@ func (l *loader) parse(pkg *Package, src source) error {
 			continue
 		}
 		f, err := parser.ParseFile(l.fset, src.name(name), data, parser.ParseComments)
-		if list, ok := err.(scanner.ErrorList); ok {
-			for _, e := range list {
+		if list, ok := err.(*scanner.ErrorList); ok {
+			for _, e := range *list {
 				errs = append(errs, diag.FromSyntax(e, data))
 			}
 			continue

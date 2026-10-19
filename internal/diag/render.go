@@ -46,6 +46,10 @@ func (p *Printer) Print(err error) {
 		for _, se := range e {
 			p.diagnostic(FromSyntax(se, nil))
 		}
+	case *scanner.ErrorList:
+		for _, se := range *e {
+			p.diagnostic(FromSyntax(se, nil))
+		}
 	case interface{ Unwrap() []error }:
 		for _, e := range e.Unwrap() {
 			p.Print(e)

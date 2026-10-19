@@ -270,9 +270,9 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 			continue
 		}
 		f, err := parser.ParseFile(w.fset, path, src, parser.ParseComments|parser.AllErrors|parser.SkipObjectResolution)
-		var list scanner.ErrorList
+		var list *scanner.ErrorList
 		if errors.As(err, &list) {
-			for _, e := range list {
+			for _, e := range *list {
 				p.errors = append(p.errors, newCheckError(path, src, e.Pos.Offset, diag.FromSyntax(e, src)))
 			}
 		}
