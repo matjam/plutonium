@@ -39,6 +39,7 @@ var translations = []struct {
 	{dir: "testdata/pudemo", demo: true},     // internal/pu, translated name for name
 	{dir: "testdata/constdemo", demo: true},  // the constant package
 	{dir: "testdata/parsecheck", demo: true}, // the syntax packages, over the repository (TestParseCheck)
+	{dir: "testdata/closures", demo: true},   // closures that outlive their frame, converted to structs
 }
 
 const selfhostDir = "../../selfhost"
@@ -171,6 +172,9 @@ func TestHandFixNotes(t *testing.T) {
 	all := strings.Join(res.Notes, "\n")
 	for _, want := range []string{
 		"closure escapes its frame (passed to a function that keeps it)",
+		"(it is an exported field)",
+		"(its function is generic)",
+		"(its type is a named func type)",
 		"in an interface: Plutonium boxes it",
 		"recover:",
 		"channel type",

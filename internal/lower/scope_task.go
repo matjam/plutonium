@@ -37,6 +37,16 @@ import (
 // iteration's values of the variables it takes; the record of a literal
 // built in the frame would be one slot, reused by every iteration.
 
+// A taskArgSlot is one variable a task statement passes to its task in the
+// argument block: the address of a shared variable, or the value of one the
+// task takes, at off.
+type taskArgSlot struct {
+	v     *types2.Var
+	T     types2.Type
+	taken bool
+	off   int64
+}
+
 // scopedTask lowers the scoped Task call e.
 func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 	lit := t.Lit
@@ -75,13 +85,7 @@ func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 
 	// Lay out the argument block: an address per shared variable, a value
 	// per taken one.
-	type slot struct {
-		v     *types2.Var
-		T     types2.Type
-		taken bool
-		off   int64
-	}
-	var slots []slot
+	var slots []taskArgSlot
 	var off, align int64 = 0, 8
 	for _, v := range caps {
 		T := s.subst(v.Type())
@@ -91,7 +95,7 @@ func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 		}
 		align = max(align, al)
 		off = (off + al - 1) &^ (al - 1)
-		slots = append(slots, slot{v: v, T: T, taken: t.Taken[v], off: off})
+		slots = append(slots, taskArgSlot{v: v, T: T, taken: t.Taken[v], off: off})
 		off += sz
 	}
 	size := max(off, 1)

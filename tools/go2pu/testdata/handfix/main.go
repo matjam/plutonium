@@ -15,11 +15,27 @@ type big struct{ a, b, c int }
 
 func (big) Error() string { return "big" }
 
-type job struct{ run func() }
+// Run is exported, so closure conversion (closures.go) leaves it alone.
+type job struct{ Run func() }
 
 var jobs []job
 
-func later(f func()) { jobs = append(jobs, job{run: f}) }
+func later(f func()) { jobs = append(jobs, job{Run: f}) }
+
+// Closure conversion refuses a generic function and a named func type.
+type gjob[T any] struct{ run func(T) }
+
+func gater[T any](q *[]gjob[T], v T) {
+	*q = append(*q, gjob[T]{run: func(x T) { _ = v; _ = x }})
+}
+
+type visitor func(int)
+
+type vjob struct{ v visitor }
+
+func addV(q *[]vjob, n int) {
+	*q = append(*q, vjob{v: func(i int) { _ = n + i }})
+}
 
 func counter() func() int {
 	n := 0
@@ -50,6 +66,8 @@ func safe() (err error) {
 func main() {
 	x := 1
 	later(func() { x++ })
+	gater(new([]gjob[int]), 1)
+	addV(new([]vjob), 2)
 	c := counter()
 	ch := make(chan int, 1)
 	go func(v int) { ch <- v }(c())

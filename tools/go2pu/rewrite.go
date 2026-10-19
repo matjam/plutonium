@@ -19,6 +19,9 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 	if e, ok := t.scopeEdits[n]; ok {
 		return t.scopeRewrite(n, e), true
 	}
+	if s, ok := t.closureRewrite(n); ok {
+		return s, true
+	}
 	switch n := n.(type) {
 	case *ast.BasicLit:
 		t.checkBinaryString(n)
@@ -86,7 +89,11 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		return t.heapLiteral(n)
 	case *ast.UnaryExpr:
 		if n.Op == token.AND && t.isHeapUse(n.X) {
-			return ast.Unparen(n.X).(*ast.Ident).Name, true // &x of a heap variable is the pointer
+			id := ast.Unparen(n.X).(*ast.Ident)
+			if s, ok := t.ptrSubst[id]; ok {
+				return s, true // a variable a converted closure holds by pointer
+			}
+			return id.Name, true // &x of a heap variable is the pointer
 		}
 		if lit, ok := ast.Unparen(n.X).(*ast.CompositeLit); ok && n.Op == token.AND &&
 			t.esc.has(t.fset, n.Pos(), "&", "escapes to heap") {

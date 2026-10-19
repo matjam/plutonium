@@ -284,6 +284,8 @@ func TranslateDir(cfg *Config, dir string) (*Result, error) {
 	tc.indexParents(files)
 	tc.planScopes(files, res)
 	tc.heap = tc.findHeapVars()
+	tc.ptrSubst = map[*ast.Ident]string{}
+	tc.planClosures(files, res)
 	outDir, err := res.Dir(cfg.OutDir)
 	if err != nil {
 		return nil, err
@@ -368,6 +370,10 @@ type translator struct {
 	scopedLits map[*ast.FuncLit]bool // the literals that become tasks
 	scopeVars  map[*types.Var]bool   // the variables that become Scopes
 	exports    map[string]map[string]bool
+
+	// Closure conversion (closures.go).
+	cl       *closurePlan
+	ptrSubst map[*ast.Ident]string // the pointer to a captured variable inside a converted closure
 }
 
 // mapPath returns the Plutonium import path for a Go import path, or "" if
