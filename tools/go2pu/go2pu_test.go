@@ -20,6 +20,7 @@ var translations = []struct {
 	dir  string // Go package, relative to this directory
 	demo bool   // a main package under testdata, translated to selfhost/demo
 	slow bool   // the demo imports the translated type checker: it takes minutes and 5 GB to build (GO2PU_SLOW=1)
+	out  string // the Plutonium import path of a main package that is not a demo
 }{
 	{dir: "../../internal/objfile"},
 	{dir: "../../internal/ssa"},
@@ -46,6 +47,8 @@ var translations = []struct {
 	{dir: "../../internal/moves"},
 	{dir: "../../internal/race"},
 	{dir: "../../internal/lower"},
+	{dir: "../../internal/build"},                      // test.go (pluto test) is left out: see untranslated
+	{dir: "testdata/pluto", out: "selfhost/cmd/pluto"}, // the driver: pluto build, run and version (tools/bootstrap)
 	{dir: "testdata/objdemo", demo: true},
 	{dir: "testdata/ssademo", demo: true},
 	{dir: "testdata/amd64demo", demo: true},
@@ -67,9 +70,12 @@ const selfhostDir = "../../selfhost"
 func testConfig() *Config {
 	cfg := &Config{OutDir: selfhostDir, Module: "selfhost", PlutoRoot: "../../lib", Imports: map[string]string{}}
 	for _, tr := range translations {
-		if tr.demo {
-			name := filepath.Base(tr.dir)
+		name := filepath.Base(tr.dir)
+		switch {
+		case tr.demo:
 			cfg.Imports[goModule+"/tools/go2pu/testdata/"+name] = "selfhost/demo/" + name
+		case tr.out != "":
+			cfg.Imports[goModule+"/tools/go2pu/testdata/"+name] = tr.out
 		}
 	}
 	cfg.Imports[goModule+"/tools/go2pu/testdata/handfix"] = "selfhost/demo/handfix"

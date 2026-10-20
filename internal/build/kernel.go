@@ -1,42 +1,11 @@
 package build
 
 import (
-	"debug/elf"
-	"fmt"
-
 	"github.com/matjam/plutonium/internal/backend"
-	"github.com/matjam/plutonium/internal/diag"
 )
 
 // perCPUSelf is the symbol of the word at offset 0 of every per-CPU block.
 const perCPUSelf = backend.PerCPUSelf
-
-// checkPerCPU verifies, in a linked ELF executable, that the per-CPU block
-// starts at address 0 with its self word, as GS-relative accesses assume.
-// A linker script that places .percpu elsewhere would make every per-CPU
-// access wrong, so this is an error rather than a warning.
-func checkPerCPU(path string) error {
-	f, err := elf.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	syms, err := f.Symbols()
-	if err != nil {
-		return nil // no symbol table: nothing to check
-	}
-	for _, s := range syms {
-		if s.Name == perCPUSelf && s.Value != 0 {
-			return &diag.Diagnostic{Code: diag.PerCPUNotAtZero,
-				Msg: fmt.Sprintf("%s: %s is at %#x: the linker script must link section .percpu at address 0, with the Plutonium object first (abi.md section 10.6)", path, perCPUSelf, s.Value)}
-		}
-		if s.Name == perCPUTask && s.Value != 8 {
-			return &diag.Diagnostic{Code: diag.PerCPUNotAtZero,
-				Msg: fmt.Sprintf("%s: %s is at %#x, not 8: the linker script must link section .percpu at address 0, with the Plutonium object first (abi.md sections 10.6 and 12.3)", path, perCPUTask, s.Value)}
-		}
-	}
-	return nil
-}
 
 // perCPUTask is the current-task slot of kernel builds, at offset 8 of
 // every per-CPU block (abi.md section 12.3).

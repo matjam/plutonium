@@ -35,7 +35,7 @@ func TestTranslationsLoad(t *testing.T) {
 			return err
 		}
 		if strings.HasSuffix(path, ".p") && !strings.HasSuffix(path, "_test.p") &&
-			!strings.HasPrefix(rel, "demo"+string(filepath.Separator)) {
+			!strings.HasPrefix(rel, "demo"+string(filepath.Separator)) && !strings.HasPrefix(rel, "cmd"+string(filepath.Separator)) {
 			pkgs = append(pkgs, "selfhost/"+filepath.ToSlash(filepath.Dir(rel)))
 		}
 		return os.WriteFile(filepath.Join(root, rel), data, 0o644)
@@ -70,5 +70,9 @@ func TestTranslationsLoad(t *testing.T) {
 		if !loaded[p] {
 			t.Errorf("package %s was not loaded", p)
 		}
+	}
+	// The driver is a main package of its own.
+	if _, err := load.Load(cfg, filepath.Join(root, "cmd", "pluto")); err != nil {
+		t.Fatalf("the driver does not load:\n%v", err)
 	}
 }

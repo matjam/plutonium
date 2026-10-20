@@ -9,7 +9,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -378,13 +377,8 @@ func runIn(cfg *Config, dir string, rename map[string]string, name string, args 
 		}
 		fmt.Fprintln(os.Stderr, name, strings.Join(args, " "))
 	}
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	cmd.Stdout = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return diag.FromTool(name, errors.Is(err, exec.ErrNotFound), err.Error(), stderr.String(), rename)
+	if r := runTool(dir, name, args); r.failed {
+		return diag.FromTool(name, r.notFound, r.cause, r.stderr, rename)
 	}
 	return nil
 }
@@ -465,19 +459,33 @@ func writeInlineNotes(w io.Writer, notes []opt.InlineNote, prog *load.Program) e
 	return nil
 }
 
+// trimmedNames names files in the debugging information as
+// load.Program.TrimmedName does: relative to the module root and the
+// standard library.
+type trimmedNames struct{ prog *load.Program }
+
+func (n trimmedNames) FileName(name string) string { return n.prog.TrimmedName(name) }
+
+// stdlibNames names a standard library file under cfg.StdlibDir, for the
+// debugging information of a build with NoTrimPath; other names are
+// unchanged.
+type stdlibNames struct{ cfg *Config }
+
+func (n stdlibNames) FileName(name string) string {
+	if rest, ok := strings.CutPrefix(name, load.StdPrefix); ok {
+		return filepath.Join(n.cfg.StdlibDir, rest)
+	}
+	return name
+}
+
 // emitObject generates code for every function and lays out the data.
 func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Object, error) {
 	dbg := debuginfo.New(prog.Fset)
 	switch {
 	case !cfg.NoTrimPath:
-		dbg.FileName = prog.TrimmedName
+		dbg.Names = trimmedNames{prog}
 	case cfg.StdlibDir != "":
-		dbg.FileName = func(name string) string {
-			if rest, ok := strings.CutPrefix(name, load.StdPrefix); ok {
-				return filepath.Join(cfg.StdlibDir, rest)
-			}
-			return name
-		}
+		dbg.Names = stdlibNames{cfg}
 	}
 	// Trimmed names are relative to the module root, so a debugger
 	// run there finds the program's sources (debugging.md section 3).

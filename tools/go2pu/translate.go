@@ -239,6 +239,7 @@ const (
 // relative to the Go module, and why. go2pu skips them.
 var untranslated = map[string]string{
 	"internal/syntax/ast/print.go": "the reflection-based debugging printer (plan section 3.6)",
+	"internal/build/test.go":       "pluto test's test main, which the self-hosted driver does not have yet (plan section 8)",
 }
 
 // TranslateDir translates the Go package in dir.

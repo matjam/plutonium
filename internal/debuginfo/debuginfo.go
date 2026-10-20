@@ -35,9 +35,17 @@ type Func struct {
 type Table struct {
 	fset  *token.FileSet
 	funcs []*Func
-	// FileName maps a source file name to the name recorded for it; nil
+	// Names maps a source file name to the name recorded for it; nil
 	// keeps names unchanged.
-	FileName func(string) string
+	Names FileNamer
+}
+
+// A FileNamer maps a source file name to the name the debugging
+// information records. It is an interface rather than a func field so that
+// the translated compiler can store one that outlives the frame setting it
+// (self-hosting plan, section 8).
+type FileNamer interface {
+	FileName(name string) string
 }
 
 // New returns an empty table whose positions are in fset.
@@ -53,8 +61,8 @@ func (t *Table) position(p token.Pos) (string, int) {
 	}
 	pos := t.fset.Position(p)
 	name := pos.Filename
-	if t.FileName != nil && name != "" {
-		name = t.FileName(name)
+	if t.Names != nil && name != "" {
+		name = t.Names.FileName(name)
 	}
 	return name, pos.Line
 }
