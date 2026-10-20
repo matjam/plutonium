@@ -268,6 +268,146 @@ func f() {
 	fmt.Println(U.P(&in))
 }
 func main() { f() }`, "fmt.Println"},
+	{"an element a callee takes of the array its parameter points to", `
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func g(p *[2]S) string { return call(&p[1]) }
+func f() {
+	var arr [2]S
+	println(g(&arr))
+}
+func main() { f() }`, "keepS"},
+	{"a method value of an element a callee takes", `
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func g(p *[2]S) bool { return callf(p[1].visit) }
+func f() {
+	var arr [2]S
+	println(g(&arr))
+}
+func main() { f() }`, "keepS"},
+	{"an element of a slice parameter", `
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func g(s []S) string { return call(&s[1]) }
+func f() {
+	var arr [2]S
+	println(g(arr[:]))
+}
+func main() { f() }`, "keepS"},
+	{"every element of a slice parameter, in a range loop", `
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func each(items []S) string {
+	out := ""
+	for i := range items {
+		var s Stringer = &items[i]
+		out += s.String()
+	}
+	return out
+}
+func f() {
+	items := [3]S{}
+	println(each(items[:]))
+}
+func main() { f() }`, "keepS"},
+	{"an element of a slice a callee makes of its parameter", `
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func g(p *[2]S) string {
+	sl := p[:]
+	return call(&sl[1])
+}
+func f() {
+	var arr [2]S
+	println(g(&arr))
+}
+func main() { f() }`, "keepS"},
+	{"an element taken two calls down", `
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func h(p *[2]S) string { return call(&p[1]) }
+func g(p *[2]S) string { return h(p) }
+func f() {
+	var arr [2]S
+	println(g(&arr))
+}
+func main() { f() }`, "keepS"},
+	{"an element of the receiver of a method of a named array", `
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+type Arr [2]S
+func (a *Arr) first() string { return call(&a[1]) }
+func f() {
+	var arr Arr
+	println(arr.first())
+}
+func main() { f() }`, "keepS"},
+	{"an element a callee takes after a type assertion", `
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func g(a any) string {
+	if p, ok := a.(*[2]S); ok {
+		return call(&p[1])
+	}
+	return ""
+}
+func f() {
+	var arr [2]S
+	println(g(&arr))
+}
+func main() { f() }`, "keepS"},
+	{"an element a callee prints with fmt", `
+import "pluto/fmt"
+type Inner struct{ n int }
+var keep *Inner
+func (i *Inner) String() string { keep = i; return "inner" }
+func g(p *[2]Inner) { fmt.Println(&p[1]) }
+func f() {
+	var arr [2]Inner
+	g(&arr)
+}
+func main() { f() }`, "fmt.Println"},
 }
 
 func TestKeepsFrameWays(t *testing.T) {
@@ -339,6 +479,36 @@ type U union {
 }
 func f() {
 	fmt.Println(U.N(1))
+}
+func main() { f() }`},
+	{"an element a callee takes of an array of another type", `
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+type Plain struct{ n int }
+func (p *Plain) String() string { return "plain" }
+func call(s Stringer) string { return s.String() }
+func g(p *[2]Plain) string { return call(&p[1]) }
+func f() {
+	var arr [2]Plain
+	println(g(&arr))
+}
+func main() { f() }`},
+	{"fmt and a value that holds a type with a method that keeps, nil", `
+import "pluto/fmt"
+type Inner struct{ n int }
+var keep *Inner
+type W struct {
+	P   *Inner
+	pad int
+}
+func (w W) String() string { keep = w.P; return "w" }
+type D struct{ P *Inner }
+func (d D) String() string { keep = d.P; return "d" }
+type Outer struct{ W W }
+func f() {
+	fmt.Println(Outer{W{nil, 0}})
 }
 func main() { f() }`},
 }

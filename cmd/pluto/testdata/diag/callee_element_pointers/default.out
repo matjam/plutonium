@@ -1,0 +1,94 @@
+$DIR/main.p:68:10: cannot pass &arr to elem, which keeps it after returning
+    &arr is a pointer to arr. arr is a local array of Element (declared at
+    main.p:67). elem passes p to call (main.p:38), which passes s to s.String
+    (which may call main.(*S).String) (main.p:32), which stores s in package
+    variable keepS (main.p:17), so &arr would outlive arr.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If elem should keep its own copy of arr, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[[2]S] from new, a shared[[2]S],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:73:10: cannot pass &arr to elemMethodValue, which keeps it after returning
+    &arr is a pointer to arr. arr is a local array of MethodValue (declared at
+    main.p:72). elemMethodValue passes p to callf (main.p:41), which passes a
+    pointer loaded from *f to f (which may call (*S).visit) (main.p:35), which
+    stores s in package variable keepS (main.p:22), so &arr would outlive arr.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If elemMethodValue should keep its own copy of arr, change it to take the
+    value, not a pointer, or an owner it can keep: an owned[[2]S] from new, a
+    shared[[2]S], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:78:10: cannot pass items[:] to each, which keeps it after returning
+    items[:] is a slice that looks at items. items is a local array of Range
+    (declared at main.p:77). each passes items to s.String (which may call
+    main.(*S).String) (main.p:48), which stores s in package variable keepS
+    (main.p:17), so items[:] would outlive items.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If each should keep its own copy of items, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[[3]S] from new, a shared[[3]S],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:83:10: cannot pass &arr to twoDown, which keeps it after returning
+    &arr is a pointer to arr. arr is a local array of TwoCallsDown (declared at
+    main.p:82). twoDown passes p to elem (main.p:54), which passes p to call
+    (main.p:38), which passes s to s.String (which may call main.(*S).String)
+    (main.p:32), which stores s in package variable keepS (main.p:17), so &arr
+    would outlive arr.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If twoDown should keep its own copy of arr, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[[2]S] from new, a shared[[2]S],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:88:10: cannot pass &arr to (*Arr).first, which keeps it after returning
+    &arr is a pointer to arr. arr is a local array of NamedArray (declared at
+    main.p:87). (*Arr).first passes a to call (main.p:58), which passes s to
+    s.String (which may call main.(*S).String) (main.p:32), which stores s in
+    package variable keepS (main.p:17), so &arr would outlive arr.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If (*Arr).first should keep its own copy of arr, change it to take the
+    value, not a pointer, or an owner it can keep: an owned[Arr] from new, a
+    shared[Arr], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:93:2: cannot pass &arr to printElem, which keeps it after returning
+    &arr is a pointer to arr. arr is a local array of Printed (declared at
+    main.p:92). printElem passes p to fmt.Println (main.p:61), which passes a
+    pointer loaded from args[i] to Fprintln (print_linux.p:17), which passes a
+    pointer loaded from args[i] to (*printer).doPrint (fmt.p:948), which passes
+    a pointer loaded from args[i] to (*printer).printArg (fmt.p:915), which
+    passes arg to (*printer).handleMethods (fmt.p:746), which passes arg to
+    v.String (which may call main.(*S).String) (fmt.p:777), which stores s in
+    package variable keepS (main.p:17), so &arr would outlive arr.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If printElem should keep its own copy of arr, change it to take the value,
+    not a pointer, or an owner it can keep: an owned[[2]S] from new, a
+    shared[[2]S], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

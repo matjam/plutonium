@@ -93,6 +93,11 @@ type tok struct {
 	// boxed string escape.
 	filt   types2.Type
 	filtAt int
+	// The shape the pointer had where the filter applied (see ptrShape): a
+	// caller judges its own pointer at that place of the path as one of that
+	// shape, which a pointer the callee took into what its parameter points to
+	// (&p[1]) is, whatever the caller's pointer is.
+	filtShape ptrShape
 
 	// In a struct value, the field path (as in locations, up to
 	// maxFieldNest fields) of the field that holds the pointer; empty when
@@ -227,7 +232,7 @@ func (t tok) into(s ptrShape) tok {
 			t.path = ""
 		}
 		if t.filtAt > len(t.path) {
-			t.filt, t.filtAt = nil, 0
+			t.filt, t.filtAt, t.filtShape = nil, 0, shapeWhole
 		}
 	}
 	return t.as(s)
@@ -334,7 +339,7 @@ func (t tok) extend(step string) tok {
 			// The cut lost where the filter applied. (One that applies
 			// within what is left still does: it constrains the pointers
 			// found there, and the ones past them come from those.)
-			t.filt, t.filtAt = nil, 0
+			t.filt, t.filtAt, t.filtShape = nil, 0, shapeWhole
 		}
 		return t
 	}
@@ -652,11 +657,12 @@ type pkey struct {
 	counts      bool     // conversion of this parameter to a counted error
 	directCount bool     // a definite strong-box conversion, rather than a generic one
 	shape       ptrShape // see tok
+	filtShape   ptrShape // see tok
 	ge          bool
 }
 
 func keyOf(t tok) pkey {
-	return pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, borrowed: t.borrowed, path: t.path, ge: t.ge, shape: t.shape, filt: t.filt, filtAt: t.filtAt}
+	return pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, borrowed: t.borrowed, path: t.path, ge: t.ge, shape: t.shape, filt: t.filt, filtAt: t.filtAt, filtShape: t.filtShape}
 }
 
 // An edge records that a function stores pointers derived from one

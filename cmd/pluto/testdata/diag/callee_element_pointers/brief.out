@@ -1,0 +1,6 @@
+$DIR/main.p:68:10: cannot pass &arr to elem, which keeps it after returning
+$DIR/main.p:73:10: cannot pass &arr to elemMethodValue, which keeps it after returning
+$DIR/main.p:78:10: cannot pass items[:] to each, which keeps it after returning
+$DIR/main.p:83:10: cannot pass &arr to twoDown, which keeps it after returning
+$DIR/main.p:88:10: cannot pass &arr to (*Arr).first, which keeps it after returning
+$DIR/main.p:93:2: cannot pass &arr to printElem, which keeps it after returning

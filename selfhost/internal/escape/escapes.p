@@ -53,6 +53,7 @@ type ptKey struct {
 	fn                             *function
 	counted, directCount, borrowed bool
 	ge                             bool
+	shape, filtShape               ptrShape
 	idx, filtAt                    int
 	path, tag                      string
 	filt                           types2.Type
@@ -60,7 +61,7 @@ type ptKey struct {
 
 func ptKeyOf(t tok) ptKey {
 	return ptKey{fn: t.sc.fn, counted: t.counted, directCount: t.directCount, borrowed: t.borrowed, ge: t.ge,
-		idx: t.idx, filtAt: t.filtAt, path: t.path, tag: t.tag, filt: t.filt}
+		shape: t.shape, filtShape: t.filtShape, idx: t.idx, filtAt: t.filtAt, path: t.path, tag: t.tag, filt: t.filt}
 }
 
 // applyEscapes follows the keys of f's escapes that a call has not followed
@@ -297,7 +298,7 @@ func (w *walker) checkFastKey(argOf *argEval, k pkey, one tset, key pkey, ok boo
 	}
 }
 
-// goClosure_reportEscapes_1 is the function literal at escapes.go:284, converted to a struct
+// goClosure_reportEscapes_1 is the function literal at escapes.go:285, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_reportEscapes_1 struct {
 	r *reason

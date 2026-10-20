@@ -128,7 +128,7 @@ func (s *summary) keyHash(k pkey) uint64 {
 			flags |= 1 << i
 		}
 	}
-	flags |= uint64(k.shape) << 4
+	flags |= uint64(k.shape)<<4 | uint64(k.filtShape)<<6
 	h = (h ^ uint64(k.idx)<<48 ^ uint64(k.filtAt)<<32 ^ id<<8 ^ flags) * 1099511628211
 	h ^= h >> 29
 	h *= 0xbf58476d1ce4e5b9

@@ -154,7 +154,7 @@ func (d *dynFilter) keep(t tok) (tok, bool) {
 		}
 	case tParam:
 		if t.filt == nil && !t.ge && t.shape != shapeOther {
-			t.filt, t.filtAt = d.I, len(t.path)
+			t.filt, t.filtAt, t.filtShape = d.I, len(t.path), t.shape
 		}
 	}
 	return t, true
@@ -227,7 +227,7 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 			tail++
 		}
 	}
-	ge, filt, filtAt := t.ge, t.filt, t.filtAt
+	ge, filt, filtAt, filtShape := t.ge, t.filt, t.filtAt, t.filtShape
 	sh := t.shape // the shape of the pointer as the key's path is followed (extend, offsetTok)
 	var d *dynFilter
 	if k.filt != nil {
@@ -243,7 +243,7 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 			b = b[:0]
 		}
 		if filtAt > len(b) {
-			filt, filtAt = nil, 0 // the cut lost where the filter applied (see tok.extend)
+			filt, filtAt, filtShape = nil, 0, shapeWhole // the cut lost where the filter applied (see tok.extend)
 		}
 	}
 	// star is the step of a load; it reports whether the path overflowed.
@@ -272,8 +272,17 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 	over := preLoad && star()
 	p := k.path
 	for pos := 0; !over; {
-		if d != nil && pos == k.filtAt && !d.noop && filt == nil && !ge && sh != shapeOther {
-			filt, filtAt = d.I, len(b)
+		if d != nil && pos == k.filtAt && !d.noop {
+			// The pointer the filter judges is of the shape the key says it
+			// had there, into what the pointer followed so far points to
+			// (walkTok). A pointer that stands for every extension of its
+			// path has no filter, and its shape says nothing.
+			if !ge {
+				sh = max(sh, k.filtShape)
+			}
+			if filt == nil && !ge && sh != shapeOther {
+				filt, filtAt, filtShape = d.I, len(b), sh
+			}
 		}
 		if pos >= len(p) {
 			break
@@ -304,7 +313,7 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 	}
 	shape := max(sh, k.shape)
 	key := pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, borrowed: t.borrowed || k.borrowed,
-		ge: ge, shape: shape, filt: filt, filtAt: filtAt}
+		ge: ge, shape: shape, filt: filt, filtAt: filtAt, filtShape: filtShape}
 	if len(b) > 0 {
 		key.path = unsafe.String(&b[0], len(b))
 	}
@@ -334,7 +343,7 @@ func (w *walker) structPrelude(t tok, k pkey, T types2.Type) (tok, pkey, bool) {
 			if k.filtAt >= n {
 				k.filtAt -= n
 			} else {
-				k.filt, k.filtAt = nil, 0
+				k.filt, k.filtAt, k.filtShape = nil, 0, shapeWhole
 			}
 		}
 	}
@@ -361,6 +370,12 @@ func (w *walker) walkTok(t tok, k pkey, d *dynFilter, pos int, out *tbuf) {
 	p := k.path
 	for {
 		if k.filt != nil && pos == k.filtAt && !d.noop {
+			// The pointer the callee judged there may be one into what this
+			// one points to (an element it took, &p[1]): it is of the shape
+			// the key says.
+			if !t.ge {
+				t = t.as(k.filtShape)
+			}
 			var ok bool
 			if t, ok = d.keep(t); !ok {
 				return

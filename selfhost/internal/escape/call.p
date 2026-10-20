@@ -519,7 +519,7 @@ func (w *walker) walkParam(f *function, v tset, k pkey) tset {
 					if k.filtAt >= n {
 						k.filtAt -= n
 					} else {
-						k.filt, k.filtAt = nil, 0
+						k.filt, k.filtAt, k.filtShape = nil, 0, shapeWhole
 					}
 				}
 			} else {
@@ -662,14 +662,19 @@ func markRecv(a *analyzer, ts tset, f *function) tset {
 		if t.kind == tParam && !t.ge && t.shape != shapeOther {
 			switch {
 			case t.filt == nil:
-				t.filt, t.filtAt = T, len(t.path)
-			case t.filtAt == len(t.path) && ptrRecv:
+				t.filt, t.filtAt, t.filtShape = T, len(t.path), t.shape
+			case t.filtAt == len(t.path) && t.filtShape == t.shape && ptrRecv:
 				// A type assertion to an interface already constrains
 				// this data word, and a token has room for one filter.
 				// A pointer method is called only on a pointer, which
 				// a box holding a value is not: the filter becomes the
 				// interface and a pointer.
 				t.filt = a.ptrFilter(t.filt)
+			case t.filtAt == len(t.path) && t.filtShape == t.shape && isInterface(t.filt):
+				// A value method is called on a T or a *T, which implements
+				// the interface asserted (or f would not be its candidate):
+				// T says more of the data word than the interface does.
+				t.filt = T
 			}
 		}
 		out.add(t)
@@ -916,6 +921,9 @@ func lessKeyNamed(a, b pkey, name func(types2.Type) string) bool {
 	}
 	if a.filtAt != b.filtAt {
 		return a.filtAt < b.filtAt
+	}
+	if a.filtShape != b.filtShape {
+		return a.filtShape < b.filtShape
 	}
 	return name(a.filt) < name(b.filt)
 }
