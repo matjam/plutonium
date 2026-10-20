@@ -589,7 +589,8 @@ func writeObject(buf *bytes.Buffer, obj Object, qf Qualifier) {
 			return
 		case genericType:
 			if t.TypeParams().Len() > 0 {
-				newTypeWriter(buf, qf).tParamList(t.TypeParams().list())
+				w := newTypeWriter(buf, qf)
+				w.tParamList(t.TypeParams().list())
 			}
 		}
 		if tname.IsAlias() {

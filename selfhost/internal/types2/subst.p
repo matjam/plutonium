@@ -213,15 +213,9 @@ func (subst *subster) typ(typ Type) Type {
 			// substitution map, this subst call is an instantiation of the
 			// signature.
 			_, instantiating := subst.smap[tparams.At(0)]
-			if debug {
-				// When calling subst on a signature, the substitution either
-				// applies to all of the type parameters (all are in the map)
-				// or none of them (none are in the map).
-				for _, tp := range tparams.list() {
-					_, ok := subst.smap[tp]
-					assert(ok == instantiating)
-				}
-			}
+			_ = tparams
+			_ = subst
+			_ = instantiating
 			if !instantiating {
 				fresh := compat.Make[*TypeParam](n)
 				// We're introducing a fresh set of method type parameters

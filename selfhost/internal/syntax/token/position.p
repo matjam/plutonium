@@ -302,11 +302,8 @@ func (f *File) AddLineColumnInfo(offset int, filename string, line, column int) 
 
 // fixOffset fixes an out-of-bounds offset such that 0 <= offset <= f.size.
 func (f *File) fixOffset(offset int) int {
-	if debug && (offset < 0 || offset > f.size) {
-		panic(compat.Sprintf("offset %d out of bounds [%d, %d] (position %d out of bounds [%d, %d])",
-			0 /* for symmetry */, offset, f.size,
-			f.base+offset, f.base, f.base+f.size))
-	}
+	_ = offset
+	_ = f
 	return max(min(f.size, offset), 0)
 }
 

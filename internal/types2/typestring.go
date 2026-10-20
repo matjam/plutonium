@@ -56,14 +56,16 @@ func TypeString(typ Type, qf Qualifier) string {
 // The [Qualifier] controls the printing of
 // package-level objects, and may be nil.
 func WriteType(buf *bytes.Buffer, typ Type, qf Qualifier) {
-	newTypeWriter(buf, qf).typ(typ)
+	w := newTypeWriter(buf, qf)
+	w.typ(typ)
 }
 
 // WriteSignature writes the representation of the signature sig to buf,
 // without a leading "func" keyword. The [Qualifier] controls the printing
 // of package-level objects, and may be nil.
 func WriteSignature(buf *bytes.Buffer, sig *Signature, qf Qualifier) {
-	newTypeWriter(buf, qf).signature(sig)
+	w := newTypeWriter(buf, qf)
+	w.signature(sig)
 }
 
 type typeWriter struct {
@@ -95,13 +97,13 @@ func SymbolString(typ Type, qf Qualifier) string {
 	return buf.String()
 }
 
-func newTypeWriter(buf *bytes.Buffer, qf Qualifier) *typeWriter {
-	return &typeWriter{buf, make(map[Type]bool), qf, nil, nil, true, false, false, false}
+func newTypeWriter(buf *bytes.Buffer, qf Qualifier) typeWriter {
+	return typeWriter{buf, make(map[Type]bool), qf, nil, nil, true, false, false, false}
 }
 
-func newTypeHasher(buf *bytes.Buffer, ctxt *Context) *typeWriter {
+func newTypeHasher(buf *bytes.Buffer, ctxt *Context) typeWriter {
 	assert(ctxt != nil)
-	return &typeWriter{buf, make(map[Type]bool), nil, ctxt, nil, false, false, false, false}
+	return typeWriter{buf, make(map[Type]bool), nil, ctxt, nil, false, false, false, false}
 }
 
 func (w *typeWriter) byte(b byte) {
@@ -460,7 +462,8 @@ func (w *typeWriter) typeSet(s *_TypeSet) {
 			if term.tilde {
 				buf.WriteByte('~')
 			}
-			newTypeHasher(&buf, w.ctxt).typ(term.typ)
+			h := newTypeHasher(&buf, w.ctxt)
+			h.typ(term.typ)
 			termHashes = append(termHashes, buf.String())
 		}
 		slices.Sort(termHashes)

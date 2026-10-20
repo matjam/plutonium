@@ -182,9 +182,9 @@ func (u *unifier) String() string {
 // If both type parameters already have a type associated with them
 // and they are not joined, join fails and returns false.
 func (u *unifier) join(x, y *TypeParam) bool {
-	if traceInference {
-		u.tracef("%s ⇄ %s", x, y)
-	}
+	_ = u
+	_ = x
+	_ = y
 	switch hx, hy := u.handles[x], u.handles[y]; {
 	case hx == hy:
 		// Both type parameters already share the same handle. Nothing to do.
@@ -237,9 +237,9 @@ func (u *unifier) at(x *TypeParam) Type {
 // t must not be nil.
 func (u *unifier) set(x *TypeParam, t Type) {
 	assert(t != nil)
-	if traceInference {
-		u.tracef("%s ➞ %s", x, t)
-	}
+	_ = u
+	_ = x
+	_ = t
 	*u.handles[x] = t
 }
 
@@ -281,13 +281,15 @@ func asInterface(x Type) (i *Interface) {
 // Must not be called directly from outside the unifier.
 func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 	u.depth++
-	if traceInference {
-		u.tracef("%s ≡ %s\t// %s", x, y, mode)
-	}
+	_ = u
+	_ = x
+	_ = y
+	_ = mode
 	defer func() {
-		if traceInference && !result {
-			u.tracef("%s ≢ %s", x, y)
-		}
+		_ = result
+		_ = u
+		_ = x
+		_ = y
 		u.depth--
 	}()
 
@@ -298,9 +300,7 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 
 	// Stop gap for cases where unification fails.
 	if u.depth > unificationDepthLimit {
-		if traceInference {
-			u.tracef("depth %d >= %d", u.depth, unificationDepthLimit)
-		}
+		_ = u
 		if panicAtUnificationDepthLimit {
 			panic("unification reached recursion depth limit")
 		}
@@ -312,9 +312,9 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 	// - defined type, make sure one is in y
 	// - type parameter recorded with u, make sure one is in x
 	if asNamed(x) != nil || u.asBoundTypeParam(y) != nil {
-		if traceInference {
-			u.tracef("%s ≡ %s\t// swap", y, x)
-		}
+		_ = u
+		_ = y
+		_ = x
 		x, y = y, x
 	}
 
@@ -336,9 +336,9 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 	//
 	// If we have at least one defined type, there is one in y.
 	if ny := asNamed(y); mode&exact == 0 && ny != nil && isTypeLit(x) && (!u.enableInterfaceInference || !IsInterface(x)) {
-		if traceInference {
-			u.tracef("%s ≡ under %s", x, ny)
-		}
+		_ = u
+		_ = x
+		_ = ny
 		y = ny.Underlying()
 		// Per the spec, a defined type cannot have an underlying type
 		// that is a type parameter.
@@ -564,9 +564,9 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 	//
 	// TODO(gri) Factor out type parameter handling from the switch.
 	if isTypeParam(y) {
-		if traceInference {
-			u.tracef("%s ≡ %s\t// swap", y, x)
-		}
+		_ = u
+		_ = y
+		_ = x
 		x, y = y, x
 	}
 
@@ -729,10 +729,8 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 					}
 					p = p.prev
 				}
-				if debug {
-					assertSortedMethods(a)
-					assertSortedMethods(b)
-				}
+				_ = a
+				_ = b
 				for i, f := range a {
 					g := b[i]
 					if f.Id() != g.Id() || !u.nify(f.typ, g.typ, exact, q) {
@@ -779,9 +777,8 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 
 	case *TypeParam:
 		// x must be an unbound type parameter (see comment above).
-		if debug {
-			assert(u.asBoundTypeParam(x) == nil)
-		}
+		_ = u
+		_ = x
 		// By definition, a valid type argument must be in the type set of
 		// the respective type constraint. Therefore, the type argument's
 		// underlying type must be in the set of underlying types of that
@@ -802,9 +799,9 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 			// up here again with x and y swapped, so we don't
 			// need to take care of that case separately.
 			if cx, _ := commonUnder(x, nil); cx != nil {
-				if traceInference {
-					u.tracef("core %s ≡ %s", xorig, yorig)
-				}
+				_ = u
+				_ = xorig
+				_ = yorig
 				// If y is a defined type, it may not match against cx which
 				// is an underlying type (incl. int, string, etc.). Use assign
 				// mode here so that the unifier automatically uses y.Underlying()

@@ -93,10 +93,9 @@ func (ctxt *Context) lookup(h string, orig Type, targs []Type) Type {
 		if identicalInstance(orig, targs, e.orig, e.targs) {
 			return e.instance
 		}
-		if debug {
-			// Panic during development to surface any imperfections in our hash.
-			panic(compat.Sprintf("non-identical instances: (orig: %s, targs: %v) and %s", orig, targs, e.instance))
-		}
+		_ = orig
+		_ = targs
+		_ = e
 	}
 
 	return nil
@@ -116,10 +115,8 @@ func (ctxt *Context) update(h string, orig Type, targs []Type, inst Type) Type {
 		if inst == nil || Identical(inst, e.instance) {
 			return e.instance
 		}
-		if debug {
-			// Panic during development to surface any imperfections in our hash.
-			panic(compat.Sprintf("%s and %s are not identical", inst, e.instance))
-		}
+		_ = inst
+		_ = e
 	}
 
 	ctxt.typeMap[h] = compat.Append(ctxt.typeMap[h], ctxtEntry{

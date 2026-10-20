@@ -8,6 +8,7 @@ package types2
 
 import (
 	"pluto/iter"
+	"selfhost/compat"
 	"selfhost/pu"
 )
 
@@ -52,7 +53,8 @@ func typeErrorf(format string, args ...any) *typeError {
 	if format == "" {
 		return &emptyTypeError
 	}
-	return pu.New(typeError{format, args})
+	// The arguments outlive the call, and its variadic array does not.
+	return pu.New(typeError{format, compat.Clone(args)})
 }
 
 // format formats a type error as a string.

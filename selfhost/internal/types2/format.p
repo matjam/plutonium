@@ -18,15 +18,26 @@ import (
 	"selfhost/pu"
 )
 
+// A formatted is an argument of sprintf that has been converted to text. It
+// is a pointer to the text, which fmt prints through its String method, so
+// that each converted argument is a value of its own that args can hold
+// (the string itself, in an interface, would be a copy in the frame of the
+// loop, one for every argument, and not a value args could keep).
+type formatted struct{ s string }
+
+func (f *formatted) String() string { return f.s }
+
+func text(s string) any { return pu.New(formatted{s}) }
+
 func sprintf(fset *token.FileSet, qf Qualifier, tpSubscripts bool, format string, args ...any) string {
 	for i, arg := range args {
 		switch a := arg.(type) {
 		case nil:
-			arg = "<nil>"
+			arg = text("<nil>")
 		case operand:
 			panic("got operand instead of *operand")
 		case *operand:
-			arg = operandString(a, qf)
+			arg = text(operandString(a, qf))
 		case []*operand:
 			var buf compat.Builder
 			buf.WriteByte('[')
@@ -37,27 +48,27 @@ func sprintf(fset *token.FileSet, qf Qualifier, tpSubscripts bool, format string
 				buf.WriteString(operandString(x, qf))
 			}
 			buf.WriteByte(']')
-			arg = buf.String()
+			arg = text(buf.String())
 		case token.Pos:
 			if fset != nil {
-				arg = fset.Position(a).String()
+				arg = text(fset.Position(a).String())
 			}
 		case ast.Expr:
-			arg = ExprString(a)
+			arg = text(ExprString(a))
 		case []ast.Expr:
 			buf := pu.Alloc[compat.Buffer]()
 			buf.WriteByte('[')
 			writeExprList(buf, a)
 			buf.WriteByte(']')
-			arg = buf.String()
+			arg = text(buf.String())
 		case Object:
-			arg = ObjectString(a, qf)
+			arg = text(ObjectString(a, qf))
 		case Type:
 			buf := pu.Alloc[compat.Buffer]()
 			w := newTypeWriter(buf, qf)
 			w.tpSubscripts = tpSubscripts
 			w.typ(a)
-			arg = buf.String()
+			arg = text(buf.String())
 		case []Type:
 			buf := pu.Alloc[compat.Buffer]()
 			w := newTypeWriter(buf, qf)
@@ -70,7 +81,7 @@ func sprintf(fset *token.FileSet, qf Qualifier, tpSubscripts bool, format string
 				w.typ(x)
 			}
 			buf.WriteByte(']')
-			arg = buf.String()
+			arg = text(buf.String())
 		case []*TypeParam:
 			buf := pu.Alloc[compat.Buffer]()
 			w := newTypeWriter(buf, qf)
@@ -83,7 +94,7 @@ func sprintf(fset *token.FileSet, qf Qualifier, tpSubscripts bool, format string
 				w.typ(x)
 			}
 			buf.WriteByte(']')
-			arg = buf.String()
+			arg = text(buf.String())
 		}
 		args[i] = arg
 	}

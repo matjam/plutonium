@@ -127,18 +127,9 @@ func (x *operand) Pos() token.Pos {
 // cgofunc    <expr> (               <mode>       of type <typ>)
 func operandString(x *operand, qf Qualifier) string {
 	// special-case nil
-	if isTypes2 {
-		if x.mode() == nilvalue {
-			switch x.typ() {
-			case nil, Typ[Invalid]:
-				return "nil (with invalid type)"
-			case Typ[UntypedNil]:
-				return "nil"
-			default:
-				return compat.Sprintf("nil (of type %s)", TypeString(x.typ(), qf))
-			}
-		}
-	} else { // go/types
+	_ = x
+	_ = qf
+	{ // go/types
 		if x.mode() == value && x.typ() == Typ[UntypedNil] {
 			return "nil"
 		}
@@ -322,9 +313,8 @@ func (x *operand) setConst(k token.Token, lit string) {
 
 // isNil reports whether x is the (untyped) nil value.
 func (x *operand) isNil() bool {
-	if isTypes2 {
-		return x.mode() == nilvalue
-	} else { // go/types
+	_ = x
+	{ // go/types
 		return x.mode() == value && x.typ() == Typ[UntypedNil]
 	}
 }

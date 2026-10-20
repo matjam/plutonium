@@ -138,11 +138,8 @@ func overlappingTerm(terms []*Term, y *Term) int {
 		}
 		// disjoint requires non-nil, non-top arguments,
 		// and non-interface types as term types.
-		if debug {
-			if x == nil || x.typ == nil || y == nil || y.typ == nil {
-				panic("empty or top union term")
-			}
-		}
+		_ = x
+		_ = y
 		if !(*term)(x).disjoint((*term)(y)) {
 			return i
 		}

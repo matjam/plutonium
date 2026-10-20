@@ -9,7 +9,6 @@ package types2
 import (
 	"pluto/cmp"
 	"pluto/container/heap"
-	"pluto/fmt"
 	"pluto/slices"
 	"pluto/sort"
 	"selfhost/compat"
@@ -30,35 +29,8 @@ func (check *Checker) initOrder() {
 	heap.Init(pq)
 
 	const debug = false
-	if debug {
-		fmt.Printf("Computing initialization order for %s\n\n", check.pkg)
-		fmt.Println("Object dependency graph:")
-		for obj, d := range check.objMap {
-			// only print objects that may appear in the dependency graph
-			if obj, _ := obj.(dependency); obj != nil {
-				if len(d.deps) > 0 {
-					fmt.Printf("\t%s depends on\n", obj.Name())
-					for dep := range d.deps {
-						fmt.Printf("\t\t%s\n", dep.Name())
-					}
-				} else {
-					fmt.Printf("\t%s has no dependencies\n", obj.Name())
-				}
-			}
-		}
-		fmt.Println()
-
-		fmt.Println("Transposed object dependency graph (functions eliminated):")
-		for _, n := range *pq {
-			fmt.Printf("\t%s depends on %d nodes\n", n.obj.Name(), n.ndeps)
-			for p := range n.pred {
-				fmt.Printf("\t\t%s is dependent\n", p.obj.Name())
-			}
-		}
-		fmt.Println()
-
-		fmt.Println("Processing nodes:")
-	}
+	_ = check
+	_ = pq
 
 	// Determine initialization order by removing the highest priority node
 	// (the one with the fewest dependencies) and its edges from the graph,
@@ -71,10 +43,7 @@ func (check *Checker) initOrder() {
 		// get the next node
 		n := heap.Pop(pq).(*graphNode)
 
-		if debug {
-			fmt.Printf("\t%s (src pos %d) depends on %d nodes now\n",
-				n.obj.Name(), n.obj.order(), n.ndeps)
-		}
+		_ = n
 
 		// if n still depends on other nodes, we have a cycle
 		if n.ndeps > 0 {
@@ -132,14 +101,7 @@ func (check *Checker) initOrder() {
 		check.InitOrder = compat.Append(check.InitOrder, init)
 	}
 
-	if debug {
-		fmt.Println()
-		fmt.Println("Initialization order:")
-		for _, init := range check.InitOrder {
-			fmt.Printf("\t%s\n", init)
-		}
-		fmt.Println()
-	}
+	_ = check
 }
 
 // findPath returns the (reversed) list of objects []Object{to, ... from}

@@ -163,15 +163,8 @@ func (check *Checker) objDecl(obj Object) {
 // reports an error if it is not.
 func (check *Checker) validCycle(obj Object) (valid bool) {
 	// The object map contains the package scope objects and the non-interface methods.
-	if debug {
-		info := check.objMap[obj]
-		inObjMap := info != nil && (info.fdecl == nil || info.fdecl.Recv == nil) // exclude methods
-		isPkgObj := obj.Parent() == check.pkg.scope
-		if isPkgObj != inObjMap {
-			check.dump("%v: inconsistent object map for %s (isPkgObj = %v, inObjMap = %v)", obj.Pos(), obj, isPkgObj, inObjMap)
-			panic("unreachable")
-		}
-	}
+	_ = check
+	_ = obj
 
 	// Count cycle objects.
 	start, found := check.objPathIdx[obj]
@@ -456,12 +449,8 @@ func (check *Checker) varDecl(obj *Var, lhs []*Var, typ, init ast.Expr) {
 		return
 	}
 
-	if debug {
-		// obj must be one of lhs
-		if !slices.Contains(lhs, obj) {
-			panic("inconsistent lhs")
-		}
-	}
+	_ = lhs
+	_ = obj
 
 	// We have multiple variables on the lhs and one init expr.
 	// Make sure all variables have been given the same type if
@@ -855,11 +844,7 @@ func (check *Checker) declStmt(d ast.Decl) {
 					// valued expression, in which case handling the first lhs
 					// variable will cause all lhs variables to have a type
 					// assigned, and we are done as well.
-					if debug {
-						for _, obj := range lhs0 {
-							assert(obj.typ != nil)
-						}
-					}
+					_ = lhs0
 					break
 				}
 			}

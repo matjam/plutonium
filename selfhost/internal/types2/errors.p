@@ -289,9 +289,9 @@ func (e *posSpan) Pos() token.Pos {
 // first byte after node within the source).
 func inNode(node ast.Node, pos token.Pos) *posSpan {
 	start, end := node.Pos(), node.End()
-	if debug {
-		assert(start <= pos && pos < end)
-	}
+	_ = start
+	_ = pos
+	_ = end
 	return pu.New(posSpan{start, pos, end})
 }
 

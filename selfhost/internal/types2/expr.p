@@ -291,10 +291,10 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 		// These expression are never untyped - nothing to do.
 		// The respective sub-expressions got their final types
 		// upon assignment or use.
-		if debug {
-			check.dump("%v: found old type(%s): %s (new: %s)", x.Pos(), x, old.typ, typ)
-			panic("unreachable")
-		}
+		_ = check
+		_ = x
+		_ = old
+		_ = typ
 		return
 
 	case *ast.CallExpr:
@@ -1148,9 +1148,7 @@ func (check *Checker) exprInternal(T *target, x *operand, e ast.Expr, hint Type)
 	case *ast.IndexExpr, *ast.IndexListExpr:
 		ix := unpackIndexedExpr(e)
 		if check.indexExpr(x, ix) {
-			if !enableReverseTypeInference {
-				T = nil
-			}
+			_ = T
 			check.funcInst(T, e.Pos(), x, ix, true)
 		}
 		if !x.isValid() {

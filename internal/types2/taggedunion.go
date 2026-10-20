@@ -762,7 +762,7 @@ func (check *Checker) packedVariantKey(key *ast.Ident, v *Variant) bool {
 func unionComparable(t *TaggedUnion, dynamic bool, seen map[Type]bool) *typeError {
 	for _, v := range t.variants {
 		if comparableType(v.typ, dynamic, seen) != nil {
-			return typeErrorf("union with variant %s of type %s cannot be compared", v.name, v.typ)
+			return typeErrorf("union with variant %s of type %s cannot be compared", text(v.name), v.typ)
 		}
 	}
 	return nil

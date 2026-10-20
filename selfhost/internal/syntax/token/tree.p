@@ -80,17 +80,8 @@ func compareKey(x, y key) int {
 // correct.
 func (n *node) check(parent *node) {
 	const debugging = false
-	if debugging {
-		if n == nil {
-			return
-		}
-		if n.parent != parent {
-			panic("bad parent")
-		}
-		n.left.check(n)
-		n.right.check(n)
-		n.checkBalance()
-	}
+	_ = n
+	_ = parent
 }
 
 func (n *node) checkBalance() {

@@ -471,7 +471,6 @@ func (check *Checker) collectObjects() {
 	for _, scope := range fileScopes {
 		for name, obj := range scope.elems {
 			if alt := pkg.scope.Lookup(name); alt != nil {
-				obj = resolve(name, obj)
 				err := check.newError(DuplicateDecl)
 				if pkg, ok := obj.(*PkgName); ok {
 					err.addf(alt, "%s already declared through import of %s", alt.Name(), pkg.Imported())

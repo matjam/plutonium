@@ -63,8 +63,7 @@ func (check *Checker) usage(scope *Scope) {
 		return kind != RecvVar && kind != ParamVar && kind != ResultVar
 	}
 	var unused []*Var
-	for name, elem := range scope.elems {
-		elem = resolve(name, elem)
+	for _, elem := range scope.elems {
 		if v, _ := elem.(*Var); v != nil && needUse(v.kind) && !check.usedVars[v] {
 			unused = compat.Append(unused, v)
 		}
@@ -404,11 +403,7 @@ L:
 // stmt typechecks statement s.
 func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 	// statements must end with the same top scope as they started with
-	if debug {
-		defer func(scope *Scope) {
-			assert(scope == check.scope)
-		}(check.scope)
-	}
+	_ = check
 
 	// process collected function literals before scope changes
 	defer check.processDelayed(len(check.delayed))

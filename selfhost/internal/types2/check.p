@@ -100,9 +100,10 @@ type action struct {
 // If debug is set, describef sets a printf-formatted description for action a.
 // Otherwise, it is a no-op.
 func (a *action) describef(pos positioner, format string, args ...any) {
-	if debug {
-		a.desc = &actionDesc{pos, format, args}
-	}
+	_ = a
+	_ = pos
+	_ = format
+	_ = args
 }
 
 // An actionDesc provides information on an action.

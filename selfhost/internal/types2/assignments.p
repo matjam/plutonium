@@ -48,17 +48,12 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 		// bool, rune, int, float64, complex128 or string respectively, depending
 		// on whether the value is a boolean, rune, integer, floating-point,
 		// complex, or string constant."
-		if isTypes2 {
-			if x.isNil() {
-				if T == nil {
-					check.errorf(x, UntypedNilUse, "use of untyped nil in %s", context)
-					x.invalidate()
-					return
-				}
-			} else if T == nil || isNonTypeParamInterface(T) {
-				target = Default(x.typ())
-			}
-		} else { // go/types
+		_ = x
+		_ = T
+		_ = check
+		_ = context
+		_ = target
+		{ // go/types
 			if T == nil || isNonTypeParamInterface(T) {
 				if T == nil && x.typ() == Typ[UntypedNil] {
 					check.errorf(x, UntypedNilUse, "use of untyped nil in %s", context)

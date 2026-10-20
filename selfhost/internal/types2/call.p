@@ -377,19 +377,8 @@ func (check *Checker) exprList(elist []ast.Expr) (xlist []*operand) {
 // For each partially instantiated generic function operand, the corresponding
 // targsList elements are the operand's partial type arguments.
 func (check *Checker) genericExprList(elist []ast.Expr) (resList []*operand, targsList [][]Type) {
-	if debug {
-		defer func() {
-			// type arguments must only exist for partially instantiated functions
-			for i, x := range resList {
-				if i < len(targsList) {
-					if n := len(targsList[i]); n > 0 {
-						// x must be a partially instantiated function
-						assert(n < x.typ().(*Signature).TypeParams().Len())
-					}
-				}
-			}
-		}()
-	}
+	_ = resList
+	_ = targsList
 
 	// Before Go 1.21, uninstantiated or partially instantiated argument functions are
 	// not permitted. Checker.funcInst must infer missing type arguments in that case.
@@ -969,43 +958,12 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 			//           method set method doesn't match (no copy there). There
 			///          may be other situations.
 			disabled := true
-			if !disabled && debug {
-				// Verify that LookupFieldOrMethod and MethodSet.Lookup agree.
-				// TODO(gri) This only works because we call LookupFieldOrMethod
-				// _before_ calling NewMethodSet: LookupFieldOrMethod completes
-				// any incomplete interfaces so they are available to NewMethodSet
-				// (which assumes that interfaces have been completed already).
-				typ := x.typ_
-				if x.mode() == variable {
-					// If typ is not an (unnamed) pointer or an interface,
-					// use *typ instead, because the method set of *typ
-					// includes the methods of typ.
-					// Variables are addressable, so we can always take their
-					// address.
-					if _, ok := typ.(*Pointer); !ok && !IsInterface(typ) {
-						typ = &Pointer{base: typ}
-					}
-				}
-				// If we created a synthetic pointer type above, we will throw
-				// away the method set computed here after use.
-				// TODO(gri) Method set computation should probably always compute
-				// both, the value and the pointer receiver method set and represent
-				// them in a single structure.
-				// TODO(gri) Consider also using a method set cache for the lifetime
-				// of checker once we rely on MethodSet lookup instead of individual
-				// lookup.
-				mset := NewMethodSet(typ)
-				if m := mset.Lookup(check.pkg, sel); m == nil || m.obj != obj {
-					check.dump("%v: (%s).%v -> %s", e.Pos(), typ, obj.name, m)
-					check.dump("%s\n", mset)
-					// Caution: MethodSets are supposed to be used externally
-					// only (after all interface types were completed). It's
-					// now possible that we get here incorrectly. Not urgent
-					// to fix since we only run this code in debug mode.
-					// TODO(gri) fix this eventually.
-					panic("method sets and lookup don't agree")
-				}
-			}
+			_ = disabled
+			_ = x
+			_ = check
+			_ = sel
+			_ = obj
+			_ = e
 
 			x.mode_ = value
 

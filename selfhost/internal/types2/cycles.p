@@ -42,9 +42,8 @@ func (check *Checker) directCycles() {
 // that starts at tname are marked black, regardless of whether there was a cycle.
 // This ensures that a type name is traversed only once.
 func (check *Checker) directCycle(tname *TypeName, pathIdx map[*TypeName]int) {
-	if debug && check.conf._Trace {
-		check.trace(tname.Pos(), "-- check direct cycle for %s", tname)
-	}
+	_ = check
+	_ = tname
 
 	var path []*TypeName
 	for {
@@ -101,11 +100,7 @@ func (check *Checker) directCycle(tname *TypeName, pathIdx map[*TypeName]int) {
 		pathIdx[tname] = -1
 	}
 
-	if debug {
-		for _, i := range pathIdx {
-			assert(i < 0)
-		}
-	}
+	_ = pathIdx
 }
 
 // isComplete returns whether a type is complete (i.e. up to having an underlying type).

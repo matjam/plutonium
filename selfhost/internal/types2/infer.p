@@ -9,7 +9,6 @@
 package types2
 
 import (
-	"pluto/fmt"
 	"pluto/slices"
 	"selfhost/compat"
 	"selfhost/internal/syntax/token"
@@ -43,12 +42,11 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 		}()
 	}
 
-	if traceInference {
-		check.dump("== infer : %s%s ➞ %s", tparams, params, targs) // aligned with rename print below
-		defer func() {
-			check.dump("=> %s ➞ %s\n", tparams, inferred)
-		}()
-	}
+	_ = check
+	_ = tparams
+	_ = params
+	_ = targs
+	_ = inferred
 
 	// There must be at least one type parameter, and no more type arguments than type parameters.
 	n := len(tparams)
@@ -159,10 +157,9 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 	// --- 1 ---
 	// use information from function arguments
 
-	if traceInference {
-		u.tracef("== function parameters: %s", params)
-		u.tracef("-- function arguments : %s", args)
-	}
+	_ = u
+	_ = params
+	_ = args
 
 	for i, arg := range args {
 		if !arg.isValid() {
@@ -197,17 +194,14 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 		}
 	}
 
-	if traceInference {
-		inferred := u.inferred(tparams)
-		u.tracef("=> %s ➞ %s\n", tparams, inferred)
-	}
+	_ = u
+	_ = tparams
 
 	// --- 2 ---
 	// use information from type parameter constraints
 
-	if traceInference {
-		u.tracef("== type parameters: %s", tparams)
-	}
+	_ = u
+	_ = tparams
 
 	// Unify type parameters with their constraints as long
 	// as progress is being made.
@@ -226,19 +220,17 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 	// may not be worth it.)
 	for i := 0; ; i++ {
 		nn := u.unknowns()
-		if traceInference {
-			if i > 0 {
-				fmt.Println()
-			}
-			u.tracef("-- iteration %d", i)
-		}
+		_ = i
+		_ = u
 
 		for _, tpar := range tparams {
 			tx := u.at(tpar)
 			core, single := coreTerm(tpar)
-			if traceInference {
-				u.tracef("-- type parameter %s = %s: core(%s) = %s, single = %v", tpar, tx, tpar, core, single)
-			}
+			_ = u
+			_ = tpar
+			_ = tx
+			_ = core
+			_ = single
 
 			// If the type parameter's constraint has a core term (i.e., a core type with tilde information)
 			// try to unify the type parameter with that core type.
@@ -246,9 +238,10 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 				// A type parameter can be unified with its constraint's core type in two cases.
 				switch {
 				case tx != nil:
-					if traceInference {
-						u.tracef("-> unify type parameter %s (type %s) with constraint core type %s", tpar, tx, core.typ)
-					}
+					_ = u
+					_ = tpar
+					_ = tx
+					_ = core
 					// The corresponding type argument tx is known. There are 2 cases:
 					// 1) If the core type has a tilde, per spec requirement for tilde
 					//    elements, the core type is an underlying (literal) type.
@@ -267,9 +260,9 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 						return nil
 					}
 				case single && !core.tilde:
-					if traceInference {
-						u.tracef("-> set type parameter %s to constraint's common underlying type %s", tpar, core.typ)
-					}
+					_ = u
+					_ = tpar
+					_ = core
 					// The corresponding type argument tx is unknown and the core term
 					// describes a single specific type and no tilde.
 					// In this case the type argument must be that single type; set it.
@@ -291,9 +284,9 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 			// a simplify step beforehand (see below). This will require factoring out the
 			// simplify phase so we can call it from here.
 			if tx != nil && !isParameterized(tparams, tx) {
-				if traceInference {
-					u.tracef("-> unify type parameter %s (type %s) methods with constraint methods", tpar, tx)
-				}
+				_ = u
+				_ = tpar
+				_ = tx
 				// TODO(gri) Now that unification handles interfaces, this code can
 				//           be reduced to calling u.unify(tx, tpar.iface(), assign)
 				//           (which will compare signatures exactly as we do below).
@@ -315,17 +308,14 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 		}
 	}
 
-	if traceInference {
-		inferred := u.inferred(tparams)
-		u.tracef("=> %s ➞ %s\n", tparams, inferred)
-	}
+	_ = u
+	_ = tparams
 
 	// --- 3 ---
 	// use information from untyped constants
 
-	if traceInference {
-		u.tracef("== untyped arguments: %v", untyped)
-	}
+	_ = u
+	_ = untyped
 
 	// Some generic parameters with untyped arguments may have been given a type by now.
 	// Collect all remaining parameters that don't have a type yet and determine the
@@ -370,11 +360,8 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 	// remaining type parameters by substituting the type parameters in this type list
 	// until nothing changes anymore.
 	inferred = u.inferred(tparams)
-	if debug {
-		for i, targ := range targs {
-			assert(targ == nil || inferred[i] == targ)
-		}
-	}
+	_ = targs
+	_ = inferred
 
 	// The data structure of each (provided or inferred) type represents a graph, where
 	// each node corresponds to a type and each (directed) vertex points to a component
@@ -412,9 +399,9 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 	}
 
 	for len(dirty) > 0 {
-		if traceInference {
-			u.tracef("-- simplify %s ➞ %s", tparams, inferred)
-		}
+		_ = u
+		_ = tparams
+		_ = inferred
 		// TODO(gri) Instead of creating a new substMap for each iteration,
 		// provide an update operation for substMaps and only change when
 		// needed. Optimization.
@@ -679,10 +666,8 @@ func coreTerm(tpar *TypeParam) (*term, bool) {
 		return true
 	})
 	if n == 1 {
-		if debug {
-			u, _ := commonUnder(tpar, nil)
-			assert(single.typ.Underlying() == u)
-		}
+		_ = tpar
+		_ = single
 		return single, true
 	}
 	if typ, _ := commonUnder(tpar, nil); typ != nil {

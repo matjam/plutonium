@@ -12,7 +12,6 @@ import (
 	"io"
 	"slices"
 	"strings"
-	"sync"
 )
 
 // A Scope maintains a set of objects and links to its containing
@@ -67,7 +66,7 @@ func (s *Scope) Child(i int) *Scope { return s.children[i] }
 
 // Lookup returns the object in scope s with the given name if such an
 // object exists; otherwise the result is nil.
-func (s *Scope) Lookup(name string) Object { return resolve(name, s.elems[name]) }
+func (s *Scope) Lookup(name string) Object { return s.elems[name] }
 
 // lookupIgnoringCase returns the objects in scope s whose names match
 // the given name ignoring case. If exported is set, only exported names
@@ -142,55 +141,3 @@ func (s *Scope) String() string {
 	s.WriteTo(&buf, 0, false)
 	return buf.String()
 }
-
-// A lazyObject represents an imported Object that has not been fully
-// resolved yet by its importer.
-type lazyObject struct {
-	parent  *Scope
-	resolve func() Object
-	obj     Object
-	once    sync.Once
-}
-
-// resolve returns the Object represented by obj, resolving lazy
-// objects as appropriate.
-func resolve(name string, obj Object) Object {
-	if lazy, ok := obj.(*lazyObject); ok {
-		lazy.once.Do(func() {
-			obj := lazy.resolve()
-
-			if _, ok := obj.(*lazyObject); ok {
-				panic("recursive lazy object")
-			}
-			if obj.Name() != name {
-				panic("lazy object has unexpected name")
-			}
-
-			if obj.Parent() == nil {
-				obj.setParent(lazy.parent)
-			}
-			lazy.obj = obj
-		})
-
-		obj = lazy.obj
-	}
-	return obj
-}
-
-// stub implementations so *lazyObject implements Object and we can
-// store them directly into Scope.elems.
-func (*lazyObject) Parent() *Scope                     { panic("unreachable") }
-func (*lazyObject) Pos() token.Pos                     { panic("unreachable") }
-func (*lazyObject) Pkg() *Package                      { panic("unreachable") }
-func (*lazyObject) Name() string                       { panic("unreachable") }
-func (*lazyObject) Type() Type                         { panic("unreachable") }
-func (*lazyObject) Exported() bool                     { panic("unreachable") }
-func (*lazyObject) Id() string                         { panic("unreachable") }
-func (*lazyObject) String() string                     { panic("unreachable") }
-func (*lazyObject) order() uint32                      { panic("unreachable") }
-func (*lazyObject) setType(Type)                       { panic("unreachable") }
-func (*lazyObject) setOrder(uint32)                    { panic("unreachable") }
-func (*lazyObject) setParent(*Scope)                   { panic("unreachable") }
-func (*lazyObject) sameId(*Package, string, bool) bool { panic("unreachable") }
-func (*lazyObject) scopePos() token.Pos                { panic("unreachable") }
-func (*lazyObject) setScopePos(token.Pos)              { panic("unreachable") }

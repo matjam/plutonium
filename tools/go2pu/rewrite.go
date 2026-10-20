@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"go/ast"
+	"go/constant"
 	"go/token"
 	"go/types"
 	"strconv"
@@ -83,6 +84,9 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 				return "", true // the propagation of an or statement before it
 			}
 			return t.orText(r), true
+		}
+		if s, ok := t.deadIf(n); ok {
+			return s, true
 		}
 	case *ast.RangeStmt:
 		return t.heapRange(n)
@@ -1011,4 +1015,103 @@ func (t *fileTr) namedText(obj *types.TypeName, targs *types.TypeList) string {
 		name += "[" + strings.Join(args, ", ") + "]"
 	}
 	return name
+}
+
+// deadIf translates an if statement whose condition is the constant false
+// (the type checker's `if debug {`, with debug a constant) to its else part,
+// or to nothing: the code can never run, and the escape analysis of the
+// translation, which does not know that, would check it.
+func (t *fileTr) deadIf(n *ast.IfStmt) (string, bool) {
+	if n.Init != nil {
+		return "", false
+	}
+	if !t.constFalse(n.Cond) {
+		return "", false
+	}
+	inElse := false
+	if p, ok := t.parent[n].(*ast.IfStmt); ok && p.Else == n {
+		inElse = true
+	}
+	// The variables only the dead code used stay used.
+	uses := t.deadUses(n)
+	switch {
+	case inElse:
+		// An else if: a block to hold them.
+		if n.Else != nil {
+			return t.render(n.Else), true
+		}
+		return "{\n" + uses + "}", true
+	case n.Else != nil:
+		return uses + t.render(n.Else), true
+	}
+	return strings.TrimSuffix(uses, "\n"), true
+}
+
+// deadUses returns a statement `_ = v` for each local variable declared
+// before the dead if statement n and used in it, so that a variable only the
+// dead code used is not reported as unused.
+func (t *fileTr) deadUses(n *ast.IfStmt) string {
+	seen := map[*types.Var]bool{}
+	var names []string
+	for _, part := range []ast.Node{n.Cond, n.Body} {
+		ast.Inspect(part, func(c ast.Node) bool {
+			id, ok := c.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			v, ok := t.info.Uses[id].(*types.Var)
+			if !ok || v.IsField() || seen[v] || v.Pos() >= n.Pos() || v.Parent() == nil || v.Parent() == v.Pkg().Scope() {
+				return true
+			}
+			seen[v] = true
+			names = append(names, goName(v.Name()))
+			return true
+		})
+	}
+	var b strings.Builder
+	for _, name := range names {
+		fmt.Fprintf(&b, "_ = %s\n", name)
+	}
+	return b.String()
+}
+
+// constFalse reports whether the boolean expression e is false whatever the
+// variables are: a constant false, or an && one of whose operands is, with
+// an operand that has no effects to lose.
+func (t *fileTr) constFalse(e ast.Expr) bool {
+	if tv, ok := t.info.Types[e]; ok && tv.Value != nil && tv.Value.Kind() == constant.Bool {
+		return !constant.BoolVal(tv.Value)
+	}
+	switch e := ast.Unparen(e).(type) {
+	case *ast.BinaryExpr:
+		switch e.Op {
+		case token.LAND:
+			return t.constFalse(e.X) && t.pure(e.Y) || t.constFalse(e.Y) && t.pure(e.X)
+		case token.LOR:
+			return t.constFalse(e.X) && t.constFalse(e.Y)
+		}
+	}
+	return false
+}
+
+// pure reports whether evaluating e has no effects: it has no calls or
+// receives.
+func (t *fileTr) pure(e ast.Expr) bool {
+	ok := true
+	ast.Inspect(e, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.CallExpr:
+			if tv, isType := t.info.Types[n.Fun]; !isType || !tv.IsType() {
+				ok = false
+			}
+		case *ast.UnaryExpr:
+			if n.Op == token.ARROW {
+				ok = false
+			}
+		case *ast.FuncLit:
+			ok = false
+		}
+		return ok
+	})
+	return ok
 }

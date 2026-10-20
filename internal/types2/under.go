@@ -4,7 +4,10 @@
 
 package types2
 
-import "iter"
+import (
+	"iter"
+	"slices"
+)
 
 // If typ is a type parameter, underIs returns the result of typ.underIs(f).
 // Otherwise, underIs returns the result of f(typ.Underlying()).
@@ -47,7 +50,8 @@ func typeErrorf(format string, args ...any) *typeError {
 	if format == "" {
 		return &emptyTypeError
 	}
-	return &typeError{format, args}
+	// The arguments outlive the call, and its variadic array does not.
+	return &typeError{format, slices.Clone(args)}
 }
 
 // format formats a type error as a string.

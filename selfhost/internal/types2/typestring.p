@@ -56,14 +56,16 @@ func TypeString(typ Type, qf Qualifier) string {
 // The [Qualifier] controls the printing of
 // package-level objects, and may be nil.
 func WriteType(buf *compat.Buffer, typ Type, qf Qualifier) {
-	newTypeWriter(buf, qf).typ(typ)
+	w := newTypeWriter(buf, qf)
+	w.typ(typ)
 }
 
 // WriteSignature writes the representation of the signature sig to buf,
 // without a leading "func" keyword. The [Qualifier] controls the printing
 // of package-level objects, and may be nil.
 func WriteSignature(buf *compat.Buffer, sig *Signature, qf Qualifier) {
-	newTypeWriter(buf, qf).signature(sig)
+	w := newTypeWriter(buf, qf)
+	w.signature(sig)
 }
 
 type typeWriter struct {
@@ -95,13 +97,13 @@ func SymbolString(typ Type, qf Qualifier) string {
 	return buf.String()
 }
 
-func newTypeWriter(buf *compat.Buffer, qf Qualifier) *typeWriter {
-	return pu.New(typeWriter{buf, make(map[Type]bool), qf, nil, nil, true, false, false, false})
+func newTypeWriter(buf *compat.Buffer, qf Qualifier) typeWriter {
+	return typeWriter{buf, make(map[Type]bool), qf, nil, nil, true, false, false, false}
 }
 
-func newTypeHasher(buf *compat.Buffer, ctxt *Context) *typeWriter {
+func newTypeHasher(buf *compat.Buffer, ctxt *Context) typeWriter {
 	assert(ctxt != nil)
-	return pu.New(typeWriter{buf, make(map[Type]bool), nil, ctxt, nil, false, false, false, false})
+	return typeWriter{buf, make(map[Type]bool), nil, ctxt, nil, false, false, false, false}
 }
 
 func (w *typeWriter) byte(b byte) {
@@ -400,9 +402,9 @@ func (w *typeWriter) typ(typ Type) {
 			// error messages. This doesn't need to be super-elegant; we just
 			// need a clear indication that this is not a predeclared name.
 			if w.ctxt == nil && Universe.Lookup(t.obj.name) != nil {
-				if isTypes2 {
-					w.string(compat.Sprintf(" /* with %s declared at %v */", t.obj.name, t.obj.Pos()))
-				} else {
+				_ = w
+				_ = t
+				{
 					// Can't print position information because
 					// we don't have a token.FileSet accessible.
 					w.string("/* type parameter */")
@@ -460,7 +462,8 @@ func (w *typeWriter) typeSet(s *_TypeSet) {
 			if term.tilde {
 				buf.WriteByte('~')
 			}
-			newTypeHasher(buf, w.ctxt).typ(term.typ)
+			h := pu.New(newTypeHasher(buf, w.ctxt))
+			h.typ(term.typ)
 			termHashes = compat.Append(termHashes, buf.String())
 		}
 		slices.Sort(termHashes)

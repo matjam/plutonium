@@ -472,7 +472,6 @@ func (check *Checker) collectObjects() {
 	for _, scope := range fileScopes {
 		for name, obj := range scope.elems {
 			if alt := pkg.scope.Lookup(name); alt != nil {
-				obj = resolve(name, obj)
 				err := check.newError(DuplicateDecl)
 				if pkg, ok := obj.(*PkgName); ok {
 					err.addf(alt, "%s already declared through import of %s", alt.Name(), pkg.Imported())
@@ -649,26 +648,8 @@ func (check *Checker) packageObjects() {
 		}
 	}
 
-	if false {
-		// TODO: determine if we can enable this code now or
-		//       if there are still problems with cycles and
-		//       aliases.
-		//
-		// For example, in GOROOT/test/typeparam/issue50259.go,
-		//
-		// 	type T[_ any] struct{}
-		// 	type A T[B]
-		// 	type B = T[A]
-		//
-		// TypeName A has Type Named during checking, but by
-		// the time the unified export data is written out,
-		// its Type is Invalid.
-		//
-		// Investigate and reenable this branch.
-		for _, obj := range check.objList {
-			check.objDecl(obj)
-		}
-	} else {
+	_ = check
+	{
 		// To avoid problems with cycles, we process non-alias type declarations first, followed by
 		// alias declarations, and then everything else. This appears to avoid most situations
 		// where the type of an alias is needed before it is available.

@@ -129,9 +129,7 @@ func (s *_TypeSet) all(f func(t, u Type) bool) bool {
 		if !t.tilde {
 			u = u.Underlying()
 		}
-		if debug {
-			assert(Identical(u, u.Underlying()))
-		}
+		_ = u
 		if !f(t.typ, u) {
 			return false
 		}

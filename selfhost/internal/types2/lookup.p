@@ -707,9 +707,6 @@ func deref(typ Type) (Type, bool) {
 	if p, _ := Unalias(typ).(*Pointer); p != nil {
 		// p.base should never be nil, but be conservative
 		if p.base == nil {
-			if debug {
-				panic("pointer with nil base type (possibly due to an invalid cyclic declaration)")
-			}
 			return Typ[Invalid], true
 		}
 		return p.base, true

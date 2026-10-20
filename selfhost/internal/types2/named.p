@@ -304,26 +304,7 @@ func (n *Named) stateHas(m stateMask) bool {
 func (n *Named) setState(m stateMask) {
 	atomic.OrUint32(&n.state_, uint32(m))
 	// verify state transitions
-	if debug {
-		m := stateMask(atomic.LoadUint32(&n.state_))
-		u := m&unpacked != 0
-		// unpacked => lazyLoaded
-		if u {
-			assert(m&lazyLoaded != 0)
-		}
-		// hasMethods => unpacked
-		if m&hasMethods != 0 {
-			assert(u)
-		}
-		// hasUnder => unpacked
-		if m&hasUnder != 0 {
-			assert(u)
-		}
-		// hasVarSize => unpacked
-		if m&hasVarSize != 0 {
-			assert(u)
-		}
-	}
+	_ = n
 }
 
 // newNamed is like NewNamed but with a *Checker receiver.
@@ -591,9 +572,7 @@ func (t *Named) methodIndex(name string, foldCase bool) int {
 //
 // In debug mode, it also asserts that n is in an appropriate state.
 func (n *Named) rhs() Type {
-	if debug {
-		assert(n.stateHas(lazyLoaded | unpacked))
-	}
+	_ = n
 	return n.fromRHS
 }
 
@@ -643,9 +622,7 @@ func (n *Named) resolveUnderlying() {
 	assert(n.stateHas(lazyLoaded | unpacked))
 
 	var seen map[*Named]bool // for debugging only
-	if debug {
-		seen = make(map[*Named]bool)
-	}
+	_ = seen
 
 	var path []*Named
 	var u Type
@@ -655,10 +632,8 @@ func (n *Named) resolveUnderlying() {
 			rhs = unalias(t)
 
 		case *Named:
-			if debug {
-				assert(!seen[t])
-				seen[t] = true
-			}
+			_ = seen
+			_ = t
 
 			// don't recalculate the underlying
 			if t.stateHas(hasUnder) {
@@ -666,9 +641,8 @@ func (n *Named) resolveUnderlying() {
 				break
 			}
 
-			if debug {
-				seen[t] = true
-			}
+			_ = seen
+			_ = t
 			path = compat.Append(path, t)
 
 			t.unpack()

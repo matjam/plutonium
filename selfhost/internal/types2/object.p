@@ -592,7 +592,8 @@ func writeObject(buf *compat.Buffer, obj Object, qf Qualifier) {
 			return
 		case genericType:
 			if t.TypeParams().Len() > 0 {
-				newTypeWriter(buf, qf).tParamList(t.TypeParams().list())
+				w := newTypeWriter(buf, qf)
+				w.tParamList(t.TypeParams().list())
 			}
 		}
 		if tname.IsAlias() {
@@ -721,8 +722,6 @@ func objectKind(obj Object) string {
 	case *Nil:
 		return "untyped nil"
 	}
-	if debug {
-		panic(compat.Sprintf("unknown symbol (%T)", obj))
-	}
+	_ = obj
 	return "unknown symbol"
 }
