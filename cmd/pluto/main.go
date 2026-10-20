@@ -53,7 +53,10 @@ func envBrief() bool {
 }
 
 func main() {
-	os.Exit(execute(os.Args[1:], os.Stderr))
+	stop := startProfile()
+	code := execute(os.Args[1:], os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
 // execute runs pluto with the command-line arguments args and returns the
