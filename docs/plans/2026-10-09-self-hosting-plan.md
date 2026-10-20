@@ -919,16 +919,44 @@ on the way:
   of `rangeStmt` on a range over a type, fixed); `lower.Lower` no longer recovers from its own crash after an
   error; `descHash` and `leWord` of `lower` do not use `hash/fnv` and `encoding/binary`.
 
-What blocks translating and building each package (go2pu run over the Go sources, then `pluto build`):
+Update (2026-10-19, later). Every compiler package now translates with no note that a person has to act on,
+except two in `load` (below), is checked in under `selfhost/internal` (`types2/errors`, `goversion`, `types2`,
+`diag`, `directive`, `scoped`, `load`, `escape`, `moves`, `race`, `lower`), and loads and type-checks as
+Plutonium (`TestTranslationsLoad`, 0.5 s for all of it). Building them is still blocked on the escape analysis
+(next paragraph), so nothing past the type checker has been seen of `types2`, `diag` and the rest: the lifetime
+errors Plutonium may report in them (a pointer to a frame variable stored in an arena object, for example the
+`types2.Config` that `load` fills in) are unknown. What changed:
 
-| Package | State |
-|---|---|
-| `types2/errors`, `goversion`, `types2` | translate, and type-check as Plutonium (`load.Load` of the translation takes 0.13 s). `types2` went from 273 notes to 2: a closure Go reports as escaping that is a plain argument in Plutonium (`index.go`), and `posSpan` returned in an interface (`util.go`, to become a pointer). Building it is blocked on the escape analysis (below). |
-| `diag` (5,313) | 28 notes: `regexp` (used by `typecheck.go` to rewrite the type checker's messages, by `tool.go` for tool versions), `os/exec`, `strings.Split`, `SplitN` and `Fields` (not in `pluto/strings`), a `recover` in `typecheck.go`, `diag.List` returned as an `error` (a slice in an interface: it must become a pointer, which every user of `diag.List` sees). |
-| `load` (762) | 29 notes: `io/fs` (`fs.FS`, `fs.DirEntry`, `fs.ReadDir`, `Stat`) for the embedded library, `path`, `bufio`, the same string functions, `fsDir`, `osDir` and `diag.List` returned in interfaces. The loader reads the library through an `fs.FS`; the self-hosted one reads a directory, so `fsDir` and the embedded library need a hand-written file (`printhook.p` is the example of one). |
-| `escape` (7,799), `moves` (4,261), `scoped` (726), `directive` (367) | 15, 18, 10 and 2 notes: closures that Go reports as escaping (about 40 sites, nearly all passed to a function that only calls them, which Plutonium accepts), `strings.Fields`, `slices.Insert` (now `compat.Insert`). |
-| `lower` (22,644) | 36 notes after the changes above: about 30 closures of the same kind, `diag.List` in an interface, a named result moved to the heap (`closureflow.go`). |
-| printer (4,085) | reached through `types2` only for `DeclPrinter`; `pluto fmt` needs it with `text/tabwriter` and `go/doc/comment` translated (the latter is the large one). Later. |
+- `diag.List` is a pointer type (`*List` is the error; the methods have pointer receivers; owner decision
+  recorded in the task). `regexp` is gone from `diag`: `internal/diag/match.go` has hand-written matchers for
+  the 11 expressions of the message rewriting and the linker output, and `TestMatchers` compares each with its
+  regular expression on 400,000 generated messages (0 differences). `FromTool` takes `notFound bool` and the
+  cause text instead of an `error`, so `diag` no longer imports `os/exec`.
+- go2pu: `strings.Split`, `SplitN` and `Fields` become `compat.Split`, `SplitN` and `Fields`;
+  `slices.Clone` becomes the generic `compat.Clone`; `io/fs` is `selfhost/compat/fs` (`FS`, `DirEntry`,
+  `FileInfo`, `ReadDir`, `ReadFile`, `Stat`, `DirFS`, and `OSReadDir` and `OSStat` for `os.ReadDir` and
+  `os.Stat` in a file that imports `io/fs`; tested by `TestCompat`); a package imported under two names
+  (`path` and `path/filepath`) gets both; `pu` and `compat` as variable names get an underscore; a pointer
+  variable moved to the heap or captured by a converted closure is dereferenced explicitly before `.f`.
+- go2pu: function literals that are only called need no note (`callonly.go`): arguments of `ast.Inspect` and
+  `Expr.Eval`, of a package function that only calls its parameter, of a push iterator; literals held in a local
+  variable that is only called; variables Go moves to the heap only because such a literal uses them (named
+  results included) stay in the frame. Closure conversion also converts the closures held by a func variable
+  that a converted closure captures (the `emit` of `lower/conc.go`). A value returned in an interface that does
+  not fit the data word becomes `pu.New(v)` when the package never asserts its type (`boxing.go`:
+  `fsDir`, `osDir`). A deferred `if recover() != nil {...}` guard is dropped (`diag`'s explainers, which the
+  Go build still guards): a panic in Plutonium ends the task.
+- Go sources changed by hand: `types2.inNode` returns `*posSpan`; `load` reads the build constraint lines with
+  `strings.Lines` instead of `bufio.Scanner`; `printhook.p` of `load` is hand-written (no printer yet).
+- Still noted: `load.go` stores two function values in `types2.Config` (`Importer` through `importerFunc`, and
+  the exported field `Error`); closure conversion refuses an exported field. Whether Plutonium accepts them is
+  decided by the escape analysis, once it can run.
+- `selfhost/demo/diagdemo` (`tools/go2pu/testdata/diagdemo`) prints the explanation of every catalog entry,
+  every code rendered in the full and brief forms, the diagnostics of 114 programs of
+  `cmd/pluto/testdata/diag` from records of what the compiler made of them (`TestDiagDemoRecords` checks that
+  rendering the records gives each program's golden `default.out`), syntax errors, failed tool runs and lists.
+  The Go build prints 1 MB; `TestDifferential` runs the Plutonium build only with `GO2PU_SLOW=1`, because it
+  imports the translated type checker.
 
 The compiler problem this found: **the escape analysis cannot build the translated type checker in reasonable
 time or memory.** `pluto build` of a program that imports `selfhost/internal/types2` ran for more than 25
