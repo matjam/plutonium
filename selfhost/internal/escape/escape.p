@@ -96,9 +96,18 @@ type analyzer struct {
 	// without looking at the whole program's.
 	implicitVars []*types2.Var
 
-	funcs  map[*types2.Func]*function // declared functions and methods, by origin
-	lits   map[*ast.FuncLit]*function
-	order  []*function // what to analyse: declarations and package initialisers
+	funcs map[*types2.Func]*function // declared functions and methods, by origin
+	lits  map[*ast.FuncLit]*function
+	order []*function // what to analyse: declarations and package initialisers
+	// ver counts the changes to the facts every function may read, and deps
+	// is what the function being analysed has read of the others (deps.go).
+	ver  globalVers
+	deps map[*function]uint32
+
+	dynFilters map[types2.Type]*dynFilter
+
+	// sites remember what calls have applied of their callees (escapes.go).
+	sites  map[siteKey]*siteState
 	byName map[string][]*function
 
 	// Candidates for dynamic calls.
@@ -271,7 +280,7 @@ func bodylessSummary(fn *function) summary {
 		}
 		src := pkey{idx: i, ge: true}
 		if !fn.noescape {
-			s.addEscape(src, r)
+			s.addEscape(src, *r)
 			continue
 		}
 		for j, q := range fn.params {
@@ -363,10 +372,11 @@ func (a *analyzer) applyDirectives(fn *function) {
 
 // run computes summaries until nothing changes, then reports.
 func (a *analyzer) run() {
+	defer func() { a.sites = nil }() // what calls applied is not needed afterwards
 	for pass := 0; ; pass++ {
 		a.grew = false
 		for _, f := range a.order {
-			if !f.bodyless {
+			if !f.bodyless && !a.unchanged(f) {
 				a.analyze(f)
 			}
 		}
@@ -413,6 +423,9 @@ func (a *analyzer) checkResultHolds() {
 // the reporting pass.
 func (a *analyzer) analyze(f *function) {
 	w := newWalker(a, f)
+	f.deps, f.depsVer, f.analyzed = map[*function]uint32{}, a.ver, true
+	a.deps = f.deps
+	defer func() { a.deps = nil }()
 	report := a.report
 	a.report = false
 	for i := 0; ; i++ {
@@ -470,6 +483,7 @@ func (a *analyzer) litFunc(lit *ast.FuncLit, pkg *pkgInfo, outer string) *functi
 	}
 	p := a.fset.Position(lit.Pos())
 	f := pu.New(function{name: compat.Sprintf("func literal in %s at line %d", outer, p.Line), pkg: pkg, lit: lit, sig: sig})
+	a.ver.lit++
 	f.params = sigParams(sig)
 	a.lits[lit] = f
 	return f
@@ -667,6 +681,7 @@ func (a *analyzer) noteConversion(T types2.Type) {
 	key := types2.TypeString(T, nil)
 	if _, ok := a.converted[key]; !ok {
 		a.converted[key] = T
+		a.ver.conv++
 		a.grew = true
 		a.indexConverted(key, T)
 	}
@@ -743,6 +758,7 @@ func (a *analyzer) noteFuncValue(fn *function, kind fvKind) {
 		return
 	}
 	a.funcValues[k] = true
+	a.ver.fv++
 	a.grew = true
 }
 

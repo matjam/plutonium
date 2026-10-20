@@ -113,6 +113,15 @@ End-to-end tests live in `internal/build`:
   tests in `conc_test.go`, `timer_test.go` and `poll_test.go` whose
   programs depend on timing: they build in parallel (`buildConcAll`) and
   then run their programs one at a time, before the parallel tests start.
+- Profile a build with `PLUTO_CPUPROFILE=file`, `PLUTO_MEMPROFILE=file` (pprof) or
+  `PLUTO_STACKSAMPLE=file` (a text profile that samples goroutine stacks, for machines without the CPU
+  profiler's timer); `PLUTO_PROFILE_SECS=n` (or an interrupt) stops a build that does not finish and writes
+  them (`cmd/pluto/profile.go`). `go run ./tools/escapedigest` prints a digest of the diagnostics or object
+  bytes of every program of the test corpus; run it on `origin/main` and on a change that must not change what
+  the compiler does (`-compare file` checks), as for the escape analysis. `PLUTO_SCALE_TEST=1 go test
+  ./internal/escape -run Translated` holds the escape analysis of the translated type checker to its time and
+  memory bounds (it takes minutes); `PLUTO_ESCAPE_CHECK=1` makes the analysis check its fast ways against the
+  general ones as it goes (the escape tests always do).
 - Memory guard (`internal/testguard`, used by `TestMain` in `internal/build`
   and `tools/go2pu`): unless `-parallel` is given, it lowers the parallelism
   so that slots at `PLUTO_TEST_SLOT_MB` each (default 256; 0 turns this

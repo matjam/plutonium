@@ -552,7 +552,7 @@ func (w *walker) yieldValues(xv tset) tset {
 	for _, t := range xv {
 		if t.kind == tFrame && t.loc.kind == lkCtor {
 			if call, ok := t.loc.node.(*ast.CallExpr); ok {
-				if f := w.a.staticCallee(call); f != nil && f.builds && !w.a.addrsCaptures(f) {
+				if f := w.a.staticCallee(call); f != nil && w.a.dep(f) && f.builds && !w.a.addrsCaptures(f) {
 					start.addAll(w.load(tset{t}))
 					continue
 				}
@@ -643,6 +643,7 @@ func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos, expr ast.Exp
 				// return (E3100), and regionReturn what it reaches.
 				if !sc.fn.builds {
 					sc.fn.builds = true
+					sc.fn.sum.ver++
 					w.a.grew = true
 				}
 				w.regionReturn(sc, k, t, pos, expr)
@@ -704,7 +705,7 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 			if t.hasRecv {
 				idx++
 			}
-			if !t.static.keepsParam(idx) {
+			if !w.a.dep(t.static) || !t.static.keepsParam(idx) {
 				a = w.load(a)
 			}
 		}
@@ -752,7 +753,7 @@ func (w *walker) goBoxReceiver(e *ast.CallExpr, t callTarget) bool {
 		return false
 	}
 	bw := types2.GoBoxReceiver(w.a.selections[se])
-	return bw != nil && bw.Kind() != types2.WrapShared && !t.static.keepsParam(0)
+	return bw != nil && bw.Kind() != types2.WrapShared && w.a.dep(t.static) && !t.static.keepsParam(0)
 }
 
 // argExprs returns, for each parameter of sig, the argument expression a

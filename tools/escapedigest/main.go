@@ -76,7 +76,7 @@ func digest(root string, p program, level int) string {
 		if err != nil {
 			return "error " + err.Error()
 		}
-		defer os.RemoveAll(tmp)
+		defer func() { _ = os.RemoveAll(tmp) }()
 		src, err := os.ReadFile(p.file)
 		if err != nil {
 			return "error " + err.Error()
@@ -138,7 +138,10 @@ func main() {
 		fmt.Fprintln(&buf, l)
 	}
 	if *compare == "" {
-		os.Stdout.Write(buf.Bytes())
+		if _, err := os.Stdout.Write(buf.Bytes()); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
 		return
 	}
 	want, err := os.ReadFile(*compare)

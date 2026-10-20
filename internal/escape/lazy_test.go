@@ -27,9 +27,9 @@ func TestSummaryKeyCaches(t *testing.T) {
 	if len(s.sortedEscapes()) != 0 || len(s.sortedStores()) != 0 {
 		t.Fatalf("keys of an empty summary")
 	}
-	s.addEscape(pkey{idx: 2}, &reason{text: "b"})
+	s.addEscape(pkey{idx: 2}, reason{text: "b"})
 	first := s.sortedEscapes()
-	s.addEscape(pkey{idx: 1}, &reason{text: "a"})
+	s.addEscape(pkey{idx: 1}, reason{text: "a"})
 	second := s.sortedEscapes()
 	if len(first) != 1 || len(second) != 2 || second[0].idx != 1 || second[1].idx != 2 {
 		t.Fatalf("escape keys %v then %v", first, second)

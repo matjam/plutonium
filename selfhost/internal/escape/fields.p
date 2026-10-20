@@ -203,6 +203,7 @@ func (a *analyzer) storeField(f *types2.Var, v tset, outer []*types2.Var) {
 		if !heap {
 			if !a.nonHeap[k] {
 				a.nonHeap[k] = true
+				a.ver.field++
 				a.grew = true
 			}
 			continue
@@ -213,6 +214,7 @@ func (a *analyzer) storeField(f *types2.Var, v tset, outer []*types2.Var) {
 			}
 			if !a.fieldDeps[k][p] {
 				a.fieldDeps[k][p] = true
+				a.ver.field++
 				a.grew = true
 			}
 		}
@@ -236,6 +238,7 @@ func (a *analyzer) passArgs(f *function, args []tset) {
 		for _, t := range arg {
 			if t.kind != tHeap {
 				a.paramNonHeap[p] = true
+				a.ver.field++
 				a.grew = true
 				break
 			}

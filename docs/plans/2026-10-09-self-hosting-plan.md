@@ -967,12 +967,26 @@ needs them. (2) Every call through an interface or a func value sorted the calle
 type for each comparison) and every dynamic call looked at the method set of every type ever converted to an
 interface (thousands): the methods are now indexed by name once, and the sorted keys are kept until a key is
 added. These three changes (a unit test and the escape and move suites cover them; messages are unchanged) took
-the heap at 200 s from 1.5 GB to 0.8 GB and the resident size at 770 s from 8.7 GB to 3.7 GB. (3) Not fixed:
-the time. Most of the remaining samples are in `tset.has`, a linear scan with a struct comparison, on token sets
-that are far from small for translated code (a pointer to the checker reaches dozens of field paths, and the
-`goFnN.Call` and `ast.Node` calls fan out to every implementation), and the fixed point repeats the walk of
-every function. The next step is a hashed or sorted `tset` and a cap on candidate fan-out, measured on the
-translated type checker; the translated `types2` is the benchmark. Until then phase 7 cannot be built or tested.
+the heap at 200 s from 1.5 GB to 0.8 GB and the resident size at 770 s from 8.7 GB to 3.7 GB. (3) The time:
+the summaries of the translated type checker are not small. A function that walks a type has a key for each path of
+fields and loads that its pointer parameters reach, each with the type filters of its type switches: `(*unifier).nify`
+alone ends with about 100,000 keys, and the program with 8.8 million (the fixed point needs 22 passes). The passes
+applied every key of every callee at every call, again and again (7 million applications in the third pass, 5 us
+each; the sixth pass of the old analysis took 6 minutes). Following a key from a pointer to a parameter of the
+caller depends on nothing but the pointer and the key, and what it finds is recorded in the caller's own summary, so
+a call site now remembers how many of the callee's keys it has followed from each such pointer (`escapes.go`) and
+applies only the keys added since; the key is derived in a buffer without making the pointer (`walkkey.go`); a pass
+leaves out a function none of whose inputs has changed (`deps.go`); sets are built with a hash index (`tbuf`), the
+keys and their reasons are stored once, in logs that never move an entry (`escset.go`); a pointer to the frame is
+followed only if what the frame holds can lead to a parameter. Results are unchanged: the escape, moves, race and
+lower suites and the whole of `go test ./...` pass as they were, and `go run ./tools/escapedigest` prints the same
+digest of the diagnostics or the object bytes of the 888 builds of the corpus (examples, `testdata`, the diagnostics
+programs; -O0 and -O2) for the compiler before and after. `pluto build` of `selfhost/demo/diagdemo`, which imports
+the translated `types2`, `diag`, and the packages they need, takes 115 s and 4.7 GB to the end of lowering (the
+analysis itself about 100 s), and did not finish in 25 minutes and 6 GB before. The test
+`TestAnalyzeTranslatedCompiler` (`PLUTO_SCALE_TEST=1`) holds the analysis to 8 minutes and 8 GB. The most expensive
+part left is following keys from pointers to the frame that reach a parameter; `PLUTO_STACKSAMPLE=file` profiles a
+build where the CPU profiler is not available.
 
 Phase 3 status (2026-10-19). The Go front end (`build.Frontend`) lowers a program and `internal/ssawrite` writes
 its SSA as text; `internal/ssatext` (reader, translated by go2pu) reads it back; the back end is now a Go package

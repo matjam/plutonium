@@ -34,9 +34,9 @@ func startProfile() (stop func()) {
 			say(os.Stderr, "pluto: %v\n", err)
 		} else if err := pprof.StartCPUProfile(f); err != nil {
 			say(os.Stderr, "pluto: %v\n", err)
-			f.Close()
+			_ = f.Close()
 		} else {
-			stops = append(stops, func() { pprof.StopCPUProfile(); f.Close() })
+			stops = append(stops, func() { pprof.StopCPUProfile(); _ = f.Close() })
 		}
 	}
 	if mem != "" {
@@ -46,7 +46,7 @@ func startProfile() (stop func()) {
 				say(os.Stderr, "pluto: %v\n", err)
 				return
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 			if err := pprof.Lookup("allocs").WriteTo(f, 0); err != nil {
 				say(os.Stderr, "pluto: %v\n", err)
 			}
@@ -131,13 +131,8 @@ func sampleStacks(file string) func() {
 	return func() {
 		close(done)
 		<-finished
-		f, err := os.Create(file)
-		if err != nil {
-			say(os.Stderr, "pluto: %v\n", err)
-			return
-		}
-		defer f.Close()
-		fmt.Fprintf(f, "%d samples of running goroutines\n", samples)
+		var f strings.Builder
+		fmt.Fprintf(&f, "%d samples of running goroutines\n", samples)
 		for _, m := range []struct {
 			name string
 			m    map[string]int
@@ -151,13 +146,16 @@ func sampleStacks(file string) func() {
 				all = append(all, kv{k, v})
 			}
 			sort.Slice(all, func(i, j int) bool { return all[i].v > all[j].v || all[i].v == all[j].v && all[i].k < all[j].k })
-			fmt.Fprintf(f, "\n%s\n", m.name)
+			fmt.Fprintf(&f, "\n%s\n", m.name)
 			for i, e := range all {
 				if i == 40 {
 					break
 				}
-				fmt.Fprintf(f, "%6d %5.1f%%  %s\n", e.v, 100*float64(e.v)/float64(max(samples, 1)), e.k)
+				fmt.Fprintf(&f, "%6d %5.1f%%  %s\n", e.v, 100*float64(e.v)/float64(max(samples, 1)), e.k)
 			}
+		}
+		if err := os.WriteFile(file, []byte(f.String()), 0o644); err != nil {
+			say(os.Stderr, "pluto: %v\n", err)
 		}
 	}
 }

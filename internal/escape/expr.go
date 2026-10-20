@@ -2,7 +2,6 @@ package escape
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -59,7 +58,7 @@ func isGlobal(v *types2.Var) bool {
 // their heap contents. A later borrowed use activates it; copying the strong
 // value does not. Re-evaluating a named value replaces its previous holder.
 func (w *walker) argumentHolders(v tset, x ast.Expr, T types2.Type, identity string) tset {
-	var out tset
+	var out tbuf
 	for _, t := range v {
 		if t.kind == tHeap {
 			t.holder = nil
@@ -86,7 +85,7 @@ func (w *walker) argumentHolders(v tset, x ast.Expr, T types2.Type, identity str
 		}
 		out.add(t)
 	}
-	return out
+	return out.set
 }
 
 func (w *walker) argumentHolder(x ast.Expr, T types2.Type, path string) *loc {
@@ -137,7 +136,7 @@ func isTuple(T types2.Type) bool {
 // Parameter summaries remember this operation for callers whose actual
 // strong type is only known after generic instantiation.
 func borrowHolders(v tset) tset {
-	var out tset
+	var out tbuf
 	for _, t := range v {
 		if t.kind == tHeap && t.holder != nil {
 			u := frameTok(t.holder)
@@ -149,7 +148,7 @@ func borrowHolders(v tset) tset {
 		}
 		out.add(t)
 	}
-	return out
+	return out.set
 }
 
 // varLoc returns the location of a local variable, creating it at the
@@ -186,26 +185,6 @@ func (w *walker) addContents(l *loc, v tset) {
 	if l.put("", v) {
 		w.grew = true
 	}
-}
-
-// load returns what the memory the pointers in ts point to may hold.
-func (w *walker) load(ts tset) tset {
-	var out tset
-	for _, t := range ts {
-		switch t.kind {
-		case tHeap:
-			out.add(heapTok)
-		case tFrame:
-			if t.loc.kind == lkObject || t.loc.kind == lkArena || t.loc.object {
-				out.add(heapTok) // what a box's object or an arena holds is heap memory
-				continue
-			}
-			out.addAll(t.loc.get(t.path))
-		case tParam:
-			out.add(t.untag().extend("*"))
-		}
-	}
-	return out
 }
 
 // isBoxPtr reports whether T is owned[T], shared[T] or synced[T], whose
@@ -354,32 +333,10 @@ func (w *walker) objLoc(v *types2.Var) *loc {
 	return l
 }
 
-// offset returns pointers to field i of what the pointers in ts point to.
-// Fields are told apart two levels deep: a field of a field of a field
-// keeps the path of its enclosing one, which stands for everything inside.
-func offset(ts tset, i int) tset {
-	var out tset
-	for _, t := range ts {
-		t = t.untag()
-		if t.kind != tHeap && fieldTail(t.path) >= maxFieldNest {
-			out.add(t)
-			continue
-		}
-		switch t.kind {
-		case tFrame:
-			t.path += fieldStep(i)
-		case tParam:
-			t = t.extend(fieldStep(i))
-		}
-		out.add(t)
-	}
-	return out
-}
-
 // collapse forgets the field paths of pointers that pass through
 // unsafe.Pointer, where they may be reinterpreted as another type.
 func collapse(ts tset) tset {
-	var out tset
+	var out tbuf
 	for _, t := range ts {
 		t = t.untag()
 		switch t.kind {
@@ -390,93 +347,29 @@ func collapse(ts tset) tset {
 		}
 		out.add(t)
 	}
-	return out
-}
-
-// walkKey follows k's path from the pointers in ts, applying its type
-// filter where the path reaches the interface value it constrains.
-func (w *walker) walkKey(ts tset, k pkey) tset {
-	cur := ts
-	at := 0
-	for _, step := range splitPath(k.path) {
-		if k.filt != nil && at == k.filtAt {
-			cur = w.a.filterDyn(cur, k.filt, at)
-		}
-		at += len(step)
-		if step == "*" {
-			cur = w.load(cur)
-			continue
-		}
-		i, _ := strconv.Atoi(strings.TrimSuffix(step, "."))
-		cur = offset(cur, i)
-	}
-	if k.filt != nil && at == k.filtAt {
-		cur = w.a.filterDyn(cur, k.filt, at)
-	}
-	if !k.ge {
-		return cur
-	}
-	return w.reach(cur)
-}
-
-// filterDyn applies a type assertion to interface I to the data words in
-// ts: a frame box or a pointer to a frame variable whose type does not
-// implement I cannot be there. Parameter tokens carry the filter on to
-// the caller.
-//
-// I may also be a concrete type, the receiver of a method a dynamic call
-// may reach: then only data words whose dynamic type has that method as its
-// own (I itself, or a pointer to I) are kept.
-func (a *analyzer) filterDyn(ts tset, I types2.Type, _ int) tset {
-	iface, _ := I.Underlying().(*types2.Interface)
-	exact := iface == nil
-	if exact && containsTypeParam(I) {
-		return ts
-	}
-	if !exact && iface.Empty() {
-		return ts
-	}
-	var out tset
-	for _, t := range ts {
-		switch t.kind {
-		case tFrame:
-			if dyn := t.loc.dynamicType(); t.path == "" && dyn != nil && !containsTypeParam(dyn) {
-				if exact && !types2.Identical(dyn, I) && !types2.Identical(dyn, types2.NewPointer(I)) {
-					continue
-				}
-				if !exact && !types2.Implements(dyn, iface) {
-					continue
-				}
-			}
-		case tParam:
-			if t.filt == nil && !t.ge {
-				t.filt, t.filtAt = I, len(t.path)
-			}
-		}
-		out.add(t)
-	}
-	return out
+	return out.set
 }
 
 // reach returns the pointers in ts and everything reachable from them.
 func (w *walker) reach(ts tset) tset {
-	widen := func(ts tset) tset {
-		var out tset
-		for _, t := range ts {
+	// The tokens widened are added to out as they are found, and each round
+	// loads only the tokens the last one added: loading a token yields the
+	// same set whatever else is in out, so the result is the same as loading
+	// everything again, in the same order.
+	var out tbuf
+	next := ts
+	for len(next) > 0 {
+		from := len(out.set)
+		for _, t := range next {
 			t = t.untag()
 			if t.kind == tParam {
 				t = t.widen()
 			}
 			out.add(t)
 		}
-		return out
+		next = w.load(out.set[from:])
 	}
-	out := widen(ts)
-	for {
-		if !out.addAll(widen(w.load(out))) {
-			return out
-		}
-	}
+	return out.set
 }
 
 // ----------------------------------------------------------------------------
@@ -891,7 +784,7 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 		if _, generic := types2.Unalias(from).(*types2.TypeParam); generic || countedError {
 			// A generic caller decides whether the concrete argument is
 			// a strong box. Preserve this conversion in parameter summaries.
-			var out tset
+			var out tbuf
 			for _, t := range v {
 				if t.kind == tParam {
 					t.counted = true
@@ -899,7 +792,7 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 				}
 				out.add(t)
 			}
-			v = out
+			v = out.set
 		}
 	}
 	if x, ok := node.(ast.Expr); ok && (isBoxPtr(from) || refNoun(from) != "") && !types2.IsOwner(to) && !countedError {
@@ -917,11 +810,11 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 			// A type parameter whose instances are all direct, some of
 			// them perhaps pointer-shaped structs: the data word is the
 			// value, whichever field held its pointer.
-			var out tset
+			var out tbuf
 			for _, t := range v {
 				out.add(t.untag())
 			}
-			return out
+			return out.set
 		}
 		return v
 	}
@@ -1003,14 +896,14 @@ func isCountedBox(T types2.Type) bool {
 }
 
 func countedHeap(v tset) tset {
-	var out tset
+	var out tbuf
 	for _, t := range v {
 		if t.kind == tHeap {
 			t.counted = true
 		}
 		out.add(t)
 	}
-	return out
+	return out.set
 }
 
 // countedErrorResult reports whether every instance of T keeps its own
@@ -1574,11 +1467,22 @@ func (w *walker) sinkTail(v tset, e *viewErr, act string, tail func() string) {
 			ve.l = t.loc
 			w.report(&ve, fmt.Sprintf("sink|%p", t.loc))
 		case tParam:
+			if w.escapeKnown(t) {
+				continue
+			}
 			w.escapeParam(t, func() string {
 				return fmt.Sprintf(act, t.sc.fn.paramDesc(keyOf(t))) + " (" + shortPos(w.a.fset.Position(e.pos)) + ")" + tail()
 			})
 		}
 	}
+}
+
+// escapeKnown reports whether escapeParam would find nothing new in t.
+func (w *walker) escapeKnown(t tok) bool {
+	if t.sc.level == 0 && t.sc.fn.resultHolds[t.idx] {
+		return true
+	}
+	return t.sc.fn.sum.hasEscape(keyOf(t))
 }
 
 // escapeParam records that a parameter-derived pointer escapes from the
@@ -1589,9 +1493,9 @@ func (w *walker) escapeParam(t tok, why func() string) {
 		return
 	}
 	sum := &t.sc.fn.sum
-	if _, ok := sum.escapes[keyOf(t)]; ok {
+	if sum.hasEscape(keyOf(t)) {
 		return
 	}
-	sum.addEscape(keyOf(t), &reason{build: why})
+	sum.addEscape(keyOf(t), reason{build: why})
 	w.a.grew = true
 }

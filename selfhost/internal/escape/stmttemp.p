@@ -35,16 +35,19 @@ func stmtTempIn(l *loc, seen map[*loc]bool) *loc {
 		return nil
 	}
 	seen[l] = true
-	for _, ts := range l.contents {
+	var found *loc
+	l.each(func(ts tset) bool {
 		for _, t := range ts {
 			if t.kind == tFrame {
 				if st := stmtTempIn(t.loc, seen); st != nil {
-					return st
+					found = st
+					return false
 				}
 			}
 		}
-	}
-	return nil
+		return true
+	})
+	return found
 }
 
 // stmtLocal reports whether l is a temporary the compiler makes for an

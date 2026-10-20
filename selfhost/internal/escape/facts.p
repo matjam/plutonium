@@ -108,9 +108,12 @@ func (a *analyzer) argFacts(f *function, cs *callSite, mode recvMode, i int, pac
 	// Through an interface whose data word is not the receiver, any fact
 	// about the receiver is about its own memory.
 	self := func(k pkey) bool { return packed_ || selfKey(k) || k.idx == 0 && mode != recvExact }
-	for k := range f.sum.escapes {
-		if k.idx == i && self(k) {
-			af.Self = true
+	if i < len(f.sum.escLog) {
+		l := &f.sum.escLog[i]
+		for j := 0; j < l.n; j++ {
+			if self(l.at(j).k) {
+				af.Self = true
+			}
 		}
 	}
 	for e := range f.sum.stores {

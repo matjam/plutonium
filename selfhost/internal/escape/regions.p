@@ -80,15 +80,18 @@ func (w *walker) targetBuilds(t callTarget) bool {
 	}
 	switch {
 	case t.static != nil:
+		w.a.dep(t.static)
 		return t.static.builds
 	case t.method != "":
 		for _, c := range w.a.ifaceCandidates(t.method, t.byName, t.sig) {
+			w.a.dep(c.f)
 			if c.f.builds {
 				return true
 			}
 		}
 	case t.dynFunc:
 		for _, fv := range w.a.funcCandidates(t.sig) {
+			w.a.dep(fv.f)
 			if fv.f.builds {
 				return true
 			}
@@ -160,6 +163,7 @@ func (w *walker) regionReturn(sc *scope, k int, t tok, pos token.Pos, expr ast.E
 		}
 		if f := w.a.lits[lit]; f != nil && !f.regionLeaks && w.regionLeaks(sc, u.loc, lit) {
 			f.regionLeaks = true
+			f.sum.ver++
 			w.a.grew = true
 		}
 	}
@@ -190,6 +194,7 @@ func (w *walker) outerReturn(sc *scope, k int, t tok) bool {
 	}
 	if !sc.fn.outerResults[k][t.tag] {
 		sc.fn.outerResults[k][t.tag] = true
+		sc.fn.sum.ver++
 		w.a.grew = true
 	}
 	if t.kind == tFrame && !sc.fn.outerRegionResults[k][t.tag] {
@@ -200,6 +205,7 @@ func (w *walker) outerReturn(sc *scope, k int, t tok) bool {
 			sc.fn.outerRegionResults[k] = map[string]bool{}
 		}
 		sc.fn.outerRegionResults[k][t.tag] = true
+		sc.fn.sum.ver++
 		w.a.grew = true
 	}
 	r := sc.outerRet[k]
@@ -260,7 +266,7 @@ func (a *analyzer) addrsCaptures(f *function) bool {
 		return true
 	}
 	for _, lit := range lits {
-		if a.litAddrsCaptures(lit, decl) || a.lits[lit] != nil && a.lits[lit].regionLeaks {
+		if a.litAddrsCaptures(lit, decl) || a.dep(a.lits[lit]) && a.lits[lit].regionLeaks {
 			return true
 		}
 	}

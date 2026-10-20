@@ -11,6 +11,7 @@ import (
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/syntax/token"
 	"selfhost/internal/types2"
+	"selfhost/pu"
 )
 
 // Access paths. A path is a sequence of steps, each a field offset ("3."
@@ -25,17 +26,41 @@ const (
 	maxSteps = 8
 )
 
-func pathDepth(p string) int { return strings.Count(p, "*") }
+// The counts below run over every path of every token the analysis makes, so
+// they are plain loops.
+func pathDepth(p string) int {
+	n := 0
+	for i := 0; i < len(p); i++ {
+		if p[i] == '*' {
+			n++
+		}
+	}
+	return n
+}
 
 // maxFieldNest is how many nested fields a path tells apart between loads.
 const maxFieldNest = 2
 
 // fieldTail counts the field steps after a path's last load.
 func fieldTail(p string) int {
-	return strings.Count(strings.SliceFrom(p, strings.LastIndexByte(p, '*')+1), ".")
+	n := 0
+	for i := len(p) - 1; i >= 0 && p[i] != '*'; i-- {
+		if p[i] == '.' {
+			n++
+		}
+	}
+	return n
 }
 
-func pathSteps(p string) int { return strings.Count(p, "*") + strings.Count(p, ".") }
+func pathSteps(p string) int {
+	n := 0
+	for i := 0; i < len(p); i++ {
+		if p[i] == '*' || p[i] == '.' {
+			n++
+		}
+	}
+	return n
+}
 
 // A tokKind says where a pointer may point.
 type tokKind uint8
@@ -83,12 +108,12 @@ func (t tok) untag() tok {
 
 // tagField marks every token in ts as held in field i of a struct value.
 func tagField(ts tset, i int) tset {
-	var out tset
+	var out tbuf
 	for _, t := range ts {
 		t.tag = capFields(compat.Concat(fieldStep(i), t.tag))
 		out.add(t)
 	}
-	return out
+	return out.set
 }
 
 // retag marks every token in ts with field path tag.
@@ -96,17 +121,17 @@ func retag(ts tset, tag string) tset {
 	if tag == "" {
 		return ts
 	}
-	var out tset
+	var out tbuf
 	for _, t := range ts {
 		t.tag = tag
 		out.add(t)
 	}
-	return out
+	return out.set
 }
 
 // selectField returns the tokens of struct value ts that field i may hold.
 func selectField(ts tset, i int) tset {
-	var out tset
+	var out tbuf
 	step := fieldStep(i)
 	for _, t := range ts {
 		switch {
@@ -117,7 +142,7 @@ func selectField(ts tset, i int) tset {
 			out.add(t)
 		}
 	}
-	return out
+	return out.set
 }
 
 // capFields cuts a field path to maxFieldNest fields.
@@ -172,8 +197,15 @@ func (t tok) widen() tok {
 // fieldStep is the path step for field i.
 func fieldStep(i int) string { return compat.Concat(strconv.Itoa(i), ".") }
 
-// A tset is a small set of tokens.
+// A tset is a set of tokens in the order they were first added. Most are
+// small, but a pointer to a large structure reaches hundreds of tokens, and
+// the dynamic calls of translated code add every implementation's: a
+// tbuf builds one without searching it for every token.
 type tset []tok
+
+// indexMin is the size from which a tbuf builds a hash index; a linear scan of
+// fewer tokens is faster than a lookup.
+const indexMin = 12
 
 func (s tset) has(t tok) bool {
 	for _, u := range s {
@@ -184,7 +216,8 @@ func (s tset) has(t tok) bool {
 	return false
 }
 
-// add adds t and reports whether it was new.
+// add adds t and reports whether it was new. It searches s; a set that is
+// built from many tokens uses a tbuf.
 func (s *tset) add(t tok) bool {
 	if s.has(t) {
 		return false
@@ -195,21 +228,64 @@ func (s *tset) add(t tok) bool {
 
 // addAll adds every token of u and reports whether any was new.
 func (s *tset) addAll(u tset) bool {
-	grew := false
-	for _, t := range u {
-		if s.add(t) {
-			grew = true
-		}
+	if len(u) == 0 {
+		return false
 	}
+	b := tbuf{set: *s}
+	grew := b.addAll(u)
+	*s = b.set
 	return grew
 }
 
 func union(sets ...tset) tset {
-	var out tset
+	var out tbuf
 	for _, s := range sets {
 		out.addAll(s)
 	}
-	return out
+	return out.set
+}
+
+// A tbuf builds a tset: add keeps a hash index of the tokens once there are
+// indexMin of them, so that building a set of n tokens takes time in
+// proportion to n. The zero value is an empty set. The order of the tokens
+// is the order of their first addition, as for tset.add.
+type tbuf struct {
+	set tset
+	idx map[tok]struct{} // the tokens of set, from indexMin of them
+}
+
+// add adds t and reports whether it was new.
+func (b *tbuf) add(t tok) bool {
+	if b.idx == nil {
+		if len(b.set) < indexMin {
+			if b.set.has(t) {
+				return false
+			}
+			b.set = tset(compat.Append(b.set, t))
+			return true
+		}
+		b.idx = make(map[tok]struct{}, 4*len(b.set))
+		for _, u := range b.set {
+			b.idx[u] = struct{}{}
+		}
+	}
+	if _, ok := b.idx[t]; ok {
+		return false
+	}
+	b.idx[t] = struct{}{}
+	b.set = tset(compat.Append(b.set, t))
+	return true
+}
+
+// addAll adds every token of u and reports whether any was new.
+func (b *tbuf) addAll(u tset) bool {
+	grew := false
+	for _, t := range u {
+		if b.add(t) {
+			grew = true
+		}
+	}
+	return grew
 }
 
 // A locKind says what a piece of frame storage is, for messages.
@@ -245,14 +321,14 @@ type holderKey struct {
 type loc struct {
 	holders  map[holderKey]*loc // immutable projected payload identities
 	kind     locKind
-	v        *types2.Var     // lkVar, lkParam, lkResult
-	node     ast.Node        // temporaries: the expression that makes it
-	fn       string          // the function whose frame holds it, for messages
-	captures []*types2.Var   // lkClosure: the variables the literal uses
-	method   string          // lkStmtTemp: the pointer method called on the temporary
-	pos      token.Pos       // where it is declared or made
-	level    int             // nesting depth of the function literal that owns it; 0 for the declared function
-	contents map[string]tset // what the storage may hold, by field path within it
+	v        *types2.Var   // lkVar, lkParam, lkResult
+	node     ast.Node      // temporaries: the expression that makes it
+	fn       string        // the function whose frame holds it, for messages
+	captures []*types2.Var // lkClosure: the variables the literal uses
+	method   string        // lkStmtTemp: the pointer method called on the temporary
+	pos      token.Pos     // where it is declared or made
+	level    int           // nesting depth of the function literal that owns it; 0 for the declared function
+	contents *contents     // what the storage may hold, by field path within it
 
 	// The type stored, when known, and whether the location is an
 	// interface box. A pointer to the whole location used as an interface
@@ -292,31 +368,84 @@ func (l *loc) put(p string, v tset) bool {
 		return false
 	}
 	if l.contents == nil {
-		l.contents = map[string]tset{}
+		l.contents = pu.New(contents{m: map[string]*tbuf{}})
 	}
 	grew := false
 	for _, t := range v {
 		k := capFields(compat.Concat(p, t.tag))
-		s := l.contents[k]
+		s := l.contents.m[k]
+		if s == nil {
+			s = pu.New(tbuf{})
+			l.contents.m[k] = s
+		}
 		if s.add(t.untag()) {
 			grew = true
 		}
-		l.contents[k] = s
+	}
+	if grew {
+		l.contents.ver++
 	}
 	return grew
+}
+
+// contents is what a location holds, by field path. Locations made from one
+// another (projected payloads) share it.
+type contents struct {
+	m   map[string]*tbuf
+	ver uint32 // counts the additions
+	// getCache holds the results of get, for the version it was made at.
+	getCache map[string]getEnt
+}
+
+type getEnt struct {
+	ver uint32
+	set tset
+}
+
+// each calls f with the tokens held at each field path.
+func (l *loc) each(f func(set tset) bool) {
+	if l.contents == nil {
+		return
+	}
+	for _, c := range l.contents.m {
+		if !f(c.set) {
+			return
+		}
+	}
+}
+
+// getShared is get, for a caller that does not change the result: it is kept
+// until something is added to l.
+func (l *loc) getShared(p string) tset {
+	if l.contents == nil {
+		return nil
+	}
+	c := l.contents
+	if e, ok := c.getCache[p]; ok && e.ver == c.ver {
+		return e.set
+	}
+	set := l.get(p)
+	if c.getCache == nil {
+		c.getCache = map[string]getEnt{}
+	}
+	c.getCache[p] = getEnt{c.ver, set}
+	return set
 }
 
 // get returns what a load of field path p of l may yield: whatever was
 // stored at p, at a field inside it, or at a whole that contains it.
 func (l *loc) get(p string) tset {
-	keys := compat.MakeCap[string](0, len(l.contents))
-	for k := range l.contents {
+	if l.contents == nil {
+		return nil
+	}
+	keys := compat.MakeCap[string](0, len(l.contents.m))
+	for k := range l.contents.m {
 		if strings.HasPrefix(p, k) || strings.HasPrefix(k, p) {
 			keys = compat.Append(keys, k)
 		}
 	}
 	sort.Strings(keys)
-	var out tset
+	var out tbuf
 	for _, k := range keys {
 		// What was stored in a field inside p comes back tagged with the
 		// field's path relative to p.
@@ -324,12 +453,12 @@ func (l *loc) get(p string) tset {
 		if !ok {
 			tag = ""
 		}
-		for _, t := range l.contents[k] {
+		for _, t := range l.contents.m[k].set {
 			t.tag = tag
 			out.add(t)
 		}
 	}
-	return out
+	return out.set
 }
 
 // A scope is the body of a declared function, a function literal inside
@@ -355,14 +484,16 @@ func (sc *scope) contains(pos token.Pos) bool {
 // A pkey names pointers relative to a parameter: those found by following
 // path from parameter idx, or any extension of it when ge is set.
 type pkey struct {
-	borrowed    bool // the selected value lends its box payload
+	// The fields are in the order that makes the struct smallest: there is
+	// one for every key of every summary, and millions of them.
+	path        string
+	filt        types2.Type // see tok
 	idx         int
+	filtAt      int
+	borrowed    bool // the selected value lends its box payload
 	counts      bool // conversion of this parameter to a counted error
 	directCount bool // a definite strong-box conversion, rather than a generic one
-	path        string
 	ge          bool
-	filt        types2.Type // see tok
-	filtAt      int
 }
 
 func keyOf(t tok) pkey {
@@ -375,7 +506,8 @@ type edge struct{ src, dst pkey }
 
 // A summary says what a function does with the pointers its caller passes.
 type summary struct {
-	escapes map[pkey]*reason // stored where they outlive the call
+	escSet  escSet // stored where they outlive the call (escset.go)
+	filtIDs map[types2.Type]uint32
 	stores  map[edge]*reason // stored into memory a parameter points to
 	results []resultSum
 
@@ -384,13 +516,23 @@ type summary struct {
 	// call of the function in every pass, and sorting is not cheap.
 	escKeys   []pkey
 	storeKeys []edge
+
+	// escLog are the keys of escapes by parameter, in the order they were
+	// added, so that a call site can apply the keys added since it last did
+	// (applyEscapes).
+	escLog []escLog
+
+	// ver counts the changes to what other functions read of this one: the
+	// summary and the facts kept beside it (function.builds, regionLeaks and
+	// outerResults), for deps.go.
+	ver uint32
 }
 
 // sortedEscapes returns the keys of escapes in order. The slice is not
 // changed by later additions, which make a new one.
 func (s *summary) sortedEscapes() []pkey {
-	if s.escKeys == nil && len(s.escapes) > 0 {
-		s.escKeys = sortedKeys(s.escapes)
+	if s.escKeys == nil && s.escSet.n > 0 {
+		s.escKeys = sortedKeys(s.escapeKeys())
 	}
 	return s.escKeys
 }
@@ -431,18 +573,6 @@ type rkey struct {
 	tag string
 }
 
-func (s *summary) addEscape(k pkey, r *reason) bool {
-	if s.escapes == nil {
-		s.escapes = map[pkey]*reason{}
-	}
-	if _, ok := s.escapes[k]; ok {
-		return false
-	}
-	s.escapes[k] = r
-	s.escKeys = nil
-	return true
-}
-
 func (s *summary) addStore(e edge, r *reason) bool {
 	if s.stores == nil {
 		s.stores = map[edge]*reason{}
@@ -451,6 +581,7 @@ func (s *summary) addStore(e edge, r *reason) bool {
 		return false
 	}
 	s.stores[e] = r
+	s.ver++
 	s.storeKeys = nil
 	return true
 }
@@ -468,6 +599,7 @@ func (s *summary) addResult(i int, k pkey, tag string) bool {
 		return false
 	}
 	r.from[rk] = true
+	s.ver++
 	r.fromKeys = nil
 	return true
 }
@@ -485,6 +617,7 @@ func (s *summary) addResultHeap(i int, tag string, counted bool) bool {
 		return false
 	}
 	r.heap[k] = true
+	s.ver++
 	return true
 }
 
@@ -498,6 +631,15 @@ func (s *summary) addResultHeap(i int, tag string, counted bool) bool {
 type reason struct {
 	text  string // "stores p in package variable G (a.p:12)"
 	build goFn1  // makes text, once
+
+	// A reason made by callReason: "<act> (pos), which <parent>", about the
+	// key of ent (of the summary of fn).
+	parent *reason
+	ent    *escEnt
+	fn     *function
+	a      *analyzer
+	act    string
+	pos    token.Pos
 }
 
 func (r *reason) String() string {
@@ -507,6 +649,10 @@ func (r *reason) String() string {
 	if r.build != nil {
 		r.text = r.build.Call()
 		r.build = nil
+	}
+	if r.parent != nil {
+		r.text = r.callText()
+		r.parent, r.ent, r.fn, r.a, r.act = nil, nil, nil, nil, ""
 	}
 	return r.text
 }
@@ -552,6 +698,11 @@ type function struct {
 	// tracked is the walker's computeTracked result for the function's
 	// body, kept for later passes.
 	tracked map[*types2.Var]bool
+
+	// What the last walk of the function read, for deps.go.
+	deps     map[*function]uint32
+	depsVer  globalVers
+	analyzed bool
 }
 
 // keepsParam reports whether f keeps parameter idx's own pointer (not
@@ -559,9 +710,12 @@ type function struct {
 // in memory another parameter points to.
 func (f *function) keepsParam(idx int) bool {
 	own := func(k pkey) bool { return k.idx == idx && (k.ge || pathDepth(k.path) == 0) }
-	for k := range f.sum.escapes {
-		if own(k) {
-			return true
+	if idx < len(f.sum.escLog) {
+		l := &f.sum.escLog[idx]
+		for i := 0; i < l.n; i++ {
+			if own(l.at(i).k) {
+				return true
+			}
 		}
 	}
 	for e := range f.sum.stores {

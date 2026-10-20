@@ -3,6 +3,7 @@
 package escape
 
 import (
+	"pluto/iter"
 	"pluto/sort"
 	"pluto/strconv"
 	"pluto/strings"
@@ -56,7 +57,7 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 	if len(w.arenas) > 0 && len(args) > 0 && w.isUse(e) {
 		w.noteArena(e, args[0])
 	}
-	cs := &callSite{pos: e.Pos(), exprs: argExprs(e, t.sig), sig: t.sig}
+	cs := &callSite{site: e, pos: e.Pos(), exprs: argExprs(e, t.sig), sig: t.sig}
 	cs.keys = cs.exprs
 	if n := t.sig.Params().Len(); t.sig.Variadic() && !e.Ellipsis.IsValid() && len(e.Args) >= n {
 		cs.packed_, cs.packedAt = e.Args[n-1:], n-1
@@ -87,6 +88,7 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 // A callSite is a call being applied, for messages: its position and the
 // expression passed for each parameter, receiver first (nil where unknown).
 type callSite struct {
+	site  ast.Node // the call expression
 	pos   token.Pos
 	exprs []ast.Expr
 	sig   *types2.Signature
@@ -255,6 +257,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		return pu.New(viewErr{sink: sinkCall, pos: pos, expr: cs.expr(i), fn: w.scopeName(w.sc), callee: label, calleeWhy: why})
 	}
 	w.a.noteCall(f, cs, mode)
+	w.a.dep(f)
 	if f == nil {
 		// Not a function the analysis has seen: assume the worst.
 		const why = "is a function the compiler cannot see into, so it may keep it"
@@ -269,11 +272,10 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		}
 		return res
 	}
-	arg := func(k pkey) tset {
-		if k.idx >= len(args) {
-			return nil
-		}
-		actual := args[k.idx]
+	// argOf is what key k leads to from raw, the pointers passed for
+	// parameter k.idx (all of them, or some: it takes them one by one).
+	argOf := func(k pkey, raw tset) tset {
+		actual := raw
 		if k.borrowed {
 			actual = borrowHolders(actual)
 		}
@@ -281,9 +283,9 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		if k.idx == 0 {
 			switch mode {
 			case recvBoxed:
-				v = w.walkParam(f, w.load(args[0]), k)
+				v = w.walkParam(f, w.load(raw), k)
 			case recvReach:
-				v = w.reach(args[0])
+				v = w.reach(raw)
 			}
 		}
 		if k.counts {
@@ -296,7 +298,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 				_, generic = types2.Unalias(T).(*types2.TypeParam)
 			}
 			if generic || k.directCount || k.ge {
-				var out tset
+				var out tbuf
 				for _, t := range v {
 					if t.kind == tParam {
 						t.counted = true
@@ -304,10 +306,16 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 					}
 					out.add(t)
 				}
-				v = out
+				v = out.set
 			}
 		}
 		return v
+	}
+	arg := func(k pkey) tset {
+		if k.idx >= len(args) {
+			return nil
+		}
+		return argOf(k, args[k.idx])
 	}
 	borrowArg := func(k pkey) tset {
 		v := borrowHolders(arg(k))
@@ -326,10 +334,10 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		passed = compat.Append([]tset{w.reach(args[0])}, args[1:]...)
 	}
 	w.a.passArgs(f, passed)
-	for _, k := range f.sum.sortedEscapes() {
-		r := f.sum.escapes[k]
-		v := arg(k)
-		w.sinkTail(v, passErr(k.idx, r), compat.Concat("passes %s to ", label), pu.New(goClosure_apply_1{r: r}))
+	if w.a.report {
+		w.reportEscapes(f, args, passErr, label, argOf)
+	} else {
+		w.applyEscapes(f, args, cs, pos, label, mode, argOf)
 	}
 	for _, e := range f.sum.sortedStores() {
 		r := f.sum.stores[e]
@@ -344,6 +352,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 	}
 	for i := 0; i < nres && i < len(f.sum.results); i++ {
 		rs := &f.sum.results[i]
+		var out tbuf
 		for _, k := range rs.sortedFrom() {
 			v := arg(k.pkey)
 			T := f.sig.Results().At(i).Type()
@@ -368,7 +377,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 			if !w.genericIdentity(f, cs, k.pkey, T) && !w.a.countedErrorResult(T) && !isCounted(T) {
 				v = borrowArg(k.pkey)
 			}
-			res[i].addAll(retag(v, k.tag))
+			out.addAll(retag(v, k.tag))
 		}
 		keys := compat.MakeCap[heapResult](0, len(rs.heap))
 		for key := range rs.heap {
@@ -381,8 +390,9 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 			return !a.counted && b.counted
 		})
 		for _, key := range keys {
-			res[i].add(tok{kind: tHeap, tag: key.tag, counted: key.counted})
+			out.add(tok{kind: tHeap, tag: key.tag, counted: key.counted})
 		}
+		res[i] = out.set
 	}
 	return res
 }
@@ -510,7 +520,7 @@ func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []t
 	// Candidate summaries cover the whole program, including bodyless
 	// methods' conservative results. Adding an unknown heap result here
 	// would discard proof that a method only returns a receiver's field.
-	res := compat.Make[tset](nres)
+	res := compat.Make[tbuf](nres)
 	for _, c := range w.a.ifaceCandidates(t.method, t.byName, t.sig) {
 		f := c.f
 		if len(f.params) != len(args) {
@@ -534,7 +544,16 @@ func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []t
 			res[i].addAll(r[i])
 		}
 	}
-	return res
+	return bufSets(res)
+}
+
+// bufSets returns the sets the buffers built.
+func bufSets(bs []tbuf) []tset {
+	out := compat.Make[tset](len(bs))
+	for i := range bs {
+		out[i] = bs[i].set
+	}
+	return out
 }
 
 // boundKeys returns the argument keys of a call through a method value
@@ -550,7 +569,7 @@ func boundKeys(cs *callSite, fun ast.Expr) []ast.Expr {
 // filterRecv drops from an interface data word the pointers to frame
 // locations whose dynamic type does not have method f.
 func filterRecv(ts tset, f *function) tset {
-	var out tset
+	var out tbuf
 	for _, t := range ts {
 		if dyn := t.loc.dynamicType(); t.kind == tFrame && t.path == "" && dyn != nil && f.obj != nil && !containsTypeParam(dyn) {
 			sel := types2.NewMethodSet(dyn).Lookup(f.obj.Pkg(), f.obj.Name())
@@ -563,7 +582,7 @@ func filterRecv(ts tset, f *function) tset {
 		}
 		out.add(t)
 	}
-	return out
+	return out.set
 }
 
 // markRecv records on the caller's pointers in an interface data word that
@@ -581,25 +600,25 @@ func markRecv(ts tset, f *function) tset {
 	if containsTypeParam(T) {
 		return ts
 	}
-	var out tset
+	var out tbuf
 	for _, t := range ts {
 		if t.kind == tParam && t.filt == nil && !t.ge {
 			t.filt, t.filtAt = T, len(t.path)
 		}
 		out.add(t)
 	}
-	return out
+	return out.set
 }
 
 // dynFuncCall applies a call through a func value: the union of the
 // summaries of every function of that type used as a value. Results may
 // point anywhere the arguments or the func value reach.
 func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Expr, nres int) []tset {
-	res := compat.Make[tset](nres)
+	res := compat.Make[tbuf](nres)
 	for i := range res {
-		res[i] = compat.Clone(tset{heapTok})
+		res[i].add(heapTok)
 		if i < t.sig.Results().Len() && types2.IsCountedError(t.sig.Results().At(i).Type()) {
-			res[i] = countedHeap(res[i])
+			res[i] = tbuf{set: countedHeap(res[i].set)}
 		}
 	}
 	var captured tset // computed once, if needed
@@ -628,12 +647,12 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 		case fvBound:
 			// A method value: the closure record holds the receiver.
 			fargs = compat.Append([]tset{w.load(t.fv)}, args...)
-			fcs = &callSite{pos: cs.pos, exprs: compat.Append([]ast.Expr{fun}, cs.exprs...), keys: boundKeys(cs, fun), packed_: cs.packed_, packedAt: cs.packedAt + 1}
+			fcs = &callSite{site: cs.site, pos: cs.pos, exprs: compat.Append(compat.Clone([]ast.Expr{fun}), cs.exprs...), keys: boundKeys(cs, fun), packed_: cs.packed_, packedAt: cs.packedAt + 1}
 		case fvBoundIface:
 			// The record holds an interface, whose data word leads to the
 			// receiver.
 			fargs, mode = compat.Append([]tset{w.load(t.fv)}, args...), recvReach
-			fcs = &callSite{pos: cs.pos, exprs: compat.Append([]ast.Expr{fun}, cs.exprs...), keys: boundKeys(cs, fun), packed_: cs.packed_, packedAt: cs.packedAt + 1}
+			fcs = &callSite{site: cs.site, pos: cs.pos, exprs: compat.Append(compat.Clone([]ast.Expr{fun}), cs.exprs...), keys: boundKeys(cs, fun), packed_: cs.packed_, packedAt: cs.packedAt + 1}
 		case fvIfaceExpr:
 			mode = recvReach
 		}
@@ -646,7 +665,7 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 				// record itself is never visible to its body.)
 				if sc := w.scopes[f.lit]; sc != nil {
 					outer = sc.outerRet[i]
-				} else if len(f.outerResults[i]) != 0 {
+				} else if w.a.dep(f) && len(f.outerResults[i]) != 0 {
 					if captured == nil {
 						captured = tset(compat.Append(w.reach(w.load(t.fv)), heapTok))
 					}
@@ -664,7 +683,7 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 			res[i].addAll(outer)
 		}
 	}
-	return res
+	return bufSets(res)
 }
 
 // ----------------------------------------------------------------------------
@@ -771,7 +790,9 @@ func (w *walker) ringCall(e *ast.CallExpr, t callTarget) []tset {
 // ----------------------------------------------------------------------------
 // Deterministic iteration over summaries
 
-func lessKey(a, b pkey) bool {
+func lessKey(a, b pkey) bool { return lessKeyNamed(a, b, filtName) }
+
+func lessKeyNamed(a, b pkey, name func(types2.Type) string) bool {
 	if a.idx != b.idx {
 		return a.idx < b.idx
 	}
@@ -793,7 +814,7 @@ func lessKey(a, b pkey) bool {
 	if a.filtAt != b.filtAt {
 		return a.filtAt < b.filtAt
 	}
-	return filtName(a.filt) < filtName(b.filt)
+	return name(a.filt) < name(b.filt)
 }
 
 func filtName(t types2.Type) string {
@@ -803,13 +824,26 @@ func filtName(t types2.Type) string {
 	return types2.TypeString(t, nil)
 }
 
-func sortedKeys(m map[pkey]*reason) []pkey {
-	out := compat.MakeCap[pkey](0, len(m))
-	for k := range m {
-		out = compat.Append(out, k)
+func sortedKeys(seq iter.Seq[pkey]) []pkey {
+	out := pu.Alloc[[]pkey]()
+	for k := range seq {
+		(*out) = compat.Append((*out), k)
 	}
-	sort.SortFunc(out, func(a, b pkey) bool { return lessKey(a, b) })
-	return out
+	// Ordering compares the text of the filter types last: make each once.
+	names := map[types2.Type]string{}
+	name := func(t types2.Type) string {
+		if t == nil {
+			return ""
+		}
+		s, ok := names[t]
+		if !ok {
+			s = filtName(t)
+			names[t] = s
+		}
+		return s
+	}
+	sort.SortFunc((*out), func(a, b pkey) bool { return lessKeyNamed(a, b, name) })
+	return (*out)
 }
 
 func sortedRkeys(m map[rkey]bool) []rkey {
@@ -839,11 +873,3 @@ func sortedEdges(m map[edge]*reason) []edge {
 	})
 	return out
 }
-
-// goClosure_apply_1 is the function literal at call.go:330, converted to a struct
-// that holds the variables it captures (go2pu closure conversion).
-type goClosure_apply_1 struct {
-	r *reason
-}
-
-func (goSelf *goClosure_apply_1) Call() string { return compat.Concat(", which ", goSelf.r.String()) }
