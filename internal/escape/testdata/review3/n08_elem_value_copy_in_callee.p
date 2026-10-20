@@ -1,0 +1,57 @@
+package main
+
+import (
+	"unsafe"
+)
+
+type Stringer interface{ String() string }
+type T struct {
+	p *int
+	n int
+}
+
+var keep *int
+
+func (t T) String() string { keep = t.p; return "t" }
+
+//pu:noinline
+func g(p *[2]T) string {
+	var s Stringer = p[1]
+	return s.String()
+}
+
+//pu:noinline
+func f() {
+	x := 42
+	var arr [2]T
+	arr[1] = T{&x, 1}
+	println(g(&arr))
+}
+
+func kept() unsafe.Pointer { return unsafe.Pointer(keep) }
+
+//pu:noinline
+func clobber(n int) int {
+	var a [64]int
+	for i := range a {
+		a[i] = n + i
+	}
+	s := 0
+	for i := range a {
+		s += a[i]
+	}
+	return s
+}
+
+func main() {
+	var mark int
+	f()
+	p := kept()
+	if p == nil {
+		println("nothing kept")
+		return
+	}
+	println("dangling:", uintptr(p) < uintptr(unsafe.Pointer(&mark)))
+	println(clobber(1000))
+	println("value (42 if intact):", *(*int)(p))
+}

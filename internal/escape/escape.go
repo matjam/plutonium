@@ -112,8 +112,8 @@ type analyzer struct {
 	byName map[string][]*function
 
 	// Candidates for dynamic calls.
-	converted map[string]types2.Type // concrete types converted to an interface, and the types they are made of
-	walked    map[string]bool        // converted types whose pointer targets noteConverted has followed
+	converted map[string][]types2.Type // concrete types converted to an interface, and the types they are made of, by their text (convKey)
+	walked    map[string]bool          // converted types whose pointer targets noteConverted has followed, by key
 	// The methods of the converted types by method name (indexConverted),
 	// and the candidates of a name in key order, until a new type adds one.
 	convMethods map[string][]convMethod
@@ -164,7 +164,7 @@ func newAnalyzer(prog *load.Program, userResultHolds bool) *analyzer {
 		funcs:           map[*types2.Func]*function{},
 		lits:            map[*ast.FuncLit]*function{},
 		byName:          map[string][]*function{},
-		converted:       map[string]types2.Type{},
+		converted:       map[string][]types2.Type{},
 		funcValues:      map[funcValue]bool{},
 		errSeen:         map[string]bool{},
 	}
@@ -696,8 +696,26 @@ func (a *analyzer) noteConverted(T types2.Type, top bool) {
 	if isInterface(T) {
 		return
 	}
-	key := types2.TypeString(T, nil)
-	if _, ok := a.converted[key]; ok {
+	// A pointer or box to a type parameter has the methods of a pointer to
+	// each type it is instantiated with, its pointer methods among them.
+	switch u := types2.Unalias(T).(type) {
+	case *types2.Pointer:
+		if tp, ok := types2.Unalias(u.Elem()).(*types2.TypeParam); ok {
+			for _, t := range a.tparamTypes(tp) {
+				a.noteConverted(types2.NewPointer(t), top)
+			}
+			return
+		}
+	case *types2.Wrapper:
+		if tp, ok := types2.Unalias(u.Elem()).(*types2.TypeParam); ok && u.IsBox() {
+			for _, t := range a.tparamTypes(tp) {
+				a.noteConverted(types2.NewWrapper(u.Kind(), t, u.N()), top)
+			}
+			return
+		}
+	}
+	key, seen := a.convKey(T)
+	if seen {
 		if !top {
 			return
 		}
@@ -706,7 +724,6 @@ func (a *analyzer) noteConverted(T types2.Type, top bool) {
 			return
 		}
 	} else {
-		a.converted[key] = T
 		a.ver.conv++
 		a.grew = true
 		a.indexConverted(key, T)
@@ -744,6 +761,31 @@ func (a *analyzer) noteConverted(T types2.Type, top bool) {
 			a.noteConverted(u.Elem(), false)
 		}
 	}
+}
+
+// convKey returns the key of the converted type T, and whether T has one
+// already. Types are told apart by identity: two types may print alike and
+// differ, as the type parameters named T of two generic functions do, or two
+// types of one name declared in different functions. The key is the type's
+// text, followed by #n for the n-th other type of that text, so that keys
+// order the types by text and then by when they were first converted.
+func (a *analyzer) convKey(T types2.Type) (string, bool) {
+	text := types2.TypeString(T, nil)
+	same := a.converted[text]
+	for i, u := range same {
+		if types2.Identical(u, T) {
+			return convKeyAt(text, i), true
+		}
+	}
+	a.converted[text] = append(same, T)
+	return convKeyAt(text, len(same)), false
+}
+
+func convKeyAt(text string, i int) string {
+	if i == 0 {
+		return text
+	}
+	return fmt.Sprintf("%s#%d", text, i)
 }
 
 // A convMethod is a method of a converted type, by the type's key.

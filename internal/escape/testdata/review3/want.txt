@@ -1,0 +1,143 @@
+a02_chan_send_helper: main.p:15:2: cannot pass &x to send, which keeps it after returning
+a03_chan_struct: main.p:17:5: cannot send H{...} on ch: the receiver may outlive x
+a04_chan_any: main.p:13:5: cannot send a on ch: the receiver may outlive x
+a06_chan_generic_send: main.p:15:2: cannot pass &x to send, which keeps it after returning
+a07_chan_iface_method_send: main.p:20:2: cannot pass &x to use, which keeps it after returning
+a11_chan_union_payload: main.p:17:5: cannot send U.P(&x) on ch: the receiver may outlive x
+a12_chan_closure: main.p:12:5: cannot send the function literal on ch: the receiver may outlive x
+a13_chan_param_chan_in_struct: main.p:17:2: cannot pass &x to put, which keeps it after returning
+a14_chan_func_value_send: main.p:16:2: cannot pass &x to hook (which may call send), which keeps it after returning
+a15_select_recv_then_store_frame: main.p:16:3: cannot store &x in package variable keep, which outlives x
+a16_chan_send_via_method_value: main.p:20:2: cannot pass &x to callf, which keeps it after returning
+b02_task_helper_starts: main.p:17:2: cannot pass &x to start, which keeps it after returning
+b03_task_func_param: main.p:15:2: cannot pass the function literal to run, which keeps it after returning
+b04_task_iface_method: main.p:20:2: cannot pass R{...} to start, which keeps it after returning
+b05_scope_returned: main.p:17:7: cannot send unsafe.Pointer(&x) on got: the receiver may outlive x
+b06_scope_moved_to_global: main.p:18:7: cannot send unsafe.Pointer(&x) on got: the receiver may outlive x
+b07_scope_moved_to_param: main.p:21:7: cannot send unsafe.Pointer(&x) on got: the receiver may outlive x
+b09_scope_task_afterfunc: main.p:16:3: cannot pass the function literal to time.AfterFunc, which keeps it after returning
+b11_scope_in_owner_struct_returned: main.p:20:2: cannot pass the function literal to sync.(*Scope).Task, which keeps it after returning
+b12_scope_swap_with_global: main.p:18:7: cannot send unsafe.Pointer(&x) on got: the receiver may outlive x
+b13_waitgroup_task_closure: main.p:15:2: cannot pass the function literal to sync.(*WaitGroup).Task, which keeps it after returning
+b14_scope_wait_then_task_in_branch: main.p:19:8: cannot send unsafe.Pointer(&x) on got: the receiver may outlive x
+b15_scope_through_pointer_param: main.p:14:2: cannot pass the function literal to sync.(*Scope).Task, which keeps it after returning
+b17_scope_loop_body_ptr_via_helper: main.p:19:3: the task started here takes p, a view of y, which the loop at main.p:16 reuses before s waits for the task
+b18_scope_loop_body_slice_in_struct: main.p:19:3: the task started here takes h, a view of arr, which the loop at main.p:16 reuses before s waits for the task
+b19_scope_task_stores_to_outer_var: main.p:19:3: cannot keep &y in p after this iteration: the loop at line 14 reuses y in every iteration
+b20_scope_or_continue_before_wait: accepted
+b21_scope_panic_select_break_before_wait: accepted
+d01_defer_sets_named_result: main.p:14:1: cannot return p, which points into x, a local variable of g
+d06_defer_sets_named_result_struct: main.p:16:1: cannot return r, which points into x, a local variable of g
+d07_defer_call_sets_result_via_ptr: main.p:16:1: cannot return p, which points into x, a local variable of g
+d08_or_return_frame: main.p:21:9: cannot return err, which points into e, a local variable of g
+d09_defer_named_result_closure: main.p:12:17: cannot store the function literal in r, which outlives x
+d10_defer_method_value_named_result: main.p:16:17: cannot store s.Get in r, which outlives the function literal's frame
+d13_defer_copy_into_heap: main.p:14:8: cannot store &x in the backing array of gv.Slice(), which outlives x
+d14_copy_into_heap: main.p:14:2: cannot store &x in the backing array of gv.Slice(), which outlives x
+d15_copy_into_param_slice: main.p:13:2: cannot store &x in the backing array of dst, which outlives x
+e06_map_value_frame_ptr: main.p:12:2: cannot store &x in gm[1], which outlives x
+e07_local_map_returned: main.p:13:2: cannot store &x in m[1], which outlives x
+e08_map_key_frame_ptr: main.p:12:2: cannot store &x in a key of gm, which outlives x
+g01_generic_box_to_any_large: main.p:9:35: cannot return any(v), an interface holding a copy of a T in box's frame
+g02_generic_box_func_value_large: main.p:9:35: cannot return any(v), an interface holding a copy of a T in box's frame
+g03_generic_method_box_large: main.p:11:34: cannot return any(w.v), an interface holding a copy of a T in (W).Any's frame
+g04_generic_store_static: main.p:16:2: cannot pass &x to put, which keeps it after returning
+g05_generic_constraint_method: main.p:19:2: cannot pass &s to call, which keeps it after returning
+g06_generic_box_to_any_large_other_pkg_style: main.p:12:34: cannot return any(v), an interface holding a copy of a T in (C).To's frame
+g07_generic_keep_any: main.p:14:2: cannot pass &x to keepIt, which keeps it after returning
+g08_generic_return_through_ptr_instantiation: main.p:19:9: cannot return first(Pair[*int, int]{...}), which points into x, a local variable of g
+g09_generic_method_through_iface_type_param: main.p:19:2: cannot pass &x to put, which keeps it after returning
+g10_generic_closure_factory: main.p:14:2: cannot store mk(&x) in package variable keepF, which outlives f's frame
+g11_generic_type_param_as_ptr_store: main.p:17:2: cannot pass &x to (*Holder).put, which keeps it after returning
+g12_generic_ptr_constraint: main.p:16:2: cannot pass &x to remember, which keeps it after returning
+g13_generic_ptr_constraint_store_typed: main.p:21:2: cannot pass &x to remember, which keeps it after returning
+k01_atomic_pointer_load: main.p:15:2: cannot store ap.Load() in package variable keep, which outlives ap
+k02_atomic_pointer_swap: main.p:15:2: cannot store ap.Swap(nil) in package variable keep, which outlives ap
+k03_atomic_pointer_global_store: main.p:13:2: cannot pass &x to atomic.(*Pointer).Store, which keeps it after returning
+k04_atomic_pointer_returned: main.p:15:9: cannot return ap.Load(), which points into ap, a local variable of g
+k05_atomic_cas_then_load: main.p:15:2: cannot store ap.Load() in package variable keep, which outlives ap
+k06_unsafe_string_global: main.p:12:2: cannot store unsafe.String(&buf[0], 8) in package variable gstr, which outlives buf
+k07_aligned_global: main.p:12:2: cannot store &x in package variable g, which outlives x
+k08_ring_global: main.p:12:2: cannot store &x in package variable g, which outlives x
+l06_loop_ptr_to_outer_via_alias: main.p:17:3: cannot keep &v in q.p after this iteration: the loop at line 15 reuses v in every iteration
+l22_loop_ptr_kept_via_method_on_outer: main.p:16:3: cannot pass &v to (*Holder).set, which keeps it after this iteration: the loop at line 14 reuses v in every iteration
+l23_loop_closure_into_outer_array_elem: main.p:11:3: cannot keep the function literal in fs[i] after this iteration: it uses i, which the loop at line 10 reuses in every iteration
+l24_loop_header_var_holds_body_ptr: main.p:14:3: cannot keep &v in p after this iteration: the loop at line 9 reuses v in every iteration
+l25_loop_ptr_via_helper_storing_into_param: main.p:14:3: cannot pass &v to put, which keeps it after this iteration: the loop at line 12 reuses v in every iteration
+l26_loop_iface_copy_kept: main.p:13:3: cannot keep Big{...} in keepI after this iteration: the loop at line 12 makes it in the same memory in every iteration
+l27_loop_range_array_value_addr: main.p:12:3: cannot keep &v in ps[i] after this iteration: the loop at line 11 reuses v in every iteration
+l28_loop_kept_in_outer_via_rangefunc_body: main.p:20:3: cannot keep &w in keepP after this iteration: the loop at line 18 reuses w in every iteration
+l29_loop_view_kept_through_two_vars: main.p:15:4: cannot keep r in outer after this iteration: the loop at line 10 reuses v in every iteration
+l30_loop_kept_via_closure_returned_ptr: main.p:14:4: cannot keep get() in outer after this iteration: the loop at line 10 reuses v in every iteration
+n01_assert_then_value_method_ptr_dyn: main.p:24:10: cannot pass &t to g, which keeps it after returning
+n02_assert_value_method_promoted_by_value: main.p:28:10: cannot pass &u to g, which keeps it after returning
+n03_promoted_through_embedded_ptr: main.p:25:10: cannot pass &o to call, which keeps it after returning
+n04_promoted_embedded_ptr_value_outer: main.p:21:10: cannot pass Outer{...} to call, which keeps it after returning
+n05_iface_embedding_assert: main.p:35:10: cannot pass &t to g, which keeps it after returning
+n06_generic_value_method_assert: main.p:24:10: cannot pass &v to call, which keeps it after returning
+n07_value_method_array_type: main.p:21:10: cannot pass &v to call, which keeps it after returning
+n08_elem_value_copy_in_callee: main.p:28:10: cannot pass &arr to g, which keeps it after returning
+n09_elem_ptr_assert_value_method_in_callee: main.p:28:10: cannot pass &arr to g, which keeps it after returning
+n10_value_method_keeps_receiver_addr: main.p:32:10: cannot pass &t to g, which keeps it after returning
+n11_same_word_two_methods: main.p:29:2: cannot pass &t to g, which keeps it after returning
+n12_value_method_then_reassert_any: main.p:27:2: cannot pass &t to g, which keeps it after returning
+n13_generic_method_set_type_param_call: main.p:27:2: cannot pass arr[:] to each, which keeps it after returning
+n15_shape_elem_then_field: main.p:28:10: cannot pass &arr to g, which keeps it after returning
+n16_elem_of_elem_two_levels: main.p:24:10: cannot pass &arr to g, which keeps it after returning
+n17_elem_through_ptr_field: main.p:26:10: cannot pass &b to g, which keeps it after returning
+n18_elem_slice_in_struct_param: main.p:25:10: cannot pass Box{...} to g, which keeps it after returning
+n19_value_method_on_ptr_shaped_struct_elem: main.p:25:10: cannot pass &arr to g, which keeps it after returning
+n20_method_value_of_elem_value_method: main.p:27:10: cannot pass &arr to g, which keeps it after returning
+n21_generic_chain_promoted_value_method: main.p:34:10: cannot pass &u to outer, which keeps it after returning
+n22_generic_chain_ptr_method: main.p:27:10: cannot pass &s to outer, which keeps it after returning
+n23_generic_method_of_generic_type_converts: main.p:27:10: cannot pass &b to (*Box).Show, which keeps it after returning
+n24_generic_func_value_instance_converts: main.p:25:10: cannot pass &s to fv (which may call show), which keeps it after returning
+n25_generic_chain_promoted_no_sink: main.p:36:10: cannot pass &u to outer, which keeps it after returning
+n26_generic_direct_promoted_value_method: main.p:36:10: cannot pass &u to show, which keeps it after returning
+n27_generic_chain_own_value_method: main.p:36:10: cannot pass &t to outer, which keeps it after returning
+n28_nongeneric_promoted_value_method: main.p:43:10: cannot pass &u to show2, which keeps it after returning
+n29_generic_direct_promoted_pointer_method: main.p:31:10: cannot pass &u to show, which keeps it after returning
+n30_generic_value_type_param_promoted: main.p:43:10: cannot pass &u to showV, which keeps it after returning
+n31_generic_type_param_method_call_promoted: main.p:27:10: cannot pass &u to show, which keeps it after returning
+n32_generic_ptr_tparam_renamed: main.p:36:10: cannot pass &u to show, which keeps it after returning
+n33_generic_ptr_tparam_stringer_ordinary: main.p:27:10: cannot pass &s to describe, which keeps it after returning
+n34_generic_ptr_tparam_fmt_println: main.p:22:2: cannot pass &s to show, which keeps it after returning
+n35_generic_slice_tparam_any: main.p:31:10: cannot pass arr[:] to first, which keeps it after returning
+n36_generic_type_instance_tparam_any: main.p:32:9: cannot pass st to st.String (which may call main.(*S).String), which keeps it after returning
+o17_shared_field_view_returned: main.p:16:9: cannot return &s.n, which points into the object s refers to, which s keeps alive in g
+o18_owned_field_view_returned: main.p:15:9: cannot return &b.n, which points into the object b refers to, which b keeps alive in g
+p01_init_local_closure: main.p:11:2: cannot store the function literal in package variable gf, which outlives x
+p02_pkg_initializer_call_returns_local: main.p:9:9: cannot return &x, a pointer to a local variable
+p03_pkg_init_closure_from_call: accepted
+p04_pkg_init_immediate_literal_returns_local: main.p:9:9: cannot return &x, a pointer to a local variable
+p05_pkg_init_iter_seq: accepted
+p06_pkg_init_method_value: main.p:15:9: cannot return s.Get, which points into s, a local variable of the function literal
+p07_init_func_local_stored_via_helper: main.p:13:2: cannot pass &x to store, which keeps it after returning
+r01_rotation_recursion: main.p:22:2: cannot pass &x to rot, which keeps it after returning
+r02_mutual_recursion_store: main.p:25:2: cannot pass &x to ping, which keeps it after returning
+r03_iface_method_value_in_pkg_var: main.p:19:2: cannot pass &x to hook (which may call (K).Keep), which keeps it after returning
+r04_method_expr_in_pkg_var: main.p:17:2: cannot pass &x to hook (which may call (*K).Keep), which keeps it after returning
+r05_generic_instance_func_value: main.p:18:2: cannot pass &x to hook (which may call put), which keeps it after returning
+r06_generic_variant_func_value: main.p:18:9: cannot return mk(&x), which points into x, a local variable of g
+r08_list_walk_keep: main.p:28:2: cannot pass &a to find, which keeps it after returning
+r10_heaponly_param_via_func_value: main.p:26:2: cannot pass &b to keepNext, which keeps it after returning
+r11_heaponly_struct_copy: main.p:26:2: cannot pass &b to keepNext, which keeps it after returning
+r12_heaponly_via_generic_setter: main.p:24:2: cannot pass &b to keepNext, which keeps it after returning
+r14_heaponly_via_chan_recv: main.p:21:4: cannot send Node{...} on c: the receiver may outlive a
+r15_heaponly_via_array_literal: main.p:21:2: cannot pass &arr[0] to keepNext, which keeps it after returning
+r16_heaponly_via_iface_assert_value: main.p:22:2: cannot pass &b to keepNext, which keeps it after returning
+r17_heaponly_via_multi_return: main.p:23:2: cannot pass &b to keepNext, which keeps it after returning
+r18_heaponly_via_closure_param: main.p:22:2: cannot pass &b to keepNext, which keeps it after returning
+r19_depth4_load: main.p:18:2: cannot pass &p3 to g, which keeps it after returning
+r20_deep_fields: main.p:34:2: cannot pass &v to g, which keeps it after returning
+v10_variant_value_in_generic_func: main.p:22:9: cannot return wrap(&x), which points into x, a local variable of g
+v11_variant_value_named_func_type: main.p:19:9: cannot return m(&x), which points into x, a local variable of g
+v12_variant_value_generic_apply: main.p:19:9: cannot return apply(U.P, &x), which points into x, a local variable of g
+v13_variant_value_struct_payload: main.p:22:9: cannot return mk(S{...}), which points into x, a local variable of g
+v14_variant_value_via_iface_method: main.p:21:9: cannot return m.Make(&x), which points into x, a local variable of g
+v15_variant_value_into_any_result: main.p:18:9: cannot return any(mk(&x)), an interface holding a copy of an U in g's frame
+v16_variant_two_params_wrapped: main.p:21:9: cannot return hook(U.P, &x), which points into x, a local variable of g
+x01_region_closure_then_ptr_into_region: main.p:9:34: cannot return &c, a pointer to a local variable
+x02_region_refill_in_loop: main.p:9:34: cannot return &c, a pointer to a local variable
+x03_region_closure_called_after_second_call: main.p:16:3: cannot keep mk(42 + i) in fs[i] after this iteration: the loop at line 15 makes it in the same memory in every iteration
+x04_region_iface_method_returns_closure: main.p:18:12: cannot store g(M{}) in package variable keepF, which outlives f's frame

@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-var updateReview2 = flag.Bool("update", false, "rewrite testdata/review2/want.txt with the diagnostics the analysis gives")
+var updateReview2 = flag.Bool("update", false, "rewrite testdata/review*/want.txt with the diagnostics the analysis gives")
 
 // TestReview2 checks the programs of the second adversarial review of the
 // escape analysis (testdata/review2, one per file; the review is of commits
@@ -20,11 +20,25 @@ var updateReview2 = flag.Bool("update", false, "rewrite testdata/review2/want.tx
 // program does it. want.txt holds the first diagnostic of each program; run
 // the test with -update to rewrite it, and read the diff.
 func TestReview2(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join("testdata", "review2", "*.p"))
+	reviewSuite(t, "review2")
+}
+
+// TestReview3 checks the programs of the third adversarial review (of commit
+// 8610f18f), as TestReview2 does. A program whose line in want.txt reads
+// "accepted" is a control, which keeps no pointer into a dead frame, and must
+// stay accepted.
+func TestReview3(t *testing.T) {
+	reviewSuite(t, "review3")
+}
+
+// reviewSuite checks the programs of testdata/<dir> against the first
+// diagnostic of each in testdata/<dir>/want.txt ("accepted" for none).
+func reviewSuite(t *testing.T, dir string) {
+	files, err := filepath.Glob(filepath.Join("testdata", dir, "*.p"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no programs: %v", err)
 	}
-	wantFile := filepath.Join("testdata", "review2", "want.txt")
+	wantFile := filepath.Join("testdata", dir, "want.txt")
 	want := map[string]string{}
 	if !*updateReview2 {
 		data, err := os.ReadFile(wantFile)
@@ -50,11 +64,10 @@ func TestReview2(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				err = check(t, string(src))
-				if err == nil {
-					t.Fatal("accepted")
+				first := "accepted"
+				if err := check(t, string(src)); err != nil {
+					first, _, _ = strings.Cut(fullText(err), "\n")
 				}
-				first, _, _ := strings.Cut(fullText(err), "\n")
 				mu.Lock()
 				got[name] = first
 				mu.Unlock()
@@ -66,7 +79,7 @@ func TestReview2(t *testing.T) {
 	})
 	if !*updateReview2 {
 		if len(want) != len(files) {
-			t.Errorf("want.txt has %d programs, testdata/review2 %d", len(want), len(files))
+			t.Errorf("want.txt has %d programs, testdata/%s %d", len(want), dir, len(files))
 		}
 		return
 	}

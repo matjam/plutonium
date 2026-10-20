@@ -37,6 +37,44 @@ func f() {
 	println(call(HF(c.get)))
 }
 func main() { f() }`, "package variable keepF"},
+	// The third adversarial review: types converted to an interface are told
+	// apart by identity, not by how they print.
+	{"pointer to a type parameter converted after another of the same name", `
+type Stringer interface{ String() string }
+type S struct{ n int }
+var keepS *S
+func (s *S) String() string { keepS = s; return "s" }
+func first[T any](v *T) any { return any(v) }
+func show[T any](v *T) string {
+	if s, ok := any(v).(Stringer); ok {
+		return s.String()
+	}
+	return ""
+}
+func f() {
+	var n int
+	_ = first(&n)
+	s := S{42}
+	println(show(&s))
+}
+func main() { f() }`, "cannot pass &s to show"},
+	{"local types of one name in two functions", `
+type Stringer interface{ String() string }
+type T0 struct{ p *int }
+var keep *int
+func (t T0) String() string { keep = t.p; return "t0" }
+func call(s Stringer) string { return s.String() }
+func use(v any) {}
+func one() {
+	type L struct{ n int }
+	use(L{1})
+}
+func f() {
+	type L struct{ T0 }
+	x := 42
+	println(call(L{T0{&x}}))
+}
+func main() { one(); f() }`, "cannot pass L{...} to call"},
 	{"element of an array as a pointer in an interface", `
 type S struct{ n int }
 var keepS *S
