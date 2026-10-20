@@ -247,6 +247,57 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []tset {
 	return out
 }
 
+// An argEval says what a key of a callee's summary leads to from the pointers
+// a call passes (the arguments, receiver first, to the function f; mode
+// says how the first relates to the receiver f sees).
+type argEval struct {
+	w    *walker
+	f    *function
+	cs   *callSite
+	mode recvMode
+}
+
+// of is what key k leads to from raw, the pointers passed for parameter k.idx
+// (all of them, or some: it takes them one by one).
+func (e *argEval) of(k pkey, raw tset) tset {
+	w, f, cs, mode := e.w, e.f, e.cs, e.mode
+	actual := raw
+	if k.borrowed {
+		actual = borrowHolders(actual)
+	}
+	v := w.walkParam(f, actual, k)
+	if k.idx == 0 {
+		switch mode {
+		case recvBoxed:
+			v = w.walkParam(f, w.load(raw), k)
+		case recvReach:
+			v = w.reach(raw)
+		}
+	}
+	if k.counts {
+		T := w.parameterValueType(f, cs, k)
+		if k.directCount || k.ge || T == nil || isCountedBox(T) {
+			v = countedHeap(v)
+		}
+		generic := T == nil
+		if T != nil {
+			_, generic = types2.Unalias(T).(*types2.TypeParam)
+		}
+		if generic || k.directCount || k.ge {
+			var out tbuf
+			for _, t := range v {
+				if t.kind == tParam {
+					t.counted = true
+					t.directCount = t.directCount || k.directCount
+				}
+				out.add(t)
+			}
+			v = out.set
+		}
+	}
+	return v
+}
+
 // apply applies f's summary to a call with the given arguments (receiver
 // first) and returns what the results may point to. mode says how args[0]
 // relates to the receiver f sees, for calls through an interface.
@@ -272,50 +323,12 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		}
 		return res
 	}
-	// argOf is what key k leads to from raw, the pointers passed for
-	// parameter k.idx (all of them, or some: it takes them one by one).
-	argOf := func(k pkey, raw tset) tset {
-		actual := raw
-		if k.borrowed {
-			actual = borrowHolders(actual)
-		}
-		v := w.walkParam(f, actual, k)
-		if k.idx == 0 {
-			switch mode {
-			case recvBoxed:
-				v = w.walkParam(f, w.load(raw), k)
-			case recvReach:
-				v = w.reach(raw)
-			}
-		}
-		if k.counts {
-			T := w.parameterValueType(f, cs, k)
-			if k.directCount || k.ge || T == nil || isCountedBox(T) {
-				v = countedHeap(v)
-			}
-			generic := T == nil
-			if T != nil {
-				_, generic = types2.Unalias(T).(*types2.TypeParam)
-			}
-			if generic || k.directCount || k.ge {
-				var out tbuf
-				for _, t := range v {
-					if t.kind == tParam {
-						t.counted = true
-						t.directCount = t.directCount || k.directCount
-					}
-					out.add(t)
-				}
-				v = out.set
-			}
-		}
-		return v
-	}
+	argOf := &argEval{w: w, f: f, cs: cs, mode: mode}
 	arg := func(k pkey) tset {
 		if k.idx >= len(args) {
 			return nil
 		}
-		return argOf(k, args[k.idx])
+		return argOf.of(k, args[k.idx])
 	}
 	borrowArg := func(k pkey) tset {
 		v := borrowHolders(arg(k))

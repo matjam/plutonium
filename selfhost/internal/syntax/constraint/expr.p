@@ -615,3 +615,24 @@ func appendSplitOr(list []Expr, x Expr) []Expr {
 	}
 	return compat.Append(list, x)
 }
+
+// EvalTags reports whether the expression x is true when the tags in tags are
+// set. It is Eval for a set of tags, which needs no func value (a closure
+// over the set would be a record in the frame of the caller).
+func EvalTags(x Expr, tags map[string]bool) bool {
+	switch x := x.(type) {
+	case *TagExpr:
+		return tags[x.Tag]
+	case *NotExpr:
+		return !EvalTags(x.X, tags)
+	case *AndExpr:
+		xok := EvalTags(x.X, tags)
+		yok := EvalTags(x.Y, tags)
+		return xok && yok
+	case *OrExpr:
+		xok := EvalTags(x.X, tags)
+		yok := EvalTags(x.Y, tags)
+		return xok || yok
+	}
+	panic("unexpected constraint.Expr")
+}

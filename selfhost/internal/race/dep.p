@@ -277,7 +277,7 @@ func (a *analyzer) scanDeps() {
 		a.propagateCPU(all)
 		changed := false
 		for _, f := range fns {
-			d := pu.New(depWalk{a: a, f: f, fi: a.cpuFn[f]})
+			d := &depWalk{a: a, f: f, fi: a.cpuFn[f]}
 			d.run()
 			changed = changed || d.changed
 		}
@@ -2187,7 +2187,7 @@ func (a *analyzer) neverReturns(g *function) bool {
 			return !hasRet
 		})
 		if !hasRet {
-			d := pu.New(depWalk{a: a})
+			d := &depWalk{a: a}
 			switch last := g.body.List[n-1].(type) {
 			case *ast.ForStmt:
 				res = last.Cond == nil && !hasBreak(last.Body)

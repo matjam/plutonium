@@ -12,25 +12,70 @@ import (
 // Intrinsics: standard library functions the compiler implements directly
 // with one SSA operation. Each library function also has a Plutonium body,
 // used when its address is taken.
-type intrinsicFn func(s *fnState, args []*ssa.Value, results []types2.Type) []*ssa.Value
-
-func unary(op ssa.Op) intrinsicFn {
-	return func(s *fnState, args []*ssa.Value, results []types2.Type) []*ssa.Value {
-		t := s.l.scalarType(results[0])
-		return compat.Clone([]*ssa.Value{s.newValue(op, t, args[0])})
-	}
+//
+// An intrinsic is a value of intrinsicFn, a description of how to lower the
+// call and not a func that captures its parameters (a func built by a
+// function and kept in a table is a closure record in a frame).
+type intrinsicFn struct {
+	kind intrinsicKind
+	op   ssa.Op
+	name string
+	fn   func(s *fnState, args []*ssa.Value, results []types2.Type) []*ssa.Value // intrFunc
 }
+
+type intrinsicKind uint8
+
+const (
+	intrFunc    intrinsicKind = iota // fn, which captures nothing
+	intrUnary                        // one operation on the first argument
+	intrBitScan                      // TrailingZeros, LeadingZeros
+	intrMachine                      // a machine instruction sequence
+)
+
+// fnIntrinsic is an intrinsic implemented by a func that captures nothing.
+func fnIntrinsic(f func(s *fnState, args []*ssa.Value, results []types2.Type) []*ssa.Value) intrinsicFn {
+	return intrinsicFn{kind: intrFunc, fn: f}
+}
+
+func unary(op ssa.Op) intrinsicFn { return intrinsicFn{kind: intrUnary, op: op} }
 
 // bitScan returns an intrinsic for TrailingZeros / LeadingZeros, whose
 // result is an int while the operation works at the argument's width.
-func bitScan(op ssa.Op) intrinsicFn {
-	return func(s *fnState, args []*ssa.Value, results []types2.Type) []*ssa.Value {
-		v := s.newValue(op, args[0].Type, args[0])
+func bitScan(op ssa.Op) intrinsicFn { return intrinsicFn{kind: intrBitScan, op: op} }
+
+// machine returns an intrinsic that expands to the named machine
+// instruction sequence: an OpIntrinsic, which orders memory as a call
+// does, so that it is a compiler barrier.
+func machine(name string) intrinsicFn { return intrinsicFn{kind: intrMachine, name: name} }
+
+// lower lowers a call of the intrinsic.
+func (i intrinsicFn) lower(s *fnState, args []*ssa.Value, results []types2.Type) []*ssa.Value {
+	switch i.kind {
+	case intrUnary:
+		t := s.l.scalarType(results[0])
+		return compat.Clone([]*ssa.Value{s.newValue(i.op, t, args[0])})
+	case intrBitScan:
+		v := s.newValue(i.op, args[0].Type, args[0])
 		if v.Type.Size < 8 {
 			v = s.newValue(ssa.OpZeroExt, ssa.TI64, v)
 		}
 		return compat.Clone([]*ssa.Value{v})
+	case intrMachine:
+		types := compat.Clone([]*ssa.Type{ssa.TMem})
+		for _, r := range results {
+			types = compat.Append(types, s.l.scalarType(r))
+		}
+		v := s.newValue(ssa.OpIntrinsic, ssa.TupleOf(types...), args...)
+		v.AddArg(s.mem())
+		v.Aux = ssa.NewIntrinsic(i.name)
+		s.setMem(s.selectN(v, 0, ssa.TMem))
+		out := compat.Make[*ssa.Value](len(results))
+		for j := range results {
+			out[j] = s.selectN(v, j+1, types[j+1])
+		}
+		return out
 	}
+	return i.fn(s, args, results)
 }
 
 var intrinsics = map[string]intrinsicFn{
@@ -50,20 +95,20 @@ var intrinsics = map[string]intrinsicFn{
 	"pluto/bits.ReverseBytes64":  unary(ssa.OpBswap),
 	"pluto/bits.ReverseBytes32":  unary(ssa.OpBswap),
 	"pluto/bits.ReverseBytes16":  unary(ssa.OpBswap),
-	"pluto/bits.RotateLeft64": func(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
+	"pluto/bits.RotateLeft64": fnIntrinsic(func(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
 		return compat.Clone([]*ssa.Value{s.newValue(ssa.OpRotl, ssa.TI64, args[0], args[1])})
-	},
-	"pluto/bits.RotateLeft32": func(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
+	}),
+	"pluto/bits.RotateLeft32": fnIntrinsic(func(s *fnState, args []*ssa.Value, _ []types2.Type) []*ssa.Value {
 		return compat.Clone([]*ssa.Value{s.newValue(ssa.OpRotl, ssa.TI32, args[0], args[1])})
-	},
+	}),
 	// The return address of the function making the call. When that
 	// function is inlined, the inliner turns it into the address of the
 	// inlined code, where the call would have returned.
-	"pluto/rt.CallerPC": func(s *fnState, _ []*ssa.Value, results []types2.Type) []*ssa.Value {
+	"pluto/rt.CallerPC": fnIntrinsic(func(s *fnState, _ []*ssa.Value, results []types2.Type) []*ssa.Value {
 		return compat.Clone([]*ssa.Value{s.newValue(ssa.OpReturnAddr, s.l.scalarType(results[0]))})
-	},
-	"pluto/bits.Mul64": mul64,
-	"pluto/rt.mul64":   mul64,
+	}),
+	"pluto/bits.Mul64": fnIntrinsic(mul64),
+	"pluto/rt.mul64":   fnIntrinsic(mul64),
 }
 
 // mul64 is the 128-bit product of two uint64s, (hi, lo).
@@ -93,35 +138,14 @@ func init() {
 	}
 }
 
-// machine returns an intrinsic that expands to the named machine
-// instruction sequence: an OpIntrinsic, which orders memory as a call
-// does, so that it is a compiler barrier.
-func machine(name string) intrinsicFn {
-	return func(s *fnState, args []*ssa.Value, results []types2.Type) []*ssa.Value {
-		types := compat.Clone([]*ssa.Type{ssa.TMem})
-		for _, r := range results {
-			types = compat.Append(types, s.l.scalarType(r))
-		}
-		v := s.newValue(ssa.OpIntrinsic, ssa.TupleOf(types...), args...)
-		v.AddArg(s.mem())
-		v.Aux = ssa.NewIntrinsic(name)
-		s.setMem(s.selectN(v, 0, ssa.TMem))
-		out := compat.Make[*ssa.Value](len(results))
-		for i := range results {
-			out[i] = s.selectN(v, i+1, types[i+1])
-		}
-		return out
-	}
-}
-
 // intrinsic lowers a call to an intrinsic function, if fn is one.
 // x86.InterruptGate and x86.TrapGate are handled by gateCall (interrupt.go).
 func (s *fnState) intrinsic(fn *types2.Func, e *ast.CallExpr) ([]value, bool) {
 	if fn.Pkg() == nil {
 		return nil, false
 	}
-	impl := intrinsics[compat.Concat(fn.Pkg().Path(), ".", fn.Name())]
-	if impl == nil {
+	impl, ok := intrinsics[compat.Concat(fn.Pkg().Path(), ".", fn.Name())]
+	if !ok {
 		return nil, false
 	}
 	sig := fn.Type().(*types2.Signature)
@@ -133,7 +157,7 @@ func (s *fnState) intrinsic(fn *types2.Func, e *ast.CallExpr) ([]value, bool) {
 	for i := 0; i < sig.Results().Len(); i++ {
 		resultTypes = compat.Append(resultTypes, sig.Results().At(i).Type())
 	}
-	vals := impl(s, args, resultTypes)
+	vals := impl.lower(s, args, resultTypes)
 	out := compat.Make[value](len(vals))
 	for i, v := range vals {
 		out[i] = scalarValue(v, resultTypes[i])

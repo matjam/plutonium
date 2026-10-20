@@ -50,14 +50,19 @@ func (t *fileTr) arenaBox(e ast.Expr) (string, bool) {
 	}
 	var assert string
 	if iface := target.Underlying().(*types.Interface); !iface.Empty() {
-		switch n := target.(type) {
-		case *types.Named:
-			if n.Obj().Pkg() != nil && n.Obj().Pkg() != t.pkg {
-				return "", false
-			}
+		n, ok := target.(*types.Named)
+		if !ok {
+			return "", false
+		}
+		switch pkg := n.Obj().Pkg(); {
+		case pkg == nil || pkg == t.pkg:
 			assert = ".(" + goName(n.Obj().Name()) + ")"
 		default:
-			return "", false
+			to := t.mapPath(pkg.Path())
+			if to == "" {
+				return "", false
+			}
+			assert = ".(" + t.use(to, pkg.Name()) + "." + n.Obj().Name() + ")"
 		}
 	}
 	if t.arenaBoxing == nil {
@@ -80,6 +85,14 @@ func (t *fileTr) convTarget(e ast.Expr) types.Type {
 		for i, a := range p.Args {
 			if a != e {
 				continue
+			}
+			if id, ok := ast.Unparen(p.Fun).(*ast.Ident); ok && i > 0 && !p.Ellipsis.IsValid() {
+				if b, ok := t.info.Uses[id].(*types.Builtin); ok && b.Name() == "append" {
+					if s, ok := t.typeOf(p.Args[0]).Underlying().(*types.Slice); ok {
+						return s.Elem()
+					}
+					return nil
+				}
 			}
 			if !t.callKeeps(p) {
 				return nil

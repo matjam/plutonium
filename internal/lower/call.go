@@ -177,21 +177,23 @@ func (s *fnState) callArgs(e *ast.CallExpr, sig *types2.Signature, def *defaults
 	return args
 }
 
+// argAs lowers the argument a of the call e as a value of type T.
+func (s *fnState) argAs(e *ast.CallExpr, a argSource, T types2.Type) value {
+	var v value
+	if a.e != nil {
+		v = s.exprAs(a.e, T)
+	} else {
+		v = s.assignConvert(a.v, T, e)
+	}
+	// The callee borrows its arguments; one that the call could
+	// change under it is kept alive by a reference of the caller's.
+	return s.hold(v)
+}
+
 func (s *fnState) lowerArgs(e *ast.CallExpr, sig *types2.Signature, def *defaultsOf) []value {
 	params := sig.Params()
 	n := params.Len()
 	args := s.argSources(e.Args)
-	as := func(a argSource, T types2.Type) value {
-		var v value
-		if a.e != nil {
-			v = s.exprAs(a.e, T)
-		} else {
-			v = s.assignConvert(a.v, T, e)
-		}
-		// The callee borrows its arguments; one that the call could
-		// change under it is kept alive by a reference of the caller's.
-		return s.hold(v)
-	}
 
 	var out []value
 	fixed := n
@@ -199,7 +201,7 @@ func (s *fnState) lowerArgs(e *ast.CallExpr, sig *types2.Signature, def *default
 		fixed = n - 1
 	}
 	for i := 0; i < fixed && i < len(args); i++ {
-		out = append(out, s.materialize(as(args[i], s.subst(params.At(i).Type()))))
+		out = append(out, s.materialize(s.argAs(e, args[i], s.subst(params.At(i).Type()))))
 	}
 	if !sig.Variadic() && len(args) < n {
 		if def == nil {
@@ -225,7 +227,7 @@ func (s *fnState) lowerArgs(e *ast.CallExpr, sig *types2.Signature, def *default
 				// own until the function returns.
 				arr := s.frameSlot(arrT, "varargs")
 				for i, a := range extra {
-					s.storeCounted(lvalue{ptr: s.offPtr(arr, int64(i)*esize), T: et}, as(a, et), false)
+					s.storeCounted(lvalue{ptr: s.offPtr(arr, int64(i)*esize), T: et}, s.argAs(e, a, et), false)
 				}
 				nv := s.constInt(ssa.TI64, int64(len(extra)))
 				out = append(out, s.makeSlice(arr, nv, nv, sliceT))
@@ -233,7 +235,7 @@ func (s *fnState) lowerArgs(e *ast.CallExpr, sig *types2.Signature, def *default
 			}
 			arr := s.lastingTemp(arrT, "varargs")
 			for i, a := range extra {
-				v := as(a, et)
+				v := s.argAs(e, a, et)
 				dst := s.offPtr(arr, int64(i)*esize)
 				s.storeTo(dst, v, et)
 				if s.l.counted(et) {

@@ -231,7 +231,7 @@ func (c *checker) checkPackageVars(d *ast.GenDecl) {
 	if d.Tok != token.VAR {
 		return
 	}
-	f := pu.New(fn{c: c, report: true, env: env{}, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, checkedAt: map[*ast.Ident]ast.Expr{}})
+	f := &fn{c: c, report: true, env: env{}, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, checkedAt: map[*ast.Ident]ast.Expr{}}
 	for _, s := range d.Specs {
 		vs := s.(*ast.ValueSpec)
 		for i, val := range vs.Values {
@@ -484,8 +484,8 @@ type target struct {
 
 // checkFunc checks a function body with signature sig.
 func (c *checker) checkFunc(ft *ast.FuncType, recv *ast.FieldList, body *ast.BlockStmt, sig *types2.Signature) {
-	f := pu.New(fn{c: c, sig: sig, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, declIn: map[*types2.Var]*ast.BlockStmt{}, topBody: body,
-		argKey: keysOf(c, body), checkedAt: map[*ast.Ident]ast.Expr{}})
+	f := &fn{c: c, sig: sig, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, declIn: map[*types2.Var]*ast.BlockStmt{}, topBody: body,
+		argKey: keysOf(c, body), checkedAt: map[*ast.Ident]ast.Expr{}}
 	// The function's own variables: parameters, results, and everything
 	// declared in its body outside nested literals.
 	for _, l := range []*ast.FieldList{recv, ft.Params, ft.Results} {

@@ -147,21 +147,23 @@ type closureFlow struct {
 	src     []ast.Node // closure records made in the frame: origin firstSrc()+i
 	srcIdx  map[ast.Node]int
 
-	vars      map[*types2.Var]bitset
-	ident     map[*types2.Var]bitset // what is assigned to each variable itself, not stored through it
-	addressed map[*types2.Var]bool
-	pool      bitset                  // values stored through pointers
-	litArgs   bitset                  // values passed to calls, which an iterator may yield
-	litIn     map[*ast.FuncLit]bitset // what each literal's parameters may receive
-	srcState  map[int]bitset          // what calls stored in the records of method values and calls' closures
-	called    bitset                  // parameters called as unknown code, whose state may be stored
-	storeTo   map[int]bitset          // values stored through each parameter
-	callArgs  map[int]bitset          // the parameters passed to calls of each func parameter
-	storeAny  bitset                  // values kept where callers cannot see: through other pointers, in package variables, by unknown code
-	started   bitset                  // values a task may be started with
-	changed   bool
-	foreign   []ast.Node           // nested literals and range-over-func bodies (ownFrame)
-	fresh     map[*types2.Var]bool // pointer variables that hold only memory allocated here (freshptr.go)
+	vars        map[*types2.Var]bitset
+	ident       map[*types2.Var]bitset // what is assigned to each variable itself, not stored through it
+	addressed   map[*types2.Var]bool
+	pool        bitset                  // values stored through pointers
+	litArgs     bitset                  // values passed to calls, which an iterator may yield
+	litIn       map[*ast.FuncLit]bitset // what each literal's parameters may receive
+	srcState    map[int]bitset          // what calls stored in the records of method values and calls' closures
+	resultsBusy map[*ast.FuncLit]bool   // literals whose results are being found (litResults)
+	srcArgs     map[int]bitset          // what the calls whose closures are origins were given (noteSrcArgs)
+	called      bitset                  // parameters called as unknown code, whose state may be stored
+	storeTo     map[int]bitset          // values stored through each parameter
+	callArgs    map[int]bitset          // the parameters passed to calls of each func parameter
+	storeAny    bitset                  // values kept where callers cannot see: through other pointers, in package variables, by unknown code
+	started     bitset                  // values a task may be started with
+	changed     bool
+	foreign     []ast.Node           // nested literals and range-over-func bodies (ownFrame)
+	fresh       map[*types2.Var]bool // pointer variables that hold only memory allocated here (freshptr.go)
 }
 
 // A flowSummary says what a function does with its parameters (the
@@ -198,6 +200,7 @@ func newClosureFlow(l *Lowerer, info *types2.Info, tmap *typeMap, sig *types2.Si
 		addressed: map[*types2.Var]bool{},
 		litIn:     map[*ast.FuncLit]bitset{},
 		srcState:  map[int]bitset{},
+		srcArgs:   map[int]bitset{},
 		storeTo:   map[int]bitset{},
 		callArgs:  map[int]bitset{},
 		ident:     map[*types2.Var]bitset{},
@@ -768,8 +771,11 @@ func (f *closureFlow) expr1(e ast.Expr) bitset {
 			return m
 		case types2.MethodVal:
 			var m bitset
-			m.add(f.source(e))
-			return m.or(f.expr(e.X))
+			i := f.source(e)
+			m.add(i)
+			x := f.expr(e.X)
+			f.addSrcArgs(i, x)
+			return m.or(x)
 		case types2.MethodExpr:
 			return f.unknown()
 		}
@@ -988,10 +994,11 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 		store = all.or(f.state(all)).or(f.kept(cm)).or(r)
 		f.storeState(cm.or(all), store)
 	}
-	if sig, ok := underlying(f.typeOf(c.Fun)).(*types2.Signature); ok && regionSig(sig) && builds {
+	if sig, ok := underlying(f.typeOf(c.Fun)).(*types2.Signature); ok && regionSig(sig) && builds && f.l.carries(f.typeOf(c)) {
 		// The callee builds the closures it returns in a region this
 		// frame provides.
 		ret.add(f.source(c))
+		f.noteSrcArgs(f.source(c), c, all, cm)
 		if keepsOwn {
 			var b bitset
 			b.add(f.source(c))
@@ -1014,6 +1021,31 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 	}
 	f.keepAny(store)
 	return ret
+}
+
+// noteSrcArgs records the origins of what the call c, whose closures are the
+// origin i, was given: its arguments and receiver (all), the func value it
+// calls (cm) and what its function selector's operand holds. The closures
+// capture them. They are found when the call is analysed and kept, since
+// evaluating the arguments again for each use of the origin took, for calls
+// nested in each other, time that grows with every level, and for calls that
+// refer to each other through variables, forever.
+func (f *closureFlow) noteSrcArgs(i int, c *ast.CallExpr, all, cm bitset) {
+	b := all.or(cm)
+	if se, ok := stripIndex(ast.Unparen(c.Fun)).(*ast.SelectorExpr); ok && f.info.Selections[se] != nil {
+		b.union(f.expr(se.X))
+	}
+	f.addSrcArgs(i, b)
+}
+
+// addSrcArgs adds b to what the origin i, a call's closures or a method
+// value's record, holds.
+func (f *closureFlow) addSrcArgs(i int, b bitset) {
+	have := f.srcArgs[i]
+	if have.union(b) {
+		f.srcArgs[i] = have
+		f.changed = true
+	}
 }
 
 // keepAny records that values with origins m may be stored through any
@@ -1087,10 +1119,10 @@ func (f *closureFlow) captured(m bitset, kept bool) bitset {
 		if i < f.firstSrc() {
 			continue
 		}
-		switch n := f.src[i-f.firstSrc()].(type) {
+		switch f.src[i-f.firstSrc()].(type) {
 		case *ast.SelectorExpr:
 			// A method value's copy of its receiver.
-			out.union(f.expr(n.X))
+			out.union(f.srcArgs[i])
 			out.union(f.srcState[i])
 		case *ast.CallExpr:
 			// The closures a call returns capture its arguments, and what
@@ -1101,12 +1133,7 @@ func (f *closureFlow) captured(m bitset, kept bool) bitset {
 				continue
 			}
 			out.add(i)
-			for _, a := range n.Args {
-				out.union(f.expr(a))
-			}
-			if se, ok := stripIndex(ast.Unparen(n.Fun)).(*ast.SelectorExpr); ok && f.info.Selections[se] != nil {
-				out.union(f.expr(se.X))
-			}
+			out.union(f.srcArgs[i])
 		}
 	}
 	return out
@@ -1178,6 +1205,17 @@ func (f *closureFlow) litResults(lit *ast.FuncLit) bitset {
 	if sig == nil || sig.Results().Len() == 0 {
 		return nil
 	}
+	if f.resultsBusy[lit] {
+		// The literal returns a call of itself, or of one that calls it:
+		// what it returns is being found; the passes over the function
+		// repeat until what is found stops growing.
+		return nil
+	}
+	if f.resultsBusy == nil {
+		f.resultsBusy = map[*ast.FuncLit]bool{}
+	}
+	f.resultsBusy[lit] = true
+	defer delete(f.resultsBusy, lit)
 	named := hasDefer(lit.Body)
 	ast.Inspect(lit.Body, func(n ast.Node) bool {
 		switch n := n.(type) {
@@ -1385,8 +1423,8 @@ func (s *flowSummary) merge(f *closureFlow) bool {
 	// method this analysis does not see, which may keep it anywhere.
 	anyStore := f.storeAny
 	for _, i := range f.external().from(f.firstSrc(), -1).members() {
-		if n, ok := f.src[i-f.firstSrc()].(*ast.SelectorExpr); ok {
-			anyStore = anyStore.or(f.expr(n.X)).or(f.srcState[i])
+		if _, ok := f.src[i-f.firstSrc()].(*ast.SelectorExpr); ok {
+			anyStore = anyStore.or(f.srcArgs[i]).or(f.srcState[i])
 		}
 	}
 	grew = s.storeAny.union(anyStore.from(0, np)) || grew
@@ -1450,7 +1488,7 @@ func (f *closureFlow) closeOver(m bitset) bitset {
 					grew = m.union(f.varOrigins(v)) || grew
 				}
 			case *ast.SelectorExpr:
-				grew = m.union(f.expr(n.X)) || grew
+				grew = m.union(f.srcArgs[i]) || grew
 				grew = m.union(f.srcState[i]) || grew
 			case *ast.CallExpr:
 				grew = m.union(f.srcState[i]) || grew

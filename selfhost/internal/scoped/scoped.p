@@ -152,7 +152,7 @@ func LocalScopeVar(uses map[*ast.Ident]types2.Object, e ast.Expr) *types2.Var {
 func Analyze(prog *load.Program) *Info {
 	in := pu.New(Info{Tasks: map[*ast.CallExpr]*Task{}, Lits: map[*ast.FuncLit]*Task{}, Scopes: map[*types2.Var]*Scope{}, Unscoped: map[*ast.CallExpr]bool{}, Checked: map[ast.Node]bool{}})
 	for _, p := range prog.Packages {
-		a := pu.New(analyzer{in: in, info: p.Info, nodes: map[*types2.Scope]ast.Node{}})
+		a := &analyzer{in: in, info: p.Info, nodes: map[*types2.Scope]ast.Node{}}
 		for n, s := range p.Info.Scopes {
 			a.nodes[s] = n
 		}

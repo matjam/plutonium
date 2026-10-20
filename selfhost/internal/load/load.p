@@ -336,7 +336,7 @@ type memDir map[string][]byte
 func (d memDir) list() ([]fs.DirEntry, error) {
 	var list []fs.DirEntry
 	for name := range d {
-		list = compat.Append[fs.DirEntry](list, memEntry(name))
+		list = compat.Append[fs.DirEntry](list, pu.Box(memEntry(name)).(fs.DirEntry))
 	}
 	slices.SortFunc(list, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
 	return list, nil
@@ -458,21 +458,11 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 	})
 	errs := pu.Alloc[[]error]() // types2.Error
 	conf := pu.New(types2.Config{
-		Importer: importerFunc( /* go2pu: closure escapes its frame (passed to a function that keeps it) */ func(p string) (*types2.Package, error) {
-			if p == "unsafe" {
-				return types2.Unsafe, nil
-			}
-			if dep := l.packages[p]; dep != nil {
-				return dep.Types, nil
-			}
-			return nil, fmt.Errorf("package %q not loaded", p)
-		}),
-		Sizes: l.cfg.Sizes,
-		Error: /* go2pu: closure escapes its frame (stored in a composite literal) */ func(err error) {
-			if len((*errs)) < 50 {
-				(*errs) = compat.Append((*errs), err)
-			}
-		},
+		Importer: pu.New(sourceImporter{l}),
+		Sizes:    l.cfg.Sizes,
+		Errors:   errs,
+		// The first 50 errors.
+		ErrorLimit: 50,
 	})
 	pkg.Types, _ = conf.Check(importPath, l.fset, pkg.Files, pkg.Info)
 	// A //pu: comment the compiler would ignore is an error too.
@@ -661,7 +651,7 @@ func constraintMatches(tags map[string]bool, data []byte, isAsm bool) (bool, err
 		if err != nil {
 			return false, fmt.Errorf("bad build constraint %q: %w", expr, err)
 		}
-		return c.Eval(func(tag string) bool { return tags[tag] }), nil
+		return constraint.EvalTags(c, tags), nil
 	}
 	return true, nil
 }
@@ -689,6 +679,15 @@ func findModule(dir string) (root, modPath string, err error) {
 	}
 }
 
-type importerFunc func(path string) (*types2.Package, error)
+// A sourceImporter imports the packages the loader has loaded.
+type sourceImporter struct{ l *loader }
 
-func (f importerFunc) Import(path string) (*types2.Package, error) { return f(path) }
+func (im *sourceImporter) Import(p string) (*types2.Package, error) {
+	if p == "unsafe" {
+		return types2.Unsafe, nil
+	}
+	if dep := im.l.packages[p]; dep != nil {
+		return dep.Types, nil
+	}
+	return nil, fmt.Errorf("package %q not loaded", p)
+}

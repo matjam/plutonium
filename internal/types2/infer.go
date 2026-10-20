@@ -34,7 +34,7 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 	// in that case, an error leads to an exit panic and the result value may
 	// be incorrect. But in that case it doesn't matter because callers won't
 	// be able to use it either.
-	if check.conf.Error != nil {
+	if check.conf.Error != nil || check.conf.Errors != nil {
 		defer func() {
 			assert(inferred == nil || len(inferred) == len(tparams) && !slices.Contains(inferred, nil))
 		}()

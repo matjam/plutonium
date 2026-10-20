@@ -65,7 +65,7 @@ func ptKeyOf(t tok) ptKey {
 
 // applyEscapes follows the keys of f's escapes that a call has not followed
 // from the pointers it passes, and records what they keep.
-func (w *walker) applyEscapes(f *function, args []tset, cs *callSite, pos token.Pos, label string, mode recvMode, argOf func(pkey, tset) tset) {
+func (w *walker) applyEscapes(f *function, args []tset, cs *callSite, pos token.Pos, label string, mode recvMode, argOf *argEval) {
 	sum := &f.sum
 	var st *siteState
 	var base *viewErr
@@ -124,7 +124,7 @@ func (w *walker) applyEscapes(f *function, args []tset, cs *callSite, pos token.
 					}
 					continue
 				}
-				v := argOf(e.k, (*one)[:])
+				v := argOf.of(e.k, (*one)[:])
 				if len(v) == 0 {
 					continue
 				}
@@ -257,7 +257,7 @@ func (w *walker) escapeKey(t tok, key pkey, act string, pos token.Pos, r *reason
 
 // reportEscapes is applyEscapes in the pass that reports errors: it follows
 // every key, in order, from the pointers that are not parameters'.
-func (w *walker) reportEscapes(f *function, args []tset, passErr func(int, *reason) *viewErr, label string, argOf func(pkey, tset) tset) {
+func (w *walker) reportEscapes(f *function, args []tset, passErr func(int, *reason) *viewErr, label string, argOf *argEval) {
 	var raw []tset
 	any := false
 	for _, a := range args {
@@ -278,7 +278,7 @@ func (w *walker) reportEscapes(f *function, args []tset, passErr func(int, *reas
 			continue
 		}
 		r := f.sum.escapeReason(k)
-		v := argOf(k, raw[k.idx])
+		v := argOf.of(k, raw[k.idx])
 		if len(v) == 0 {
 			continue
 		}
@@ -290,8 +290,8 @@ func (w *walker) reportEscapes(f *function, args []tset, passErr func(int, *reas
 // (set by the tests).
 var checkFast = compat.Getenv("PLUTO_ESCAPE_CHECK") != ""
 
-func (w *walker) checkFastKey(argOf func(pkey, tset) tset, k pkey, one tset, key pkey, ok bool) {
-	v := argOf(k, one)
+func (w *walker) checkFastKey(argOf *argEval, k pkey, one tset, key pkey, ok bool) {
+	v := argOf.of(k, one)
 	if ok != (len(v) == 1) || ok && (v[0].kind != tParam || v[0].sc.fn != one[0].sc.fn || keyOf(v[0]) != key) {
 		panic(pu.Box(compat.Sprintf("fastKey(%+v, %+v) = %+v, %v; the general way gives %+v", one[0], k, key, ok, v)))
 	}

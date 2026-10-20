@@ -82,12 +82,12 @@ func (s *fnState) deferInLoopOK(body *ast.BlockStmt, d *ast.DeferStmt) bool {
 	if body == nil {
 		return true
 	}
-	c := pu.New(leaveCheck{
+	c := &leaveCheck{
 		l:      s.l,
 		info:   s.info,
 		parent: map[ast.Node]ast.Node{},
 		labels: map[*types2.Label]*ast.LabeledStmt{},
-	})
+	}
 	var stack []ast.Node
 	var lists []ast.Node // the nodes with a statement list
 	ast.Inspect(body, func(n ast.Node) bool {

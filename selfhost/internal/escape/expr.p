@@ -1359,11 +1359,8 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 	if len(vals) == 0 || len(targets) == 0 {
 		return
 	}
-	why := func(v tok, desc string) func() string {
-		return func() string { return d.why(desc, w.a.fset.Position(pos)) }
-	}
 	escape := func(v tok) {
-		w.escapeParam(v, pu.New(goClosure_store_1{why: why, v: v}))
+		w.escapeParam(v, pu.New(goClosure_store_1{d: d, v: v, w: w, pos: pos}))
 	}
 	frameErr := func(v tok, where storeKind, via string, owner *scope) {
 		e := &viewErr{sink: sinkStore, pos: pos, expr: d.src, l: v.loc, fn: w.scopeName(owner), dst: d.text, where: where, via: via, inMap: d.inMap}
@@ -1426,7 +1423,7 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 					sum := &t.sc.fn.sum
 					e := edge{src: keyOf(v), dst: keyOf(t)}
 					if _, ok := sum.stores[e]; !ok {
-						sum.addStore(e, pu.New(reason{build: pu.New(goFnFunc1{f: why(v, "it")})}))
+						sum.addStore(e, pu.New(reason{build: pu.New(goClosure_store_2{d: d, w: w, pos: pos})}))
 						w.a.grew = true
 					}
 				}
@@ -1502,31 +1499,32 @@ func (w *walker) escapeParam(t tok, why goFn1) {
 	w.a.grew = true
 }
 
-// goClosure_store_1 is the function literal at expr.go:1364, converted to a struct
+// goClosure_store_1 is the function literal at expr.go:1361, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_1 struct {
-	why func(tok, string) func() string
+	d   dest
 	v   tok
+	w   *walker
+	pos token.Pos
 }
 
 func (goSelf *goClosure_store_1) Call() string {
-	return goSelf.why(goSelf.v, goSelf.v.sc.fn.paramDesc(keyOf(goSelf.v)))()
+	return goSelf.d.why(goSelf.v.sc.fn.paramDesc(keyOf(goSelf.v)), goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goFn1 stands for func() string, which a closure that outlives its frame cannot be
-// (go2pu closure conversion): the closure is a struct with this method.
-type goFn1 interface {
-	Call() string
+// goClosure_store_2 is the function literal at expr.go:1424, converted to a struct
+// that holds the variables it captures (go2pu closure conversion).
+type goClosure_store_2 struct {
+	d   dest
+	w   *walker
+	pos token.Pos
 }
 
-// goFnFunc1 wraps a func value as a goFn1.
-type goFnFunc1 struct{ f func() string }
-
-func (a *goFnFunc1) Call() string {
-	return a.f()
+func (goSelf *goClosure_store_2) Call() string {
+	return goSelf.d.why("it", goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_sink_1 is the function literal at expr.go:1460, converted to a struct
+// goClosure_sink_1 is the function literal at expr.go:1457, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sink_1 struct {
 	tail string
@@ -1534,7 +1532,13 @@ type goClosure_sink_1 struct {
 
 func (goSelf *goClosure_sink_1) Call() string { return goSelf.tail }
 
-// goClosure_sinkTail_1 is the function literal at expr.go:1475, converted to a struct
+// goFn1 stands for func() string, which a closure that outlives its frame cannot be
+// (go2pu closure conversion): the closure is a struct with this method.
+type goFn1 interface {
+	Call() string
+}
+
+// goClosure_sinkTail_1 is the function literal at expr.go:1472, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sinkTail_1 struct {
 	act  string

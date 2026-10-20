@@ -1357,11 +1357,8 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 	if len(vals) == 0 || len(targets) == 0 {
 		return
 	}
-	why := func(v tok, desc string) func() string {
-		return func() string { return d.why(desc, w.a.fset.Position(pos)) }
-	}
 	escape := func(v tok) {
-		w.escapeParam(v, func() string { return why(v, v.sc.fn.paramDesc(keyOf(v)))() })
+		w.escapeParam(v, func() string { return d.why(v.sc.fn.paramDesc(keyOf(v)), w.a.fset.Position(pos)) })
 	}
 	frameErr := func(v tok, where storeKind, via string, owner *scope) {
 		e := &viewErr{sink: sinkStore, pos: pos, expr: d.src, l: v.loc, fn: w.scopeName(owner), dst: d.text, where: where, via: via, inMap: d.inMap}
@@ -1424,7 +1421,7 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 					sum := &t.sc.fn.sum
 					e := edge{src: keyOf(v), dst: keyOf(t)}
 					if _, ok := sum.stores[e]; !ok {
-						sum.addStore(e, &reason{build: why(v, "it")})
+						sum.addStore(e, &reason{build: func() string { return d.why("it", w.a.fset.Position(pos)) }})
 						w.a.grew = true
 					}
 				}

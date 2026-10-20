@@ -11,7 +11,6 @@
 package ssawrite
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"sort"
@@ -24,16 +23,16 @@ import (
 
 // Write writes p, whose positions are in fset.
 func Write(out io.Writer, p *ssa.Program, fset *token.FileSet) error {
-	w := &writer{out: bufio.NewWriterSize(out, 1<<20), typeID: map[*ssa.Type]int{}, symID: map[*ssa.Sym]int{}, fset: fset}
+	w := &writer{out: out, typeID: map[*ssa.Type]int{}, symID: map[*ssa.Sym]int{}, fset: fset}
 	w.program(p)
 	if w.err != nil {
 		return w.err
 	}
-	return w.out.Flush()
+	return nil
 }
 
 type writer struct {
-	out    *bufio.Writer
+	out    io.Writer
 	buf    []byte
 	err    error
 	fset   *token.FileSet
@@ -65,7 +64,7 @@ func (w *writer) bool(b bool) {
 	}
 }
 
-func (w *writer) str(s string) { w.buf = strconv.AppendQuote(append(w.buf, ' '), s) }
+func (w *writer) str(s string) { w.buf = append(append(w.buf, ' '), strconv.Quote(s)...) }
 
 // end finishes a record.
 func (w *writer) end() {
@@ -605,7 +604,7 @@ func (w *writer) value(f *ssa.Func, v *ssa.Value, id func(*ssa.Value) int64) {
 		w.buf = append(w.buf, " t"...)
 		w.typeRefNoSpace(a)
 	case *ssa.Intrinsic:
-		w.buf = strconv.AppendQuote(append(w.buf, " i"...), string(*a))
+		w.buf = append(append(w.buf, " i"...), strconv.Quote(string(*a))...)
 	default:
 		w.fail("%s: v%d has an aux of type %T", f.Name, v.ID, v.Aux)
 	}

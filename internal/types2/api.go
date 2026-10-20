@@ -169,6 +169,14 @@ type Config struct {
 	// Checker.Files returns; type-checking goes on.
 	Error func(err error)
 
+	// Plutonium: if Errors is not nil, each error found (of dynamic type
+	// Error) is also appended to *Errors, the first ErrorLimit of them if
+	// ErrorLimit > 0. It does what an Error function that collects the
+	// errors does, without a func value: a compiler keeps a func that
+	// captures variables in a record of its frame.
+	Errors     *[]error
+	ErrorLimit int
+
 	// An importer is used to import packages referred to from
 	// import declarations.
 	// If the installed importer implements ImporterFrom, the type

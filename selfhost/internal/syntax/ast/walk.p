@@ -417,7 +417,384 @@ func (f inspector) Visit(node Node) Visitor {
 // which (like [Inspect]) provides control over descent into subtrees,
 // but additionally reports the stack of enclosing nodes.
 func Inspect(node Node, f func(Node) bool) {
-	Walk(inspector(f), node)
+	inspect(node, f)
+}
+
+// inspect is Walk with an inspector for the visitor: f(node), then, if it
+// returned true, the children, then f(nil). It is Walk written out for a
+// func, so that a func that captures variables is not turned into an
+// interface value that Visit may keep (a closure in a frame is not one a
+// call through an interface can be given in Plutonium without being taken
+// for kept).
+func inspect(node Node, f func(Node) bool) {
+	if !f(node) {
+		return
+	}
+
+	// walk children
+	// (the order of the cases matches the order
+	// of the corresponding node types in ast.go)
+	switch n := node.(type) {
+	// Comments and fields
+	case *Comment:
+		// nothing to do
+
+	case *CommentGroup:
+		inspectList(f, n.List)
+
+	case *Field:
+		if n.Doc != nil {
+			inspect(n.Doc, f)
+		}
+		inspectList(f, n.Names)
+		if n.Type != nil {
+			inspect(n.Type, f)
+		}
+		if n.Tag != nil {
+			inspect(n.Tag, f)
+		}
+		if n.Default != nil {
+			inspect(n.Default, f)
+		}
+		if n.Comment != nil {
+			inspect(n.Comment, f)
+		}
+
+	case *FieldList:
+		inspectList(f, n.List)
+
+	// Expressions
+	case *BadExpr, *Ident, *BasicLit:
+		// nothing to do
+
+	case *Ellipsis:
+		if n.Elt != nil {
+			inspect(n.Elt, f)
+		}
+
+	case *FuncLit:
+		inspect(n.Type, f)
+		inspect(n.Body, f)
+
+	case *CompositeLit:
+		if n.Type != nil {
+			inspect(n.Type, f)
+		}
+		inspectList(f, n.Elts)
+
+	case *ParenExpr:
+		inspect(n.X, f)
+
+	case *SelectorExpr:
+		inspect(n.X, f)
+		inspect(n.Sel, f)
+
+	case *IndexExpr:
+		inspect(n.X, f)
+		inspect(n.Index, f)
+
+	case *IndexListExpr:
+		inspect(n.X, f)
+		inspectList(f, n.Indices)
+
+	case *SliceExpr:
+		inspect(n.X, f)
+		if n.Low != nil {
+			inspect(n.Low, f)
+		}
+		if n.High != nil {
+			inspect(n.High, f)
+		}
+		if n.Max != nil {
+			inspect(n.Max, f)
+		}
+
+	case *TypeAssertExpr:
+		inspect(n.X, f)
+		if n.Type != nil {
+			inspect(n.Type, f)
+		}
+
+	case *CallExpr:
+		inspect(n.Fun, f)
+		inspectList(f, n.Args)
+
+	case *StarExpr:
+		inspect(n.X, f)
+
+	case *UnaryExpr:
+		inspect(n.X, f)
+
+	case *BinaryExpr:
+		inspect(n.X, f)
+		inspect(n.Y, f)
+
+	case *KeyValueExpr:
+		inspect(n.Key, f)
+		inspect(n.Value, f)
+
+	// Types
+	case *ArrayType:
+		if n.Len != nil {
+			inspect(n.Len, f)
+		}
+		inspect(n.Elt, f)
+
+	case *StructType:
+		inspect(n.Fields, f)
+
+	case *PackedType:
+		if n.Backing != nil {
+			inspect(n.Backing, f)
+		}
+		inspect(n.Fields, f)
+
+	case *BitsGroup:
+		inspectList(f, n.Names)
+
+	case *EnumType:
+		if n.Base != nil {
+			inspect(n.Base, f)
+		}
+		inspectList(f, n.Members)
+
+	case *EnumMember:
+		if n.Doc != nil {
+			inspect(n.Doc, f)
+		}
+		inspect(n.Name, f)
+		if n.Value != nil {
+			inspect(n.Value, f)
+		}
+		if n.Comment != nil {
+			inspect(n.Comment, f)
+		}
+
+	case *UnionType:
+		if n.Backing != nil {
+			inspect(n.Backing, f)
+		}
+		inspect(n.Fields, f)
+
+	case *VariantCase:
+		inspectList(f, n.Values)
+		inspect(n.Fields, f)
+
+	case *FuncType:
+		if n.TypeParams != nil {
+			inspect(n.TypeParams, f)
+		}
+		if n.Params != nil {
+			inspect(n.Params, f)
+		}
+		if n.Results != nil {
+			inspect(n.Results, f)
+		}
+
+	case *InterfaceType:
+		inspect(n.Methods, f)
+
+	case *MapType:
+		inspect(n.Key, f)
+		inspect(n.Value, f)
+
+	case *ChanType:
+		inspect(n.Value, f)
+
+	// Statements
+	case *BadStmt:
+		// nothing to do
+
+	case *DeclStmt:
+		inspect(n.Decl, f)
+
+	case *EmptyStmt:
+		// nothing to do
+
+	case *LabeledStmt:
+		inspect(n.Label, f)
+		inspect(n.Stmt, f)
+
+	case *ExprStmt:
+		inspect(n.X, f)
+
+	case *SendStmt:
+		inspect(n.Chan, f)
+		inspect(n.Value, f)
+
+	case *IncDecStmt:
+		inspect(n.X, f)
+
+	case *AssignStmt:
+		inspectList(f, n.Lhs)
+		inspectList(f, n.Rhs)
+
+	case *OrStmt:
+		inspectList(f, n.Lhs)
+		inspect(n.Call, f)
+		inspect(n.Clause, f)
+
+	case *TaskStmt:
+		inspect(n.Call, f)
+
+	case *DeferStmt:
+		inspect(n.Call, f)
+
+	case *ReturnStmt:
+		inspectList(f, n.Results)
+
+	case *BranchStmt:
+		if n.Label != nil {
+			inspect(n.Label, f)
+		}
+
+	case *BlockStmt:
+		inspectList(f, n.List)
+
+	case *IfStmt:
+		if n.Init != nil {
+			inspect(n.Init, f)
+		}
+		inspect(n.Cond, f)
+		inspect(n.Body, f)
+		if n.Else != nil {
+			inspect(n.Else, f)
+		}
+
+	case *CaseClause:
+		inspectList(f, n.List)
+		inspectList(f, n.Body)
+
+	case *SwitchStmt:
+		if n.Init != nil {
+			inspect(n.Init, f)
+		}
+		if n.Tag != nil {
+			inspect(n.Tag, f)
+		}
+		inspect(n.Body, f)
+
+	case *TypeSwitchStmt:
+		if n.Init != nil {
+			inspect(n.Init, f)
+		}
+		inspect(n.Assign, f)
+		inspect(n.Body, f)
+
+	case *CommClause:
+		if n.Comm != nil {
+			inspect(n.Comm, f)
+		}
+		inspectList(f, n.Body)
+
+	case *SelectStmt:
+		inspect(n.Body, f)
+
+	case *ForStmt:
+		if n.Init != nil {
+			inspect(n.Init, f)
+		}
+		if n.Cond != nil {
+			inspect(n.Cond, f)
+		}
+		if n.Post != nil {
+			inspect(n.Post, f)
+		}
+		inspect(n.Body, f)
+
+	case *RangeStmt:
+		if n.Key != nil {
+			inspect(n.Key, f)
+		}
+		if n.Value != nil {
+			inspect(n.Value, f)
+		}
+		inspect(n.X, f)
+		inspect(n.Body, f)
+
+	// Declarations
+	case *ImportSpec:
+		if n.Doc != nil {
+			inspect(n.Doc, f)
+		}
+		if n.Name != nil {
+			inspect(n.Name, f)
+		}
+		inspect(n.Path, f)
+		if n.Comment != nil {
+			inspect(n.Comment, f)
+		}
+
+	case *ValueSpec:
+		if n.Doc != nil {
+			inspect(n.Doc, f)
+		}
+		inspectList(f, n.Names)
+		if n.Type != nil {
+			inspect(n.Type, f)
+		}
+		inspectList(f, n.Values)
+		if n.Comment != nil {
+			inspect(n.Comment, f)
+		}
+
+	case *TypeSpec:
+		if n.Doc != nil {
+			inspect(n.Doc, f)
+		}
+		inspect(n.Name, f)
+		if n.TypeParams != nil {
+			inspect(n.TypeParams, f)
+		}
+		inspect(n.Type, f)
+		if n.Comment != nil {
+			inspect(n.Comment, f)
+		}
+
+	case *BadDecl:
+		// nothing to do
+
+	case *GenDecl:
+		if n.Doc != nil {
+			inspect(n.Doc, f)
+		}
+		inspectList(f, n.Specs)
+
+	case *FuncDecl:
+		if n.Doc != nil {
+			inspect(n.Doc, f)
+		}
+		if n.Recv != nil {
+			inspect(n.Recv, f)
+		}
+		inspect(n.Name, f)
+		inspect(n.Type, f)
+		if n.Body != nil {
+			inspect(n.Body, f)
+		}
+
+	// Files and packages
+	case *File:
+		if n.Doc != nil {
+			inspect(n.Doc, f)
+		}
+		inspect(n.Name, f)
+		inspectList(f, n.Decls)
+		// don't walk n.Comments - they have been
+		// visited already through the individual
+		// nodes
+
+	default:
+		panic(pu.Box(compat.Sprintf("ast.Inspect: unexpected node type %T", n)))
+	}
+
+	f(nil)
+}
+
+func inspectList[N Node](f func(Node) bool, list []N) {
+	for _, node := range list {
+		inspect(node, f)
+	}
 }
 
 // Preorder returns an iterator over all the nodes of the syntax tree

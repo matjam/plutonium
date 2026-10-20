@@ -222,6 +222,9 @@ func (check *Checker) handleError(index int, posn positioner, code Code, msg str
 	if f := check.conf.Error; f != nil {
 		f(e)
 	}
+	if sink := check.conf.Errors; sink != nil && (check.conf.ErrorLimit <= 0 || len(*sink) < check.conf.ErrorLimit) {
+		*sink = append(*sink, e)
+	}
 }
 
 const (

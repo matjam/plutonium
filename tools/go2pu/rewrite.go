@@ -233,6 +233,9 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 		}
 		return t.use(r.pkg, r.local) + "." + r.name, true
 	}
+	if fsName, ok := t.local["io/fs"]; ok && p == "os" && sel.Sel.Name == "DirFS" {
+		return t.use(compatFSPkg, fsName) + ".DirFS", true
+	}
 	if fsName, ok := t.local["io/fs"]; ok && p == "os" && (sel.Sel.Name == "ReadDir" || sel.Sel.Name == "Stat") {
 		// The file uses the file system types of $MOD/compat/fs.
 		return t.use(compatFSPkg, fsName) + ".OS" + sel.Sel.Name, true

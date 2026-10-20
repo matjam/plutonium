@@ -19,7 +19,7 @@ import (
 var translations = []struct {
 	dir  string // Go package, relative to this directory
 	demo bool   // a main package under testdata, translated to selfhost/demo
-	slow bool   // the demo imports the translated type checker, which the escape analysis cannot build in reasonable time yet (GO2PU_SLOW=1 builds it anyway)
+	slow bool   // the demo imports the translated type checker: it takes minutes and 5 GB to build (GO2PU_SLOW=1)
 }{
 	{dir: "../../internal/objfile"},
 	{dir: "../../internal/ssa"},
@@ -27,6 +27,7 @@ var translations = []struct {
 	{dir: "../../internal/opt"}, // magic.go is ported by hand (math/big)
 	{dir: "../../internal/constant"},
 	{dir: "../../internal/ssatext"},
+	{dir: "../../internal/ssawrite"},
 	{dir: "../../internal/debuginfo"},
 	{dir: "../../internal/backend"},
 	{dir: "../../internal/syntax/constraint"},
@@ -50,13 +51,15 @@ var translations = []struct {
 	{dir: "testdata/amd64demo", demo: true},
 	{dir: "testdata/optdemo", demo: true},
 	{dir: "testdata/rewrites", demo: true},
-	{dir: "testdata/scopes", demo: true},               // WaitGroups rewritten to Scopes
-	{dir: "testdata/pudemo", demo: true},               // internal/pu, translated name for name
-	{dir: "testdata/ssaback", demo: true},              // the back end as a program (TestMixedPipeline)
-	{dir: "testdata/constdemo", demo: true},            // the constant package
-	{dir: "testdata/parsecheck", demo: true},           // the syntax packages, over the repository (TestParseCheck)
-	{dir: "testdata/closures", demo: true},             // closures that outlive their frame, converted to structs
-	{dir: "testdata/diagdemo", demo: true, slow: true}, // the diagnostics, over the golden files (TestDiagDemoRecords)
+	{dir: "testdata/scopes", demo: true},                // WaitGroups rewritten to Scopes
+	{dir: "testdata/pudemo", demo: true},                // internal/pu, translated name for name
+	{dir: "testdata/ssaback", demo: true},               // the back end as a program (TestMixedPipeline)
+	{dir: "testdata/constdemo", demo: true},             // the constant package
+	{dir: "testdata/parsecheck", demo: true},            // the syntax packages, over the repository (TestParseCheck)
+	{dir: "testdata/closures", demo: true},              // closures that outlive their frame, converted to structs
+	{dir: "testdata/diagdemo", demo: true, slow: true},  // the diagnostics, over the golden files (TestDiagDemoRecords)
+	{dir: "testdata/typecheck", demo: true, slow: true}, // the loader and the type checker, over the repository (TestTypeCheck)
+	{dir: "testdata/lowerdemo", demo: true, slow: true}, // the front end as a program: SSA of the repository's programs (TestLower)
 }
 
 const selfhostDir = "../../selfhost"
