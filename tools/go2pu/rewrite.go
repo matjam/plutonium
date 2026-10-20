@@ -197,6 +197,7 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 		t.compat()
 		return r, true
 	}
+	t.noteMirrored(p, sel.Sel)
 	if appendPkgs[p] && strings.HasPrefix(sel.Sel.Name, "Append") {
 		t.note(sel, "%s.%s: Plutonium's takes a vec.Appender destination, and compat has no form with Go's []byte; hand-fix", p, sel.Sel.Name)
 	}
@@ -302,6 +303,12 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 				return t.sortSlice(n, "SortStableFunc")
 			case "encoding/binary.Write":
 				return t.binaryWrite(n)
+			case "strings.ToValidUTF8":
+				// A Plutonium string holds valid UTF-8 (language spec
+				// section 7.3): there is nothing to replace.
+				if len(n.Args) == 2 {
+					return t.render(n.Args[0]), true
+				}
 			case "errors.New":
 				// Plutonium's errors.New takes a static slot, for
 				// package-level sentinels; one made at run time is
@@ -316,7 +323,7 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 	if inner, ok := sel.X.(*ast.SelectorExpr); ok {
 		if id, ok := inner.X.(*ast.Ident); ok {
 			if pn, ok := t.info.Uses[id].(*types.PkgName); ok && pn.Imported().Path() == "encoding/binary" {
-				if inner.Sel.Name == "LittleEndian" && strings.HasPrefix(sel.Sel.Name, "PutUint") {
+				if inner.Sel.Name == "LittleEndian" && (strings.HasPrefix(sel.Sel.Name, "PutUint") || strings.HasPrefix(sel.Sel.Name, "AppendUint")) {
 					return fmt.Sprintf("%s.%s(%s)", t.compat(), sel.Sel.Name, t.list(n.Args)), true
 				}
 				t.note(n, "encoding/binary.%s.%s: no translation", inner.Sel.Name, sel.Sel.Name)

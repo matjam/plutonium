@@ -39,6 +39,10 @@ type Result struct {
 	Files   []OutFile
 	Kept    []string // hand-written files in the output that replace a Go file's translation
 	Notes   []string // constructs left for a person to fix, as "file:line: message"
+
+	// Mirrored are the names of mirrored standard packages (constMirrors)
+	// that the translation refers to, by Go import path (mirror.go).
+	Mirrored map[string]map[string]types.Object
 }
 
 // generatedHeader starts every file go2pu writes. A .p file in the output
@@ -92,12 +96,15 @@ func (r *Result) Dir(root string) (string, error) {
 // the compiler imports. An empty value means calls into the package are
 // rewritten individually (see special) and the import disappears.
 var stdMap = map[string]string{
-	"bytes":           "pluto/bytes",
-	"cmp":             "pluto/cmp",
-	"iter":            "pluto/iter",
-	"slices":          "pluto/slices",
-	"unicode":         "pluto/unicode",
-	"path/filepath":   "pluto/path/filepath",
+	"bytes":         "pluto/bytes",
+	"cmp":           "pluto/cmp",
+	"iter":          "pluto/iter",
+	"slices":        "pluto/slices",
+	"unicode":       "pluto/unicode",
+	"path/filepath": "pluto/path/filepath",
+	// Slash-separated paths: pluto/path/filepath treats / as the separator
+	// (the library has no Windows target), so the two agree.
+	"path":            "pluto/path/filepath",
 	"errors":          "pluto/errors",
 	"fmt":             "pluto/fmt",
 	"io":              "pluto/io",
@@ -113,6 +120,7 @@ var stdMap = map[string]string{
 	"sync/atomic":     "pluto/sync/atomic",
 	"encoding/binary": "",
 	"debug/elf":       "$MOD/elf",
+	"debug/dwarf":     "$MOD/dwarf",
 }
 
 // special replaces qualified identifiers of Go packages with compat ones.

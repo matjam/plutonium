@@ -258,6 +258,26 @@ type lineInfo struct {
 	Line, Column int
 }
 
+// A LineInfo is alternative position information for an offset of a file, as
+// [File.AddLineColumnInfo] records it.
+type LineInfo struct {
+	Offset       int
+	Filename     string
+	Line, Column int
+}
+
+// LineInfos returns the alternative position information recorded with
+// [File.AddLineColumnInfo], in offset order.
+func (f *File) LineInfos() []LineInfo {
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
+	out := compat.Make[LineInfo](len(f.infos))
+	for i, info := range f.infos {
+		out[i] = LineInfo(info)
+	}
+	return out
+}
+
 // AddLineInfo is like [File.AddLineColumnInfo] with a column = 1 argument.
 // It is here for backward-compatibility for code prior to Go 1.11.
 func (f *File) AddLineInfo(offset int, filename string, line int) {

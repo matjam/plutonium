@@ -101,7 +101,7 @@ func machine(name string) intrinsicFn {
 		}
 		v := s.newValue(ssa.OpIntrinsic, ssa.TupleOf(types...), args...)
 		v.AddArg(s.mem())
-		v.Aux = ssa.Intrinsic(name)
+		v.Aux = ssa.NewIntrinsic(name)
 		s.setMem(s.selectN(v, 0, ssa.TMem))
 		out := make([]*ssa.Value, len(results))
 		for i := range results {

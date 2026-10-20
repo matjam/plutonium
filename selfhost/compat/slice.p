@@ -209,3 +209,18 @@ func PutUint64(b []byte, v uint64) {
 	PutUint32(b, uint32(v))
 	PutUint32(b[4:], uint32(v>>32))
 }
+
+// AppendUint16 appends v to b, little-endian.
+func AppendUint16(b []byte, v uint16) []byte {
+	return Append(b, byte(v), byte(v>>8))
+}
+
+// AppendUint32 appends v to b, little-endian.
+func AppendUint32(b []byte, v uint32) []byte {
+	return Append(b, byte(v), byte(v>>8), byte(v>>16), byte(v>>24))
+}
+
+// AppendUint64 appends v to b, little-endian.
+func AppendUint64(b []byte, v uint64) []byte {
+	return Append(AppendUint32(b, uint32(v)), byte(v>>32), byte(v>>40), byte(v>>48), byte(v>>56))
+}

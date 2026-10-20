@@ -67,4 +67,14 @@ func TestSprintfNewError(t *testing.T) {
 	if le[0] != 8 || le[7] != 1 {
 		t.Fatalf("PutUint64")
 	}
+	app := AppendUint64(AppendUint32(AppendUint16(nil, 0x0102), 0x03040506), 0x0708090a0b0c0d0e)
+	want := []byte{2, 1, 6, 5, 4, 3, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 9, 8, 7}
+	if len(app) != len(want) {
+		t.Fatalf("AppendUint: %d bytes", len(app))
+	}
+	for i := range want {
+		if app[i] != want[i] {
+			t.Fatalf("AppendUint: byte %d is %d, want %d", i, app[i], want[i])
+		}
+	}
 }

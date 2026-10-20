@@ -16,7 +16,10 @@ const gsBaseMSR = 0xC0000101
 // memory chain already orders the sequence against every load and store,
 // and the selector emits values in that order.
 func (s *isel) intrinsic(v *ssa.Value) error {
-	name, _ := v.Aux.(ssa.Intrinsic)
+	var name ssa.Intrinsic
+	if p, ok := v.Aux.(*ssa.Intrinsic); ok {
+		name = *p
+	}
 	args := v.Args[:len(v.Args)-1]
 	var results []Reg
 	for _, t := range v.Type.Elems[1:] {

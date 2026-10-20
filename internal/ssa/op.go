@@ -159,8 +159,17 @@ const (
 )
 
 // An Intrinsic names the machine instruction sequence of an OpIntrinsic.
-// The backend for the target defines the names it accepts.
+// The backend for the target defines the names it accepts. A value's Aux
+// holds a *Intrinsic (NewIntrinsic): the self-hosted compiler keeps no
+// string in an interface, whose box would live in one frame.
 type Intrinsic string
+
+// NewIntrinsic returns the Aux of an OpIntrinsic that runs the sequence name.
+func NewIntrinsic(name string) *Intrinsic {
+	p := new(Intrinsic)
+	*p = Intrinsic(name)
+	return p
+}
 
 // Memory access flags in OpLoad / OpStore AuxInt.
 const (

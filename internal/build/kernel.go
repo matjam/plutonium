@@ -4,11 +4,12 @@ import (
 	"debug/elf"
 	"fmt"
 
+	"github.com/matjam/plutonium/internal/backend"
 	"github.com/matjam/plutonium/internal/diag"
 )
 
 // perCPUSelf is the symbol of the word at offset 0 of every per-CPU block.
-const perCPUSelf = "pluto.percpu.self"
+const perCPUSelf = backend.PerCPUSelf
 
 // checkPerCPU verifies, in a linked ELF executable, that the per-CPU block
 // starts at address 0 with its self word, as GS-relative accesses assume.
@@ -39,7 +40,7 @@ func checkPerCPU(path string) error {
 
 // perCPUTask is the current-task slot of kernel builds, at offset 8 of
 // every per-CPU block (abi.md section 12.3).
-const perCPUTask = "pluto/rt.currentTask"
+const perCPUTask = backend.PerCPUTask
 
 // KernelLinkerScript is the linker script for --mode kernel builds that do
 // not pass --ldscript (abi.md section 10.3). It links the kernel in the

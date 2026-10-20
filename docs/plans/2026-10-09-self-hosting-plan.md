@@ -838,7 +838,7 @@ Sizes are in lines written or changed, not in time.
 | 0 | Escape errors for frame addresses (roadmap item 5); determinism fixes; direct single-pointer structs; itab lookup | 1,000-1,500 compiler | compiler | medium | - | direct single-pointer structs, hashed itab lookup, `//pu:stack` and the type checker's nesting limit done (roadmap item 56) |
 | 1 | Library: growable arenas, OS layer, `strconv` quoting and `ParseFloat`, `unicode` predicates, slices/heap/streaming hash, strings with allocators | 6,000 | library, half mechanical | low | - | growable arenas (`arena.Chunked`), the OS layer (`os`, `os/exec`, `path/filepath`, `time`, `flag`) and the `pu` mirror package with its go2pu mapping (section 11) done (roadmap items 52 and 56); `strconv.ParseFloat`, `unicode`, `cmp`, `slices` and `container/heap` done (roadmap item 56; Go 1.27's float parsing is fast unrounded scaling, not Eisel-Lemire, and the port follows it); complete `strconv` quoting is native verified (all plain/ASCII/graphic string, rune and Appender forms; [verification](../verification/2026-10-12-strconv-quoting.md)); allocation-free streaming FNV and explicit-key SipHash24 are native verified ([verification](../verification/2026-10-12-streaming-hash.md)); strings with allocators and migrating the compiler to `pu`, including comparable-value serialization and hash key acquisition, remain |
 | 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas | prototype done |
-| 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 | not started |
+| 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 | done (2026-10-19; below) |
 | 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 | translated and differentially tested (2026-10-19; below) |
 | 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion | not started |
 | 6 | Constant package | 2,500-3,500 | hand | medium | - | done in Go (`internal/constant`, 2,800 lines, differential against go/constant; roadmap item 56); the quoting prerequisite is complete; translated and differentially tested (2026-10-19; below) |
@@ -880,6 +880,30 @@ code that makes it is reachable); the closure analysis took a call's interface r
 (`ast.Expr` may hold a func value only if a named func type implements it, `lower.interfaceMayHoldFunc`) and
 its summaries of mutually recursive functions grew with the depth of their calls (`closureflow.go`); and the
 escape analysis boxed a generic conversion of interface instantiations (`escape.isDirectConv`).
+
+Phase 3 status (2026-10-19). The Go front end (`build.Frontend`) lowers a program and `internal/ssawrite` writes
+its SSA as text; `internal/ssatext` (reader, translated by go2pu) reads it back; the back end is now a Go package
+of its own, `internal/backend` (`Emit`, the code `emitObject` held, which the driver calls too), with
+`internal/debuginfo` translated beside `ssa`, `opt`, `amd64` and `objfile`. `selfhost/demo/ssaback` is the whole
+back end as a program: it reads the text, runs the optimiser, generates code and writes the object file to
+standard output. The text form (documented in `internal/ssatext/read.go`) is exact: value, block and slot
+numbers with their gaps, the order of every list, type and symbol identity, use counts, positions with the files
+and line directives they lie in, string holds (including the values no block holds any more, which the
+optimiser still reads), data and relocations. `TestMixedPipeline` (`tools/go2pu`) compares the object bytes of 456 builds of the corpus (at `-O0` and
+`-O2`; the examples, every program of `testdata/run`, `lib`, `plutonium` and `trace`, the C ABI program, four
+kernel and freestanding programs, and a sample built without generation checks, with the debug allocator,
+without the trace table and without DWARF) and requires the object bytes of the Plutonium back end
+to equal the Go back end's. Result: 0 differences. `TestMixedPipelineChecked` repeats a program with the back
+end built with generation checks (the others build it unchecked, 8 times faster: `-O2` compiles `hello` in 3 s
+and 430 MB). The largest programs need about 2 GB of the arena that nothing frees, so the test must not run
+under `ulimit -v 6000000`. Round trips are also tested in Go (`internal/ssatext`, `internal/build`).
+
+The port needed these changes: `OpIntrinsic`'s aux is a `*ssa.Intrinsic` (a string in an interface would box in
+the frame); go2pu maps `path` to `pluto/path/filepath`, `strings.ToValidUTF8` (the identity on a Plutonium
+string), `binary.LittleEndian.AppendUintN`, and generates mirrors of standard packages that supply only
+constants (`mirror.go`; `debug/dwarf` is `selfhost/dwarf`, regenerated by `TestTranslationsUpToDate`);
+`token.File.LineInfos` exports the line directives; `ssa.Func` gained `NumSlots` and `SetNumbering`. No
+compiler bug turned up.
 
 Phase 6 status (2026-10-19). `internal/constant` is translated by `tools/go2pu` into
 `selfhost/internal/constant` (2,851 lines, all generated, no hand fixes). The `constdemo` demo

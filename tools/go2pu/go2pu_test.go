@@ -25,6 +25,9 @@ var translations = []struct {
 	{dir: "../../internal/arch/amd64"},
 	{dir: "../../internal/opt"}, // magic.go is ported by hand (math/big)
 	{dir: "../../internal/constant"},
+	{dir: "../../internal/ssatext"},
+	{dir: "../../internal/debuginfo"},
+	{dir: "../../internal/backend"},
 	{dir: "../../internal/syntax/constraint"},
 	{dir: "../../internal/syntax/token"},
 	{dir: "../../internal/syntax/scanner"},
@@ -37,6 +40,7 @@ var translations = []struct {
 	{dir: "testdata/rewrites", demo: true},
 	{dir: "testdata/scopes", demo: true},     // WaitGroups rewritten to Scopes
 	{dir: "testdata/pudemo", demo: true},     // internal/pu, translated name for name
+	{dir: "testdata/ssaback", demo: true},    // the back end as a program (TestMixedPipeline)
 	{dir: "testdata/constdemo", demo: true},  // the constant package
 	{dir: "testdata/parsecheck", demo: true}, // the syntax packages, over the repository (TestParseCheck)
 	{dir: "testdata/closures", demo: true},   // closures that outlive their frame, converted to structs
@@ -62,11 +66,17 @@ func testConfig() *Config {
 func TestTranslationsUpToDate(t *testing.T) {
 	cfg := testConfig()
 	update := os.Getenv("GO2PU_UPDATE") != ""
+	var results []*Result
 	for _, tr := range translations {
 		res, err := TranslateDir(cfg, tr.dir)
 		if err != nil {
 			t.Fatal(err)
 		}
+		results = append(results, res)
+	}
+	// The mirrors of standard packages (mirror.go) come last: they hold what
+	// the packages above refer to.
+	for _, res := range append(results, MirrorPackages(cfg, results)...) {
 		for _, n := range res.Notes {
 			t.Logf("%s: %s", res.GoPath, n)
 		}

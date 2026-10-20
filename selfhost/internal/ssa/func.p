@@ -600,6 +600,15 @@ func (f *Func) newValue(op Op, t *Type, b *Block) *Value {
 // NumValues returns one more than the largest value ID.
 func (f *Func) NumValues() int { return f.nextValue }
 
+// NumSlots returns one more than the largest slot ID.
+func (f *Func) NumSlots() int { return f.nextSlot }
+
+// SetNumbering sets the numbers the next value, block and slot get, for a
+// function read back from text (internal/ssatext), whose IDs have gaps.
+func (f *Func) SetNumbering(values, blocks, slots int) {
+	f.nextValue, f.nextBlock, f.nextSlot = values, blocks, slots
+}
+
 // NumBlocks returns one more than the largest block ID.
 func (f *Func) NumBlocks() int { return f.nextBlock }
 

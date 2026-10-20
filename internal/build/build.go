@@ -4,7 +4,6 @@ package build
 
 import (
 	"bytes"
-	"debug/elf"
 	"errors"
 	"fmt"
 	"io"
@@ -12,10 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
-	"github.com/matjam/plutonium/internal/arch/amd64"
+	"github.com/matjam/plutonium/internal/backend"
 	"github.com/matjam/plutonium/internal/debuginfo"
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/escape"
@@ -179,7 +177,9 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 }
 
 // buildProgram compiles and links a loaded program.
-func buildProgram(cfg *Config, prog *load.Program) error {
+// lowerProgram runs the front end on a loaded program: the lifetime and
+// race checks, then lowering to SSA.
+func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 	// The move checker's account of moves tells lowering where owners are
 	// destroyed. Lowering reports the constructs Plutonium does not
 	// support; the escape analysis assumes a program without them. The
@@ -208,14 +208,22 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		Moves:        info,
 	}, prog)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if lifetimeErr != nil {
-		return lifetimeErr
+		return nil, lifetimeErr
 	}
 	// Data races, once every view is known to stay within its lifetime.
 	if raceErr != nil {
-		return raceErr
+		return nil, raceErr
+	}
+	return sp, nil
+}
+
+func buildProgram(cfg *Config, prog *load.Program) error {
+	sp, err := lowerProgram(cfg, prog)
+	if err != nil {
+		return err
 	}
 	if err := optimize(cfg, sp, prog); err != nil {
 		return internal(err)
@@ -459,9 +467,6 @@ func writeInlineNotes(w io.Writer, notes []opt.InlineNote, prog *load.Program) e
 
 // emitObject generates code for every function and lays out the data.
 func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Object, error) {
-	obj := objfile.New()
-	text := obj.Section(".text", elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_EXECINSTR, 16)
-	obj.Section(".note.GNU-stack", elf.SHT_PROGBITS, 0, 1)
 	dbg := debuginfo.New(prog.Fset)
 	switch {
 	case !cfg.NoTrimPath:
@@ -474,127 +479,17 @@ func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Objec
 			return name
 		}
 	}
-
-	var rodata *objfile.Section
-	constDone := map[string]bool{}
-	for _, f := range p.Funcs {
-		amd64.Prepare(f)
-		if err := f.Verify(); err != nil {
+	// Trimmed names are relative to the module root, so a debugger
+	// run there finds the program's sources (debugging.md section 3).
+	// They carry no compilation directory: ld would join "." to
+	// ./main.p and report ././main.p.
+	dir := ""
+	if cfg.NoTrimPath && !cfg.NoDWARF && !cfg.Strip {
+		var err error
+		if dir, err = filepath.Abs(cfg.Dir); err != nil {
 			return nil, err
 		}
-		code, err := amd64.Compile(f, cfg.Listing != nil)
-		if err != nil {
-			return nil, err
-		}
-		if cfg.Listing != nil {
-			if _, err := fmt.Fprintln(cfg.Listing, code.Asm); err != nil {
-				return nil, err
-			}
-		}
-		sec := text
-		if f.Section != "" {
-			sec = obj.Section(f.Section, elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_EXECINSTR, 16)
-		}
-		off := sec.Append(code.Bytes, 16)
-		obj.Define(&objfile.Symbol{Name: f.Sym.Name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
-			Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
-		df := &debuginfo.Func{Sym: f.Sym.Name, Pkg: f.Pkg, Pos: f.Pos, Size: len(code.Bytes),
-			Debug: code.Debug, Inlines: f.Inlines}
-		if f.DeferRunner != nil {
-			// Frame layout has placed the record (amd64.Compile).
-			df.DeferRunner, df.DeferOff = f.DeferRunner.Name, f.DeferRecord.Offset
-		}
-		dbg.Add(df)
-		for _, name := range f.Exports {
-			obj.Define(&objfile.Symbol{Name: name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
-				Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
-		}
-		for _, r := range code.Relocs {
-			typ := elf.R_X86_64_PC32
-			switch r.Type {
-			case amd64.RelPLT32:
-				typ = elf.R_X86_64_PLT32
-			case amd64.Rel64:
-				typ = elf.R_X86_64_64
-			case amd64.RelAbs32S:
-				typ = elf.R_X86_64_32S
-			}
-			sec.Relocs = append(sec.Relocs, objfile.Reloc{Off: off + uint64(r.Off), Sym: r.Sym.Name, Type: typ, Addend: r.Addend})
-		}
-		// Pool constants are named by their contents, so one copy serves
-		// every function. Packed SSE operands need 16-byte alignment.
-		for _, c := range code.Consts {
-			if constDone[c.Sym.Name] {
-				continue
-			}
-			constDone[c.Sym.Name] = true
-			if rodata == nil {
-				rodata = obj.Section(".rodata", elf.SHT_PROGBITS, elf.SHF_ALLOC, 16)
-			}
-			off := rodata.Append(c.Bytes[:], 16)
-			obj.Define(&objfile.Symbol{Name: c.Sym.Name, Section: rodata, Value: off, Size: 16,
-				Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT})
-		}
 	}
-
-	dbg.WriteTraceTable(obj, cfg.NoTrace)
-	if !cfg.NoDWARF && !cfg.Strip {
-		// Trimmed names are relative to the module root, so a debugger
-		// run there finds the program's sources (debugging.md section 3).
-		// They carry no compilation directory: ld would join "." to
-		// ./main.p and report ././main.p.
-		dir := ""
-		if cfg.NoTrimPath {
-			var err error
-			if dir, err = filepath.Abs(cfg.Dir); err != nil {
-				return nil, err
-			}
-		}
-		dbg.WriteDWARF(obj, dir)
-	}
-
-	data := append([]*ssa.Data(nil), p.Data...)
-	// The per-CPU block's self word goes first, at offset 0 of .percpu
-	// (abi.md section 10.6), then the runtime's current-task slot at
-	// offset 8 (section 12.3).
-	key := func(d *ssa.Data) string {
-		switch {
-		case d.Sym.Name == perCPUSelf:
-			return ""
-		case d.Sym.Name == perCPUTask && d.Sym.PerCPU:
-			return "\x01"
-		}
-		return d.Sym.Name
-	}
-	sort.SliceStable(data, func(i, j int) bool { return key(data[i]) < key(data[j]) })
-	for _, d := range data {
-		var sec *objfile.Section
-		switch {
-		case d.Section != "":
-			sec = obj.Section(d.Section, elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_WRITE, 8)
-		case d.ReadOnly:
-			sec = obj.Section(".rodata", elf.SHT_PROGBITS, elf.SHF_ALLOC, 8)
-		case d.Bytes == nil && len(d.Relocs) == 0:
-			sec = obj.Section(".bss", elf.SHT_NOBITS, elf.SHF_ALLOC|elf.SHF_WRITE, 8)
-		default:
-			sec = obj.Section(".data", elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_WRITE, 8)
-		}
-		var off uint64
-		if sec.Type == elf.SHT_NOBITS {
-			off = sec.Reserve(uint64(d.Size), uint64(d.Align))
-		} else {
-			buf := make([]byte, d.Size)
-			copy(buf, d.Bytes)
-			off = sec.Append(buf, uint64(max(d.Align, 1)))
-			for _, r := range d.Relocs {
-				sec.Relocs = append(sec.Relocs, objfile.Reloc{Off: off + uint64(r.Off), Sym: r.Sym.Name, Type: elf.R_X86_64_64, Addend: r.Addend})
-			}
-		}
-		bind := elf.STB_GLOBAL
-		if d.Local {
-			bind = elf.STB_LOCAL
-		}
-		obj.Define(&objfile.Symbol{Name: d.Sym.Name, Section: sec, Value: off, Size: uint64(d.Size), Bind: bind, Type: elf.STT_OBJECT})
-	}
-	return obj, nil
+	return backend.Emit(&backend.Config{Listing: cfg.Listing, NoTrace: cfg.NoTrace,
+		NoDWARF: cfg.NoDWARF || cfg.Strip, CompDir: dir}, p, dbg)
 }

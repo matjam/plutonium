@@ -82,6 +82,7 @@ func main() {
 		os.Exit(2)
 	}
 	failed := false
+	var results []*Result
 	for _, dir := range flag.Args() {
 		res, err := TranslateDir(&cfg, dir)
 		if err != nil {
@@ -89,12 +90,19 @@ func main() {
 			failed = true
 			continue
 		}
+		results = append(results, res)
 		if err := res.Write(cfg.OutDir); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			failed = true
 		}
 		for _, n := range res.Notes {
 			fmt.Fprintln(os.Stderr, n)
+		}
+	}
+	for _, res := range MirrorPackages(&cfg, results) {
+		if err := res.Write(cfg.OutDir); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			failed = true
 		}
 	}
 	if failed {

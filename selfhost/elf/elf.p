@@ -70,9 +70,10 @@ const (
 type SymType int
 
 const (
-	STT_NOTYPE SymType = 0
-	STT_OBJECT SymType = 1
-	STT_FUNC   SymType = 2
+	STT_NOTYPE  SymType = 0
+	STT_OBJECT  SymType = 1
+	STT_FUNC    SymType = 2
+	STT_SECTION SymType = 3
 )
 
 // R_X86_64 is an x86-64 relocation type.
@@ -82,6 +83,7 @@ const (
 	R_X86_64_64    R_X86_64 = 1
 	R_X86_64_PC32  R_X86_64 = 2
 	R_X86_64_PLT32 R_X86_64 = 4
+	R_X86_64_32    R_X86_64 = 10
 	R_X86_64_32S   R_X86_64 = 11
 )
 
