@@ -39,7 +39,9 @@ func TestLower(t *testing.T) {
 	all := typeCheckDirs(t, work)
 	step := 12
 	if s := os.Getenv("LOWER_STEP"); s != "" {
-		fmt.Sscan(s, &step)
+		if _, err := fmt.Sscan(s, &step); err != nil {
+			t.Fatalf("LOWER_STEP: %v", err)
+		}
 	}
 	var dirs []string
 	n := 0
