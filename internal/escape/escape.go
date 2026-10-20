@@ -29,6 +29,7 @@ package escape
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -100,11 +101,15 @@ type analyzer struct {
 	byName map[string][]*function
 
 	// Candidates for dynamic calls.
-	converted  map[string]types2.Type // concrete types converted to an interface
-	funcValues map[funcValue]bool     // functions used as values
-	embedded   map[*types2.TypeName]bool
-	tpArgs     map[*types2.TypeParam][]types2.Type // type arguments of each type parameter
-	tpRecv     map[*types2.TypeParam]*types2.TypeParam
+	converted map[string]types2.Type // concrete types converted to an interface
+	// The methods of the converted types by method name (indexConverted),
+	// and the candidates of a name in key order, until a new type adds one.
+	convMethods map[string][]convMethod
+	convCands   map[string][]candidate
+	funcValues  map[funcValue]bool // functions used as values
+	embedded    map[*types2.TypeName]bool
+	tpArgs      map[*types2.TypeParam][]types2.Type // type arguments of each type parameter
+	tpRecv      map[*types2.TypeParam]*types2.TypeParam
 
 	// Heap-only fields (fields.go), by origin field: fields whose address
 	// is taken, and fields something other than heap memory is stored in.
@@ -662,6 +667,52 @@ func (a *analyzer) noteConversion(T types2.Type) {
 	if _, ok := a.converted[key]; !ok {
 		a.converted[key] = T
 		a.grew = true
+		a.indexConverted(key, T)
+	}
+}
+
+// A convMethod is a method of a converted type, by the type's key.
+type convMethod struct {
+	key string
+	c   candidate
+}
+
+// indexConverted records the methods of the converted type T, by method
+// name, so that a dynamic call finds the candidates of its method without
+// looking at every converted type (a program converts thousands).
+func (a *analyzer) indexConverted(key string, T types2.Type) {
+	// A T in an interface has T's method set; a *T has all methods.
+	ms := types2.NewMethodSet(T)
+	for i := 0; i < ms.Len(); i++ {
+		sel := ms.At(i)
+		fn, _ := sel.Obj().(*types2.Func)
+		if fn == nil {
+			continue
+		}
+		f := a.funcs[fn.Origin()]
+		if f == nil {
+			continue
+		}
+		c := candidate{f, recvExact}
+		_, ptrRecv := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
+		switch {
+		case len(sel.Index()) > 1:
+			c.recv = recvReach // promoted from an embedded field
+		case ptrRecv:
+		case pointerElem(T) != nil:
+			c.recv = recvBoxed // a value method called through a *T
+		default:
+			if direct, _ := isDirect(T); !direct {
+				c.recv = recvBoxed
+			}
+		}
+		name := sel.Obj().Name()
+		if a.convMethods == nil {
+			a.convMethods = map[string][]convMethod{}
+			a.convCands = map[string][]candidate{}
+		}
+		a.convMethods[name] = append(a.convMethods[name], convMethod{key, c})
+		delete(a.convCands, name)
 	}
 }
 
@@ -725,48 +776,24 @@ func (a *analyzer) ifaceCandidates(name string, byName bool, msig *types2.Signat
 		}
 		return out
 	}
-	seen := map[candidate]bool{}
-	keys := make([]string, 0, len(a.converted))
-	for k := range a.converted {
-		keys = append(keys, k)
+	// The methods of that name of the converted types, in the order of the
+	// types' keys, each once.
+	if cands, ok := a.convCands[name]; ok {
+		return cands
 	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		// A T in an interface has T's method set; a *T has all methods.
-		T := a.converted[k]
-		ms := types2.NewMethodSet(T)
-		for i := 0; i < ms.Len(); i++ {
-			sel := ms.At(i)
-			if sel.Obj().Name() != name {
-				continue
-			}
-			fn, _ := sel.Obj().(*types2.Func)
-			if fn == nil {
-				continue
-			}
-			f := a.funcs[fn.Origin()]
-			if f == nil {
-				continue
-			}
-			c := candidate{f, recvExact}
-			_, ptrRecv := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
-			switch {
-			case len(sel.Index()) > 1:
-				c.recv = recvReach // promoted from an embedded field
-			case ptrRecv:
-			case pointerElem(T) != nil:
-				c.recv = recvBoxed // a value method called through a *T
-			default:
-				if direct, _ := isDirect(T); !direct {
-					c.recv = recvBoxed
-				}
-			}
-			if !seen[c] {
-				seen[c] = true
-				out = append(out, c)
-			}
+	entries := slices.Clone(a.convMethods[name])
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].key < entries[j].key })
+	seen := map[candidate]bool{}
+	for _, e := range entries {
+		if !seen[e.c] {
+			seen[e.c] = true
+			out = append(out, e.c)
 		}
 	}
+	if a.convCands == nil {
+		a.convCands = map[string][]candidate{}
+	}
+	a.convCands[name] = out
 	return out
 }
 

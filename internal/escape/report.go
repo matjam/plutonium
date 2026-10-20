@@ -59,7 +59,8 @@ type viewErr struct {
 
 	// sinkCall, and sinkLoop when a callee keeps the view (dst is then
 	// empty): the function called and what it does with the view.
-	callee, calleeWhy string
+	callee    string
+	calleeWhy *reason
 	// sinkGo and sinkSend: the call or the channel, as written.
 	call *ast.CallExpr
 	ch   ast.Expr
@@ -513,7 +514,7 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 	case sinkCall:
 		d.Code = diag.PassFrameView
 		d.Msg = fmt.Sprintf("cannot pass %s to %s, which keeps it after returning", x, e.callee)
-		add(sentence(about, fmt.Sprintf("%s %s, so %s would outlive %s.", e.callee, e.calleeWhy, pointer, l.name())))
+		add(sentence(about, fmt.Sprintf("%s %s, so %s would outlive %s.", e.callee, e.calleeWhy.String(), pointer, l.name())))
 		a.passFixes(d, e, l, q)
 	case sinkGo:
 		d.Code = diag.GoFrameView
@@ -744,7 +745,7 @@ func (a *analyzer) loopDiag(d *diag.Diagnostic, e *viewErr, x string, add func(s
 	if e.callee != "" {
 		head = fmt.Sprintf("cannot pass %s to %s, which keeps it after this iteration", x, e.callee)
 		holder = "what " + e.callee + " kept"
-		keeps = fmt.Sprintf("%s %s.", e.callee, e.calleeWhy)
+		keeps = fmt.Sprintf("%s %s.", e.callee, e.calleeWhy.String())
 	}
 	if v := e.iterVar; l.kind == lkClosure && v != nil {
 		name, T := v.Name(), typeText(v.Type(), q)

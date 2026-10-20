@@ -375,6 +375,29 @@ type summary struct {
 	escapes map[pkey]*reason // stored where they outlive the call
 	stores  map[edge]*reason // stored into memory a parameter points to
 	results []resultSum
+
+	// The keys of escapes and stores in order, made when a call applies the
+	// summary and dropped when a key is added: applying is done at every
+	// call of the function in every pass, and sorting is not cheap.
+	escKeys   []pkey
+	storeKeys []edge
+}
+
+// sortedEscapes returns the keys of escapes in order. The slice is not
+// changed by later additions, which make a new one.
+func (s *summary) sortedEscapes() []pkey {
+	if s.escKeys == nil && len(s.escapes) > 0 {
+		s.escKeys = sortedKeys(s.escapes)
+	}
+	return s.escKeys
+}
+
+// sortedStores returns the keys of stores in order.
+func (s *summary) sortedStores() []edge {
+	if s.storeKeys == nil && len(s.stores) > 0 {
+		s.storeKeys = sortedEdges(s.stores)
+	}
+	return s.storeKeys
 }
 
 // A resultSum says what a result may hold: pointers derived from
@@ -383,6 +406,16 @@ type summary struct {
 type resultSum struct {
 	from map[rkey]bool
 	heap map[heapResult]bool
+
+	fromKeys []rkey // the keys of from in order, until one is added
+}
+
+// sortedFrom returns the keys of from in order.
+func (r *resultSum) sortedFrom() []rkey {
+	if r.fromKeys == nil && len(r.from) > 0 {
+		r.fromKeys = sortedRkeys(r.from)
+	}
+	return r.fromKeys
 }
 
 type heapResult struct {
@@ -403,6 +436,7 @@ func (s *summary) addEscape(k pkey, r *reason) bool {
 		return false
 	}
 	s.escapes[k] = r
+	s.escKeys = nil
 	return true
 }
 
@@ -414,6 +448,7 @@ func (s *summary) addStore(e edge, r *reason) bool {
 		return false
 	}
 	s.stores[e] = r
+	s.storeKeys = nil
 	return true
 }
 
@@ -430,6 +465,7 @@ func (s *summary) addResult(i int, k pkey, tag string) bool {
 		return false
 	}
 	r.from[rk] = true
+	r.fromKeys = nil
 	return true
 }
 
@@ -451,11 +487,26 @@ func (s *summary) addResultHeap(i int, tag string, counted bool) bool {
 
 // A reason explains, for messages, how a parameter escapes inside a
 // function: what the function does with it and where.
+//
+// The text is built when a message needs it: a reason refers to the reasons
+// of the callees below it, so building every text when the reason is made
+// costs memory in proportion to the depth of the calls, for every
+// parameter of every function, whether or not any error is reported.
 type reason struct {
-	text string // "stores p in package variable G (a.p:12)"
+	text  string        // "stores p in package variable G (a.p:12)"
+	build func() string // makes text, once
 }
 
-func (r *reason) String() string { return r.text }
+func (r *reason) String() string {
+	if r == nil {
+		return ""
+	}
+	if r.build != nil {
+		r.text = r.build()
+		r.build = nil
+	}
+	return r.text
+}
 
 // shortPos prints a position as file:line, without the directory, which is
 // enough to find it and keeps chained explanations short.

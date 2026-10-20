@@ -249,7 +249,7 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []tset {
 func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mode recvMode, nres int) []tset {
 	res := make([]tset, nres)
 	pos := cs.pos
-	passErr := func(i int, why string) *viewErr {
+	passErr := func(i int, why *reason) *viewErr {
 		return &viewErr{sink: sinkCall, pos: pos, expr: cs.expr(i), fn: w.scopeName(w.sc), callee: label, calleeWhy: why}
 	}
 	w.a.noteCall(f, cs, mode)
@@ -257,7 +257,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		// Not a function the analysis has seen: assume the worst.
 		const why = "is a function the compiler cannot see into, so it may keep it"
 		for i, a := range args {
-			w.sink(w.reach(a), passErr(i, why), "passes %s to "+label, ", which the escape analysis cannot see")
+			w.sink(w.reach(a), passErr(i, &reason{text: why}), "passes %s to "+label, ", which the escape analysis cannot see")
 		}
 		for i := range res {
 			res[i] = tset{heapTok}
@@ -324,14 +324,14 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		passed = append([]tset{w.reach(args[0])}, args[1:]...)
 	}
 	w.a.passArgs(f, passed)
-	for _, k := range sortedKeys(f.sum.escapes) {
+	for _, k := range f.sum.sortedEscapes() {
 		r := f.sum.escapes[k]
 		v := arg(k)
-		w.sink(v, passErr(k.idx, r.text), "passes %s to "+label, ", which "+r.text)
+		w.sinkTail(v, passErr(k.idx, r), "passes %s to "+label, func() string { return ", which " + r.String() })
 	}
-	for _, e := range sortedEdges(f.sum.stores) {
+	for _, e := range f.sum.sortedStores() {
 		r := f.sum.stores[e]
-		d := dest{callee: label, calleeWhy: r.text, src: cs.expr(e.src.idx)}
+		d := dest{callee: label, calleeWhy: r, src: cs.expr(e.src.idx)}
 		v := arg(e.src)
 		if T := w.storedType(f, cs, e.dst); T != nil {
 			if !w.genericIdentity(f, cs, e.src, T) && !w.a.countedErrorResult(T) && !isCounted(T) {
@@ -341,8 +341,8 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		w.store(arg(e.dst), v, pos, d)
 	}
 	for i := 0; i < nres && i < len(f.sum.results); i++ {
-		rs := f.sum.results[i]
-		for _, k := range sortedRkeys(rs.from) {
+		rs := &f.sum.results[i]
+		for _, k := range rs.sortedFrom() {
 			v := arg(k.pkey)
 			T := f.sig.Results().At(i).Type()
 			if cs.sig != nil && i < cs.sig.Results().Len() {

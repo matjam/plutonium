@@ -1427,7 +1427,8 @@ type dest struct {
 
 	src ast.Expr // the value stored, as written, if known
 	// Set when a callee does the store: the callee and what it does.
-	callee, calleeWhy string
+	callee    string
+	calleeWhy *reason
 }
 
 func (w *walker) destOf(lhs ast.Expr) dest {
@@ -1447,7 +1448,7 @@ func (w *walker) destOf(lhs ast.Expr) dest {
 // why phrases, for a summary reason, a store of desc into d at pos.
 func (d dest) why(desc string, pos token.Position) string {
 	if d.callee != "" {
-		return fmt.Sprintf("passes %s to %s (%s), which %s", desc, d.callee, shortPos(pos), d.calleeWhy)
+		return fmt.Sprintf("passes %s to %s (%s), which %s", desc, d.callee, shortPos(pos), d.calleeWhy.String())
 	}
 	return fmt.Sprintf("stores %s in %s (%s)", desc, d.text, shortPos(pos))
 }
@@ -1528,7 +1529,7 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 					sum := &t.sc.fn.sum
 					e := edge{src: keyOf(v), dst: keyOf(t)}
 					if _, ok := sum.stores[e]; !ok {
-						sum.addStore(e, &reason{text: why(v, "it")()})
+						sum.addStore(e, &reason{build: why(v, "it")})
 						w.a.grew = true
 					}
 				}
@@ -1561,6 +1562,11 @@ func selfSafe(v, t tok) bool {
 // and tail follows the position: "passes %s to g" and ", which stores it
 // in G (a.p:3)".
 func (w *walker) sink(v tset, e *viewErr, act, tail string) {
+	w.sinkTail(v, e, act, func() string { return tail })
+}
+
+// sinkTail is sink with a tail that is made only when the text is.
+func (w *walker) sinkTail(v tset, e *viewErr, act string, tail func() string) {
 	for _, t := range v {
 		switch t.kind {
 		case tFrame:
@@ -1569,7 +1575,7 @@ func (w *walker) sink(v tset, e *viewErr, act, tail string) {
 			w.report(&ve, fmt.Sprintf("sink|%p", t.loc))
 		case tParam:
 			w.escapeParam(t, func() string {
-				return fmt.Sprintf(act, t.sc.fn.paramDesc(keyOf(t))) + " (" + shortPos(w.a.fset.Position(e.pos)) + ")" + tail
+				return fmt.Sprintf(act, t.sc.fn.paramDesc(keyOf(t))) + " (" + shortPos(w.a.fset.Position(e.pos)) + ")" + tail()
 			})
 		}
 	}
@@ -1586,6 +1592,6 @@ func (w *walker) escapeParam(t tok, why func() string) {
 	if _, ok := sum.escapes[keyOf(t)]; ok {
 		return
 	}
-	sum.addEscape(keyOf(t), &reason{text: why()})
+	sum.addEscape(keyOf(t), &reason{build: why})
 	w.a.grew = true
 }
