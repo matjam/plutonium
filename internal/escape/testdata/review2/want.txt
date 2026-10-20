@@ -1,0 +1,99 @@
+c20_region_ptr_field_iface: main.p:22:12: cannot return &v, a pointer to a local variable
+c21_region_slice_field_iface: main.p:15:12: cannot return V{...} as an interface: the interface would hold a copy of it in mk's frame
+c22_region_named_slice_iface: main.p:14:12: cannot return FS(arr[:]) as an interface: the interface would hold a copy of it in mk's frame
+c23_ptr_iface_no_region: main.p:18:9: cannot return &v, a pointer to a local variable
+c24_region_ptr_field_chain: main.p:19:12: cannot return &v, a pointer to a local variable
+c25_aligned_func_field: main.p:15:9: cannot return v as an interface: the interface would hold a copy of it in mk's frame
+c28_embedded_iface_holding_func: main.p:12:9: cannot return W{...} as an interface: the interface would hold a copy of it in mk's frame
+c29_ring_func_field: main.p:16:9: cannot return v as an interface: the interface would hold a copy of it in mk's frame
+c30_method_value_in_struct_chain: main.p:16:9: cannot return V{...}, which points into c, a local variable of mk
+c31_region_ptr_field_iface_with_functype: main.p:24:12: cannot return &v, a pointer to a local variable
+c32_region_ptrshaped_struct_iface: main.p:17:12: cannot return P{...}, which points into arr, a local array of mk
+f20_fmt_plusv_embedded_ptr_promoted: main.p:35:2: cannot pass Top{...} to fmt.Printf, which keeps it after returning
+f21_fmt_sharpv_gostring_nested: main.p:32:2: cannot pass &in to fmt.Printf, which keeps it after returning
+f22_fmt_array_of_struct_value_string: main.p:28:2: cannot pass &in to fmt.Printf, which keeps it after returning
+f23_fmt_slice_of_struct_value_string: main.p:29:2: cannot pass &arr to fmt.Println, which keeps it after returning
+f24_fmt_map_of_struct_string: main.p:27:20: cannot store {...} in an element of the map literal, which outlives in
+f25_fmt_error_through_or: main.p:24:45: cannot return E{...} as an interface: the interface would hold a copy of it in get's frame
+f26_fmt_error_ptr_through_or: main.p:28:3: cannot pass &in to fmt.Printf, which keeps it after returning
+f27_fmt_errorf_wrap_or: main.p:32:8: cannot pass &ev to fmt.Errorf, which keeps it after returning
+f28_fmt_generic_union_ptr: main.p:27:2: cannot pass &in to fmt.Println, which keeps it after returning
+f29_fmt_union_struct_payload: main.p:37:2: cannot pass &in to fmt.Println, which keeps it after returning
+f30_fmt_iface_field: main.p:27:2: cannot pass &in to fmt.Println, which keeps it after returning
+f31_fmt_generic_box_string: main.p:34:2: cannot pass &in to fmt.Println, which keeps it after returning
+f35_fmt_array_one_ptr: main.p:22:2: cannot pass &in to fmt.Println, which keeps it after returning
+f36_fmt_x_verb_nested: main.p:27:2: cannot pass &in to fmt.Printf, which keeps it after returning
+f37_fmt_ptr_to_array_elem: main.p:28:2: cannot pass &in to fmt.Println, which keeps it after returning
+f38_fmt_named_slice_type_string: main.p:30:2: cannot pass &arr to fmt.Println, which keeps it after returning
+f39_fmt_named_func_type_string: main.p:29:2: cannot pass Outer{...} to fmt.Println, which keeps it after returning
+f40_fmt_local_type_string: main.p:25:2: cannot pass &in to fmt.Println, which keeps it after returning
+f41_fmt_curP_badverb: main.p:32:2: cannot pass &in to fmt.Printf, which keeps it after returning
+f42_fmt_sprint_iface_of_iface: main.p:28:2: cannot pass &in to fmt.Println, which keeps it after returning
+f43_fmt_unexported_ptr_field: main.p:32:2: cannot pass &in to fmt.Println, which keeps it after returning
+f50_fmt_generic_toany: main.p:32:2: cannot pass &in to fmt.Println, which keeps it after returning
+f51_fmt_generic_toany_top: main.p:27:2: cannot pass &in to fmt.Println, which keeps it after returning
+f52_fmt_elem_key_in_callee: main.p:24:2: cannot pass &arr to g, which keeps it after returning
+h10_heaponly_generic_ctor: main.p:22:9: cannot return b.p, which points into in, a local variable of g
+h11_heaponly_generic_method_store: main.p:23:9: cannot return b.p, which points into in, a local variable of g
+h12_heaponly_generic_load: main.p:22:9: cannot return get(&b), which points into in, a local variable of g
+h13_heaponly_through_heap_box: main.p:23:2: cannot pass &in to (*Box).Set, which keeps it after returning
+h14_heaponly_promoted_generic: main.p:28:9: cannot return o.p, which points into in, a local variable of g
+h15_heaponly_two_instances: main.p:27:9: cannot return wrap(&in), which points into in, a local variable of g
+h16_heaponly_alias_struct: main.p:22:9: cannot return a.p, which points into in, a local variable of g
+h17_heaponly_generic_unnamed_field: main.p:28:9: cannot return b.s.p, which points into in, a local variable of g
+k01_key_elem_iface_in_callee: main.p:34:10: cannot pass &arr to g, which keeps it after returning
+k02_key_elem_mv_in_callee: main.p:34:10: cannot pass &arr to g, which keeps it after returning
+k03_key_elem_direct_call_in_callee: main.p:37:10: cannot pass &arr to g, which keeps it after returning
+k04_key_elem_slice_param: main.p:34:10: cannot pass arr[:] to g, which keeps it after returning
+k05_key_elem_field_array: main.p:39:10: cannot pass &o to g, which keeps it after returning
+k06_key_conv_in_callee: main.p:36:10: cannot pass &b to g, which keeps it after returning
+k07_key_elem_two_loads: main.p:35:10: cannot pass &p to g, which keeps it after returning
+k08_key_elem_assert_in_callee: main.p:40:10: cannot pass &arr to g, which keeps it after returning
+k09_key_elem_param_to_iface_param: main.p:40:10: cannot pass &arr to g, which keeps it after returning
+k10_key_elem_struct_in_array_mv: main.p:39:10: cannot pass &arr to g, which keeps it after returning
+k11_key_elem_generic: main.p:34:10: cannot pass &arr to g, which keeps it after returning
+k12_key_elem_unsafe_add_in_callee: main.p:37:10: cannot pass &arr to g, which keeps it after returning
+k13_key_elem_sub_slice_in_callee: main.p:37:10: cannot pass &arr to g, which keeps it after returning
+k14_key_embedded_off0_in_callee: main.p:39:10: cannot pass &arr to g, which keeps it after returning
+k15_key_embedded_off8_iface_in_callee: main.p:39:10: cannot pass &arr to g, which keeps it after returning
+k16_key_named_array_method: main.p:36:10: cannot pass &arr to (*Arr).first, which keeps it after returning
+k17_result_elem_control: main.p:34:10: cannot pass elem(&arr) to call, which keeps it after returning
+k18_key_elem_promoted_ptr_method_iface: main.p:39:10: cannot pass &arr to g, which keeps it after returning
+k19_key_elem_via_store_then_call: main.p:42:10: cannot pass &arr to g, which keeps it after returning
+k20_key_elem_ptr_param_chain: main.p:37:10: cannot pass &arr to g, which keeps it after returning
+k21_key_elem_slice_of_struct_range: main.p:45:10: cannot pass items[:] to each, which keeps it after returning
+k22_key_elem_slice_range_ordinary: main.p:40:10: cannot pass items[:] to each, which keeps it after returning
+k23_key_elem_slice_literal: main.p:38:10: cannot pass []S{...} to each, which keeps it after returning
+k24_store_key_elem: main.p:36:10: cannot pass s to call, which keeps it after returning
+k25_result_iface_elem: main.p:34:10: cannot pass g(&arr) to call, which keeps it after returning
+k26_key_elem_after_assert_in_callee: main.p:39:10: cannot pass &arr to g, which keeps it after returning
+k27_embedded_ptr_elem_promoted: main.p:38:10: cannot pass &arr[1] to call, which keeps it after returning
+m20_conv_unmarked_array_elem_iface: main.p:32:10: cannot pass &q[1] to call, which keeps it after returning
+m21_conv_unmarked_array_elem_mv: main.p:32:10: cannot pass q[1].visit to callf, which keeps it after returning
+m22_conv_unmarked_struct_field: main.p:34:10: cannot pass &q.a to call, which keeps it after returning
+m23_conv_unmarked_array_in_callee: main.p:37:10: cannot pass &x to g, which keeps it after returning
+m24_slice_of_converted_unmarked: main.p:33:10: cannot pass &sl[1] to call, which keeps it after returning
+s10_namedfunc_method_value: main.p:40:10: cannot pass h.String to callf, which keeps it after returning
+s11_struct_of_closure_iface: main.p:36:10: cannot pass D{...} to call, which keeps it after returning
+s12_named_array_of_closure_iface: main.p:36:10: cannot pass A{...} to call, which keeps it after returning
+s13_generic_conv_to_named: main.p:37:10: cannot pass the function literal to conv, which keeps it after returning
+s14_closure_in_any_assert_named: main.p:43:10: cannot pass h to callAny, which keeps it after returning
+s15_closure_elem_key: main.p:39:10: cannot pass &arr to g, which keeps it after returning
+u10_union_switch_store: main.p:27:2: cannot pass U.P(&in) to store, which keeps it after returning
+u11_union_assert_store: main.p:25:2: cannot pass U.P(&in) to store, which keeps it after returning
+u12_generic_union_switch: main.p:29:2: cannot pass U[*Inner].P(&in) to store, which keeps it after returning
+u13_union_variant_func_value: main.p:28:2: cannot pass mk(&in) to store, which keeps it after returning
+u14_union_struct_literal_payload: main.p:30:2: cannot pass U.S{...} to store, which keeps it after returning
+u15_union_elem_ptr: main.p:29:2: cannot pass &arr[1] to store, which keeps it after returning
+u16_union_method_keeps_payload: main.p:31:2: cannot pass U.P(&in) to call, which keeps it after returning
+u17_union_in_union_generic: main.p:34:2: cannot pass U.O(Opt[*Inner].Some(&in)) to store, which keeps it after returning
+u18_union_generic_func_passthrough: main.p:28:2: cannot pass wrap(&in) to store, which keeps it after returning
+u19_union_payload_returned: main.p:28:9: cannot return payload(U.P(&in)), which points into in, a local variable of g
+u20_union_variant_func_arg: main.p:30:2: cannot pass apply(U.P, &in) to store, which keeps it after returning
+u21_generic_union_variant_func_value: main.p:26:2: cannot pass mk(&in) to store, which keeps it after returning
+u22_union_variant_func_value_return: main.p:19:9: cannot return mk(&in), which points into in, a local variable of g
+v01_method_expr_value: main.p:19:2: cannot pass &s to m (which may call (*S).keepIt), which keeps it after returning
+v02_generic_func_value: main.p:18:2: cannot pass &in to k (which may call keepIt), which keeps it after returning
+v03_generic_identity_value_return: main.p:16:9: cannot return h(&in), which points into in, a local variable of g
+v04_method_expr_iface: main.p:21:2: cannot pass &s to m (which may call (*S).K), which keeps it after returning
+v05_union_variant_value_in_struct: main.p:21:9: cannot return h.mk(&in), which points into in, a local variable of g

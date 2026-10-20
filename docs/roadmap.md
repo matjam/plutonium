@@ -306,6 +306,13 @@ against the corrected specification. The immediate implementation order is:
      no longer starts a scheduler thread either. Tests: `TestKernelArenaNeedsNoScheduler` (arenas build in
      kernel mode at -O0 and -O2; a task still needs a scheduler), and `TestBoundLateHookGoexit` runs its
      program with and without a task.
+137. **The address of a variable in a region** (planned; sections 11.5, 18.3; found by the second adversarial
+     review of the escape analysis, program c31). Section 11.5 allows a function that returns a closure to
+     return or store the address of a variable the closure captures, which lives in the caller's region and
+     is a view of the caller's frame at that call. The compiler rejects it as a pointer to a local variable
+     (E3001): `func mk() (func() int, *int) { x := 1; g := func() int { return x }; return g, &x }`. The
+     analysis must treat such an address as a view of the caller's frame at that call, kept from the next
+     run of the call (section 11.5, "Refilling"), and the variable must live in the region.
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
