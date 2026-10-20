@@ -25,7 +25,8 @@ import (
 // Each program takes the translated front end minutes (its checks run over
 // the whole program, the library included), so the test takes a sample: the
 // examples and every LOWER_STEP'th (default 12) of the other programs;
-// LOWER_STEP=1 runs all. It runs only with GO2PU_SLOW=1.
+// LOWER_STEP=1 runs all. It runs only with GO2PU_SLOW=1, and needs
+// PLUTO_TEST_RSS_MB=22000: building the translated front end takes 15 GB.
 // LOWER_ONLY=<substring> runs the directories whose names contain it.
 func TestLower(t *testing.T) {
 	testguard.Parallel(t)
@@ -68,8 +69,9 @@ func TestLower(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, level := range []int{0, 2} {
+		// One level after the other: building the translated front end takes
+		// 15 GB.
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
-			testguard.Parallel(t)
 			puBin := filepath.Join(t.TempDir(), "lowerdemo-pu")
 			cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", "lowerdemo"), Output: puBin,
 				Stdlib: plutonium.Stdlib(), OptLevel: level}
