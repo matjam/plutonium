@@ -38,13 +38,13 @@ func (check *Checker) labels(body *ast.BlockStmt) {
 			msg = "label %s not declared"
 			code = UndeclaredLabel
 		}
-		check.errorf(jmp.Label, code, msg, name)
+		check.errorf(jmp.Label, code, msg, pu.Box(name))
 	}
 
 	// spec: "It is illegal to define a label that is never used."
 	for _, obj := range all.elems {
 		if lbl := obj.(*Label); !lbl.used {
-			check.softErrorf(lbl, UnusedLabel, "label %s declared and not used", lbl.name)
+			check.softErrorf(lbl, UnusedLabel, "label %s declared and not used", pu.Box(lbl.name))
 		}
 	}
 }
@@ -159,7 +159,7 @@ func (check *Checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 				if alt := all.Insert(lbl); alt != nil {
 					err := check.newError(DuplicateLabel)
 					err.soft = true
-					err.addf(lbl, "label %s already declared", name)
+					err.addf(lbl, "label %s already declared", pu.Box(name))
 					err.addAltDecl(alt)
 					err.report()
 					// ok to continue
@@ -179,7 +179,7 @@ func (check *Checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 								jmp.Label,
 								JumpOverDecl,
 								"goto %s jumps over variable declaration at line %d",
-								name,
+								pu.Box(name),
 								check.fset.Position(varDeclPos).Line,
 							)
 							// ok to continue
@@ -215,7 +215,7 @@ func (check *Checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 					}
 				}
 				if !valid {
-					check.errorf(s.Label, MisplacedLabel, "invalid break label %s", name)
+					check.errorf(s.Label, MisplacedLabel, "invalid break label %s", pu.Box(name))
 					return
 				}
 
@@ -230,7 +230,7 @@ func (check *Checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 					}
 				}
 				if !valid {
-					check.errorf(s.Label, MisplacedLabel, "invalid continue label %s", name)
+					check.errorf(s.Label, MisplacedLabel, "invalid continue label %s", pu.Box(name))
 					return
 				}
 
@@ -242,7 +242,7 @@ func (check *Checker) blockBranches(all *Scope, parent *block, lstmt *ast.Labele
 				}
 
 			default:
-				check.errorf(s, InvalidSyntaxTree, "branch statement: %s %s", s.Tok, name)
+				check.errorf(s, InvalidSyntaxTree, "branch statement: %s %s", s.Tok, pu.Box(name))
 				return
 			}
 

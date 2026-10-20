@@ -466,7 +466,7 @@ func (l *Lowerer) rawFuncSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 		l.interruptSyms[sym] = true
 	}
 	if d == nil {
-		l.internalf(token.NoPos, "no source for function %s", name)
+		l.internalf(token.NoPos, "no source for function %s", pu.Box(name))
 		return sym
 	}
 	sig := fn.Type().(*types2.Signature)
@@ -508,7 +508,7 @@ func (l *Lowerer) lowerExports() {
 						continue
 					}
 					if sig := fn.Type().(*types2.Signature); sig.TypeParams() != nil || sig.RecvTypeParams() != nil {
-						l.errorf(fd.Pos(), diag.GenericExport, "cannot export generic function %s", fn.Name())
+						l.errorf(fd.Pos(), diag.GenericExport, "cannot export generic function %s", pu.Box(fn.Name()))
 						continue
 					}
 					sym := l.funcSym(fn, nil)
@@ -556,7 +556,7 @@ func newTypeMap(l *Lowerer, fn *types2.Func, targs []types2.Type) *typeMap {
 		}
 	}
 	if len(tps) != len(targs) {
-		panic(compat.Sprintf("lower: %s has %d type parameters, got %d type arguments", fn, len(tps), len(targs)))
+		panic(pu.Box(compat.Sprintf("lower: %s has %d type parameters, got %d type arguments", fn, len(tps), len(targs))))
 	}
 	m := pu.New(typeMap{l: l, tparams: tps, targs: targs})
 	if d := l.decls[fn.Origin()]; d != nil {

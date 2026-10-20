@@ -98,7 +98,7 @@ func (l *Lowerer) errorsNewValue(fn *types2.Func, pos token.Pos, use string) boo
 	if !types2.IsErrorsNew(fn) {
 		return false
 	}
-	l.errorf(pos, diag.ErrorsNewValue, "errors.New cannot be %s: each call site has its own error type, so call it directly with a constant message", use)
+	l.errorf(pos, diag.ErrorsNewValue, "errors.New cannot be %s: each call site has its own error type, so call it directly with a constant message", pu.Box(use))
 	return true
 }
 

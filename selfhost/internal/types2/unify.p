@@ -815,7 +815,7 @@ func (u *unifier) nify(x, y Type, mode unifyMode, p *ifacePair) (result bool) {
 		// avoid a crash in case of nil type
 
 	default:
-		panic(sprintf(nil, nil, true, "u.nify(%s, %s, %d)", xorig, yorig, mode))
+		panic(pu.Box(sprintf(nil, nil, true, "u.nify(%s, %s, %d)", xorig, yorig, mode)))
 	}
 
 	return false

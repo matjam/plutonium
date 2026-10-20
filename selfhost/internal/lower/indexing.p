@@ -97,7 +97,7 @@ func (s *fnState) containerTypeArgs(fn *types2.Func, T types2.Type) []types2.Typ
 func (s *fnState) containerCall(r *containerRef, name string, args []value) []value {
 	fn, sig := s.containerMethod(r, name)
 	if fn == nil {
-		s.l.internalf(r.at.Pos(), "%s has no method %s", r.T, name)
+		s.l.internalf(r.at.Pos(), "%s has no method %s", r.T, pu.Box(name))
 		return nil
 	}
 	for i := range args {

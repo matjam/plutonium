@@ -13,6 +13,7 @@ import (
 	"selfhost/compat"
 	"selfhost/internal/constant"
 	. "selfhost/internal/types2/errors"
+	"selfhost/pu"
 )
 
 // conversion type-checks the conversion T(x).
@@ -49,7 +50,7 @@ func (check *Checker) conversion(x *operand, T Type) {
 		// can only fail if there's overflow. Give a concise error.
 		// (go.dev/issue/63563)
 		if !ok && isInteger(x.typ()) && isInteger(T) {
-			check.errorf(x, InvalidConversion, "constant %s overflows %s", x.val, T)
+			check.errorf(x, InvalidConversion, "constant %s overflows %s", pu.Box(x.val), T)
 			x.invalidate()
 			return
 		}
@@ -71,7 +72,7 @@ func (check *Checker) conversion(x *operand, T Type) {
 			if !constConvertibleTo(u, nil) {
 				if isInteger(x.typ()) && isInteger(u) {
 					// see comment above on constant conversion
-					cause = check.sprintf("constant %s overflows %s (in %s)", x.val, u, T)
+					cause = check.sprintf("constant %s overflows %s (in %s)", pu.Box(x.val), u, T)
 				} else {
 					cause = check.sprintf("cannot convert %s to type %s (in %s)", x, u, T)
 				}
@@ -93,7 +94,7 @@ func (check *Checker) conversion(x *operand, T Type) {
 
 	if !ok {
 		if cause != "" {
-			check.errorf(x, InvalidConversion, "cannot convert %s to type %s: %s", x, T, cause)
+			check.errorf(x, InvalidConversion, "cannot convert %s to type %s: %s", x, T, pu.Box(cause))
 		} else {
 			check.errorf(x, InvalidConversion, "cannot convert %s to type %s", x, T)
 		}

@@ -129,7 +129,7 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 				}
 			}
 			if allFailed {
-				err.addf(arg, "type %s of %s does not match %s (cannot infer %s)", targ, arg.expr, tpar, typeParamsString(tparams))
+				err.addf(arg, "type %s of %s does not match %s (cannot infer %s)", targ, arg.expr, tpar, pu.Box(typeParamsString(tparams)))
 				return
 			}
 		}
@@ -297,7 +297,7 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 				constraint := tpar.iface()
 				if !check.hasAllMethods(tx, constraint, true, func(x, y Type) bool { return u.unify(x, y, exact) }, &cause) {
 					// TODO(gri) better error message (see TODO above)
-					err.addf(posn, "%s (type %s) does not satisfy %s %s", tpar, tx, tpar.Constraint(), cause)
+					err.addf(posn, "%s (type %s) does not satisfy %s %s", tpar, tx, tpar.Constraint(), pu.Box(cause))
 					return nil
 				}
 			}
@@ -440,7 +440,7 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 	for i, typ := range inferred {
 		if typ == nil || isParameterized(tparams, typ) {
 			obj := tparams[i].obj
-			err.addf(posn, "cannot infer %s (declared at %v)", obj.name, obj.pos)
+			err.addf(posn, "cannot infer %s (declared at %v)", pu.Box(obj.name), obj.pos)
 			return nil
 		}
 	}
@@ -630,7 +630,7 @@ func (w *tpWalker) isParameterized(typ Type) (res bool) {
 		return slices.Index(w.tparams, t) >= 0
 
 	default:
-		panic(compat.Sprintf("unexpected %T", typ))
+		panic(pu.Box(compat.Sprintf("unexpected %T", typ)))
 	}
 
 	return false
@@ -789,7 +789,7 @@ func (w *cycleFinder) typ(typ Type) {
 		}
 
 	default:
-		panic(compat.Sprintf("unexpected %T", typ))
+		panic(pu.Box(compat.Sprintf("unexpected %T", typ)))
 	}
 }
 

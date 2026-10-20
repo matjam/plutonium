@@ -207,12 +207,12 @@ func (check *Checker) unionType(e *ast.UnionType, def *TypeName) Type {
 		if e.Packed.IsValid() {
 			what = "packed union"
 		}
-		check.errorf(e, MisplacedUnion, "%s type must be the type of a type definition: type U %s { ... }", what, what)
+		check.errorf(e, MisplacedUnion, "%s type must be the type of a type definition: type U %s { ... }", pu.Box(what), pu.Box(what))
 		return Typ[Invalid]
 	}
 	if e.Packed.IsValid() {
 		if named.tparams != nil {
-			check.errorf(e, GenericPackedUnion, "packed union %s cannot have type parameters: its layout must be fixed bit by bit", def.name)
+			check.errorf(e, GenericPackedUnion, "packed union %s cannot have type parameters: its layout must be fixed bit by bit", pu.Box(def.name))
 			return Typ[Invalid]
 		}
 		return check.packedUnionType(e, def)
@@ -252,12 +252,12 @@ func (check *Checker) unionType(e *ast.UnionType, def *TypeName) Type {
 
 	switch n := len(u.variants); {
 	case n == 0 && len(e.Fields.List) == 0:
-		check.errorf(e, EmptyUnion, "union %s has no variants", def.name)
+		check.errorf(e, EmptyUnion, "union %s has no variants", pu.Box(def.name))
 		return Typ[Invalid]
 	case n == 0:
 		return Typ[Invalid] // errors reported above
 	case n > 1<<16:
-		check.errorf(e, TooManyVariants, "union %s has %d variants; its 16-bit tag numbers at most 65536", def.name, n)
+		check.errorf(e, TooManyVariants, "union %s has %d variants; its 16-bit tag numbers at most 65536", pu.Box(def.name), n)
 		return Typ[Invalid]
 	}
 
@@ -287,7 +287,7 @@ func (check *Checker) checkOwnerPayload(at positioner, def *TypeName, v *Variant
 			Intro: "If the union should only look at a value something else owns, hold a pointer",
 			Code:  compat.Concat(v.name, " ", view),
 		}}),
-	}), "union %s must be declared owner: its variant %s holds %s, which is an owner", def.name, v.name, article(p))
+	}), "union %s must be declared owner: its variant %s holds %s, which is an owner", pu.Box(def.name), pu.Box(v.name), pu.Box(article(p)))
 	return false
 }
 
@@ -299,7 +299,7 @@ func (check *Checker) checkOwnerPayload(at positioner, def *TypeName, v *Variant
 // recorded on it.
 func (check *Checker) packedUnionType(e *ast.UnionType, def *TypeName) Type {
 	if e.Backing == nil {
-		check.errorf(e, BadUnionTag, "packed union %s needs a backing type: packed union uint64 { ... }", def.name)
+		check.errorf(e, BadUnionTag, "packed union %s needs a backing type: packed union uint64 { ... }", pu.Box(def.name))
 		return Typ[Invalid]
 	}
 	var tagFields, variantFields []*ast.Field
@@ -309,7 +309,7 @@ func (check *Checker) packedUnionType(e *ast.UnionType, def *TypeName) Type {
 			continue
 		}
 		if len(variantFields) > 0 {
-			check.errorf(f, BadUnionTag, "tag field %s of packed union %s must come before the first variant", f.Names[0].Name, def.name)
+			check.errorf(f, BadUnionTag, "tag field %s of packed union %s must come before the first variant", pu.Box(f.Names[0].Name), pu.Box(def.name))
 			continue
 		}
 		tagFields = compat.Append(tagFields, f)
@@ -325,16 +325,16 @@ func (check *Checker) packedUnionType(e *ast.UnionType, def *TypeName) Type {
 		return Typ[Invalid]
 	}
 	if len(p.fields) != 1 || p.fields[0].obj.name == "_" {
-		check.errorf(e, BadUnionTag, "packed union %s needs exactly one named tag field before its variants (it has %d)", def.name, len(p.fields))
+		check.errorf(e, BadUnionTag, "packed union %s needs exactly one named tag field before its variants (it has %d)", pu.Box(def.name), len(p.fields))
 		return Typ[Invalid]
 	}
 	tag := p.fields[0]
 	if tt := tag.obj.typ; !isBoolean(tt) && !isInteger(tt) {
-		check.errorf(atPos(tag.obj.pos), BadUnionTag, "the tag %s of packed union %s must be a bool, integer or enum field, not %s", tag.obj.name, def.name, tt)
+		check.errorf(atPos(tag.obj.pos), BadUnionTag, "the tag %s of packed union %s must be a bool, integer or enum field, not %s", pu.Box(tag.obj.name), pu.Box(def.name), tt)
 		return Typ[Invalid]
 	}
 	if len(variantFields) == 0 {
-		check.errorf(e, EmptyUnion, "packed union %s has no variants: list them after the tag, as Name case value { fields }", def.name)
+		check.errorf(e, EmptyUnion, "packed union %s has no variants: list them after the tag, as Name case value { fields }", pu.Box(def.name))
 		return Typ[Invalid]
 	}
 
@@ -343,7 +343,7 @@ func (check *Checker) packedUnionType(e *ast.UnionType, def *TypeName) Type {
 	for _, f := range variantFields {
 		vc := f.Type.(*ast.VariantCase)
 		if len(f.Names) != 1 {
-			check.errorf(f, BadVariantDecl, "each variant of packed union %s needs its own case clause", def.name)
+			check.errorf(f, BadVariantDecl, "each variant of packed union %s needs its own case clause", pu.Box(def.name))
 			continue
 		}
 		id := f.Names[0]
@@ -372,7 +372,7 @@ func (check *Checker) packedUnionType(e *ast.UnionType, def *TypeName) Type {
 				continue
 			}
 			if other := seen[c.bits]; other != nil {
-				check.errorf(ve, BadVariantCase, "variants %s and %s of packed union %s both have tag value %s", other.name, v.name, def.name, c.val)
+				check.errorf(ve, BadVariantCase, "variants %s and %s of packed union %s both have tag value %s", pu.Box(other.name), pu.Box(v.name), pu.Box(def.name), pu.Box(c.val))
 				continue
 			}
 			seen[c.bits] = v
@@ -402,7 +402,7 @@ func (check *Checker) tagValue(e ast.Expr, tag *PackedField, variant string) (ca
 		return caseValue{}, false
 	}
 	if x.mode() != constant_ {
-		check.errorf(x, BadVariantCase, "case value %s of variant %s is not constant: the variants of a packed union are selected by constant tag values", x, variant)
+		check.errorf(x, BadVariantCase, "case value %s of variant %s is not constant: the variants of a packed union are selected by constant tag values", x, pu.Box(variant))
 		return caseValue{}, false
 	}
 	if x.val.Kind() == constant.Bool {
@@ -425,7 +425,7 @@ func (check *Checker) tagValue(e ast.Expr, tag *PackedField, variant string) (ca
 		hi = constBinaryOp(hi, token.SUB, one)
 	}
 	if constCompare(v, token.LSS, lo) || constCompare(v, token.GTR, hi) {
-		check.errorf(x, BadVariantCase, "case value %s of variant %s does not fit the %d-bit tag %s", x.val, variant, w, tag.obj.name)
+		check.errorf(x, BadVariantCase, "case value %s of variant %s does not fit the %d-bit tag %s", pu.Box(x.val), pu.Box(variant), w, pu.Box(tag.obj.name))
 		return caseValue{}, false
 	}
 	i, _ := constant.Int64Val(v)
@@ -488,7 +488,7 @@ func (check *Checker) variantVisible(e ast.Expr, v *Variant, U Type) bool {
 	if v.Exported() || v.pkg == check.pkg {
 		return true
 	}
-	check.errorf(e, UnexportedVariant, "%s undefined (cannot refer to unexported variant %s of union %s)", e, v.name, U)
+	check.errorf(e, UnexportedVariant, "%s undefined (cannot refer to unexported variant %s of union %s)", e, pu.Box(v.name), U)
 	return false
 }
 
@@ -499,7 +499,7 @@ func (check *Checker) variantHint(x *operand, sel string) string {
 	if lookupVariant(unionVariants(x.typ()), sel) == nil {
 		return ""
 	}
-	return check.sprintf("%s is a variant of union %s, not a field: read it in a type switch on %s (case %s:), or construct one with %s.%s", sel, x.typ(), x.expr, sel, x.typ(), sel)
+	return check.sprintf("%s is a variant of union %s, not a field: read it in a type switch on %s (case %s:), or construct one with %s.%s", pu.Box(sel), x.typ(), x.expr, pu.Box(sel), x.typ(), pu.Box(sel))
 }
 
 // variantNotAType reports U.V used as a type.
@@ -531,7 +531,7 @@ func (check *Checker) variantLiteralType(e ast.Expr) (U Type, v *Variant, ok boo
 	}
 	v = lookupVariant(vs, sel.Sel.Name)
 	if v == nil {
-		check.errorf(sel.Sel, UnknownVariant, "union %s has no variant %s (its variants are %s)", U, sel.Sel.Name, variantNames(vs))
+		check.errorf(sel.Sel, UnknownVariant, "union %s has no variant %s (its variants are %s)", U, pu.Box(sel.Sel.Name), pu.Box(variantNames(vs)))
 		return U, nil, true
 	}
 	if !check.variantVisible(sel, v, U) {
@@ -539,7 +539,7 @@ func (check *Checker) variantLiteralType(e ast.Expr) (U Type, v *Variant, ok boo
 	}
 	check.recordUse(sel.Sel, v)
 	if v.bare {
-		check.errorf(e, UnionLiteral, "variant %s of union %s has no payload: write %s, not %s{}", v.name, U, ast.Expr(sel), ast.Expr(sel))
+		check.errorf(e, UnionLiteral, "variant %s of union %s has no payload: write %s, not %s{}", pu.Box(v.name), U, ast.Expr(sel), ast.Expr(sel))
 		return U, nil, true
 	}
 	return U, v, true
@@ -557,7 +557,7 @@ func (check *Checker) variantRef(e ast.Expr, U Type, bare bool) *Variant {
 				check.recordUse(x, v)
 				return v
 			}
-			check.errorf(e, NotAVariant, "write %s.%s: a variant's bare name is accepted only in the cases of a type switch", U, x.Name)
+			check.errorf(e, NotAVariant, "write %s.%s: a variant's bare name is accepted only in the cases of a type switch", U, pu.Box(x.Name))
 			return nil
 		}
 	case *ast.SelectorExpr:
@@ -573,7 +573,7 @@ func (check *Checker) variantRef(e ast.Expr, U Type, bare bool) *Variant {
 				check.errorf(x.X, NotAVariant, "%s is not a union, so %s is not a variant of %s", T, e, U)
 				return nil
 			case v == nil:
-				check.errorf(x.Sel, UnknownVariant, "union %s has no variant %s (its variants are %s)", T, x.Sel.Name, variantNames(tvs))
+				check.errorf(x.Sel, UnknownVariant, "union %s has no variant %s (its variants are %s)", T, pu.Box(x.Sel.Name), pu.Box(variantNames(tvs)))
 				return nil
 			case !check.variantVisible(x, v, T):
 				return nil
@@ -586,7 +586,7 @@ func (check *Checker) variantRef(e ast.Expr, U Type, bare bool) *Variant {
 			return v
 		}
 	}
-	check.errorf(e, NotAVariant, "%s is not a variant of union %s (its variants are %s)", e, U, variantNames(vs))
+	check.errorf(e, NotAVariant, "%s is not a variant of union %s (its variants are %s)", e, U, pu.Box(variantNames(vs)))
 	return nil
 }
 
@@ -618,7 +618,7 @@ func (check *Checker) unionTypeSwitch(inner stmtContext, s *ast.TypeSwitchStmt, 
 		T := U
 		for _, e := range clause.List {
 			if check.isNil(e) {
-				check.errorf(e, NotAVariant, "a union value is never nil: the zero value of %s is its first variant, %s", U, vs[0].name)
+				check.errorf(e, NotAVariant, "a union value is never nil: the zero value of %s is its first variant, %s", U, pu.Box(vs[0].name))
 				continue
 			}
 			v := check.variantRef(e, U, true)
@@ -657,7 +657,7 @@ func (check *Checker) unionTypeSwitch(inner stmtContext, s *ast.TypeSwitchStmt, 
 			check.usedVars[v] = true
 		}
 		if !used {
-			check.softErrorf(lhs, UnusedVar, "%s declared and not used", lhs.Name)
+			check.softErrorf(lhs, UnusedVar, "%s declared and not used", pu.Box(lhs.Name))
 		}
 	}
 
@@ -687,7 +687,7 @@ func (check *Checker) unionTypeSwitch(inner stmtContext, s *ast.TypeSwitchStmt, 
 		them = "them"
 	}
 	check.errorf(atPos(s.Switch), MissingVariantCase, "missing %s in type switch on %s (%s): %s (add %s or a default case)",
-		what, x.expr, U, joinAnd(missing), them)
+		pu.Box(what), x.expr, U, pu.Box(joinAnd(missing)), pu.Box(them))
 }
 
 // markExhaustive records a type switch that handles every variant of its
@@ -720,7 +720,7 @@ func (check *Checker) packedSwitchCoverage(s *ast.TypeSwitchStmt, x *operand, p 
 		values = strconv.FormatInt(int64(1)<<uint(tag.width), 10)
 	}
 	check.errorf(atPos(s.Switch), PackedUnionNoDefault, "type switch on packed union %s (%s) needs a default case: its %d-bit tag %s can hold %s values, and its cases cover %d",
-		x.expr, x.typ(), tag.width, tag.obj.name, values, len(covered))
+		x.expr, x.typ(), tag.width, pu.Box(tag.obj.name), pu.Box(values), len(covered))
 }
 
 // unionAssertion checks u.(U.V) on a union value x and sets x to the
@@ -739,7 +739,7 @@ func (check *Checker) unionAssertion(x *operand, e *ast.TypeAssertExpr) bool {
 // which must name a variant instead.
 func (check *Checker) unionLiteralError(e *ast.CompositeLit, typ Type) {
 	vs := unionVariants(typ)
-	check.errorf(e, UnionLiteral, "cannot write a composite literal of union type %s: name the variant it holds (%s)", typ, variantNames(vs))
+	check.errorf(e, UnionLiteral, "cannot write a composite literal of union type %s: name the variant it holds (%s)", typ, pu.Box(variantNames(vs)))
 }
 
 // packedVariantKey reports a key of a packed union variant literal that
@@ -749,7 +749,7 @@ func (check *Checker) packedVariantKey(key *ast.Ident, v *Variant) bool {
 	if key.Name != p.fields[0].obj.name {
 		return true
 	}
-	check.errorf(key, UnionLiteral, "cannot set the tag %s in a literal of variant %s: the variant sets it to %s", key.Name, v.name, v.cases[0].val)
+	check.errorf(key, UnionLiteral, "cannot set the tag %s in a literal of variant %s: the variant sets it to %s", pu.Box(key.Name), pu.Box(v.name), pu.Box(v.cases[0].val))
 	return false
 }
 

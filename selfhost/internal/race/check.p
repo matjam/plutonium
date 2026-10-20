@@ -879,7 +879,7 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 	if p.g.handler || other.g.handler {
 		party = "another task or an interrupt handler"
 	}
-	d := diag.New(a.pos(p.x.pos), diag.RaceNoLock, "%s is %s here with no lock that guards it, while %s may use it", place, verb, party)
+	d := diag.New(a.pos(p.x.pos), diag.RaceNoLock, "%s is %s here with no lock that guards it, while %s may use it", pu.Box(place), pu.Box(verb), pu.Box(party))
 	held := guards(p.x, true, rel)
 	shared := guards(p.x, false, rel)
 	b := pu.Alloc[compat.Builder]()
@@ -959,9 +959,9 @@ func (a *analyzer) unguardedError(p entry, writes []entry, g map[string]bool, re
 	guard := compat.Join(names, " or ")
 	var d *diag.Diagnostic
 	if g["atomic"] && len(g) == 1 {
-		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without an atomic operation, but other tasks change it with atomic operations", place)
+		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without an atomic operation, but other tasks change it with atomic operations", pu.Box(place))
 	} else {
-		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without holding %s, which guards it", place, guard)
+		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without holding %s, which guards it", pu.Box(place), pu.Box(guard))
 	}
 	b := pu.Alloc[compat.Builder]()
 	fmt.Fprintf(b, "Every write to %s that another task may run at the same time holds %s:", place, guard)
@@ -1007,9 +1007,9 @@ func (a *analyzer) sendError(c *crossing, p *problem) *diag.Diagnostic {
 	elem := types2.TypeString(p.elem, a.qualifier)
 	var d *diag.Diagnostic
 	if c.expr != nil && p.part == exprText(c.expr) {
-		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so it cannot be %s", p.part, elem, crossVerb(c))
+		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so it cannot be %s", pu.Box(p.part), pu.Box(elem), pu.Box(crossVerb(c)))
 	} else {
-		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so %s cannot be %s", p.part, elem, exprText(c.expr), crossVerb(c))
+		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so %s cannot be %s", pu.Box(p.part), pu.Box(elem), pu.Box(exprText(c.expr)), pu.Box(crossVerb(c)))
 	}
 	b := pu.Alloc[compat.Builder]()
 	fmt.Fprintf(b, "%s gives another task %s, a %s: after this, both tasks can reach the same %s.", capitalize(c.what), p.part, types2.TypeString(p.typ, a.qualifier), elem)
@@ -1049,7 +1049,7 @@ func (a *analyzer) sharedError(c *crossing, p *problem) *diag.Diagnostic {
 	if p.site != nil {
 		where = compat.Sprintf(" (converted at %s, package %s)", a.short(p.site.pos), p.site.pkg)
 	}
-	d := diag.New(a.pos(c.pos), diag.CheckerCode(typerr.NotSendable), "%s is not sendable: %s is an interface that may hold a %s%s, which contains %s, whose count is not atomic; use synced[T] (spec section 19.2)", what, part, held, where, sh)
+	d := diag.New(a.pos(c.pos), diag.CheckerCode(typerr.NotSendable), "%s is not sendable: %s is an interface that may hold a %s%s, which contains %s, whose count is not atomic; use synced[T] (spec section 19.2)", pu.Box(what), pu.Box(part), pu.Box(held), pu.Box(where), pu.Box(sh))
 	d.Text = compat.Sprintf("%s gives another task %s. The program converts a %s to that interface type, and a %s contains a %s, directly or through a field, element or pointer. Both tasks could then copy or drop that %s, changing its count without atomic operations.", capitalize(c.what), what, held, held, sh, sh)
 	d.Fix = pu.New(diag.Fix{Intro: "Use a synced[T] instead of the shared[T]: its count is atomic, so it may cross between tasks."})
 	return d

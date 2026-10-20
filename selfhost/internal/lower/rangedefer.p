@@ -45,7 +45,7 @@ func (s *fnState) deferredLit(lit *ast.FuncLit) *ssa.Value {
 	for _, v := range captures {
 		// The loop's own variables are declared ahead of its body.
 		if p := v.Pos(); p >= outer.st.Pos() && p < outer.st.End() {
-			s.l.errorf(lit.Pos(), diag.DeferLitCapture, "a function literal deferred in a range-over-func loop body cannot capture %s, a variable of the loop body: the deferred call runs after the body has returned", v.Name())
+			s.l.errorf(lit.Pos(), diag.DeferLitCapture, "a function literal deferred in a range-over-func loop body cannot capture %s, a variable of the loop body: the deferred call runs after the body has returned", pu.Box(v.Name()))
 			return nil
 		}
 	}

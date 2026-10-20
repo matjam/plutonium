@@ -123,7 +123,7 @@ func (p *parser) printTrace(a ...any) {
 }
 
 func trace(p *parser, msg string) *parser {
-	p.printTrace(msg, "(")
+	p.printTrace(pu.Box(msg), "(")
 	p.indent++
 	return p
 }
@@ -167,11 +167,11 @@ func (p *parser) next0() {
 		s := p.tok.String()
 		switch {
 		case p.tok.IsLiteral():
-			p.printTrace(s, p.lit)
+			p.printTrace(pu.Box(s), pu.Box(p.lit))
 		case p.tok.IsOperator(), p.tok.IsKeyword():
-			p.printTrace(compat.Concat("\"", s, "\""))
+			p.printTrace(pu.Box(compat.Concat("\"", s, "\"")))
 		default:
-			p.printTrace(s)
+			p.printTrace(pu.Box(s))
 		}
 	}
 
@@ -426,7 +426,7 @@ func (p *parser) atComma(context string, follow token.Token) bool {
 
 func assert(cond bool, msg string) {
 	if !cond {
-		panic(compat.Concat("go/parser internal error: ", msg))
+		panic(pu.Box(compat.Concat("go/parser internal error: ", msg)))
 	}
 }
 

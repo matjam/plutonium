@@ -46,7 +46,7 @@ func (l *Lowerer) rtInstance(name string, m *types2.Map) types2.Type {
 	}
 	T, err := types2.Instantiate(l.ctxt, l.rtType(name), compat.Clone([]types2.Type{m.Key(), m.Elem()}), false)
 	if err != nil {
-		panic(compat.Concat("lower: instantiating pluto/rt.", name, ": ", err.Error()))
+		panic(pu.Box(compat.Concat("lower: instantiating pluto/rt.", name, ": ", err.Error())))
 	}
 	l.mapTypes[key] = T
 	return T

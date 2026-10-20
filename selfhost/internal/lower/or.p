@@ -143,7 +143,7 @@ func (s *fnState) orReturn(st *ast.OrStmt, r *ast.ReturnStmt, form types2.OrRetu
 	}
 	s.assign(lvalue{ptr: s.outerPtr(root.results[n-1], root), T: T}, v, !named)
 	pos := r.Pos()
-	s.exitTo(root, returnExit{}, pu.New(goClosure_orReturn_1{pos: pos}))
+	s.exitTo(root, pu.Box(returnExit{}), pu.New(goClosure_orReturn_1{pos: pos}))
 }
 
 // goClosure_orReturn_1 is the function literal at or.go:142, converted to a struct

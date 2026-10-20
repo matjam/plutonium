@@ -15,12 +15,13 @@ import (
 	"selfhost/compat"
 	"selfhost/internal/syntax/ast"
 	. "selfhost/internal/types2/errors"
+	"selfhost/pu"
 )
 
 // forbidden reports a construct that Plutonium does not support. reason
 // says why, in a few words, and is appended to the message.
 func (check *Checker) forbidden(at positioner, code Code, what, reason string) {
-	check.errorf(at, code, "%s not permitted in Plutonium (%s)", what, reason)
+	check.errorf(at, code, "%s not permitted in Plutonium (%s)", pu.Box(what), pu.Box(reason))
 }
 
 // removedConversion reports the conversions of Go that Plutonium does not
@@ -199,7 +200,7 @@ func (check *Checker) allocatorArg(x *operand, what string) Type {
 	}
 	T := check.allocatorType()
 	if T == nil {
-		check.errorf(x, MissingAllocatorType, invalidOp+"%s with an allocator argument needs package pluto/rt", what)
+		check.errorf(x, MissingAllocatorType, invalidOp+"%s with an allocator argument needs package pluto/rt", pu.Box(what))
 		return nil
 	}
 	check.assignment(x, T, compat.Concat("allocator argument to ", what))

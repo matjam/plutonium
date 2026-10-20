@@ -29,7 +29,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 	if hasDots(call) && id != _Append {
 		check.errorf(dddErrPos(call),
 			InvalidDotDotDot,
-			invalidOp+"invalid use of ... with built-in %s", bin.name)
+			invalidOp+"invalid use of ... with built-in %s", pu.Box(bin.name))
 		check.use(argList...)
 		return
 	}
@@ -91,7 +91,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			msg = "too many"
 		}
 		if msg != "" {
-			check.errorf(argErrPos(call), WrongArgCount, invalidOp+"%s arguments for %v (expected %d, found %d)", msg, call, bin.nargs, nargs)
+			check.errorf(argErrPos(call), WrongArgCount, invalidOp+"%s arguments for %v (expected %d, found %d)", pu.Box(msg), call, bin.nargs, nargs)
 			return
 		}
 	}
@@ -188,9 +188,9 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 				}
 				switch why := check.lenCapHint(x, id); {
 				case why != "":
-					check.errorf(x, code, invalidArg+"%s for built-in %s: %s", x, bin.name, why)
+					check.errorf(x, code, invalidArg+"%s for built-in %s: %s", x, pu.Box(bin.name), pu.Box(why))
 				default:
-					check.errorf(x, code, invalidArg+"%s for built-in %s", x, bin.name)
+					check.errorf(x, code, invalidArg+"%s for built-in %s", x, pu.Box(bin.name))
 				}
 			}
 			return
@@ -355,7 +355,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		// in their respective type sets must have the same underlying slice type []E."
 		dstE, err := sliceElem(x)
 		if err != nil {
-			check.errorf(x, InvalidCopy, "invalid copy: %s", err.format(check))
+			check.errorf(x, InvalidCopy, "invalid copy: %s", pu.Box(err.format(check)))
 			return
 		}
 
@@ -382,7 +382,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			if err != nil {
 				// If we have a string, for a better error message proceed with byte element type.
 				if !allString(y.typ()) {
-					check.errorf(y, InvalidCopy, "invalid copy: %s", err.format(check))
+					check.errorf(y, InvalidCopy, "invalid copy: %s", pu.Box(err.format(check)))
 					return
 				}
 				srcE = universeByte
@@ -512,7 +512,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 
 		u, err := commonUnder(T, pu.New(goClosure_builtin_1{}))
 		if err != nil {
-			check.errorf(arg0, InvalidMake, invalidArg+"cannot make %s: %s", arg0, err.format(check))
+			check.errorf(arg0, InvalidMake, invalidArg+"cannot make %s: %s", arg0, pu.Box(err.format(check)))
 			return
 		}
 
@@ -592,7 +592,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 	case _Max, _Min:
 		// max(x, ...)
 		// min(x, ...)
-		check.verifyVersionf(call.Fun, go1_21, "built-in %s", bin.name)
+		check.verifyVersionf(call.Fun, go1_21, "built-in %s", pu.Box(bin.name))
 
 		op := token.LSS
 		if id == _Max {
@@ -861,7 +861,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		obj, index, indirect := lookupFieldOrMethod(base, false, check.pkg, sel, false)
 		switch obj.(type) {
 		case nil:
-			check.errorf(x, MissingFieldOrMethod, invalidArg+"%s has no single field %s", base, sel)
+			check.errorf(x, MissingFieldOrMethod, invalidArg+"%s has no single field %s", base, pu.Box(sel))
 			return
 		case *Func:
 			// TODO(gri) Using derefStructPtr may result in methods being found
@@ -872,7 +872,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			return
 		}
 		if indirect {
-			check.errorf(x, InvalidOffsetof, invalidArg+"field %s is embedded via a pointer in %s", sel, base)
+			check.errorf(x, InvalidOffsetof, invalidArg+"field %s is embedded via a pointer in %s", pu.Box(sel), base)
 			return
 		}
 
@@ -1191,7 +1191,7 @@ func (check *Checker) applyTypeFunc(f func(Type) Type, x *operand, id builtinId)
 		default:
 			panic("unreachable")
 		}
-		check.softErrorf(x, code, "%s not supported as argument to built-in %s for go1.18 (see go.dev/issue/50937)", x, predeclaredFuncs[id].name)
+		check.softErrorf(x, code, "%s not supported as argument to built-in %s for go1.18 (see go.dev/issue/50937)", x, pu.Box(predeclaredFuncs[id].name))
 
 		// Construct a suitable new type parameter for the result type.
 		// The type parameter is placed in the current package so export/import

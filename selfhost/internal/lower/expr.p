@@ -9,6 +9,7 @@ import (
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/syntax/token"
 	"selfhost/internal/types2"
+	"selfhost/pu"
 )
 
 // expr lowers an expression to a value.
@@ -55,7 +56,7 @@ func (s *fnState) expr(e ast.Expr) value {
 		case *types2.Nil:
 			return s.zeroValue(T)
 		}
-		s.l.internalf(e.Pos(), "unexpected identifier %s", e.Name)
+		s.l.internalf(e.Pos(), "unexpected identifier %s", pu.Box(e.Name))
 		return s.zeroValue(T)
 
 	case *ast.FuncLit:
@@ -202,7 +203,7 @@ func (s *fnState) lvRaw(e ast.Expr) lvalue {
 			obj, _ = s.info.Defs[e].(*types2.Var)
 		}
 		if obj == nil {
-			s.l.internalf(e.Pos(), "%s is not a variable", e.Name)
+			s.l.internalf(e.Pos(), "%s is not a variable", pu.Box(e.Name))
 			return lvalue{ptr: s.temp(types2.Typ[types2.Int], "bad"), T: types2.Typ[types2.Int]}
 		}
 		return s.varLV(obj, e)
@@ -285,7 +286,7 @@ func (s *fnState) varLV(obj *types2.Var, at ast.Node) lvalue {
 	}
 	// A local seen before its declaration was lowered cannot happen in
 	// checked code, but give it storage rather than crash.
-	s.l.internalf(at.Pos(), "variable %s has no storage", obj.Name())
+	s.l.internalf(at.Pos(), "variable %s has no storage", pu.Box(obj.Name()))
 	addr := s.temp(T, obj.Name())
 	s.vars[obj] = addr
 	return lvalue{ptr: addr, T: T}
@@ -461,7 +462,7 @@ func (s *fnState) selectorRaw(e *ast.SelectorExpr) lvalue {
 	}
 	sel := s.info.Selections[e]
 	if sel == nil || sel.Kind() != types2.FieldVal {
-		s.l.internalf(e.Pos(), "selector %s is not a field", e.Sel.Name)
+		s.l.internalf(e.Pos(), "selector %s is not a field", pu.Box(e.Sel.Name))
 		return lvalue{ptr: s.temp(types2.Typ[types2.Int], "bad"), T: types2.Typ[types2.Int]}
 	}
 	// Start from the addressable base, or a pointer value.
@@ -512,7 +513,7 @@ func (s *fnState) fieldPath(cur lvalue, path []int) lvalue {
 					continue
 				}
 			}
-			panic(compat.Concat("lower: field of non-struct ", cur.T.String()))
+			panic(pu.Box(compat.Concat("lower: field of non-struct ", cur.T.String())))
 		}
 	}
 	return cur
@@ -564,7 +565,7 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 	}
 	sel := s.info.Selections[e]
 	if sel == nil {
-		s.l.internalf(e.Pos(), "unresolved selector %s", e.Sel.Name)
+		s.l.internalf(e.Pos(), "unresolved selector %s", pu.Box(e.Sel.Name))
 		return s.zeroValue(T)
 	}
 	switch sel.Kind() {
@@ -1300,7 +1301,7 @@ func (s *fnState) compositeLitOf(e *ast.CompositeLit, T types2.Type) value {
 func (s *fnState) literalField(T types2.Type, key *ast.Ident) (int64, types2.Type) {
 	off, ft, ok := s.l.literalField(s.info, T, key)
 	if !ok {
-		s.l.internalf(key.Pos(), "no field %s in struct literal of type %s", key.Name, T)
+		s.l.internalf(key.Pos(), "no field %s in struct literal of type %s", pu.Box(key.Name), T)
 		return 0, types2.Typ[types2.Int]
 	}
 	return off, ft

@@ -693,7 +693,7 @@ func (w *walker) cpuSink(val origins, pos token.Pos, how string) {
 // the region it was taken in does not bound it.
 func (a *analyzer) pointerEscapes(pos token.Pos, v *types2.Var, how string) {
 	name := v.Name()
-	d := diag.New(a.pos(pos), diag.CheckerCode(typerr.PerCPUPointer), "a pointer to the per-CPU variable %s is %s, outside the region it was taken in", name, how)
+	d := diag.New(a.pos(pos), diag.CheckerCode(typerr.PerCPUPointer), "a pointer to the per-CPU variable %s is %s, outside the region it was taken in", pu.Box(name), pu.Box(how))
 	d.Text = compat.Sprintf("%s has one copy for each processor, and &%s points to the copy of the processor that runs this code now. The pointer is good only while the task cannot move to another processor, so it may be kept only in local variables and used only inside the region it was taken in (preemption or interrupts disabled, or an rt.Lock held). Here it is %s, where it can be used after the region ends or by another task.", name, name, how)
 	d.Fix = pu.New(diag.Fix{Intro: "Use the variable by name inside the region, or copy the value out and keep the copy", Code: compat.Concat("rt.DisablePreemption()\ntotal := ", name, "\nrt.EnablePreemption()")})
 	a.add(compat.Sprintf("cpuptr|%d", pos), d)
@@ -788,13 +788,13 @@ func (a *analyzer) cpuAccessError(x *access, handlers []string) *diag.Diagnostic
 	var d *diag.Diagnostic
 	switch {
 	case u.task:
-		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s stores the per-CPU variable %s in a task that runs later, from a value that depends on a load made here", u.text, name)
+		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s stores the per-CPU variable %s in a task that runs later, from a value that depends on a load made here", pu.Box(u.text), pu.Box(name))
 	case apart:
-		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s uses the per-CPU variable %s in a region that does not also hold the load it depends on", u.text, name)
+		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s uses the per-CPU variable %s in a region that does not also hold the load it depends on", pu.Box(u.text), pu.Box(name))
 	case len(handlers) > 0:
-		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s uses the per-CPU variable %s outside a region with interrupts disabled, which it needs because the interrupt handler %s also uses it", u.text, name, compat.Join(handlers, " and "))
+		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s uses the per-CPU variable %s outside a region with interrupts disabled, which it needs because the interrupt handler %s also uses it", pu.Box(u.text), pu.Box(name), pu.Box(compat.Join(handlers, " and ")))
 	default:
-		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s uses the per-CPU variable %s outside a region where the task cannot move to another processor", u.text, name)
+		d = diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUAccess), "%s uses the per-CPU variable %s outside a region where the task cannot move to another processor", pu.Box(u.text), pu.Box(name))
 	}
 	reason := u.reason
 	if reason == "" {
@@ -870,7 +870,7 @@ func (a *analyzer) depReason(ds *cpuDepSite) string {
 
 func (a *analyzer) cpuDerefError(x *access, handlers []string) *diag.Diagnostic {
 	name := a.cpuName(x.cpu.v)
-	d := diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUPointer), "a pointer to the per-CPU variable %s is used outside the region it was taken in", name)
+	d := diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUPointer), "a pointer to the per-CPU variable %s is used outside the region it was taken in", pu.Box(name))
 	d.Text = compat.Sprintf("%s has one copy for each processor, and &%s points to the copy of the processor that ran the code that took it. Here the pointer is used where the region it was taken in (preemption or interrupts disabled, or an rt.Lock held) is no longer held, so the task may have moved to another processor and the pointer reaches that processor's copy while another task or an interrupt handler uses it.", name, name)
 	d.Fix = pu.New(diag.Fix{Intro: "Use the pointer only inside the region it was taken in, or take the address again where it is needed"})
 	return d

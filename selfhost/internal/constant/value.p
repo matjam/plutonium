@@ -260,7 +260,7 @@ func MakeFromLiteral(lit string, tok token.Token, zero uint) Value {
 			return MakeString(s)
 		}
 	default:
-		panic(compat.Concat("constant: ", tok.String(), " is not a valid token"))
+		panic(pu.Box(compat.Concat("constant: ", tok.String(), " is not a valid token")))
 	}
 	return unknownVal
 }
@@ -298,7 +298,7 @@ func BoolVal(x Value) bool {
 	case Unknown:
 		return false
 	}
-	panic(compat.Concat("constant: ", x.String(), " not a Bool"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not a Bool")))
 }
 
 // StringVal returns the Go string value of x, which must be a String or
@@ -310,7 +310,7 @@ func StringVal(x Value) string {
 	case Unknown:
 		return ""
 	}
-	panic(compat.Concat("constant: ", x.String(), " not a String"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not a String")))
 }
 
 // Int64Val returns the Go int64 value of x and whether the result is exact;
@@ -325,7 +325,7 @@ func Int64Val(x Value) (int64, bool) {
 	case Unknown:
 		return 0, false
 	}
-	panic(compat.Concat("constant: ", x.String(), " not an Int"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not an Int")))
 }
 
 // Uint64Val returns the Go uint64 value of x and whether the result is
@@ -340,7 +340,7 @@ func Uint64Val(x Value) (uint64, bool) {
 	case Unknown:
 		return 0, false
 	}
-	panic(compat.Concat("constant: ", x.String(), " not an Int"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not an Int")))
 }
 
 // Float32Val is like Float64Val but for float32 instead of float64.
@@ -363,7 +363,7 @@ func Float32Val(x Value) (float32, bool) {
 	case Unknown:
 		return 0, false
 	}
-	panic(compat.Concat("constant: ", x.String(), " not a Float"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not a Float")))
 }
 
 // Float64Val returns the nearest Go float64 value of x and whether the
@@ -388,7 +388,7 @@ func Float64Val(x Value) (float64, bool) {
 	case Unknown:
 		return 0, false
 	}
-	panic(compat.Concat("constant: ", x.String(), " not a Float"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not a Float")))
 }
 
 // StringLen returns the length of x if x is a String, or 0 if x is
@@ -400,7 +400,7 @@ func StringLen(x Value) int64 {
 	case Unknown:
 		return 0
 	}
-	panic(compat.Concat("constant: ", x.String(), " not a String"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not a String")))
 }
 
 // BitLen returns the number of bits required to represent the absolute
@@ -419,7 +419,7 @@ func BitLen(x Value) int {
 	case Unknown:
 		return 0
 	}
-	panic(compat.Concat("constant: ", x.String(), " not an Int"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not an Int")))
 }
 
 // Sign returns -1, 0 or 1 as x < 0, x == 0 or x > 0; x must be numeric or
@@ -445,14 +445,14 @@ func Sign(x Value) int {
 	case Unknown:
 		return 1 // avoid spurious division by zero errors
 	}
-	panic(compat.Concat("constant: ", x.String(), " not numeric"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not numeric")))
 }
 
 // Bytes returns the bytes of the absolute value of x in little-endian
 // order; x must be an Int.
 func Bytes(x Value) []byte {
 	if x.kind != Int {
-		panic(compat.Concat("constant: ", x.String(), " not an Int"))
+		panic(pu.Box(compat.Concat("constant: ", x.String(), " not an Int")))
 	}
 	words := x.bigOf().abs
 	out := compat.Make[byte](len(words) * 8)
@@ -499,7 +499,7 @@ func Num(x Value) Value {
 	case Unknown:
 		return unknownVal
 	}
-	panic(compat.Concat("constant: ", x.String(), " not Int or Float"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not Int or Float")))
 }
 
 // Denom returns the denominator of x; x must be Int, Float or Unknown. The
@@ -522,7 +522,7 @@ func Denom(x Value) Value {
 	case Unknown:
 		return unknownVal
 	}
-	panic(compat.Concat("constant: ", x.String(), " not Int or Float"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not Int or Float")))
 }
 
 // Real returns the real part of x, which must be numeric or Unknown: x
@@ -532,7 +532,7 @@ func Real(x Value) Value {
 	case Unknown, Int, Float:
 		return x
 	}
-	panic(compat.Concat("constant: ", x.String(), " not numeric"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not numeric")))
 }
 
 // Imag returns the imaginary part of x, which must be numeric or Unknown:
@@ -544,7 +544,7 @@ func Imag(x Value) Value {
 	case Int, Float:
 		return int64Val(0)
 	}
-	panic(compat.Concat("constant: ", x.String(), " not numeric"))
+	panic(pu.Box(compat.Concat("constant: ", x.String(), " not numeric")))
 }
 
 // ----------------------------------------------------------------------------
@@ -771,7 +771,7 @@ func UnaryOp(op token.Token, y Value, prec uint) Value {
 			return MakeBool(y.i == 0)
 		}
 	}
-	panic(compat.Concat("constant: invalid unary operation ", op.String(), y.String()))
+	panic(pu.Box(compat.Concat("constant: invalid unary operation ", op.String(), y.String())))
 }
 
 // ord orders the representations for match.
@@ -913,7 +913,7 @@ func BinaryOp(x_ Value, op token.Token, y_ Value) Value {
 			return makeFloat(newFloat().quo(a, b))
 		}
 	}
-	panic(compat.Concat("constant: invalid binary operation ", x_.String(), " ", op.String(), " ", y_.String()))
+	panic(pu.Box(compat.Concat("constant: invalid binary operation ", x_.String(), " ", op.String(), " ", y_.String())))
 }
 
 // int64Op computes a op b for Int values that fit in int64, going to big
@@ -981,7 +981,7 @@ func Shift(x Value, op token.Token, s uint) Value {
 			return makeInt(x.n.i.rsh(s))
 		}
 	}
-	panic(compat.Concat("constant: invalid shift ", x.String(), " ", op.String(), " ", compat.String(appendUint(nil, uint64(s), 0))))
+	panic(pu.Box(compat.Concat("constant: invalid shift ", x.String(), " ", op.String(), " ", compat.String(appendUint(nil, uint64(s), 0)))))
 }
 
 func cmpZero(x int, op token.Token) bool {
@@ -999,7 +999,7 @@ func cmpZero(x int, op token.Token) bool {
 	case token.GEQ:
 		return x >= 0
 	}
-	panic(compat.Concat("constant: invalid comparison ", itoa(int64(x)), " ", op.String(), " 0"))
+	panic(pu.Box(compat.Concat("constant: invalid comparison ", itoa(int64(x)), " ", op.String(), " 0")))
 }
 
 // Compare returns the result of the comparison x op y. The comparison must
@@ -1050,5 +1050,5 @@ func Compare(x_ Value, op token.Token, y_ Value) bool {
 		}
 		return cmpZero(x.n.f.cmp(&y.n.f), op)
 	}
-	panic(compat.Concat("constant: invalid comparison ", x_.String(), " ", op.String(), " ", y_.String()))
+	panic(pu.Box(compat.Concat("constant: invalid comparison ", x_.String(), " ", op.String(), " ", y_.String())))
 }

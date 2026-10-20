@@ -126,7 +126,7 @@ func (w *typeWriter) string(s string) {
 
 func (w *typeWriter) error(msg string) {
 	if w.ctxt != nil {
-		panic(msg)
+		panic(pu.Box(msg))
 	}
 	w.buf.WriteString(compat.Concat("<", msg, ">"))
 }

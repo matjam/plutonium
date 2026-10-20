@@ -1301,7 +1301,7 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 			kv := s.saveValue(s.materialize(s.exprAs(call.Args[1], s.subst(m.Key()))))
 			run = pu.New(goClosure_deferStmt_7{m: m, mv: mv, kv: kv, call: call})
 		default:
-			s.l.errorf(st.Pos(), diag.DeferBuiltin, "defer of builtin %s is not supported", name)
+			s.l.errorf(st.Pos(), diag.DeferBuiltin, "defer of builtin %s is not supported", pu.Box(name))
 			return
 		}
 	case s.l.moves != nil && s.l.moves.DeferredDrops[call] || s.implicitDropCall(call):

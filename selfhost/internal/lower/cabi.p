@@ -369,11 +369,11 @@ func (l *Lowerer) checkCDecls() {
 				}
 				if _, ok := externName(fd); ok {
 					if fd.Body != nil {
-						l.errorf(fd.Pos(), diag.ExternWithBody, "//pu:extern function %s must not have a body", fn.Name())
+						l.errorf(fd.Pos(), diag.ExternWithBody, "//pu:extern function %s must not have a body", pu.Box(fn.Name()))
 						continue
 					}
 					if _, err := l.cSignature(fn.Type().(*types2.Signature)); err != nil {
-						l.errorf(fd.Pos(), diag.BadCSignature, "//pu:extern function %s: %v", fn.Name(), err)
+						l.errorf(fd.Pos(), diag.BadCSignature, "//pu:extern function %s: %v", pu.Box(fn.Name()), err)
 					}
 				}
 			}
@@ -398,7 +398,7 @@ func (l *Lowerer) cExport(fd *ast.FuncDecl, fn *types2.Func, sym *ssa.Sym, name 
 	sig := fn.Type().(*types2.Signature)
 	cs, err := l.cSignature(sig)
 	if err != nil {
-		l.errorf(fd.Pos(), diag.BadCSignature, "//pu:export function %s: %v", fn.Name(), err)
+		l.errorf(fd.Pos(), diag.BadCSignature, "//pu:export function %s: %v", pu.Box(fn.Name()), err)
 		return
 	}
 	if cs.internal {
@@ -406,7 +406,7 @@ func (l *Lowerer) cExport(fd *ast.FuncDecl, fn *types2.Func, sym *ssa.Sym, name 
 		return
 	}
 	if other := l.out.LookupSym(name); other != nil && other.Kind != ssa.SymExtern {
-		l.errorf(fd.Pos(), diag.DuplicateExport, "//pu:export %s: symbol already defined", name)
+		l.errorf(fd.Pos(), diag.DuplicateExport, "//pu:export %s: symbol already defined", pu.Box(name))
 		return
 	}
 	wrapper := l.out.Sym(name, ssa.SymFunc)
@@ -420,7 +420,7 @@ func (l *Lowerer) cExport(fd *ast.FuncDecl, fn *types2.Func, sym *ssa.Sym, name 
 func (l *Lowerer) claimCName(fd *ast.FuncDecl, sym *ssa.Sym, name string) bool {
 	if other, taken := l.cnames[name]; taken && other != sym {
 		l.errorf(fd.Pos(), diag.DuplicateExport,
-			"//pu:export %s: %s and %s are both exported under one symbol", name, other.Name, sym.Name)
+			"//pu:export %s: %s and %s are both exported under one symbol", pu.Box(name), pu.Box(other.Name), pu.Box(sym.Name))
 		return false
 	}
 	l.cnames[name] = sym

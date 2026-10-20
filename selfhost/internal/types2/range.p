@@ -92,7 +92,7 @@ func (check *Checker) rangeStmt(inner stmtContext, rangeStmt *ast.RangeStmt, noN
 		switch {
 		case reported:
 		case !ok && cause != "":
-			check.softErrorf(x, InvalidRangeExpr, "cannot range over %s: %s", x, cause)
+			check.softErrorf(x, InvalidRangeExpr, "cannot range over %s: %s", x, pu.Box(cause))
 		case !ok:
 			check.softErrorf(x, InvalidRangeExpr, "cannot range over %s", x)
 		case k == nil && sKey != nil:
@@ -273,7 +273,7 @@ func rangeKeyVal(check *Checker, orig Type, allowVersion func(goVersion) bool) (
 		switch {
 		case cb == nil:
 			if err != nil {
-				return bad(check.sprintf("func must be func(yield func(...) bool): in yield type, %s", err.format(check)))
+				return bad(check.sprintf("func must be func(yield func(...) bool): in yield type, %s", pu.Box(err.format(check))))
 			} else {
 				return bad("func must be func(yield func(...) bool): argument is not func")
 			}

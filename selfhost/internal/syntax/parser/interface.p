@@ -173,5 +173,5 @@ func ParseExprFrom(fset *token.FileSet, filename string, src any, mode Mode) (ex
 // representing the fragments of erroneous source code). Multiple errors are
 // returned via a scanner.ErrorList which is sorted by source position.
 func ParseExpr(x string) (ast.Expr, error) {
-	return ParseExprFrom(token.NewFileSet(), "", compat.Bytes(x), 0)
+	return ParseExprFrom(token.NewFileSet(), "", pu.Box(compat.Bytes(x)), 0)
 }

@@ -84,7 +84,7 @@ func dumpFile(out *compat.Buffer, name string, src []byte) {
 
 func dump(out *compat.Buffer, name string, src []byte, mode parser.Mode) {
 	fset := token.NewFileSet()
-	f, err := parser.ParseFile(fset, name, src, mode)
+	f, err := parser.ParseFile(fset, name, pu.Box(src), mode)
 	fmt.Fprintf(out, "file %s mode %d size %d\n", name, int(mode), len(src))
 	if err != nil {
 		if list, ok := err.(*scanner.ErrorList); ok {

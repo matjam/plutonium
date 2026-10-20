@@ -9,6 +9,7 @@ package ast
 import (
 	"pluto/iter"
 	"selfhost/compat"
+	"selfhost/pu"
 )
 
 // A Visitor's Visit method is invoked for each node encountered by [Walk].
@@ -391,7 +392,7 @@ func Walk(v Visitor, node Node) {
 		// nodes
 
 	default:
-		panic(compat.Sprintf("ast.Walk: unexpected node type %T", n))
+		panic(pu.Box(compat.Sprintf("ast.Walk: unexpected node type %T", n)))
 	}
 
 	v.Visit(nil)

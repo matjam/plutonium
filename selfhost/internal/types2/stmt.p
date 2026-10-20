@@ -25,7 +25,7 @@ func (check *Checker) funcBody(decl *declInfo, name string, sig *Signature, body
 	}
 
 	if check.conf._Trace {
-		check.trace(body.Pos(), "-- %s: %s", name, sig)
+		check.trace(body.Pos(), "-- %s: %s", pu.Box(name), sig)
 	}
 
 	// save/restore current environment and set up function environment
@@ -72,7 +72,7 @@ func (check *Checker) usage(scope *Scope) {
 		return cmpPos(a.pos, b.pos)
 	})
 	for _, v := range unused {
-		check.softErrorf(v, UnusedVar, "declared and not used: %s", v.name)
+		check.softErrorf(v, UnusedVar, "declared and not used: %s", pu.Box(v.name))
 	}
 
 	for _, scope := range scope.children {
@@ -151,7 +151,7 @@ func (check *Checker) multipleDefaults(list []ast.Stmt) {
 		}
 		if d != nil {
 			if first != nil {
-				check.errorf(d, DuplicateDefault, "multiple defaults (first at %s)", check.fset.Position(first.Pos()))
+				check.errorf(d, DuplicateDefault, "multiple defaults (first at %s)", pu.Box(check.fset.Position(first.Pos())))
 			} else {
 				first = d
 			}
@@ -209,7 +209,7 @@ func (check *Checker) suspendedCall(keyword string, call *ast.CallExpr) {
 	default:
 		panic("unreachable")
 	}
-	check.errorf(x, code, "%s %s %s", keyword, msg, x)
+	check.errorf(x, code, "%s %s %s", pu.Box(keyword), pu.Box(msg), x)
 }
 
 // A goValue is the Go value of a constant, as a key of a map: the kind says
@@ -375,7 +375,7 @@ L:
 					Ts = TypeString(T, check.qualifier)
 				}
 				err := check.newError(DuplicateCase)
-				err.addf(e, "duplicate case %s in type switch", Ts)
+				err.addf(e, "duplicate case %s in type switch", pu.Box(Ts))
 				err.addf(other, "previous case")
 				err.report()
 				continue L
@@ -444,7 +444,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			msg = "is not an expression"
 			code = NotAnExpr
 		}
-		check.errorf(x, code, "%s %s", x, msg)
+		check.errorf(x, code, "%s %s", x, pu.Box(msg))
 
 	case *ast.SendStmt:
 		ch := pu.Alloc[operand]()
@@ -542,7 +542,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			for _, obj := range res.vars {
 				if alt := check.lookup(obj.name); alt != nil && alt != obj {
 					err := check.newError(OutOfScopeResult)
-					err.addf(s, "result parameter %s not in scope at return", obj.name)
+					err.addf(s, "result parameter %s not in scope at return", pu.Box(obj.name))
 					err.addf(alt, "inner declaration of %s", obj)
 					err.report()
 					// ok to continue
@@ -781,7 +781,7 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 				check.usedVars[v] = true // avoid usage error when checking entire function
 			}
 			if !used {
-				check.softErrorf(lhs, UnusedVar, "%s declared and not used", lhs.Name)
+				check.softErrorf(lhs, UnusedVar, "%s declared and not used", pu.Box(lhs.Name))
 			}
 		}
 

@@ -139,7 +139,7 @@ func (check *Checker) instantiateSignature(pos token.Pos, expr ast.Expr, typ *Si
 	assert(len(targs) == typ.TypeParams().Len())
 
 	if check.conf._Trace {
-		check.trace(pos, "-- instantiating signature %s with %s", typ, targs)
+		check.trace(pos, "-- instantiating signature %s with %s", typ, pu.Box(targs))
 		check.indent++
 		defer func() {
 			check.indent--
@@ -259,7 +259,7 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 	// must have a common underlying type, which must be a signature.
 	u, err := commonUnder(x.typ(), pu.New(goClosure_callExpr_1{}))
 	if err != nil {
-		check.errorf(x, InvalidCall, invalidOp+"cannot call %s: %s", x, err.format(check))
+		check.errorf(x, InvalidCall, invalidOp+"cannot call %s: %s", x, pu.Box(err.format(check)))
 		x.invalidate()
 		x.expr = call
 		return statement
@@ -543,9 +543,9 @@ func (check *Checker) arguments(call *ast.CallExpr, sig *Signature, targs []Type
 			params = sig.params.vars
 		}
 		err := check.newError(WrongArgCount)
-		err.addf(at, "%s arguments in call to %s", qualifier, call.Fun)
-		err.addf(noposn, "have %s", check.typesSummary(operandTypes(args), false, ddd))
-		err.addf(noposn, "want %s", check.typesSummary(varTypes(params), sig.variadic, false))
+		err.addf(at, "%s arguments in call to %s", pu.Box(qualifier), call.Fun)
+		err.addf(noposn, "have %s", pu.Box(check.typesSummary(operandTypes(args), false, ddd)))
+		err.addf(noposn, "want %s", pu.Box(check.typesSummary(varTypes(params), sig.variadic, false)))
 		err.report()
 		return
 	}
@@ -629,7 +629,7 @@ func (check *Checker) arguments(call *ast.CallExpr, sig *Signature, targs []Type
 			//           Perhaps instantiate as much as we can, also for arguments.
 			//           This will require changes to how infer returns its results.
 			if !err.empty() {
-				check.errorf(err.posn(), CannotInferTypeArgs, "in call to %s, %s", call.Fun, err.msg())
+				check.errorf(err.posn(), CannotInferTypeArgs, "in call to %s, %s", call.Fun, pu.Box(err.msg()))
 			}
 			return
 		}
@@ -737,7 +737,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 						exps := pkg.scope.lookupIgnoringCase(sel, true)
 						if len(exps) >= 1 {
 							// report just the first one
-							check.errorf(e.Sel, UndeclaredImportedName, "undefined: %s (but have %s)", ast.Expr(e), exps[0].Name())
+							check.errorf(e.Sel, UndeclaredImportedName, "undefined: %s (but have %s)", ast.Expr(e), pu.Box(exps[0].Name()))
 						} else {
 							check.errorf(e.Sel, UndeclaredImportedName, "undefined: %s", ast.Expr(e))
 						}
@@ -745,7 +745,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 					goto Error
 				}
 				if !exp.Exported() {
-					check.errorf(e.Sel, UnexportedName, "name %s not exported by package %s", sel, pkg.name)
+					check.errorf(e.Sel, UnexportedName, "name %s not exported by package %s", pu.Box(sel), pu.Box(pkg.name))
 					// ok to continue
 				}
 			}
@@ -852,24 +852,24 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 
 		if index != nil {
 			// TODO(gri) should provide actual type where the conflict happens
-			check.errorf(e.Sel, AmbiguousSelector, "ambiguous selector %s.%s", x.expr, sel)
+			check.errorf(e.Sel, AmbiguousSelector, "ambiguous selector %s.%s", x.expr, pu.Box(sel))
 			goto Error
 		}
 
 		if indirect {
 			if x.mode() == typexpr {
-				check.errorf(e.Sel, InvalidMethodExpr, "invalid method expression %s.%s (needs pointer receiver (*%s).%s)", x.typ(), sel, x.typ(), sel)
+				check.errorf(e.Sel, InvalidMethodExpr, "invalid method expression %s.%s (needs pointer receiver (*%s).%s)", x.typ(), pu.Box(sel), x.typ(), pu.Box(sel))
 			} else if check.suspendedOwnerTemp(x, e) {
-				check.errorf(e.Sel, InvalidMethodExpr, "cannot call pointer method %s on a temporary %s in a %s statement: the temporary is dropped when the statement ends, before the call runs; store it in a variable first", sel, x.typ(), check.suspendedKey)
+				check.errorf(e.Sel, InvalidMethodExpr, "cannot call pointer method %s on a temporary %s in a %s statement: the temporary is dropped when the statement ends, before the call runs; store it in a variable first", pu.Box(sel), x.typ(), pu.Box(check.suspendedKey))
 			} else {
-				check.errorf(e.Sel, InvalidMethodExpr, "cannot call pointer method %s on %s", sel, x.typ())
+				check.errorf(e.Sel, InvalidMethodExpr, "cannot call pointer method %s on %s", pu.Box(sel), x.typ())
 			}
 			goto Error
 		}
 
 		var why string
 		if en := EnumOf(x.typ()); en != nil && en.lookup(sel) != nil {
-			why = check.sprintf("%s is a member of enum %s: write %s.%s", sel, en.obj.name, en.obj.name, sel)
+			why = check.sprintf("%s is a member of enum %s: write %s.%s", pu.Box(sel), pu.Box(en.obj.name), pu.Box(en.obj.name), pu.Box(sel))
 		} else if hint := check.variantHint(x, sel); hint != "" {
 			why = hint
 		} else if isInterfacePtr(x.typ()) {
@@ -878,7 +878,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 			alt, _, _ := lookupFieldOrMethod(x.typ(), x.mode() == variable, check.pkg, sel, true)
 			why = check.lookupError(x.typ(), sel, alt, false)
 		}
-		check.errorf(e.Sel, MissingFieldOrMethod, "%s.%s undefined (%s)", x.expr, sel, why)
+		check.errorf(e.Sel, MissingFieldOrMethod, "%s.%s undefined (%s)", x.expr, pu.Box(sel), pu.Box(why))
 		goto Error
 	}
 	// obj != nil
@@ -886,7 +886,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 	switch obj := obj.(type) {
 	case *Var:
 		if x.mode() == typexpr {
-			check.errorf(e.X, MissingFieldOrMethod, "operand for field selector %s must be value of type %s", sel, x.typ())
+			check.errorf(e.X, MissingFieldOrMethod, "operand for field selector %s must be value of type %s", pu.Box(sel), x.typ())
 			goto Error
 		}
 

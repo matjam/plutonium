@@ -78,7 +78,7 @@ func (check *Checker) arityMatch(s, init *ast.ValueSpec) {
 			// TODO(gri) avoid declared and not used error here
 		} else {
 			// init exprs "inherited"
-			check.errorf(s, code, "extra init expr at %s", check.fset.Position(init.Pos()))
+			check.errorf(s, code, "extra init expr at %s", pu.Box(check.fset.Position(init.Pos())))
 			// TODO(gri) avoid declared and not used error here
 		}
 	case l > r && (init != nil || r != 1):
@@ -177,7 +177,7 @@ func (check *Checker) importPackage(at positioner, path, dir string) *Package {
 			imp = nil // create fake package below
 		}
 		if err != nil {
-			check.errorf(at, BrokenImport, "could not import %s (%s)", path, err)
+			check.errorf(at, BrokenImport, "could not import %s (%s)", pu.Box(path), err)
 			if imp == nil {
 				// create a new fake package
 				// come up with a sensible package name (heuristic)
@@ -340,7 +340,7 @@ func (check *Checker) collectObjects() {
 							// concurrently. See go.dev/issue/32154.)
 							if alt := fileScope.Lookup(name); alt != nil {
 								err := check.newError(DuplicateDecl)
-								err.addf(d.spec.Name, "%s redeclared in this block", alt.Name())
+								err.addf(d.spec.Name, "%s redeclared in this block", pu.Box(alt.Name()))
 								err.addAltDecl(alt)
 								err.report()
 							} else {
@@ -422,14 +422,14 @@ func (check *Checker) collectObjects() {
 							code = InvalidMainDecl
 						}
 						if tparam0 != nil {
-							check.softErrorf(tparam0, code, "func %s must have no type parameters", name)
+							check.softErrorf(tparam0, code, "func %s must have no type parameters", pu.Box(name))
 						}
 						if t := d.decl.Type; t.Params.NumFields() != 0 || t.Results != nil && (name != "main" || !isMainStatus(t.Results)) {
 							// Plutonium: main may return an int64 exit status.
 							if name == "main" {
 								check.softErrorf(d.decl.Name, BadMainSignature, "func main must have no arguments and return nothing or an int64")
 							} else {
-								check.softErrorf(d.decl.Name, code, "func %s must have no arguments and no return values", name)
+								check.softErrorf(d.decl.Name, code, "func %s must have no arguments and no return values", pu.Box(name))
 							}
 						}
 					} else {
@@ -474,10 +474,10 @@ func (check *Checker) collectObjects() {
 			if alt := pkg.scope.Lookup(name); alt != nil {
 				err := check.newError(DuplicateDecl)
 				if pkg, ok := obj.(*PkgName); ok {
-					err.addf(alt, "%s already declared through import of %s", alt.Name(), pkg.Imported())
+					err.addf(alt, "%s already declared through import of %s", pu.Box(alt.Name()), pkg.Imported())
 					err.addAltDecl(pkg)
 				} else {
-					err.addf(alt, "%s already declared through dot-import of %s", alt.Name(), obj.Pkg())
+					err.addf(alt, "%s already declared through dot-import of %s", pu.Box(alt.Name()), obj.Pkg())
 					// TODO(gri) dot-imported objects don't have a position; addAltDecl won't print anything
 					err.addAltDecl(obj)
 				}
@@ -717,9 +717,9 @@ func (check *Checker) errorUnusedPkg(obj *PkgName) {
 		elem = strings.SliceFrom(elem, i+1)
 	}
 	if obj.name == "" || obj.name == "." || obj.name == elem {
-		check.softErrorf(obj, UnusedImport, "%q imported and not used", path)
+		check.softErrorf(obj, UnusedImport, "%q imported and not used", pu.Box(path))
 	} else {
-		check.softErrorf(obj, UnusedImport, "%q imported as %s and not used", path, obj.name)
+		check.softErrorf(obj, UnusedImport, "%q imported as %s and not used", pu.Box(path), pu.Box(obj.name))
 	}
 }
 

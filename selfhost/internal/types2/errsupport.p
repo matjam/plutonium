@@ -10,6 +10,7 @@ package types2
 
 import (
 	"pluto/strings"
+	"selfhost/pu"
 )
 
 // lookupError returns a case-specific error when a lookup of selector sel in the
@@ -76,13 +77,13 @@ func (check *Checker) lookupError(typ Type, sel string, obj Object, structLit bo
 	if structLit {
 		switch e {
 		case missing:
-			return check.sprintf("unknown field %s in struct literal of type %s", sel, typ)
+			return check.sprintf("unknown field %s in struct literal of type %s", pu.Box(sel), typ)
 		case misspelled:
-			return check.sprintf("unknown field %s in struct literal of type %s, but does have %s", sel, typ, alt)
+			return check.sprintf("unknown field %s in struct literal of type %s, but does have %s", pu.Box(sel), typ, pu.Box(alt))
 		case unexported:
-			return check.sprintf("unknown field %s in struct literal of type %s, but does have unexported %s", sel, typ, alt)
+			return check.sprintf("unknown field %s in struct literal of type %s, but does have unexported %s", pu.Box(sel), typ, pu.Box(alt))
 		case inaccessible:
-			return check.sprintf("cannot refer to unexported field %s in struct literal of type %s", alt, typ)
+			return check.sprintf("cannot refer to unexported field %s in struct literal of type %s", pu.Box(alt), typ)
 		}
 	} else {
 		what := "object"
@@ -94,13 +95,13 @@ func (check *Checker) lookupError(typ Type, sel string, obj Object, structLit bo
 		}
 		switch e {
 		case missing:
-			return check.sprintf("type %s has no field or method %s", typ, sel)
+			return check.sprintf("type %s has no field or method %s", typ, pu.Box(sel))
 		case misspelled:
-			return check.sprintf("type %s has no field or method %s, but does have %s %s", typ, sel, what, alt)
+			return check.sprintf("type %s has no field or method %s, but does have %s %s", typ, pu.Box(sel), pu.Box(what), pu.Box(alt))
 		case unexported:
-			return check.sprintf("type %s has no field or method %s, but does have unexported %s %s", typ, sel, what, alt)
+			return check.sprintf("type %s has no field or method %s, but does have unexported %s %s", typ, pu.Box(sel), pu.Box(what), pu.Box(alt))
 		case inaccessible:
-			return check.sprintf("cannot refer to unexported %s %s", what, alt)
+			return check.sprintf("cannot refer to unexported %s %s", pu.Box(what), pu.Box(alt))
 		}
 	}
 

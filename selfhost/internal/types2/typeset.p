@@ -233,8 +233,8 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 		case explicit:
 			if check != nil {
 				err := check.newError(DuplicateDecl)
-				err.addf(atPos(pos), "duplicate method %s", m.name)
-				err.addf(atPos(mpos[other.(*Func)]), "other declaration of method %s", m.name)
+				err.addf(atPos(pos), "duplicate method %s", pu.Box(m.name))
+				err.addf(atPos(mpos[other.(*Func)]), "other declaration of method %s", pu.Box(m.name))
 				err.report()
 			}
 		default:
@@ -430,8 +430,8 @@ type goClosure_computeInterfaceTypeSet_1 struct {
 func (goSelf *goClosure_computeInterfaceTypeSet_1) Call() {
 	if goSelf.pos.IsValid() && !goSelf.check.allowVersion(go1_14) || !Identical(goSelf.m.typ, goSelf.other.Type()) {
 		err := goSelf.check.newError(DuplicateDecl)
-		err.addf(atPos(goSelf.pos), "duplicate method %s", goSelf.m.name)
-		err.addf(atPos(goSelf.mpos[goSelf.other.(*Func)]), "other declaration of method %s", goSelf.m.name)
+		err.addf(atPos(goSelf.pos), "duplicate method %s", pu.Box(goSelf.m.name))
+		err.addf(atPos(goSelf.mpos[goSelf.other.(*Func)]), "other declaration of method %s", pu.Box(goSelf.m.name))
 		err.report()
 	}
 }

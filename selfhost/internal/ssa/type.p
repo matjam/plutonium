@@ -75,7 +75,7 @@ func IntType(size int64) *Type {
 	case 8:
 		return TI64
 	}
-	panic(compat.Sprintf("ssa: no integer type of size %d", size))
+	panic(pu.Box(compat.Sprintf("ssa: no integer type of size %d", size)))
 }
 
 // FloatType returns the float type of the given size in bytes.
@@ -86,7 +86,7 @@ func FloatType(size int64) *Type {
 	case 8:
 		return TF64
 	}
-	panic(compat.Sprintf("ssa: no float type of size %d", size))
+	panic(pu.Box(compat.Sprintf("ssa: no float type of size %d", size)))
 }
 
 // TupleOf returns a tuple type.

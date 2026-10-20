@@ -17,6 +17,7 @@ import (
 	"pluto/unicode/utf8"
 	"selfhost/compat"
 	"selfhost/internal/syntax/token"
+	"selfhost/pu"
 )
 
 // An ErrorHandler may be provided to [Scanner.Init]. If a syntax error is
@@ -152,7 +153,7 @@ func (s *Scanner) InitList(file *token.File, src []byte, errs *ErrorList, mode M
 func (s *Scanner) init(file *token.File, src []byte, err ErrorHandler, errs *ErrorList, mode Mode) {
 	// Explicitly initialize all fields since a scanner may be reused.
 	if file.Size() != len(src) {
-		panic(compat.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src)))
+		panic(pu.Box(compat.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src))))
 	}
 
 	dir, _ := filepath.Split(file.Name())
@@ -520,7 +521,7 @@ func (s *Scanner) scanNumber() (token.Token, string) {
 
 	lit := compat.String(s.src[offs:s.offset])
 	if tok == token.INT && invalid >= 0 {
-		s.errorf(invalid, "invalid digit %q in %s", lit[invalid-offs], litname(prefix))
+		s.errorf(invalid, "invalid digit %q in %s", lit[invalid-offs], pu.Box(litname(prefix)))
 	}
 	if digsep&2 != 0 {
 		if i := invalidSep(lit); i >= 0 {

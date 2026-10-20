@@ -830,7 +830,7 @@ func (s *fnState) ifaceCall(iv value, I types2.Type, fn *types2.Func, sig *types
 		}
 	}
 	if idx < 0 {
-		s.l.internalf(pos, "method %s not found in %s", fn.Name(), I)
+		s.l.internalf(pos, "method %s not found in %s", pu.Box(fn.Name()), I)
 		return nil
 	}
 	tab, data := s.ifaceParts(iv)
@@ -876,7 +876,7 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 	obj, index, _ := types2.LookupFieldOrMethod(T, false, m.Pkg(), m.Name())
 	fn, ok := obj.(*types2.Func)
 	if !ok {
-		l.internalf(token.NoPos, "%s has no method %s", T, m.Name())
+		l.internalf(token.NoPos, "%s has no method %s", T, pu.Box(m.Name()))
 		return sym
 	}
 	if isIfaceMethod(fn) {

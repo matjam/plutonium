@@ -9,6 +9,7 @@ import (
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/syntax/token"
 	"selfhost/internal/types2"
+	"selfhost/pu"
 )
 
 // Interrupt handlers (//pu:interrupt, abi.md section 10.4) are entered by the
@@ -84,21 +85,21 @@ func (l *Lowerer) checkInterrupt(fd *ast.FuncDecl, fn *types2.Func) {
 	name := fn.Name()
 	switch {
 	case fd.Body == nil:
-		l.errorf(fd.Pos(), diag.InterruptDecl, "//pu:interrupt function %s must have a body", name)
+		l.errorf(fd.Pos(), diag.InterruptDecl, "//pu:interrupt function %s must have a body", pu.Box(name))
 	case sig.Recv() != nil:
-		l.errorf(fd.Pos(), diag.InterruptDecl, "method %s cannot be an interrupt handler", name)
+		l.errorf(fd.Pos(), diag.InterruptDecl, "method %s cannot be an interrupt handler", pu.Box(name))
 	case sig.TypeParams().Len() > 0:
-		l.errorf(fd.Pos(), diag.InterruptDecl, "generic function %s cannot be an interrupt handler", name)
+		l.errorf(fd.Pos(), diag.InterruptDecl, "generic function %s cannot be an interrupt handler", pu.Box(name))
 	case sig.Results().Len() > 0:
-		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s cannot have results", name)
+		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s cannot have results", pu.Box(name))
 	case hasDirective(fd.Doc, "inline"):
-		l.errorf(fd.Pos(), diag.InterruptDecl, "interrupt handler %s cannot be //pu:inline", name)
+		l.errorf(fd.Pos(), diag.InterruptDecl, "interrupt handler %s cannot be //pu:inline", pu.Box(name))
 	case sig.Params().Len() < 1 || sig.Params().Len() > 2 || sig.Variadic():
-		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s must take (frame *x86.InterruptFrame) or (frame *x86.InterruptFrame, code uint64)", name)
+		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s must take (frame *x86.InterruptFrame) or (frame *x86.InterruptFrame, code uint64)", pu.Box(name))
 	case !isFramePointer(sig.Params().At(0).Type()):
-		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s: first parameter must be a pointer to the interrupt frame, not %s", name, sig.Params().At(0).Type())
+		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s: first parameter must be a pointer to the interrupt frame, not %s", pu.Box(name), sig.Params().At(0).Type())
 	case sig.Params().Len() == 2 && !isErrorCode(sig.Params().At(1).Type()):
-		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s: error code must be uint64, not %s", name, sig.Params().At(1).Type())
+		l.errorf(fd.Pos(), diag.InterruptSig, "interrupt handler %s: error code must be uint64, not %s", pu.Box(name), sig.Params().At(1).Type())
 	}
 }
 
@@ -141,14 +142,14 @@ func (s *fnState) gateCall(e *ast.CallExpr, gate *types2.Func) []value {
 	}
 	switch {
 	case h == nil || !s.l.isInterrupt(h):
-		s.l.errorf(e.Pos(), diag.GateArg, "x86.%s: the first argument must name a %s", gate.Name(), form)
+		s.l.errorf(e.Pos(), diag.GateArg, "x86.%s: the first argument must name a %s", pu.Box(gate.Name()), pu.Box(form))
 		return compat.Clone([]value{s.zeroValue(T)})
 	case s.l.isTrapHandler(h) != trap:
 		is, other := "a //pu:interrupt function, not a trap handler", "x86.InterruptGate"
 		if !trap {
 			is, other = "a //pu:interrupt trap function", "x86.TrapGate"
 		}
-		s.l.errorf(e.Pos(), diag.GateArg, "x86.%s: %s is %s; install it with %s", gate.Name(), h.Name(), is, other)
+		s.l.errorf(e.Pos(), diag.GateArg, "x86.%s: %s is %s; install it with %s", pu.Box(gate.Name()), pu.Box(h.Name()), pu.Box(is), pu.Box(other))
 		return compat.Clone([]value{s.zeroValue(T)})
 	}
 	at, _ := gate.Pkg().Scope().Lookup("gateAt").(*types2.Func)
@@ -176,7 +177,7 @@ func (s *fnState) gateCall(e *ast.CallExpr, gate *types2.Func) []value {
 // which only the CPU may enter.
 func (s *fnState) checkNotHandler(sym *ssa.Sym, pos token.Pos, what string) {
 	if s.l.interruptSyms[sym] {
-		s.l.errorf(pos, diag.InterruptHandlerV, "interrupt handler %s cannot be %s; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table", sym.Name, what)
+		s.l.errorf(pos, diag.InterruptHandlerV, "interrupt handler %s cannot be %s; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table", pu.Box(sym.Name), pu.Box(what))
 	}
 }
 
@@ -193,6 +194,6 @@ func (s *fnState) rejectGateStart(call *ast.CallExpr, how string) bool {
 	if !ok || !isGateFunc(fn) {
 		return false
 	}
-	s.l.errorf(call.Pos(), diag.GateArg, "x86.%s cannot be %s: it must be called with the name of a handler, and its result used", fn.Name(), how)
+	s.l.errorf(call.Pos(), diag.GateArg, "x86.%s cannot be %s: it must be called with the name of a handler, and its result used", pu.Box(fn.Name()), pu.Box(how))
 	return true
 }

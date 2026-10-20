@@ -432,7 +432,7 @@ func (check *Checker) indexOperand(x *operand, max int64) (typ Type, val int64) 
 	v, ok := constant.Int64Val(x.val)
 	assert(ok)
 	if max >= 0 && v >= max {
-		check.errorf(x, InvalidIndex, invalidArg+"index %s out of bounds [0:%d]", x.val.String(), max)
+		check.errorf(x, InvalidIndex, invalidArg+"index %s out of bounds [0:%d]", pu.Box(x.val.String()), max)
 		return
 	}
 
@@ -453,20 +453,20 @@ func (check *Checker) isValidIndex(x *operand, code Code, what string, allowNega
 
 	// spec: "the index x must be of integer type or an untyped constant"
 	if !allInteger(x.typ()) {
-		check.errorf(x, code, invalidArg+"%s %s must be integer", what, x)
+		check.errorf(x, code, invalidArg+"%s %s must be integer", pu.Box(what), x)
 		return false
 	}
 
 	if x.mode() == constant_ {
 		// spec: "a constant index must be non-negative ..."
 		if !allowNegative && constant.Sign(x.val) < 0 {
-			check.errorf(x, code, invalidArg+"%s %s must not be negative", what, x)
+			check.errorf(x, code, invalidArg+"%s %s must not be negative", pu.Box(what), x)
 			return false
 		}
 
 		// spec: "... and representable by a value of type int"
 		if !representableConst(x.val, check, Typ[Int], &x.val) {
-			check.errorf(x, code, invalidArg+"%s %s overflows int", what, x)
+			check.errorf(x, code, invalidArg+"%s %s overflows int", pu.Box(what), x)
 			return false
 		}
 	}

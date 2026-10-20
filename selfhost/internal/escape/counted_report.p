@@ -33,7 +33,7 @@ func (w *walker) countedAsReport(e *viewErr) bool {
 		found = true
 		pos := child.decl.Name.Pos()
 		w.a.add(pos, compat.Sprintf("counted-as|%p", child), func() *diag.Diagnostic {
-			d := diag.New(w.a.fset.Position(pos), diag.PassFrameView, "cannot borrow an error returned by %s: the wrapping error may not keep it alive", child.name)
+			d := diag.New(w.a.fset.Position(pos), diag.PassFrameView, "cannot borrow an error returned by %s: the wrapping error may not keep it alive", pu.Box(child.name))
 			d.Text = "Unwrap returns a counted error that is not held by the wrapping error. A pointer target of errors.As only borrows that child. The child is released when the search leaves it, so keeping the wrapping error alive does not keep the target alive."
 			d.Fix = pu.New(diag.Fix{Intro: "Use a counted target matching the child's dynamic type (shared[T] or synced[T]), or store the child in a field of the wrapping error"})
 			if sig := f.obj.Type().(*types2.Signature); sig.TypeParams().Len() > 0 {

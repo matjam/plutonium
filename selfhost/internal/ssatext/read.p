@@ -152,7 +152,7 @@ func (r *reader) endLine() {
 func (r *reader) tag(want string) {
 	w := r.word()
 	if r.err == nil && !eq(w, want) {
-		r.fail("want %q, have %q", want, compat.String(w))
+		r.fail("want %q, have %q", pu.Box(want), pu.Box(compat.String(w)))
 	}
 }
 
@@ -182,14 +182,14 @@ func (r *reader) int() int64 {
 		i = 1
 	}
 	if i >= len(w) {
-		r.fail("bad number %q", compat.String(w))
+		r.fail("bad number %q", pu.Box(compat.String(w)))
 		return 0
 	}
 	var n uint64
 	for ; i < len(w); i++ {
 		c := w[i]
 		if c < '0' || c > '9' {
-			r.fail("bad number %q", compat.String(w))
+			r.fail("bad number %q", pu.Box(compat.String(w)))
 			return 0
 		}
 		n = n*10 + uint64(c-'0')
@@ -218,7 +218,7 @@ func (r *reader) str() string {
 	}
 	s, err := strconv.Unquote(compat.String(w))
 	if err != nil {
-		r.fail("bad string %s", compat.String(w))
+		r.fail("bad string %s", pu.Box(compat.String(w)))
 		return ""
 	}
 	return s
@@ -281,7 +281,7 @@ func (r *reader) typeOf(w []byte) *ssa.Type {
 	if len(w) >= 2 && w[0] == '#' {
 		n, ok := atoi(w[1:])
 		if !ok || n >= len(r.types) || r.types[n] == nil {
-			r.fail("type %s is not defined", compat.String(w))
+			r.fail("type %s is not defined", pu.Box(compat.String(w)))
 			return nil
 		}
 		return r.types[n]
@@ -291,7 +291,7 @@ func (r *reader) typeOf(w []byte) *ssa.Type {
 			return predeclared(i)
 		}
 	}
-	r.fail("bad type %q", compat.String(w))
+	r.fail("bad type %q", pu.Box(compat.String(w)))
 	return nil
 }
 
@@ -359,7 +359,7 @@ func (r *reader) typeTable() {
 			elems := r.typeList()
 			r.types[i] = pu.New(ssa.Type{Kind: ssa.KVec, Size: size, Elems: elems})
 		default:
-			r.fail("bad type kind %q", compat.String(kind))
+			r.fail("bad type kind %q", pu.Box(compat.String(kind)))
 		}
 		r.endLine()
 	}
@@ -417,7 +417,7 @@ func (r *reader) symTable() {
 			return
 		}
 		if r.prog.LookupSym(name) != nil {
-			r.fail("symbol %q twice", name)
+			r.fail("symbol %q twice", pu.Box(name))
 			return
 		}
 		s := r.prog.Sym(name, kind)
@@ -506,7 +506,7 @@ func (r *reader) opTable() {
 		name := r.word()
 		r.endLine()
 		if r.err == nil && (num != int64(i) || !eq(name, ssa.Op(i).String())) {
-			r.fail("op %d is %q here and %q in the text", i, ssa.Op(i).String(), compat.String(name))
+			r.fail("op %d is %q here and %q in the text", i, pu.Box(ssa.Op(i).String()), pu.Box(compat.String(name)))
 		}
 	}
 }
@@ -926,7 +926,7 @@ func (r *reader) aux(vr *valueRefs) {
 		return
 	}
 	if len(w) < 2 {
-		r.fail("bad aux %q", compat.String(w))
+		r.fail("bad aux %q", pu.Box(compat.String(w)))
 		return
 	}
 	rest := w[1:]
@@ -934,14 +934,14 @@ func (r *reader) aux(vr *valueRefs) {
 	case 's':
 		n, ok := atoi(rest)
 		if !ok || n >= len(r.syms) {
-			r.fail("bad aux %q", compat.String(w))
+			r.fail("bad aux %q", pu.Box(compat.String(w)))
 			return
 		}
 		vr.v.Aux = r.syms[n]
 	case 'l':
 		n, ok := atoi(rest)
 		if !ok {
-			r.fail("bad aux %q", compat.String(w))
+			r.fail("bad aux %q", pu.Box(compat.String(w)))
 			return
 		}
 		vr.v.Aux = pu.New(ssa.Slot{})
@@ -951,12 +951,12 @@ func (r *reader) aux(vr *valueRefs) {
 	case 'i':
 		s, err := strconv.Unquote(compat.String(rest))
 		if err != nil {
-			r.fail("bad aux %q", compat.String(w))
+			r.fail("bad aux %q", pu.Box(compat.String(w)))
 			return
 		}
 		vr.v.Aux = ssa.NewIntrinsic(s)
 	default:
-		r.fail("bad aux %q", compat.String(w))
+		r.fail("bad aux %q", pu.Box(compat.String(w)))
 	}
 }
 

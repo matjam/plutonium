@@ -219,12 +219,12 @@ type ownerInfo struct {
 func checkOne(pos token.Position, name, arg string, owner ownerInfo, hasOwner, beforePackage bool) *diag.Diagnostic {
 	if reason, gone := retired[name]; gone {
 		if new, ok := replacedBy[name]; ok {
-			d := diag.New(pos, diag.RetiredDirective, "//pu:%s was replaced by //pu:%s", name, new)
+			d := diag.New(pos, diag.RetiredDirective, "//pu:%s was replaced by //pu:%s", pu.Box(name), pu.Box(new))
 			d.Text = compat.Concat("//pu:", name, " was replaced by //pu:", new, ": ", reason, " Change the name; the function keeps its meaning, with the generation checks off as well.")
 			d.Fix = pu.New(diag.Fix{Intro: "Use the replacement", Code: compat.Concat(Prefix, new)})
 			return d
 		}
-		d := diag.New(pos, diag.RetiredDirective, "//pu:%s was removed: %s", name, reason)
+		d := diag.New(pos, diag.RetiredDirective, "//pu:%s was removed: %s", pu.Box(name), pu.Box(reason))
 		d.Text = compat.Concat("//pu:", name, " is no longer needed: ", reason, ". Delete the line; the program means the same without it.")
 		d.Fix = pu.New(diag.Fix{Intro: "Delete the line", Code: compat.Concat(Prefix, name, " (delete this line)")})
 		return d
@@ -267,19 +267,19 @@ func argCheck(pos token.Position, name, arg string, info info) *diag.Diagnostic 
 	if name == "interrupt" && arg != "" && arg != "trap" {
 		// The one form of the directive: a handler entered through a trap
 		// gate (language spec sections 20.3 and 20.10).
-		d := diag.New(pos, diag.DirectiveArgument, "//pu:interrupt takes no argument but trap, found %q", arg)
+		d := diag.New(pos, diag.DirectiveArgument, "//pu:interrupt takes no argument but trap, found %q", pu.Box(arg))
 		d.Text = "//pu:interrupt marks an interrupt handler, entered through an interrupt gate. Its only argument is trap, for a handler entered through a trap gate, which can be entered again while it runs. Any other text would be ignored, and the function would be a handler of the plain form. Put an explanation on a line of its own."
 		d.Fix = pu.New(diag.Fix{Intro: "Write the directive alone, or with trap, and the explanation above it", Code: compat.Concat("// ", arg, "\n", Prefix, name)})
 		return d
 	}
 	switch {
 	case info.arg == noArg && arg != "":
-		d := diag.New(pos, diag.DirectiveArgument, "//pu:%s takes no argument, found %q", name, arg)
+		d := diag.New(pos, diag.DirectiveArgument, "//pu:%s takes no argument, found %q", pu.Box(name), pu.Box(arg))
 		d.Text = compat.Concat("//pu:", name, " stands alone on its line. Text after its name is not a comment, and the compiler would not see the directive at all. Put an explanation on a line of its own.")
 		d.Fix = pu.New(diag.Fix{Intro: "Write the directive alone, and the explanation above it", Code: compat.Concat("// ", arg, "\n", Prefix, name)})
 		return d
 	case info.arg == needsArg && arg == "":
-		d := diag.New(pos, diag.DirectiveArgument, "//pu:%s needs an argument: %s", name, info.need)
+		d := diag.New(pos, diag.DirectiveArgument, "//pu:%s needs an argument: %s", pu.Box(name), pu.Box(info.need))
 		d.Text = compat.Concat("//pu:", name, " takes ", info.need, " after its name, and has none, so it would do nothing.")
 		d.Fix = pu.New(diag.Fix{Intro: "Add the argument", Code: compat.Concat(Prefix, name, " ...")})
 		return d
@@ -293,7 +293,7 @@ func goDirective(pos token.Position, text string) *diag.Diagnostic {
 	rest := strings.TrimPrefix(text, GoPrefix)
 	name, arg, _ := strings.Cut(strings.TrimSpace(rest), " ")
 	if pu_, ok := goEquivalents[name]; ok {
-		d := diag.New(pos, diag.GoDirective, "//go:%s is a Go directive; write %s", name, pu_)
+		d := diag.New(pos, diag.GoDirective, "//go:%s is a Go directive; write %s", pu.Box(name), pu.Box(pu_))
 		code := compat.Concat(Prefix, name)
 		if arg = strings.TrimSpace(arg); arg != "" {
 			code = compat.Concat(code, compat.Concat(" ", arg))
@@ -302,7 +302,7 @@ func goDirective(pos token.Position, text string) *diag.Diagnostic {
 		d.Fix = pu.New(diag.Fix{Intro: "Use the //pu: directive", Code: code})
 		return d
 	}
-	d := diag.New(pos, diag.GoDirective, "//go:%s is a Go directive, and Plutonium has no equivalent; delete it", name)
+	d := diag.New(pos, diag.GoDirective, "//go:%s is a Go directive, and Plutonium has no equivalent; delete it", pu.Box(name))
 	d.Text = compat.Concat("Plutonium does not read //go: comments, so this one would do nothing, and no //pu: directive does what "+GoPrefix, name, " does in Go. The directives are: ", compat.Join(Names(), ", "), ".")
 	return d
 }
@@ -318,7 +318,7 @@ func unknown(pos token.Position, name string) *diag.Diagnostic {
 	near := diag.Closest(name, names)
 	msg := compat.Concat("unknown directive //pu:", name)
 	text := compat.Concat("The compiler has no directive named ", name, ", so this comment would do nothing.")
-	d := diag.New(pos, diag.UnknownDirective, "%s", msg)
+	d := diag.New(pos, diag.UnknownDirective, "%s", pu.Box(msg))
 	if near != "" {
 		d.Msg = compat.Concat(msg, " (did you mean //pu:", near, "?)")
 		text = compat.Concat(text, compat.Concat(" It is close to ", near, "."))
@@ -329,7 +329,7 @@ func unknown(pos token.Position, name string) *diag.Diagnostic {
 }
 
 func misplaced(pos token.Position, name, want string) *diag.Diagnostic {
-	d := diag.New(pos, diag.MisplacedDirective, "//pu:%s is in the wrong place: it goes %s", name, want)
+	d := diag.New(pos, diag.MisplacedDirective, "//pu:%s is in the wrong place: it goes %s", pu.Box(name), pu.Box(want))
 	d.Text = compat.Concat("A directive does something only where the compiler looks for it. //pu:", name, " goes ", want, ".")
 	d.Fix = pu.New(diag.Fix{Intro: "Move it", Code: compat.Concat(Prefix, name, "\n", exampleDecl(name))})
 	return d

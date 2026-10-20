@@ -78,7 +78,7 @@ func (check *Checker) enumType(e *ast.EnumType, def *TypeName) Type {
 		return Typ[Invalid]
 	}
 	if named.tparams != nil {
-		check.errorf(e, GenericEnum, "enum type %s cannot have type parameters", def.name)
+		check.errorf(e, GenericEnum, "enum type %s cannot have type parameters", pu.Box(def.name))
 		return Typ[Invalid]
 	}
 
@@ -90,7 +90,7 @@ func (check *Checker) enumType(e *ast.EnumType, def *TypeName) Type {
 		}
 		b, _ := bt.Underlying().(*Basic)
 		if b == nil || !isInteger(b) || isTypeParam(bt) {
-			check.errorf(e.Base, BadEnumBase, "enum %s: underlying type %s must be an integer type", def.name, bt)
+			check.errorf(e.Base, BadEnumBase, "enum %s: underlying type %s must be an integer type", pu.Box(def.name), bt)
 			return Typ[Invalid]
 		}
 		base = b
@@ -107,7 +107,7 @@ func (check *Checker) enumType(e *ast.EnumType, def *TypeName) Type {
 	}()
 
 	if len(e.Members) == 0 {
-		check.errorf(e, EmptyEnum, "enum %s has no members", def.name)
+		check.errorf(e, EmptyEnum, "enum %s has no members", pu.Box(def.name))
 		ok = false
 		return Typ[Invalid]
 	}
@@ -143,7 +143,7 @@ func (check *Checker) enumType(e *ast.EnumType, def *TypeName) Type {
 		}
 		key := val.ExactString()
 		if first := seen[key]; first != nil {
-			check.errorf(m.Name, DuplicateEnumValue, "enum member %s has the same value %s as %s", name, key, first.Name.Name)
+			check.errorf(m.Name, DuplicateEnumValue, "enum member %s has the same value %s as %s", pu.Box(name), pu.Box(key), pu.Box(first.Name.Name))
 			ok = false
 		} else {
 			seen[key] = m
@@ -154,7 +154,7 @@ func (check *Checker) enumType(e *ast.EnumType, def *TypeName) Type {
 	}
 
 	if _, hasZero := seen["0"]; !hasZero {
-		check.errorf(e, EnumWithoutZero, "enum %s has no member with value 0 (its zero value must be a member)", def.name)
+		check.errorf(e, EnumWithoutZero, "enum %s has no member with value 0 (its zero value must be a member)", pu.Box(def.name))
 		ok = false
 		return Typ[Invalid]
 	}
@@ -163,7 +163,7 @@ func (check *Checker) enumType(e *ast.EnumType, def *TypeName) Type {
 	if base == nil {
 		base = smallestIntType(vals)
 		if base == nil {
-			check.errorf(e, EnumOverflow, "enum %s: values do not fit in a 64-bit integer", def.name)
+			check.errorf(e, EnumOverflow, "enum %s: values do not fit in a 64-bit integer", pu.Box(def.name))
 			ok = false
 			return Typ[Invalid]
 		}
@@ -175,7 +175,7 @@ func (check *Checker) enumType(e *ast.EnumType, def *TypeName) Type {
 				if m.Value != nil {
 					at = m.Value
 				}
-				check.errorf(at, EnumOverflow, "enum member %s.%s value %s overflows %s", def.name, m.Name.Name, val, base)
+				check.errorf(at, EnumOverflow, "enum member %s.%s value %s overflows %s", pu.Box(def.name), pu.Box(m.Name.Name), pu.Box(val), base)
 				ok = false
 			}
 		}
@@ -201,16 +201,16 @@ func (check *Checker) enumValue(m *ast.EnumMember) constant.Value {
 		return constant.Value{}
 	}
 	if x.mode() != constant_ {
-		check.errorf(x, BadEnumValue, "enum member %s: value %s is not constant", m.Name.Name, x)
+		check.errorf(x, BadEnumValue, "enum member %s: value %s is not constant", pu.Box(m.Name.Name), x)
 		return constant.Value{}
 	}
 	if !isInteger(x.typ()) && !isUntyped(x.typ()) {
-		check.errorf(x, BadEnumValue, "enum member %s: value %s is not an integer", m.Name.Name, x)
+		check.errorf(x, BadEnumValue, "enum member %s: value %s is not an integer", pu.Box(m.Name.Name), x)
 		return constant.Value{}
 	}
 	val := constant.ToInt(x.val)
 	if val.Kind() != constant.Int {
-		check.errorf(x, BadEnumValue, "enum member %s: value %s is not an integer", m.Name.Name, x)
+		check.errorf(x, BadEnumValue, "enum member %s: value %s is not an integer", pu.Box(m.Name.Name), x)
 		return constant.Value{}
 	}
 	if isUntyped(x.typ()) {
@@ -263,7 +263,7 @@ func (check *Checker) enumSelector(x *operand, e *ast.SelectorExpr) bool {
 		return false
 	}
 	if en.building {
-		check.errorf(e, EnumSelfReference, "invalid use of %s in the declaration of enum %s", ast.Expr(e), en.obj.name)
+		check.errorf(e, EnumSelfReference, "invalid use of %s in the declaration of enum %s", ast.Expr(e), pu.Box(en.obj.name))
 		x.invalidate()
 		return true
 	}
@@ -272,7 +272,7 @@ func (check *Checker) enumSelector(x *operand, e *ast.SelectorExpr) bool {
 		return false // a method expression, or an error reported by the caller
 	}
 	if !c.Exported() && c.pkg != check.pkg {
-		check.errorf(e.Sel, UnexportedEnumMember, "%s undefined (cannot refer to unexported member %s of enum %s)", ast.Expr(e), c.name, en.obj.name)
+		check.errorf(e.Sel, UnexportedEnumMember, "%s undefined (cannot refer to unexported member %s of enum %s)", ast.Expr(e), pu.Box(c.name), pu.Box(en.obj.name))
 		x.invalidate()
 		return true
 	}
@@ -344,7 +344,7 @@ func (check *Checker) missingCases(at positioner, x *operand, missing []string) 
 		what, them = "cases", "them"
 	}
 	check.errorf(at, MissingEnumCase, "missing %s in switch on %s (%s): %s (add %s or a default case)",
-		what, x.expr, x.typ(), compat.Join(missing, ", "), them)
+		pu.Box(what), x.expr, x.typ(), pu.Box(compat.Join(missing, ", ")), pu.Box(them))
 }
 
 // enumConversion checks the conversion E(x) to enum type T, where x is not
@@ -436,11 +436,11 @@ func (check *Checker) enumTypeOperand(e ast.Expr, context string) (Type, *Enum) 
 	}
 	en := EnumOf(T)
 	if en == nil {
-		check.errorf(e, NotEnumType, "%s: %s is not an enum type", context, T)
+		check.errorf(e, NotEnumType, "%s: %s is not an enum type", pu.Box(context), T)
 		return nil, nil
 	}
 	if en.building {
-		check.errorf(e, EnumSelfReference, "invalid use of %s in the declaration of enum %s", e, en.obj.name)
+		check.errorf(e, EnumSelfReference, "invalid use of %s in the declaration of enum %s", e, pu.Box(en.obj.name))
 		return nil, nil
 	}
 	return T, en

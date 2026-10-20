@@ -569,7 +569,7 @@ func writeObject(buf *compat.Buffer, obj Object, qf Qualifier) {
 		return
 
 	default:
-		panic(compat.Sprintf("writeObject(%T)", obj))
+		panic(pu.Box(compat.Sprintf("writeObject(%T)", obj)))
 	}
 
 	buf.WriteByte(' ')

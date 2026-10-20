@@ -348,7 +348,7 @@ func (a *analyzer) applyDirectives(fn *function) {
 		case "resultholds":
 			if pos := a.fset.Position(fn.decl.Pos()); !a.userResultHolds && !strings.HasPrefix(pos.Filename, load.StdPrefix) {
 				a.errs = diag.List(compat.Append(a.errs, diag.New(pos, diag.ResultHoldsOutsideStd,
-					"//pu:resultholds is for the standard library; %s cannot use it", fn.name)))
+					"//pu:resultholds is for the standard library; %s cannot use it", pu.Box(fn.name))))
 				continue
 			}
 			for _, name := range d[1:] {
@@ -364,7 +364,7 @@ func (a *analyzer) applyDirectives(fn *function) {
 				}
 				if !found {
 					a.errs = diag.List(compat.Append(a.errs, diag.New(a.fset.Position(fn.decl.Pos()), diag.BadResultHolds,
-						"//pu:resultholds names %s, which is not a parameter of %s", name, fn.name)))
+						"//pu:resultholds names %s, which is not a parameter of %s", pu.Box(name), pu.Box(fn.name))))
 				}
 			}
 		}
@@ -413,7 +413,7 @@ func (a *analyzer) checkResultHolds() {
 			}
 			if !returned {
 				a.errs = diag.List(compat.Append(a.errs, diag.New(a.fset.Position(f.decl.Pos()), diag.BadResultHolds,
-					"//pu:resultholds %s, but %s does not return %s in its result", f.paramName(idx), f.name, f.paramName(idx))))
+					"//pu:resultholds %s, but %s does not return %s in its result", pu.Box(f.paramName(idx)), pu.Box(f.name), pu.Box(f.paramName(idx)))))
 			}
 		}
 	}

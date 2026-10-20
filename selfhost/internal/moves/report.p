@@ -140,9 +140,9 @@ func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic 
 	how := c.howMoved(w.stale)
 	var d *diag.Diagnostic
 	if w.maybe {
-		d = c.newDiag(e.Pos(), diag.StaleView, "%s holds a view of %s (%s, line %d), which may have been %s at line %d, so %s cannot be used here", name, owner, w.text, made, how, at, name)
+		d = c.newDiag(e.Pos(), diag.StaleView, "%s holds a view of %s (%s, line %d), which may have been %s at line %d, so %s cannot be used here", pu.Box(name), pu.Box(owner), pu.Box(w.text), made, pu.Box(how), at, pu.Box(name))
 	} else {
-		d = c.newDiag(e.Pos(), diag.StaleView, "%s holds a view of %s (%s, line %d), which was %s at line %d, so %s can no longer be used here", name, owner, w.text, made, how, at, name)
+		d = c.newDiag(e.Pos(), diag.StaleView, "%s holds a view of %s (%s, line %d), which was %s at line %d, so %s can no longer be used here", pu.Box(name), pu.Box(owner), pu.Box(w.text), made, pu.Box(how), at, pu.Box(name))
 	}
 	holder := name
 	if name != v.Name() {
@@ -185,7 +185,7 @@ func (c *checker) lostVerb(mv move) string {
 // view of it is kept where the move checker cannot follow it.
 func (c *checker) pinnedDiag(v *types2.Var, p *pinMark, mv move) *diag.Diagnostic {
 	owner := v.Name()
-	d := c.newDiag(mv.pos, diag.LostView, "%s %s here, but a view of it (%s, line %d) was %s at line %d, where the compiler cannot check its uses", owner, c.lostVerb(mv), p.text, c.line(p.pos), p.how, c.line(p.where))
+	d := c.newDiag(mv.pos, diag.LostView, "%s %s here, but a view of it (%s, line %d) was %s at line %d, where the compiler cannot check its uses", pu.Box(owner), pu.Box(c.lostVerb(mv)), pu.Box(p.text), c.line(p.pos), pu.Box(p.how), c.line(p.where))
 	d.Text = compat.Sprintf("A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from. The compiler follows views through local variables and their fields, and into the arguments of the calls that store them there, but the view of %s made by %s at line %d went into memory it does not follow, so it cannot check that the view is not used after line %d.", owner, p.text, c.line(p.pos), c.line(mv.pos))
 	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Keep the view in a local variable or a field of one, where the compiler follows it, or do not %s while the view is kept", strings.TrimPrefix(c.lostVerbBase(mv), "is "))})
 	return d
@@ -248,7 +248,7 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 	}
 	at := c.line(mv.pos)
 	if s.st == maybe && mv.loop {
-		d := c.newDiag(id.Pos(), diag.UseMaybeMoved, "%s was %s at line %d in the previous iteration of this loop", name, c.howMoved(mv), at)
+		d := c.newDiag(id.Pos(), diag.UseMaybeMoved, "%s was %s at line %d in the previous iteration of this loop", pu.Box(name), pu.Box(c.howMoved(mv)), at)
 		d.Text = compat.Sprintf("%s %s is declared outside the loop, and the loop moves its value away at line %d without giving it a new one, so when the next iteration starts %s holds nothing.", c.ownerIntro(T), name, at, name)
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Declare %s inside the loop, so that each iteration has its own", name), Code: compat.Sprintf("for ... {\n\tvar %s %s\n\t...\n}", name, c.typeName(T))})
 		more := pu.New(diag.Fix{Intro: compat.Sprintf("Or give %s a new value after line %d", name, at), Code: compat.Sprintf("%s = %s", name, c.newValue(T))})
@@ -259,12 +259,12 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 		return d
 	}
 	if s.st == maybe {
-		d := c.newDiag(id.Pos(), diag.UseMaybeMoved, "%s may have been moved at line %d, so it cannot be used here", name, at)
+		d := c.newDiag(id.Pos(), diag.UseMaybeMoved, "%s may have been moved at line %d, so it cannot be used here", pu.Box(name), at)
 		d.Text = compat.Sprintf("%s %s is %s at line %d on some paths to this point and not on others. On those paths %s holds nothing afterwards, and the compiler cannot let a value be used where it may already belong to someone else.", c.ownerIntro(T), name, c.howMoved(mv), at, name)
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Use %s before line %d, or give it a new value on the path that moves it", name, at), Code: compat.Sprintf("%s = %s", name, c.newValue(T))})
 		return d
 	}
-	d := c.newDiag(id.Pos(), diag.UseAfterMove, "%s was %s at line %d, so it can no longer be used here", name, c.howMoved(mv), at)
+	d := c.newDiag(id.Pos(), diag.UseAfterMove, "%s was %s at line %d, so it can no longer be used here", pu.Box(name), pu.Box(c.howMoved(mv)), at)
 	what := "Assigning an owner moves it"
 	switch mv.kind {
 	case mvArg, mvGo:
@@ -328,7 +328,7 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 // capturedDiag explains a move of a captured variable inside a literal.
 func (c *checker) capturedDiag(id *ast.Ident, v *types2.Var) *diag.Diagnostic {
 	name := v.Name()
-	d := c.newDiag(id.Pos(), diag.MoveCaptured, "cannot move %s inside a function literal: the literal may run more than once, or never", name)
+	d := c.newDiag(id.Pos(), diag.MoveCaptured, "cannot move %s inside a function literal: the literal may run more than once, or never", pu.Box(name))
 	d.Text = compat.Sprintf("%s is a variable of the function around the literal (declared at %s), which the literal uses where it lives. Moving it here would leave %s empty after the first call, and the function could not tell whether %s still needs to be dropped.", name, c.basePos(v.Pos()), name, name)
 	d.Fix = pu.New(diag.Fix{Intro: "Pass the value to the literal as an argument", Code: compat.Sprintf("do := func(%s %s) { ... }\ndo(%s)", name, c.typeName(v.Type()), name)})
 	return d
@@ -372,7 +372,7 @@ func (c *checker) placeDiag(e ast.Expr, k placeKind) *diag.Diagnostic {
 	case placeGlobal:
 		first = compat.Sprintf("cannot move package variable %s: only a local variable can be moved out of", x)
 	}
-	d := c.newDiag(e.Pos(), diag.MoveOutOfPlace, "%s", first)
+	d := c.newDiag(e.Pos(), diag.MoveOutOfPlace, "%s", pu.Box(first))
 	tn := "the value"
 	if T != nil {
 		tn = c.typeName(T)
@@ -406,7 +406,7 @@ func (c *checker) placeDiag(e ast.Expr, k placeKind) *diag.Diagnostic {
 // rangeDiag explains a range loop that would copy owner elements.
 func (c *checker) rangeDiag(st *ast.RangeStmt, elem types2.Type) *diag.Diagnostic {
 	x := exprText(st.X)
-	d := c.newDiag(st.Value.Pos(), diag.RangeCopiesOwner, "cannot copy the elements of %s in a range loop: %s is an owner type", x, c.typeName(elem))
+	d := c.newDiag(st.Value.Pos(), diag.RangeCopiesOwner, "cannot copy the elements of %s in a range loop: %s is an owner type", pu.Box(x), pu.Box(c.typeName(elem)))
 	d.Text = compat.Sprintf("A range loop copies each element into %s. Copying an owner would leave two values that both release what it owns, and the element in %s would still believe it owns it.", exprText(st.Value), x)
 	d.Fix = pu.New(diag.Fix{Intro: "Range over the indexes and use a pointer to each element", Code: compat.Sprintf("for i := range %s {\n\t%s := &%s[i]\n\t...\n}", x, exprText(st.Value), x)})
 	return d
@@ -415,7 +415,7 @@ func (c *checker) rangeDiag(st *ast.RangeStmt, elem types2.Type) *diag.Diagnosti
 // deferDiag explains a deferred call that uses an owner of an inner block.
 func (c *checker) deferDiag(st *ast.DeferStmt, id *ast.Ident, v *types2.Var, b *ast.BlockStmt) *diag.Diagnostic {
 	end := c.line(b.End())
-	d := c.newDiag(st.Pos(), diag.DeferInnerOwner, "the deferred call uses %s, which is dropped at the end of its block (line %d)", v.Name(), end)
+	d := c.newDiag(st.Pos(), diag.DeferInnerOwner, "the deferred call uses %s, which is dropped at the end of its block (line %d)", pu.Box(v.Name()), end)
 	d.Text = compat.Sprintf("Deferred calls run when the function returns. %s is declared in the block that ends at line %d and is dropped there, before this call would run, so the call would use what %s had released.", v.Name(), end, v.Name())
 	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Declare %s at the top level of the function, or do the work at the end of the block instead of deferring it.", v.Name())})
 	return d
@@ -442,20 +442,20 @@ func (c *checker) dropDiag(se *ast.SelectorExpr, k dropKind) *diag.Diagnostic {
 		if p := pointerElem(xt); p != nil {
 			el = p
 		}
-		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop(): %s is %s, which only points at %s that something else owns", x, x, article(c.typeName(xt)), article(c.typeName(el)))
+		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop(): %s is %s, which only points at %s that something else owns", pu.Box(x), pu.Box(x), pu.Box(article(c.typeName(xt))), pu.Box(article(c.typeName(el))))
 		d.Text = compat.Sprintf("Drop releases what an owner holds. The %s %s points to belongs to another variable or place, which will drop it when its life ends, so dropping it here would release it twice.", c.typeName(el), x)
 		d.Fix = pu.New(diag.Fix{Intro: "To end an owner's life early, call Drop on the variable that holds it; it cannot be used afterwards", Code: compat.Sprintf("v.Drop() // v is the %s variable itself", c.typeName(el))})
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To leave an empty value behind instead", Code: compat.Sprintf("old := take(%s)", x)})})
 	case dropField:
-		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop(): %s is part of another value, which drops it when it is dropped", x, x)
+		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop(): %s is part of another value, which drops it when it is dropped", pu.Box(x), pu.Box(x))
 		d.Text = compat.Sprintf("Drop releases what an owner holds. %s belongs to the value it is part of, which will drop it again when its own life ends.", x)
 		d.Fix = pu.New(diag.Fix{Intro: "To release it now and leave an empty value in its place", Code: compat.Sprintf("old := take(&%s)\nold.Drop()", x)})
 	case dropIface:
-		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop() through %s, %s: an ordinary interface only lends the value it holds", x, x, article(c.typeName(xt)))
+		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop() through %s, %s: an ordinary interface only lends the value it holds", pu.Box(x), pu.Box(x), pu.Box(article(c.typeName(xt))))
 		d.Text = compat.Sprintf("Converting an owner to an ordinary interface lends it: the owner still belongs to the variable that was converted, which will drop it. Dropping it through %s would release it twice.", x)
 		d.Fix = pu.New(diag.Fix{Intro: "Call Drop on the owner itself, or declare an owning interface (type R owner interface {...}) to move the owner into it."})
 	case dropMethodValue:
-		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot use %s.Drop as a value: Drop can only be called on the owner itself", x)
+		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot use %s.Drop as a value: Drop can only be called on the owner itself", pu.Box(x))
 		d.Text = "A method value could be called at any time, by anyone, and each call would release what the owner holds."
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Call %s.Drop() where the owner's life should end.", x)})
 	}
@@ -464,7 +464,7 @@ func (c *checker) dropDiag(se *ast.SelectorExpr, k dropKind) *diag.Diagnostic {
 
 // copyDiag explains copy or append(s, t...) of owner elements.
 func (c *checker) copyDiag(e *ast.CallExpr, elem types2.Type, what string) *diag.Diagnostic {
-	d := c.newDiag(e.Pos(), diag.CopyOwners, "cannot %s elements of type %s: each element is an owner", what, c.typeName(elem))
+	d := c.newDiag(e.Pos(), diag.CopyOwners, "cannot %s elements of type %s: each element is an owner", pu.Box(what), pu.Box(c.typeName(elem)))
 	d.Text = compat.Sprintf("%s duplicates elements, and duplicating an owner would leave two values that both release what it owns.", what)
 	src := "src"
 	if len(e.Args) == 2 {
@@ -483,7 +483,7 @@ func (c *checker) copyDiag(e *ast.CallExpr, elem types2.Type, what string) *diag
 
 // variadicDiag explains owners passed as variadic arguments.
 func (c *checker) variadicDiag(a ast.Expr, callee string, elem types2.Type) *diag.Diagnostic {
-	d := c.newDiag(a.Pos(), diag.VariadicOwners, "cannot pass %s to %s as a variadic argument: %s is an owner type", exprText(a), callee, c.typeName(elem))
+	d := c.newDiag(a.Pos(), diag.VariadicOwners, "cannot pass %s to %s as a variadic argument: %s is an owner type", pu.Box(exprText(a)), pu.Box(callee), pu.Box(c.typeName(elem)))
 	d.Text = compat.Sprintf("Variadic arguments are passed in an array that %s sees as a slice. A slice is a view and never owns its elements, so %s would be released by nobody.", callee, exprText(a))
 	d.Fix = pu.New(diag.Fix{Intro: "Pass the owners one at a time to a parameter that takes them by value, or collect them in an owner such as a vec.Vec."})
 	return d
@@ -491,7 +491,7 @@ func (c *checker) variadicDiag(a ast.Expr, callee string, elem types2.Type) *dia
 
 // sliceLitDiag explains a slice literal of owners.
 func (c *checker) sliceLitDiag(e *ast.CompositeLit, elem types2.Type) *diag.Diagnostic {
-	d := c.newDiag(e.Pos(), diag.SliceLitOwners, "a slice literal cannot hold owners: %s is an owner type, and nothing would drop the elements", c.typeName(elem))
+	d := c.newDiag(e.Pos(), diag.SliceLitOwners, "a slice literal cannot hold owners: %s is an owner type, and nothing would drop the elements", pu.Box(c.typeName(elem)))
 	d.Text = "A slice literal keeps its elements in an array that the slice only looks at. Owners stored there would be released by nobody."
 	d.Fix = pu.New(diag.Fix{Intro: "Use an array literal, which owns its elements", Code: compat.Sprintf("[...]%s{...}", c.typeName(elem))})
 	return d
@@ -500,7 +500,7 @@ func (c *checker) sliceLitDiag(e *ast.CompositeLit, elem types2.Type) *diag.Diag
 // assertDiag explains an owner asserted out of an ordinary interface.
 func (c *checker) assertDiag(x ast.Expr, xt, T types2.Type, pos token.Pos) *diag.Diagnostic {
 	xs := exprText(x)
-	d := c.newDiag(pos, diag.OwnerFromLender, "cannot assert %s to %s: %s is %s, which only lends the value it holds", xs, c.typeName(T), xs, article(c.typeName(xt)))
+	d := c.newDiag(pos, diag.OwnerFromLender, "cannot assert %s to %s: %s is %s, which only lends the value it holds", pu.Box(xs), pu.Box(c.typeName(T)), pu.Box(xs), pu.Box(article(c.typeName(xt))))
 	d.Text = compat.Sprintf("Converting an owner to an ordinary interface such as %s lends it: the interface looks at the owner, which still belongs to the variable that was converted. Taking %s out of %s would create a second owner.", c.typeName(xt), article(c.typeName(T)), xs)
 	d.Fix = pu.New(diag.Fix{Intro: "Call the value's methods through an interface type instead", Code: compat.Sprintf("if s, ok := %s.(fmt.Stringer); ok {\n\tuse(s.String())\n}", xs)})
 	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "or move it into an owning interface in the first place", Code: "type Text owner interface{ String() string }"})})
@@ -511,7 +511,7 @@ func (c *checker) assertDiag(x ast.Expr, xt, T types2.Type, pos token.Pos) *diag
 func (c *checker) indexDiag(e *ast.IndexExpr) *diag.Diagnostic {
 	x := exprText(e.X)
 	T := c.typeOf(e)
-	d := c.newDiag(e.Pos(), diag.IndexOwner, "cannot read %s: the elements of %s are owners, and %s would be a copy", exprText(e), x, exprText(e))
+	d := c.newDiag(e.Pos(), diag.IndexOwner, "cannot read %s: the elements of %s are owners, and %s would be a copy", pu.Box(exprText(e)), pu.Box(x), pu.Box(exprText(e)))
 	d.Text = compat.Sprintf("%s on %s calls its Index method, which returns a copy of the element. %s is an owner type, so the copy would be a second owner of what the element owns.", exprText(e), c.typeName(c.typeOf(e.X)), c.typeName(T))
 	d.Fix = pu.New(diag.Fix{Intro: "To look at the element, use a method that returns a pointer to it", Code: compat.Sprintf("p := %s.Ptr(%s)", x, exprText(e.Index))})
 	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To move it out, use a method that removes or replaces it, or take it through such a pointer", Code: compat.Sprintf("elem := take(%s.Ptr(%s))", x, exprText(e.Index))})})

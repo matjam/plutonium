@@ -49,7 +49,7 @@ func LoadPackage(cfg *Config, target string) (*Program, error) {
 		if err != nil {
 			return nil, err
 		}
-		src, dir, ipath, root = osDir(abs), abs, l.dirPath(abs), l.modRoot
+		src, dir, ipath, root = pu.Box(osDir(abs)).(source), abs, l.dirPath(abs), l.modRoot
 		if root == "" {
 			root = abs
 			ipath = "main"

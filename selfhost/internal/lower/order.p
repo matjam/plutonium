@@ -8,6 +8,7 @@ import (
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/syntax/token"
 	"selfhost/internal/types2"
+	"selfhost/pu"
 )
 
 // Order of evaluation (language spec section 11.26). The operands of an
@@ -187,7 +188,7 @@ func (s *fnState) checkEvaluated() {
 		if len(s.l.errs) > 0 {
 			break // an error stopped the statement's lowering
 		}
-		s.l.internalf(e.Pos(), "%s was evaluated ahead of its statement but not used", types2.ExprString(e))
+		s.l.internalf(e.Pos(), "%s was evaluated ahead of its statement but not used", pu.Box(types2.ExprString(e)))
 	}
 	clear(s.evaluated)
 }

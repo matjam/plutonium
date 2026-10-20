@@ -122,12 +122,12 @@ func Load(cfg *Config, dir string) (*Program, error) {
 		return nil, err
 	}
 	l.loadRuntime() or return
-	main, err := l.load(l.dirPath(absDir), osDir(absDir), absDir)
+	main, err := l.load(l.dirPath(absDir), pu.Box(osDir(absDir)).(source), absDir)
 	if err != nil {
 		return nil, err
 	}
 	if main.Types.Name() != "main" {
-		return nil, fail(diag.NotMainPackage, "%s: package %s is not a main package", dir, main.Types.Name())
+		return nil, fail(diag.NotMainPackage, "%s: package %s is not a main package", pu.Box(dir), pu.Box(main.Types.Name()))
 	}
 	root := l.modRoot
 	if root == "" {
@@ -167,18 +167,18 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 			return nil, err
 		}
 		if st, err := fs.OSStat(absDir); err != nil || !st.IsDir() {
-			return nil, fail(diag.NotPackageDir, "%s: not a package directory", target)
+			return nil, fail(diag.NotPackageDir, "%s: not a package directory", pu.Box(target))
 		}
 		l.modRoot, l.modPath, err = findModule(absDir)
 		if err != nil {
 			return nil, err
 		}
-		src, dir, ipath, root = osDir(absDir), absDir, l.dirPath(absDir), l.modRoot
+		src, dir, ipath, root = pu.Box(osDir(absDir)).(source), absDir, l.dirPath(absDir), l.modRoot
 		if l.modRoot == "" {
 			root = absDir
 			ipath = filepath.Base(absDir)
 			if isStdPath(ipath) || ipath == "main" {
-				return nil, fail(diag.TestDirName, "%s: a package outside a module cannot be tested from a directory named %q", target, ipath)
+				return nil, fail(diag.TestDirName, "%s: a package outside a module cannot be tested from a directory named %q", pu.Box(target), pu.Box(ipath))
 			}
 		}
 	}
@@ -189,7 +189,7 @@ func LoadTest(cfg *Config, target string, gen func(*token.FileSet, *Package) ([]
 		return nil, err
 	}
 	if pkg.Types.Name() == "main" {
-		return nil, fail(diag.TestMainPackage, "%s: testing a main package is not supported; move the code under test into a package of its own", target)
+		return nil, fail(diag.TestMainPackage, "%s: testing a main package is not supported; move the code under test into a package of its own", pu.Box(target))
 	}
 	mainSrc, err := gen(l.fset, pkg)
 	if err != nil {
@@ -363,14 +363,14 @@ func (e memEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrInvalid }
 func (l *loader) resolve(importPath string) (source, string, error) {
 	if code, msg, bad := types2.ForbiddenImport(importPath); bad {
 		// Whatever the module says, reflect is E2005 (spec section 14.3).
-		return nil, "", fail(diag.CheckerCode(code), "%s", msg)
+		return nil, "", fail(diag.CheckerCode(code), "%s", pu.Box(msg))
 	}
 	if importPath == "pluto" || strings.HasPrefix(importPath, "pluto/") {
 		if l.cfg.Stdlib == nil {
-			return nil, "", fail(diag.StdPackageMissing, "no standard library configured for %q", importPath)
+			return nil, "", fail(diag.StdPackageMissing, "no standard library configured for %q", pu.Box(importPath))
 		}
 		if _, err := fs.Stat(l.cfg.Stdlib, importPath); err != nil {
-			return nil, "", fail(diag.StdPackageMissing, "standard library package %q not found", importPath)
+			return nil, "", fail(diag.StdPackageMissing, "standard library package %q not found", pu.Box(importPath))
 		}
 		return pu.New(fsDir{l.cfg.Stdlib, importPath}), compat.Concat(StdPrefix, importPath), nil
 	}
@@ -378,14 +378,14 @@ func (l *loader) resolve(importPath string) (source, string, error) {
 		rel := strings.TrimPrefix(strings.TrimPrefix(importPath, l.modPath), "/")
 		dir := filepath.Join(l.modRoot, filepath.FromSlash(rel))
 		if st, err := fs.OSStat(dir); err != nil || !st.IsDir() {
-			return nil, "", fail(diag.PackageNotFound, "package %q not found (looked in %s)", importPath, dir)
+			return nil, "", fail(diag.PackageNotFound, "package %q not found (looked in %s)", pu.Box(importPath), pu.Box(dir))
 		}
 		return pu.New(osDir(dir)), dir, nil
 	}
 	if l.modRoot == "" {
-		return nil, "", fail(diag.ImportNoModule, "cannot import %q: no pluto.mod declares a module, so only pluto/ packages can be imported", importPath)
+		return nil, "", fail(diag.ImportNoModule, "cannot import %q: no pluto.mod declares a module, so only pluto/ packages can be imported", pu.Box(importPath))
 	}
-	return nil, "", fail(diag.ImportOutside, "cannot import %q: it is outside module %s", importPath, l.modPath)
+	return nil, "", fail(diag.ImportOutside, "cannot import %q: it is outside module %s", pu.Box(importPath), pu.Box(l.modPath))
 }
 
 // fail returns a diagnostic without a position in the source.
@@ -410,7 +410,7 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		return p, nil
 	}
 	if l.loading[importPath] {
-		return nil, fail(diag.ImportCycle, "import cycle through %q", importPath)
+		return nil, fail(diag.ImportCycle, "import cycle through %q", pu.Box(importPath))
 	}
 	l.loading[importPath] = true
 	defer delete(l.loading, importPath)
@@ -498,7 +498,7 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 func (l *loader) parse(pkg *Package, src source) error {
 	entries, err := src.list()
 	if err != nil {
-		return fail(diag.ReadPackage, "reading package %q: %v", pkg.Path, err)
+		return fail(diag.ReadPackage, "reading package %q: %v", pu.Box(pkg.Path), err)
 	}
 	errs := pu.Alloc[diag.List]()
 	for _, e := range entries {
@@ -525,7 +525,7 @@ func (l *loader) parse(pkg *Package, src source) error {
 		}
 		ok, err := l.constraintMatches(data, isAsm)
 		if err != nil {
-			(*errs) = diag.List(compat.Append((*errs), fail(diag.BadConstraint, "%s: %v", src.name(name), err)))
+			(*errs) = diag.List(compat.Append((*errs), fail(diag.BadConstraint, "%s: %v", pu.Box(src.name(name)), err)))
 			continue
 		}
 		if !ok {
@@ -539,7 +539,7 @@ func (l *loader) parse(pkg *Package, src source) error {
 			pkg.CFiles = compat.Append(pkg.CFiles, AsmFile{Name: src.name(name), Src: data})
 			continue
 		}
-		f, err := parser.ParseFile(l.fset, src.name(name), data, parser.ParseComments)
+		f, err := parser.ParseFile(l.fset, src.name(name), pu.Box(data), parser.ParseComments)
 		if list, ok := err.(*scanner.ErrorList); ok {
 			for _, e := range *list {
 				(*errs) = diag.List(compat.Append((*errs), diag.FromSyntax(e, data)))
@@ -557,18 +557,18 @@ func (l *loader) parse(pkg *Package, src source) error {
 		return errs
 	}
 	if len(pkg.Files) == 0 {
-		return fail(diag.NoSourceFiles, "package %q: no Plutonium source files for this build", pkg.Path)
+		return fail(diag.NoSourceFiles, "package %q: no Plutonium source files for this build", pu.Box(pkg.Path))
 	}
 	for _, f := range pkg.Tests {
 		if n := f.Name.Name; strings.HasSuffix(n, "_test") {
 			return fail(diag.ExternalTestPkg, "%s: package %s: external test packages are not supported; declare the test in package %s",
-				l.fset.File(f.Pos()).Name(), n, strings.TrimSuffix(n, "_test"))
+				pu.Box(l.fset.File(f.Pos()).Name()), pu.Box(n), pu.Box(strings.TrimSuffix(n, "_test")))
 		}
 	}
 	name := pkg.Files[0].Name.Name
 	for _, f := range pkg.Files[1:] {
 		if f.Name.Name != name {
-			return fail(diag.MixedPackages, "package %q: files declare both package %s and %s", pkg.Path, name, f.Name.Name)
+			return fail(diag.MixedPackages, "package %q: files declare both package %s and %s", pu.Box(pkg.Path), pu.Box(name), pu.Box(f.Name.Name))
 		}
 	}
 	return nil
@@ -674,10 +674,10 @@ func findModule(dir string) (root, modPath string, err error) {
 			line, _, _ := strings.Cut(compat.String(data), "\n")
 			fields := compat.Fields(line)
 			if len(fields) != 2 || fields[0] != "module" {
-				return "", "", fail(diag.BadModFile, "%s: first line must be \"module <path>\"", filepath.Join(d, "pluto.mod"))
+				return "", "", fail(diag.BadModFile, "%s: first line must be \"module <path>\"", pu.Box(filepath.Join(d, "pluto.mod")))
 			}
 			if fields[1] == "pluto" || strings.HasPrefix(fields[1], "pluto/") {
-				return "", "", fail(diag.ReservedModule, "%s: module path %q is reserved for the standard library", filepath.Join(d, "pluto.mod"), fields[1])
+				return "", "", fail(diag.ReservedModule, "%s: module path %q is reserved for the standard library", pu.Box(filepath.Join(d, "pluto.mod")), pu.Box(fields[1]))
 			}
 			return d, fields[1], nil
 		}

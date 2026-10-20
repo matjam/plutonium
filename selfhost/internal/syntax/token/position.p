@@ -163,12 +163,12 @@ func (f *File) AddLine(offset int) {
 // MergeLine will panic if given an invalid line number.
 func (f *File) MergeLine(line int) {
 	if line < 1 {
-		panic(compat.Sprintf("invalid line number %d (should be >= 1)", line))
+		panic(pu.Box(compat.Sprintf("invalid line number %d (should be >= 1)", line)))
 	}
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 	if line >= len(f.lines) {
-		panic(compat.Sprintf("invalid line number %d (should be < %d)", line, len(f.lines)))
+		panic(pu.Box(compat.Sprintf("invalid line number %d (should be < %d)", line, len(f.lines))))
 	}
 	// To merge the line numbered <line> with the line numbered <line+1>,
 	// we need to remove the entry in lines corresponding to the line
@@ -238,12 +238,12 @@ func (f *File) SetLinesForContent(content []byte) {
 // LineStart panics if the 1-based line number is invalid.
 func (f *File) LineStart(line int) Pos {
 	if line < 1 {
-		panic(compat.Sprintf("invalid line number %d (should be >= 1)", line))
+		panic(pu.Box(compat.Sprintf("invalid line number %d (should be >= 1)", line)))
 	}
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 	if line > len(f.lines) {
-		panic(compat.Sprintf("invalid line number %d (should be < %d)", line, len(f.lines)))
+		panic(pu.Box(compat.Sprintf("invalid line number %d (should be < %d)", line, len(f.lines))))
 	}
 	return Pos(f.base + f.lines[line-1])
 }
@@ -488,11 +488,11 @@ func (s *FileSet) AddFile(filename string, base, size int) *File {
 		base = s.base
 	}
 	if base < s.base {
-		panic(compat.Sprintf("invalid base %d (should be >= %d)", base, s.base))
+		panic(pu.Box(compat.Sprintf("invalid base %d (should be >= %d)", base, s.base)))
 	}
 	f.base = base
 	if size < 0 {
-		panic(compat.Sprintf("invalid size %d (should be >= 0)", size))
+		panic(pu.Box(compat.Sprintf("invalid size %d (should be >= 0)", size)))
 	}
 	// base >= s.base && size >= 0
 	base += size + 1 // +1 because EOF also has a position

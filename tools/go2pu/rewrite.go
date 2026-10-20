@@ -27,6 +27,11 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		delete(t.boxing, e)
 		return t.puNew(s), true
 	}
+	if e, ok := n.(ast.Expr); ok {
+		if s, ok := t.arenaBox(e); ok {
+			return s, true
+		}
+	}
 	if e, ok := t.scopeEdits[n]; ok {
 		return t.scopeRewrite(n, e), true
 	}

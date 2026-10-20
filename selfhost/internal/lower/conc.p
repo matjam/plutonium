@@ -29,7 +29,7 @@ func (l *Lowerer) rtType(name string) types2.Type {
 			}
 		}
 	}
-	panic(compat.Sprintf("lower: pluto/rt.%s is missing", name))
+	panic(pu.Box(compat.Sprintf("lower: pluto/rt.%s is missing", name)))
 }
 
 // chanElem returns the element type of channel type T.
@@ -44,7 +44,7 @@ func (s *fnState) checkSendable(T types2.Type, pos token.Pos, what string) {
 		return
 	}
 	if bad := types2.Unsendable(T); bad != nil {
-		s.l.errorf(pos, diag.CheckerCode(typerr.NotSendable), "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)", what, T, bad)
+		s.l.errorf(pos, diag.CheckerCode(typerr.NotSendable), "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)", pu.Box(what), T, bad)
 	}
 }
 
@@ -60,7 +60,7 @@ func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
 	found := false
 	if id, ok := fun.(*ast.Ident); ok {
 		if what := s.frameClosure(id, 0); what != "" {
-			s.l.errorf(id.Pos(), diag.GoFrameClosure, "cannot start %s with a task statement: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", id.Name, what)
+			s.l.errorf(id.Pos(), diag.GoFrameClosure, "cannot start %s with a task statement: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", pu.Box(id.Name), pu.Box(what))
 			found = true
 		}
 	}
@@ -86,9 +86,9 @@ func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
 		}
 		found = true
 		if id, ok := ast.Unparen(a).(*ast.Ident); ok {
-			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", id.Name, dest, what)
+			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", pu.Box(id.Name), pu.Box(dest), pu.Box(what))
 		} else {
-			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: its closure record lives in the starting frame (spec section 12.12)", what, dest)
+			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: its closure record lives in the starting frame (spec section 12.12)", pu.Box(what), pu.Box(dest))
 		}
 	}
 	return found
@@ -406,7 +406,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	}
 	funTV := s.info.Types[call.Fun]
 	if funTV.IsBuiltin() {
-		s.l.errorf(st.Pos(), diag.GoBuiltin, "task with the built-in %s is not supported; start a function that calls it", identOf(fun).Name)
+		s.l.errorf(st.Pos(), diag.GoBuiltin, "task with the built-in %s is not supported; start a function that calls it", pu.Box(identOf(fun).Name))
 		return
 	}
 	if s.goFrameClosures(fun, call.Args) {

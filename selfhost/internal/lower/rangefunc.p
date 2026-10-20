@@ -440,7 +440,7 @@ func (s *fnState) rangeBranch(st *ast.BranchStmt, label *types2.Label) {
 				continue
 			}
 			tok := st.Tok
-			s.exitTo(p, branchExit{t, tok}, pu.New(goClosure_rangeBranch_2{t: t, tok: tok}))
+			s.exitTo(p, pu.Box(branchExit{t, tok}), pu.New(goClosure_rangeBranch_2{t: t, tok: tok}))
 			return
 		}
 		if p.rf == nil {
@@ -484,7 +484,7 @@ func (s *fnState) rangeReturn(st *ast.ReturnStmt) {
 		}
 	}
 	pos := st.Pos()
-	s.exitTo(root, returnExit{}, pu.New(goClosure_rangeReturn_1{pos: pos}))
+	s.exitTo(root, pu.Box(returnExit{}), pu.New(goClosure_rangeReturn_1{pos: pos}))
 }
 
 // goClosure_rangeOver_1 is the function literal at rangefunc.go:199, converted to a struct

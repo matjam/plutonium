@@ -221,13 +221,17 @@ func TestHandFixNotes(t *testing.T) {
 			t.Errorf("no note containing %q in:\n%s", want, all)
 		}
 	}
+	if strings.Contains(string(res.Files[0].Src), `"never"`) {
+		t.Errorf("the code under a constant false condition is translated")
+	}
 	if res.OutPath != "selfhost/demo/handfix" {
 		t.Errorf("output path %q", res.OutPath)
 	}
 	// x is captured by a closure that outlives main, so it moves to the
 	// heap. Maps translate as they are, deleting while ranging included.
 	src := string(res.Files[0].Src)
-	for _, want := range []string{"x := pu.New(1)", "return pu.New(big{1, 2, 3})", "(*x)++", "m := map[string]int{\"a\": 1}", "for k := range m {\n\t\tdelete(m, k)", `compat.Runes("é")`, "task /* go2pu: closure escapes its frame (passed to a function that keeps it) */ func(v int) { ch <- v }(c())"} {
+	for _, want := range []string{"x := pu.New(1)", "return pu.New(big{1, 2, 3})", "(*x)++", "m := map[string]int{\"a\": 1}", "for k := range m {\n\t\tdelete(m, k)", `compat.Runes("é")`, "task /* go2pu: closure escapes its frame (passed to a function that keeps it) */ func(v int) { ch <- v }(c())",
+		"sink.keep = pu.Box(w)", "_ = seen"} {
 		if !strings.Contains(src, want) {
 			t.Errorf("translation lacks %q:\n%s", want, src)
 		}

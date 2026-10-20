@@ -10,6 +10,7 @@ import (
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/syntax/token"
 	"selfhost/internal/types2"
+	"selfhost/pu"
 )
 
 // A value is the result of lowering an expression. Scalars are SSA values;
@@ -259,7 +260,7 @@ func (s *fnState) constValue(c constant.Value, T types2.Type, pos ast.Node) valu
 		i, _ := constant.Int64Val(constant.ToInt(c))
 		return scalarValue(s.constInt(t, i), T)
 	}
-	s.l.internalf(pos.Pos(), "unsupported constant %s", c)
+	s.l.internalf(pos.Pos(), "unsupported constant %s", pu.Box(c))
 	return s.zeroValue(T)
 }
 

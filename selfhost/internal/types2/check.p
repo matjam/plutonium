@@ -358,7 +358,7 @@ func (check *Checker) initFiles(files []*ast.File) {
 			check.files = compat.Append(check.files, file)
 
 		default:
-			check.errorf(atPos(file.Package), MismatchedPkgName, "package %s; expected package %s", name, pkg.name)
+			check.errorf(atPos(file.Package), MismatchedPkgName, "package %s; expected package %s", pu.Box(name), pu.Box(pkg.name))
 			// ignore this file
 		}
 	}
@@ -373,7 +373,7 @@ func (check *Checker) initFiles(files []*ast.File) {
 	pkgVersion := asGoVersion(check.conf.GoVersion)
 	if pkgVersion.isValid() && len(files) > 0 && pkgVersion.cmp(go_current) > 0 {
 		check.errorf(files[0], TooNew, "package requires newer Go version %v (application built with %v)",
-			pkgVersion, go_current)
+			pu.Box(pkgVersion), pu.Box(go_current))
 	}
 
 	// determine Go version for each file
@@ -403,7 +403,7 @@ func (check *Checker) initFiles(files []*ast.File) {
 			if fileVersion.cmp(go_current) > 0 {
 				// Use position of 'package [p]' for types/types2 consistency.
 				// (Ideally we would use the //build tag itself.)
-				check.errorf(file.Name, TooNew, "file requires newer Go version %v (application built with %v)", fileVersion, go_current)
+				check.errorf(file.Name, TooNew, "file requires newer Go version %v (application built with %v)", pu.Box(fileVersion), pu.Box(go_current))
 			}
 		}
 		versions[file] = v
@@ -577,7 +577,7 @@ func instantiatedIdent(expr ast.Expr) *ast.Ident {
 	}
 
 	// extra debugging of go.dev/issue/63933
-	panic(sprintf(nil, nil, true, "instantiated ident not found; please report: %s", expr))
+	panic(pu.Box(sprintf(nil, nil, true, "instantiated ident not found; please report: %s", expr)))
 }
 
 // goFn1 stands for func(), which a closure that outlives its frame cannot be

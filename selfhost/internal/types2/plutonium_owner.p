@@ -96,7 +96,7 @@ func (check *Checker) ownerDecl(obj *TypeName, tdecl *ast.TypeSpec) {
 				Intro: "To make a new owner type, define one",
 				Code:  compat.Concat("type ", obj.name, " owner ..."),
 			}}),
-		}), "owner can only be used in a type definition: type %s owner ...", obj.name)
+		}), "owner can only be used in a type definition: type %s owner ...", pu.Box(obj.name))
 		return
 	}
 	obj.ownerMark = true
@@ -160,7 +160,7 @@ func (check *Checker) checkOwnerKind(obj *TypeName, tdecl *ast.TypeSpec) {
 			Intro: compat.Concat("To attach a resource to ", article(obj.name), ", wrap both in an owner"),
 			Code:  compat.Concat("type Handle owner struct {\n\tv  ", obj.name, "\n\tfd int32\n}"),
 		}}),
-	}), "owner cannot qualify %s", what)
+	}), "owner cannot qualify %s", pu.Box(what))
 }
 
 // article puts "a" or "an" before a name.
@@ -216,7 +216,7 @@ func (check *Checker) mustBeOwner(at positioner, tdecl *ast.TypeSpec, name, what
 	if view != nil {
 		ex.Fixes = compat.Append(ex.Fixes, *view)
 	}
-	check.explainf(at, MustBeOwner, ex, "%s must be declared owner: %s", name, what)
+	check.explainf(at, MustBeOwner, ex, "%s must be declared owner: %s", pu.Box(name), pu.Box(what))
 }
 
 // checkNotOwner reports a type definition without the owner mark whose
@@ -294,7 +294,7 @@ func (check *Checker) ownerFields(name string, s *Struct, tdecl *ast.TypeSpec) {
 					Intro: "Declare a named owner type for the struct",
 					Code:  "type T owner struct {\n\t...\n}",
 				}}),
-			}), "a struct type without a name cannot have owner fields: %s is %s, %s", what, article(ft), kind)
+			}), "a struct type without a name cannot have owner fields: %s is %s, %s", pu.Box(what), pu.Box(article(ft)), pu.Box(kind))
 			return
 		}
 		check.mustBeOwner(at, tdecl, name,
@@ -382,7 +382,7 @@ func (check *Checker) ownerMethods() {
 						Intro: "Declare the type as an owner, so that its values move instead of being copied",
 						Code:  compat.Concat("type ", tn.name, " owner ", kw),
 					}}),
-				}), "%s has a Drop method but is not declared owner", tn.name)
+				}), "%s has a Drop method but is not declared owner", pu.Box(tn.name))
 				continue
 			}
 			if sig != nil && sig.recv != nil {
@@ -393,7 +393,7 @@ func (check *Checker) ownerMethods() {
 							Intro: "Declare it with a pointer receiver",
 							Code:  compat.Concat("func (x *", tn.name, ") Drop()"),
 						}}),
-					}), "Drop of %s has a value receiver; it must have the pointer receiver *%s", tn.name, tn.name)
+					}), "Drop of %s has a value receiver; it must have the pointer receiver *%s", pu.Box(tn.name), pu.Box(tn.name))
 				}
 			}
 		}
@@ -442,7 +442,7 @@ func (check *Checker) ownerTypeArg(tpar *TypeParam, targ Type) *ownerArgError {
 // function or type, for the message.
 func (check *Checker) reportTypeArg(at positioner, err error, what string) {
 	if oe, ok := err.(*ownerArgError); ok {
-		check.explainf(at, OwnerTypeArg, oe.ex, "cannot use %s as %s in %s: %s", check.sprintf("%s", oe.targ), oe.tpar.obj.name, what, oe.msg)
+		check.explainf(at, OwnerTypeArg, oe.ex, "cannot use %s as %s in %s: %s", pu.Box(check.sprintf("%s", oe.targ)), pu.Box(oe.tpar.obj.name), pu.Box(what), pu.Box(oe.msg))
 		return
 	}
 	if pe, ok := err.(*portableArgError); ok {
@@ -472,7 +472,7 @@ func (check *Checker) ownerConversion(x *operand, T Type) {
 		Fixes: compat.Clone([]ExplainFix{{
 			Intro: compat.Concat("Use a constructor from the package that declares ", t, "."),
 		}}),
-	}), "cannot convert %s to owner type %s outside package %s", x, t, n.Origin().obj.pkg.name)
+	}), "cannot convert %s to owner type %s outside package %s", x, pu.Box(t), pu.Box(n.Origin().obj.pkg.name))
 }
 
 // ownerOperand reports the operator op applied to x, an operand of owner
@@ -484,8 +484,8 @@ func (check *Checker) ownerOperand(x *operand, op token.Token) bool {
 	if !x.isValid() || !IsOwner(x.typ()) {
 		return false
 	}
-	conv := check.sprintf("%s(%s)", x.typ().Underlying(), ExprString(x.expr))
-	check.errorf(x, OwnerOperator, invalidOp+"operator %s does not apply to %s, an owner; convert it to read its value: %s", op, x, conv)
+	conv := check.sprintf("%s(%s)", x.typ().Underlying(), pu.Box(ExprString(x.expr)))
+	check.errorf(x, OwnerOperator, invalidOp+"operator %s does not apply to %s, an owner; convert it to read its value: %s", op, x, pu.Box(conv))
 	return true
 }
 
@@ -511,7 +511,7 @@ func (check *Checker) checkMapOfOwner(at positioner, T Type, what string) {
 	if what == "key" {
 		ex.Fixes = compat.Clone([]ExplainFix{{Intro: "Key the map by a value that identifies the owner, such as a name or an ID, and keep the owners elsewhere."}})
 	}
-	check.explainf(at, MapOfOwner, ex, "map %s type %s is an owner, which a map cannot hold: reading the map copies its %ss", what, t, what)
+	check.explainf(at, MapOfOwner, ex, "map %s type %s is an owner, which a map cannot hold: reading the map copies its %ss", pu.Box(what), pu.Box(t), pu.Box(what))
 }
 
 // selectAddressable reports whether the operand x of the selector e may

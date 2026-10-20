@@ -266,7 +266,7 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 		fields := utyp.fields
 		if _, ok := e.Elts[0].(*ast.KeyValueExpr); ok {
 			// all elements must have keys
-			visited := make(trie[*Var])
+			visited := newTrie[*Var]()
 			for _, e := range e.Elts {
 				kv, _ := e.(*ast.KeyValueExpr)
 				if kv == nil {

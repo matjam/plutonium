@@ -57,10 +57,10 @@ func Instantiate(ctxt *Context, orig Type, targs []Type, validate bool) (Type, e
 	}
 	orig_, ok := orig.(genericType) // signature of Instantiate must not change for backward-compatibility
 	if !ok {
-		panic(sprintf(nil, nil, false, "cannot instantiate non-generic %s: expected *Named, *Alias, or *Signature", orig))
+		panic(pu.Box(sprintf(nil, nil, false, "cannot instantiate non-generic %s: expected *Named, *Alias, or *Signature", orig)))
 	}
 	if len(targs) == 0 {
-		panic(sprintf(nil, nil, false, "cannot instantiate %s: empty type argument list", orig))
+		panic(pu.Box(sprintf(nil, nil, false, "cannot instantiate %s: empty type argument list", orig)))
 	}
 
 	if validate {
@@ -185,7 +185,7 @@ func (check *Checker) instance(pos token.Pos, orig genericType, targs []Type, ex
 
 	default:
 		// only types and functions can be generic
-		panic(compat.Sprintf("%v: cannot instantiate %v", pos, orig))
+		panic(pu.Box(compat.Sprintf("%v: cannot instantiate %v", pos, orig)))
 	}
 
 	// Update all contexts; it's possible that we've lost a race.
@@ -206,13 +206,13 @@ func (check *Checker) validateTArgLen(pos token.Pos, name string, want, got int)
 		return true
 	}
 
-	msg := check.sprintf("%s type arguments for type %s: have %d, want %d", qual, name, got, want)
+	msg := check.sprintf("%s type arguments for type %s: have %d, want %d", pu.Box(qual), pu.Box(name), got, want)
 	if check != nil {
 		check.error(atPos(pos), WrongTypeArgCount, msg)
 		return false
 	}
 
-	panic(compat.Sprintf("%v: %s", pos, msg))
+	panic(pu.Box(compat.Sprintf("%v: %s", pos, msg)))
 }
 
 // check may be nil; pos is used only if check is non-nil.
@@ -273,7 +273,7 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 			} else {
 				detail = check.sprintf("%s is not an interface", T)
 			}
-			*cause = check.sprintf("%s does not %s %s (%s)", V, verb, T, detail)
+			*cause = check.sprintf("%s does not %s %s (%s)", V, pu.Box(verb), T, pu.Box(detail))
 		}
 		return false
 	}
@@ -295,7 +295,7 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 	// No type with non-empty type set satisfies the empty type set.
 	if Ti.typeSet().IsEmpty() {
 		if cause != nil {
-			*cause = check.sprintf("cannot %s %s (empty type set)", verb, T)
+			*cause = check.sprintf("cannot %s %s (empty type set)", pu.Box(verb), T)
 		}
 		return false
 	}
@@ -303,7 +303,7 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 	// V must implement T's methods, if any.
 	if !check.hasAllMethods(V, T, true, Identical, cause) /* !Implements(V, T) */ {
 		if cause != nil {
-			*cause = check.sprintf("%s does not %s %s %s", V, verb, T, *cause)
+			*cause = check.sprintf("%s does not %s %s %s", V, pu.Box(verb), T, pu.Box(*cause))
 		}
 		return false
 	}
@@ -326,12 +326,12 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 				return true
 			}
 			if cause != nil {
-				*cause = check.sprintf("%s to %s comparable requires go1.20 or later", V, verb)
+				*cause = check.sprintf("%s to %s comparable requires go1.20 or later", V, pu.Box(verb))
 			}
 			return false
 		}
 		if cause != nil {
-			*cause = check.sprintf("%s does not %s comparable", V, verb)
+			*cause = check.sprintf("%s does not %s comparable", V, pu.Box(verb))
 		}
 		return false
 	}
@@ -346,7 +346,7 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 			return true
 		}
 		if cause != nil {
-			*cause = check.sprintf("%s does not %s portable: %s", V, verb, check.portableMessage(V, c))
+			*cause = check.sprintf("%s does not %s portable: %s", V, pu.Box(verb), pu.Box(check.portableMessage(V, c)))
 		}
 		return false
 	}
@@ -364,7 +364,7 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 		if !Vi.typeSet().subsetOf(Ti.typeSet()) {
 			// TODO(gri) report which type is missing
 			if cause != nil {
-				*cause = check.sprintf("%s does not %s %s", V, verb, T)
+				*cause = check.sprintf("%s does not %s %s", V, pu.Box(verb), T)
 			}
 			return false
 		}
@@ -397,9 +397,9 @@ func (check *Checker) implements(V, T Type, constraint bool, cause *string) bool
 			case mentions(Ti, V):
 				detail = check.sprintf("%s mentions %s, but %s is not in the type set of %s", T, V, V, T)
 			default:
-				detail = check.sprintf("%s missing in %s", V, Ti.typeSet().terms)
+				detail = check.sprintf("%s missing in %s", V, pu.Box(Ti.typeSet().terms))
 			}
-			*cause = check.sprintf("%s does not %s %s (%s)", V, verb, T, detail)
+			*cause = check.sprintf("%s does not %s %s (%s)", V, pu.Box(verb), T, pu.Box(detail))
 		}
 		return false
 	}

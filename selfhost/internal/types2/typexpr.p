@@ -32,11 +32,11 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 		} else if check.removedName(e) {
 			// reported
 		} else if isValidName(e.Name) {
-			check.errorf(e, UndeclaredName, "undefined: %s%s", e.Name, check.enumMemberHint(e.Name))
+			check.errorf(e, UndeclaredName, "undefined: %s%s", pu.Box(e.Name), pu.Box(check.enumMemberHint(e.Name)))
 		}
 		return
 	case universeAny, universeComparable, universePortable:
-		if !check.verifyVersionf(e, go1_18, "predeclared %s", e.Name) {
+		if !check.verifyVersionf(e, go1_18, "predeclared %s", pu.Box(e.Name)) {
 			return // avoid follow-on errors
 		}
 	}
@@ -47,7 +47,7 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 	// (see go.dev/issue/65344).
 	_, gotType := obj.(*TypeName)
 	if !gotType && wantType {
-		check.errorf(e, NotAType, "%s (%s) is not a type", obj.Name(), objectKind(obj))
+		check.errorf(e, NotAType, "%s (%s) is not a type", pu.Box(obj.Name()), pu.Box(objectKind(obj)))
 
 		// avoid "declared but not used" errors
 		// (don't use Checker.use - we don't want to evaluate too much)
@@ -85,7 +85,7 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 
 	switch obj := obj.(type) {
 	case *PkgName:
-		check.errorf(e, InvalidPkgUse, "use of package %s not in selector", obj.name)
+		check.errorf(e, InvalidPkgUse, "use of package %s not in selector", pu.Box(obj.name))
 		return
 
 	case *Const:
@@ -239,9 +239,9 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 				under = safeUnderlying(T)
 			}
 			if T == under {
-				check.trace(e0.Pos(), "=> %s // %s", T, goTypeName(T))
+				check.trace(e0.Pos(), "=> %s // %s", T, pu.Box(goTypeName(T)))
 			} else {
-				check.trace(e0.Pos(), "=> %s (under = %s) // %s", T, under, goTypeName(T))
+				check.trace(e0.Pos(), "=> %s (under = %s) // %s", T, under, pu.Box(goTypeName(T)))
 			}
 		}()
 	}
@@ -415,7 +415,7 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 
 func (check *Checker) instantiatedType(ix *indexedExpr) (res Type) {
 	if check.conf._Trace {
-		check.trace(ix.Pos(), "-- instantiating type %s with %s", ix.x, ix.indices)
+		check.trace(ix.Pos(), "-- instantiating type %s with %s", ix.x, pu.Box(ix.indices))
 		check.indent++
 		defer func() {
 			check.indent--
@@ -427,7 +427,7 @@ func (check *Checker) instantiatedType(ix *indexedExpr) (res Type) {
 	var cause string
 	typ := check.genericType(ix.x, &cause)
 	if cause != "" {
-		check.errorf(ix.orig, NotAGenericType, invalidOp+"%s (%s)", ix.orig, cause)
+		check.errorf(ix.orig, NotAGenericType, invalidOp+"%s (%s)", ix.orig, pu.Box(cause))
 	}
 	if !isValid(typ) {
 		return typ // error already reported
@@ -471,11 +471,11 @@ func (check *Checker) arrayLength(e ast.Expr) int64 {
 	if name, _ := e.(*ast.Ident); name != nil {
 		obj := check.lookup(name.Name)
 		if obj == nil {
-			check.errorf(name, InvalidArrayLen, "undefined array length %s or missing type constraint", name.Name)
+			check.errorf(name, InvalidArrayLen, "undefined array length %s or missing type constraint", pu.Box(name.Name))
 			return -1
 		}
 		if _, ok := obj.(*Const); !ok {
-			check.errorf(name, InvalidArrayLen, "invalid array length %s", name.Name)
+			check.errorf(name, InvalidArrayLen, "invalid array length %s", pu.Box(name.Name))
 			return -1
 		}
 	}
@@ -562,7 +562,7 @@ func (goSelf *goClosure_typInternal_1) Call() {
 		if isTypeParam(goSelf.typ.key) {
 			why = " (missing comparable constraint)"
 		}
-		goSelf.check.errorf(goSelf.e.Key, IncomparableMapKey, "invalid map key type %s%s", goSelf.typ.key, why)
+		goSelf.check.errorf(goSelf.e.Key, IncomparableMapKey, "invalid map key type %s%s", goSelf.typ.key, pu.Box(why))
 	}
 	// Plutonium: reading a map element copies it, so neither keys
 	// nor elements may be owners (spec section 7.10).

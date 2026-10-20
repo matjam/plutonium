@@ -8,7 +8,9 @@ package pu
 import (
 	"pluto/alloc"
 	"pluto/fmt"
+	"pluto/rt"
 	"pluto/strings"
+	"unsafe"
 )
 
 // Sprintf formats according to format and returns the text in a
@@ -31,6 +33,17 @@ func New[T owner any](v T) *T {
 	p := alloc.New[T]()
 	*p = v
 	return p
+}
+
+// Box returns v in an interface whose box is allocated as New allocates,
+// where the compiler would make it in the frame (language spec section
+// 18.3). v must not fit the data word of an interface. go2pu uses it for the
+// values Go moves to the heap when it converts them.
+func Box[T any](v T) any {
+	t, _ := rt.TypeOf(any(v))
+	p := alloc.New[T]()
+	*p = v
+	return rt.Make(t, unsafe.Pointer(p))
 }
 
 // Alloc returns a pointer to a new zero T in the phase arena, as New does.

@@ -114,7 +114,7 @@ func (goSelf *goClosure_staticWriteSym_1) Call(s *fnState) {
 			s.staticWriteCheck(p, bytes)
 		}
 	default:
-		goSelf.l.internalf(token.NoPos, "typed output contract for %s has no pointer or slice destination", goSelf.fn.FullName())
+		goSelf.l.internalf(token.NoPos, "typed output contract for %s has no pointer or slice destination", pu.Box(goSelf.fn.FullName()))
 	}
 	res := s.emitCall(callee{sym: goSelf.impl}, goSelf.sig, nil, in, token.NoPos)
 	s.returnValues(res)

@@ -186,7 +186,7 @@ func embeddedFieldIdent(e ast.Expr) *ast.Ident {
 func (check *Checker) declareInSet(oset *objset, pos token.Pos, obj Object) bool {
 	if alt := oset.insert(obj); alt != nil {
 		err := check.newError(DuplicateDecl)
-		err.addf(atPos(pos), "%s redeclared", obj.Name())
+		err.addf(atPos(pos), "%s redeclared", pu.Box(obj.Name()))
 		err.addAltDecl(alt)
 		err.report()
 		return false
@@ -201,7 +201,7 @@ func (check *Checker) tag(t *ast.BasicLit) string {
 				return val
 			}
 		}
-		check.errorf(t, InvalidSyntaxTree, "incorrect tag syntax: %q", t.Value)
+		check.errorf(t, InvalidSyntaxTree, "incorrect tag syntax: %q", pu.Box(t.Value))
 	}
 	return ""
 }

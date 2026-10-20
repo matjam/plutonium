@@ -91,7 +91,7 @@ func (n *node) checkBalance() {
 		panic("bad node.balance")
 	}
 	if balance < -2 || balance > +2 {
-		panic(compat.Sprintf("node.balance out of range: %d", balance))
+		panic(pu.Box(compat.Sprintf("node.balance out of range: %d", balance)))
 	}
 	h := 1 + max(lheight, rheight)
 	if h != n.height {
@@ -306,9 +306,9 @@ func (t *tree) add(file *File) {
 		return
 	}
 	if prev := (*pos).file; prev != file {
-		panic(compat.Sprintf("file %s (%d-%d) overlaps with file %s (%d-%d)",
+		panic(pu.Box(compat.Sprintf("file %s (%d-%d) overlaps with file %s (%d-%d)",
 			prev.Name(), prev.Base(), prev.End(),
-			file.Name(), file.Base(), file.End()))
+			file.Name(), file.Base(), file.End())))
 	}
 }
 

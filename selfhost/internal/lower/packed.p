@@ -121,7 +121,7 @@ func (s *fnState) packedField(base lvalue, p *types2.Packed, idx int) lvalue {
 		// integer stored in the bytes at its offset, and its own fields
 		// are defined by the integer rule.
 		if ref.offset%8 != 0 {
-			s.l.unsupportedf(0, "packed field %s is a big-endian integer that does not start on a byte boundary", f.Var().Name())
+			s.l.unsupportedf(0, "packed field %s is a big-endian integer that does not start on a byte boundary", pu.Box(f.Var().Name()))
 		}
 		return lvalue{ptr: s.offPtr(base.ptr, ref.offset/8), T: ft, stable: base.stable}
 	}
@@ -133,7 +133,7 @@ func (s *fnState) packedField(base lvalue, p *types2.Packed, idx int) lvalue {
 		case 16, 32, 64:
 			ref.swap = true
 		default:
-			s.l.unsupportedf(0, "packed field %s of %d bits in a big-endian packed type cannot be accessed", f.Var().Name(), f.Width())
+			s.l.unsupportedf(0, "packed field %s of %d bits in a big-endian packed type cannot be accessed", pu.Box(f.Var().Name()), f.Width())
 		}
 	}
 	return lvalue{ptr: base.ptr, T: base.T, bits: ref}

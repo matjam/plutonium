@@ -103,7 +103,7 @@ func (check *Checker) paramDefaults(recvPar *ast.FieldList, ftyp *ast.FuncType, 
 		switch {
 		case f.Default == nil && first != nil:
 			check.errorf(f, MissingDefault, "parameter %s has no default value but follows parameter %s, which has one",
-				paramLabel(f, index), paramLabel(first, index-len(defs)))
+				pu.Box(paramLabel(f, index)), pu.Box(paramLabel(first, index-len(defs))))
 			return nil
 		case f.Default == nil:
 		case n > 1:
@@ -190,6 +190,6 @@ func (check *Checker) paramPlaceholderUse(e *ast.Ident, v *Var) bool {
 	if !check.paramPlaceholders[v] {
 		return false
 	}
-	check.errorf(e, DefaultRefersToParam, "a default value cannot refer to parameter %s (defaults are evaluated by the caller)", v.name)
+	check.errorf(e, DefaultRefersToParam, "a default value cannot refer to parameter %s (defaults are evaluated by the caller)", pu.Box(v.name))
 	return true
 }

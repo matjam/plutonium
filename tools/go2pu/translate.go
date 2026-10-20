@@ -398,6 +398,7 @@ type translator struct {
 	// Values returned in an interface that become pointers (boxing.go).
 	assertedTypes []types.Type
 	boxed, boxing map[ast.Expr]bool
+	arenaBoxing   map[ast.Expr]bool // values being boxed in the arena (arenabox.go)
 
 	// Closure conversion (closures.go).
 	cl       *closurePlan

@@ -259,7 +259,7 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 			changed = true
 			if checkSSA {
 				if err := verify(f); err != nil {
-					panic(compat.Concat("after inlining ", g.Name, " into ", f.Name, ": ", err.Error()))
+					panic(pu.Box(compat.Concat("after inlining ", g.Name, " into ", f.Name, ": ", err.Error())))
 				}
 			}
 		}
@@ -418,7 +418,7 @@ func inlineCall(f *ssa.Func, v *ssa.Value, g *ssa.Func) {
 		if nv, ok := valMap[gv]; ok {
 			return nv
 		}
-		panic(compat.Concat("inline: value ", gv.String(), " of ", g.Name, " has no copy"))
+		panic(pu.Box(compat.Concat("inline: value ", gv.String(), " of ", g.Name, " has no copy")))
 	}
 	for _, gb := range g.Blocks {
 		for _, gv := range gb.Values {

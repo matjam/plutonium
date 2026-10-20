@@ -75,7 +75,7 @@ func (l *Lowerer) lowerGlobals() {
 				}
 			}
 			if sym.PerCPU && hasInit && !static[v] {
-				l.errorf(percpu[v], diag.PerCPUInit, "per-CPU variable %s must have a constant initializer: package initialization runs before any processor has a per-CPU block", v.Name())
+				l.errorf(percpu[v], diag.PerCPUInit, "per-CPU variable %s must have a constant initializer: package initialization runs before any processor has a per-CPU block", pu.Box(v.Name()))
 			}
 		}
 		l.queueInit(p, static)
@@ -152,10 +152,10 @@ const perCPUSelf = "pluto.percpu.self"
 func (l *Lowerer) perCPUVar(v *types2.Var, d *ssa.Data, pos token.Pos) {
 	switch {
 	case !l.cfg.Kernel:
-		l.errorf(pos, diag.PerCPUMode, "//pu:percpu variable %s needs --mode kernel", v.Name())
+		l.errorf(pos, diag.PerCPUMode, "//pu:percpu variable %s needs --mode kernel", pu.Box(v.Name()))
 		return
 	case d.Section != "":
-		l.errorf(pos, diag.PerCPUSection, "//pu:percpu variable %s cannot also have //pu:section", v.Name())
+		l.errorf(pos, diag.PerCPUSection, "//pu:percpu variable %s cannot also have //pu:section", pu.Box(v.Name()))
 		return
 	}
 	d.Sym.PerCPU = true

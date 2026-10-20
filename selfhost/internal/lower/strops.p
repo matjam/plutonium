@@ -187,7 +187,7 @@ func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident
 	}
 	targs := s.instanceArgs(id)
 	if len(targs) != 1 {
-		s.l.internalf(e.Pos(), "rt.%s is not instantiated", fn.Name())
+		s.l.internalf(e.Pos(), "rt.%s is not instantiated", pu.Box(fn.Name()))
 		return nil, true
 	}
 	T := targs[0]

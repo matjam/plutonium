@@ -10,6 +10,7 @@ package types2
 
 import (
 	"selfhost/compat"
+	"selfhost/pu"
 )
 
 // LookupSelection selects the field or method whose ID is Id(pkg,
@@ -541,13 +542,13 @@ func (check *Checker) missingMethod(V, T Type, static bool, equivalent func(x, y
 			case isInterfacePtr(T):
 				*cause = compat.Concat("(", check.interfacePtrError(T), ")")
 			default:
-				*cause = check.sprintf("(missing method %s)", m.Name())
+				*cause = check.sprintf("(missing method %s)", pu.Box(m.Name()))
 			}
 		case wrongName:
 			fs, ms := check.funcString(f, false), check.funcString(m, false)
-			*cause = check.sprintf("(missing method %s)\n\t\thave %s\n\t\twant %s", m.Name(), fs, ms)
+			*cause = check.sprintf("(missing method %s)\n\t\thave %s\n\t\twant %s", pu.Box(m.Name()), pu.Box(fs), pu.Box(ms))
 		case unexported:
-			*cause = check.sprintf("(unexported method %s)", m.Name())
+			*cause = check.sprintf("(unexported method %s)", pu.Box(m.Name()))
 		case wrongSig:
 			fs, ms := check.funcString(f, false), check.funcString(m, false)
 			if fs == ms {
@@ -563,26 +564,26 @@ func (check *Checker) missingMethod(V, T Type, static bool, equivalent func(x, y
 				// Rather than reporting this misleading error cause, for now
 				// just point out that the method signature is incorrect.
 				// TODO(gri) should find a good way to report the root cause
-				*cause = check.sprintf("(wrong type for method %s)", m.Name())
+				*cause = check.sprintf("(wrong type for method %s)", pu.Box(m.Name()))
 				break
 			}
-			*cause = check.sprintf("(wrong type for method %s)\n\t\thave %s\n\t\twant %s", m.Name(), fs, ms)
+			*cause = check.sprintf("(wrong type for method %s)\n\t\thave %s\n\t\twant %s", pu.Box(m.Name()), pu.Box(fs), pu.Box(ms))
 		case ambigSel:
-			*cause = check.sprintf("(ambiguous selector %s.%s)", V, m.Name())
+			*cause = check.sprintf("(ambiguous selector %s.%s)", V, pu.Box(m.Name()))
 		case ptrRecv:
-			*cause = check.sprintf("(method %s has pointer receiver)", m.Name())
+			*cause = check.sprintf("(method %s has pointer receiver)", pu.Box(m.Name()))
 		case field:
-			*cause = check.sprintf("(%s.%s is a field, not a method)", V, m.Name())
+			*cause = check.sprintf("(%s.%s is a field, not a method)", V, pu.Box(m.Name()))
 		case nointerface:
-			*cause = check.sprintf("(%s method is marked 'nointerface')", m.Name())
+			*cause = check.sprintf("(%s method is marked 'nointerface')", pu.Box(m.Name()))
 		case genericMethod:
 			fs, ms := check.funcString(f, false), check.funcString(m, false)
-			*cause = check.sprintf("(method %s has type parameters, so it cannot implement an interface method)\n\t\thave %s\n\t\twant %s", m.Name(), fs, ms)
+			*cause = check.sprintf("(method %s has type parameters, so it cannot implement an interface method)\n\t\thave %s\n\t\twant %s", pu.Box(m.Name()), pu.Box(fs), pu.Box(ms))
 		case consumes:
 			if r := f.typ.(*Signature).recv; r != nil && IsOwner(r.typ) {
-				*cause = check.sprintf("(method %s has a value receiver of owner type %s, so calling it would consume the owner; it cannot implement an interface method: declare it on *%s and convert a pointer)", m.Name(), r.typ, r.typ)
+				*cause = check.sprintf("(method %s has a value receiver of owner type %s, so calling it would consume the owner; it cannot implement an interface method: declare it on *%s and convert a pointer)", pu.Box(m.Name()), r.typ, r.typ)
 			} else {
-				*cause = check.sprintf("(%s.%s is a built-in method and cannot implement an interface method)", V, m.Name())
+				*cause = check.sprintf("(%s.%s is a built-in method and cannot implement an interface method)", V, pu.Box(m.Name()))
 			}
 		default:
 			panic("unreachable")

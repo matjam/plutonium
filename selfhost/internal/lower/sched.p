@@ -45,7 +45,7 @@ func (l *Lowerer) findScheduler() {
 	}
 	for _, b := range own[min(len(own), 1):] {
 		l.errorf(b.pos, diag.BadScheduler, "%s is a second //pu:scheduler variable; the first is %s at %s: a program binds one scheduler (language spec section 19.5)",
-			b.v.Name(), own[0].v.Name(), l.fset.Position(own[0].pos))
+			pu.Box(b.v.Name()), pu.Box(own[0].v.Name()), pu.Box(l.fset.Position(own[0].pos)))
 		l.schedMissing = true // no "none is bound" on top
 	}
 	var b *schedBinding
@@ -63,7 +63,7 @@ func (l *Lowerer) findScheduler() {
 		l.schedMissing = true // no "none is bound" on top
 	}
 	if isInterface(T) {
-		bad("//pu:scheduler variable %s has interface type %s; give it the backend's own type, so that the runtime calls its methods directly", b.v.Name(), T)
+		bad("//pu:scheduler variable %s has interface type %s; give it the backend's own type, so that the runtime calls its methods directly", pu.Box(b.v.Name()), T)
 		return
 	}
 	iface := l.rtType("Scheduler").Underlying().(*types2.Interface)
@@ -73,11 +73,11 @@ func (l *Lowerer) findScheduler() {
 		if m != nil {
 			name = m.Name()
 		}
-		bad("//pu:scheduler variable %s of type %s does not implement rt.Scheduler (missing method %s)", b.v.Name(), T, name)
+		bad("//pu:scheduler variable %s of type %s does not implement rt.Scheduler (missing method %s)", pu.Box(b.v.Name()), T, pu.Box(name))
 		return
 	}
 	if n, ok := types2.Unalias(T).(*types2.Named); ok && n.TypeArgs().Len() > 0 {
-		bad("//pu:scheduler variable %s has generic type %s, which is not supported", b.v.Name(), T)
+		bad("//pu:scheduler variable %s has generic type %s, which is not supported", pu.Box(b.v.Name()), T)
 		return
 	}
 	l.sched = b
@@ -302,7 +302,7 @@ func (l *Lowerer) schedHookSym(fn *types2.Func, method string, mode hookMode) *s
 		if len(missing) > 0 {
 			l.schedNoTimers = true
 			l.errorf(b.pos, diag.SchedulerTimers, "this program uses timers (time.Sleep, a time.Timer or Ticker, rt.ParkUntil or rt.Now), so its scheduler must provide a clock and a timer, and %s of type %s has no method %s (abi.md section 12.9)",
-				b.v.Name(), b.v.Type(), compat.Join(missing, " or "))
+				pu.Box(b.v.Name()), b.v.Type(), pu.Box(compat.Join(missing, " or ")))
 		}
 	}
 	b := l.sched

@@ -5,6 +5,7 @@ package opt
 import (
 	"selfhost/compat"
 	"selfhost/internal/ssa"
+	"selfhost/pu"
 )
 
 // SimplifyCFG folds branches on constants, merges a block into its only
@@ -73,7 +74,7 @@ func verifyStep(f *ssa.Func, step string) {
 		return
 	}
 	if err := verify(f); err != nil {
-		panic(compat.Concat("after ", step, ": ", err.Error()))
+		panic(pu.Box(compat.Concat("after ", step, ": ", err.Error())))
 	}
 }
 

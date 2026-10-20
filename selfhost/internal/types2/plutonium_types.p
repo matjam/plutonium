@@ -427,9 +427,9 @@ func (check *Checker) packedBytePlacement(p *Packed, ident *ast.Ident, offset, w
 	}
 	switch {
 	case isBits && width > 1 && offset/8 != (offset+width-1)/8:
-		check.errorf(ident, BadPackedBytePlacement, "bit field %s (bits %d to %d) crosses a byte boundary in a big-endian packed type", ident.Name, offset, offset+width-1)
+		check.errorf(ident, BadPackedBytePlacement, "bit field %s (bits %d to %d) crosses a byte boundary in a big-endian packed type", pu.Box(ident.Name), offset, offset+width-1)
 	case !isBits && offset%8 != 0:
-		check.errorf(ident, BadPackedBytePlacement, "field %s starts at bit %d, which is not a byte boundary, in a big-endian packed type", ident.Name, offset)
+		check.errorf(ident, BadPackedBytePlacement, "field %s starts at bit %d, which is not a byte boundary, in a big-endian packed type", pu.Box(ident.Name), offset)
 	}
 }
 
@@ -621,7 +621,7 @@ func (check *Checker) wrapperType(ix *indexedExpr) Type {
 			if kind == WrapRing {
 				what = "capacity"
 			}
-			check.errorf(ix.indices[1], NotPowerOfTwo, "%s %s %d is not a power of two", kind, what, n)
+			check.errorf(ix.indices[1], NotPowerOfTwo, "%s %s %d is not a power of two", kind, pu.Box(what), n)
 			return Typ[Invalid]
 		}
 	}
@@ -641,7 +641,7 @@ func (check *Checker) wrapperType(ix *indexedExpr) Type {
 					Intro: "Name the counted reference type the weak reference comes from",
 					Code:  compat.Concat("weak[shared[", e, "]]"),
 				}}),
-			}), "weak takes shared[T] or synced[T], not %s", e)
+			}), "weak takes shared[T] or synced[T], not %s", pu.Box(e))
 			return Typ[Invalid]
 		}
 	}
@@ -665,7 +665,7 @@ func (check *Checker) boxElem(at positioner, kind WrapperKind, elem Type) {
 		}, {
 			Intro: compat.Concat("To put the value itself in a box, use its own type: ", kind.String(), "[File] rather than ", kind.String(), "[", e, "]."),
 		}}),
-	}), "%s cannot hold an interface type (%s): use an owning interface", kind, e)
+	}), "%s cannot hold an interface type (%s): use an owning interface", kind, pu.Box(e))
 }
 
 // isVolatileElem reports whether T can be wrapped in volatile: a scalar
@@ -693,7 +693,7 @@ func (check *Checker) positiveConst(e ast.Expr, what string) int64 {
 	check.expr(nil, x, e)
 	if x.mode() != constant_ {
 		if x.isValid() {
-			check.errorf(x, BadWrapperSize, "%s argument %s must be a constant", what, x)
+			check.errorf(x, BadWrapperSize, "%s argument %s must be a constant", pu.Box(what), x)
 		}
 		return 0
 	}
@@ -704,7 +704,7 @@ func (check *Checker) positiveConst(e ast.Expr, what string) int64 {
 			}
 		}
 	}
-	check.errorf(x, BadWrapperSize, "%s argument %s must be a positive integer", what, x)
+	check.errorf(x, BadWrapperSize, "%s argument %s must be a positive integer", pu.Box(what), x)
 	return 0
 }
 

@@ -9,6 +9,7 @@ import (
 	"selfhost/internal/diag"
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/types2"
+	"selfhost/pu"
 )
 
 // The //pu:stack directive on main.main sets the size of the stack the
@@ -50,7 +51,7 @@ func (l *Lowerer) mainStackSize(mainFn *types2.Func) uint64 {
 		}
 		size, err := parseStackSize(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(dir), "stack")))
 		if err != "" {
-			l.errorf(c.Pos(), diag.StackDirective, "//pu:stack: %s", err)
+			l.errorf(c.Pos(), diag.StackDirective, "//pu:stack: %s", pu.Box(err))
 			return 0
 		}
 		return size

@@ -14,6 +14,7 @@ import (
 	"selfhost/internal/constant"
 	"selfhost/internal/syntax/token"
 	. "selfhost/internal/types2/errors"
+	"selfhost/pu"
 )
 
 // overflow checks that the constant x is representable by its type.
@@ -46,7 +47,7 @@ func (check *Checker) overflow(x *operand, opPos token.Pos) {
 		if op != "" {
 			op = compat.Concat(op, " ")
 		}
-		check.errorf(atPos(opPos), InvalidConstVal, "constant %soverflow", op)
+		check.errorf(atPos(opPos), InvalidConstVal, "constant %soverflow", pu.Box(op))
 		x.val = constant.MakeUnknown()
 		return
 	}
@@ -278,7 +279,7 @@ func (check *Checker) convertUntyped(x *operand, target Type) {
 		if x.mode() == constant_ {
 			code = UntypedEnumConstant
 		}
-		check.errorf(x, code, "cannot use %s as %s value: name a member (%s.%s) or convert explicitly", x, target, en.obj.name, en.members[0].name)
+		check.errorf(x, code, "cannot use %s as %s value: name a member (%s.%s) or convert explicitly", x, target, pu.Box(en.obj.name), pu.Box(en.members[0].name))
 		x.invalidate()
 		return
 	}

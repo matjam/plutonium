@@ -66,15 +66,15 @@ func (check *Checker) orCall(s *ast.OrStmt) (values []*operand, ok bool) {
 	kind := check.rawExpr(nil, x, call, nil, false)
 	switch {
 	case kind == conversion:
-		check.errorf(call, OrNotFunctionCall, "%s is a conversion, not a call of a function; or tests the error that a function returns", ExprString(call))
+		check.errorf(call, OrNotFunctionCall, "%s is a conversion, not a call of a function; or tests the error that a function returns", pu.Box(ExprString(call)))
 		return nil, false
 	case builtin != nil:
-		check.errorf(call, OrNotFunctionCall, "%s is a call of the built-in function %s, which returns no error for or to test", ExprString(call), builtin.name)
+		check.errorf(call, OrNotFunctionCall, "%s is a call of the built-in function %s, which returns no error for or to test", pu.Box(ExprString(call)), pu.Box(builtin.name))
 		return nil, false
 	case !x.isValid():
 		return nil, false
 	case x.mode() == novalue:
-		check.errorf(call, OrNoError, "%s returns no result; or tests the error that a call returns as its last result", ExprString(call))
+		check.errorf(call, OrNoError, "%s returns no result; or tests the error that a call returns as its last result", pu.Box(ExprString(call)))
 		return nil, false
 	}
 	var results []Type
@@ -87,7 +87,7 @@ func (check *Checker) orCall(s *ast.OrStmt) (values []*operand, ok bool) {
 	}
 	last := results[len(results)-1]
 	if !Identical(last, universeError) {
-		check.errorf(call, OrNoError, "the last result of %s has type %s, not error; or tests a last result of type error", ExprString(call), last)
+		check.errorf(call, OrNoError, "the last result of %s has type %s, not error; or tests a last result of type error", pu.Box(ExprString(call)), last)
 		return nil, false
 	}
 	values = compat.Make[*operand](len(results) - 1)
@@ -129,11 +129,11 @@ func (check *Checker) orCountError(s *ast.OrStmt, n int) {
 	}
 	switch n {
 	case 0:
-		check.errorf(s.Lhs[0], WrongAssignCount, "assignment mismatch: %d %s but %s returns only an error; write it without a left side", len(s.Lhs), vars, ExprString(s.Call))
+		check.errorf(s.Lhs[0], WrongAssignCount, "assignment mismatch: %d %s but %s returns only an error; write it without a left side", len(s.Lhs), pu.Box(vars), pu.Box(ExprString(s.Call)))
 	case 1:
-		check.errorf(s.Lhs[0], WrongAssignCount, "assignment mismatch: %d %s but %s returns 1 value besides the error", len(s.Lhs), vars, ExprString(s.Call))
+		check.errorf(s.Lhs[0], WrongAssignCount, "assignment mismatch: %d %s but %s returns 1 value besides the error", len(s.Lhs), pu.Box(vars), pu.Box(ExprString(s.Call)))
 	default:
-		check.errorf(s.Lhs[0], WrongAssignCount, "assignment mismatch: %d %s but %s returns %d values besides the error", len(s.Lhs), vars, ExprString(s.Call), n)
+		check.errorf(s.Lhs[0], WrongAssignCount, "assignment mismatch: %d %s but %s returns %d values besides the error", len(s.Lhs), pu.Box(vars), pu.Box(ExprString(s.Call)), n)
 	}
 }
 
@@ -175,7 +175,7 @@ func (check *Checker) orClause(ctxt stmtContext, s *ast.OrStmt) {
 	}
 
 	if !check.orLeaves(s.Clause) {
-		check.errorf(s.Clause, OrClauseCompletes, "the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when %s fails", ExprString(s.Call))
+		check.errorf(s.Clause, OrClauseCompletes, "the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when %s fails", pu.Box(ExprString(s.Call)))
 	}
 }
 
@@ -238,9 +238,9 @@ func (check *Checker) orReturn(ctxt stmtContext, s *ast.OrStmt, r *ast.ReturnStm
 		if !lastErr {
 			name := check.funcName()
 			if n == 0 {
-				check.errorf(r, OrNoErrorResult, "%s has no results, so no error result to carry err: return with no operands would drop the error", name)
+				check.errorf(r, OrNoErrorResult, "%s has no results, so no error result to carry err: return with no operands would drop the error", pu.Box(name))
 			} else {
-				check.errorf(r, OrNoErrorResult, "%s has no error result to carry err: its last result has type %s, and return with no operands would drop the error", name, res.vars[n-1].typ)
+				check.errorf(r, OrNoErrorResult, "%s has no error result to carry err: its last result has type %s, and return with no operands would drop the error", pu.Box(name), res.vars[n-1].typ)
 			}
 			return
 		}
@@ -297,7 +297,7 @@ func (check *Checker) orNamedResultsInScope(r *ast.ReturnStmt, vars []*Var) {
 		}
 		if alt := check.lookup(obj.name); alt != nil && alt != obj {
 			err := check.newError(OutOfScopeResult)
-			err.addf(r, "result parameter %s not in scope at return", obj.name)
+			err.addf(r, "result parameter %s not in scope at return", pu.Box(obj.name))
 			err.addf(alt, "inner declaration of %s", obj)
 			err.report()
 		}

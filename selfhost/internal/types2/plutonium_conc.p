@@ -10,6 +10,7 @@ import (
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/syntax/token"
 	. "selfhost/internal/types2/errors"
+	"selfhost/pu"
 )
 
 // Unsendable returns the part of T that keeps a value of type T from
@@ -73,9 +74,9 @@ func (check *Checker) checkSendable(at positioner, T Type, what string) {
 	}
 	if bad := Unsendable(T); bad != nil {
 		if Identical(bad, T) {
-			check.errorf(at, NotSendable, "%s %s is not sendable: a shared reference's count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)", what, T)
+			check.errorf(at, NotSendable, "%s %s is not sendable: a shared reference's count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)", pu.Box(what), T)
 		} else {
-			check.errorf(at, NotSendable, "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)", what, T, bad)
+			check.errorf(at, NotSendable, "%s %s is not sendable: it contains %s, whose count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)", pu.Box(what), T, bad)
 		}
 	}
 }
@@ -157,17 +158,17 @@ func (check *Checker) checkFrameView(e ast.Expr, what string) {
 			return
 		}
 		if _, lit := ast.Unparen(x.X).(*ast.CompositeLit); lit {
-			check.errorf(x, FrameViewSent, "%s is %s, but it points into this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new(T{...}), whose owned[T] then moves to the task", ExprString(x), what)
+			check.errorf(x, FrameViewSent, "%s is %s, but it points into this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new(T{...}), whose owned[T] then moves to the task", pu.Box(ExprString(x)), pu.Box(what))
 			return
 		}
 		if root := check.frameRoot(x.X); root != nil {
-			check.errorf(x, FrameViewSent, "%s is %s, but %s lives in this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the task, or make it a package-level variable", ExprString(x), what, root.name)
+			check.errorf(x, FrameViewSent, "%s is %s, but %s lives in this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the task, or make it a package-level variable", pu.Box(ExprString(x)), what, root.name)
 		}
 	case *ast.SliceExpr:
 		if T := check.exprType(x.X); T != nil {
 			if _, arr := T.Underlying().(*Array); arr {
 				if root := check.frameRoot(x.X); root != nil {
-					check.errorf(x, FrameViewSent, "%s is %s, but it is a slice of %s, which lives in this function's frame and which the receiving task may outlive (spec section 18.3)", ExprString(x), what, root.name)
+					check.errorf(x, FrameViewSent, "%s is %s, but it is a slice of %s, which lives in this function's frame and which the receiving task may outlive (spec section 18.3)", pu.Box(ExprString(x)), pu.Box(what), pu.Box(root.name))
 				}
 			}
 		}

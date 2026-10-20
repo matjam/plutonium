@@ -79,7 +79,7 @@ func (w *walker) scopeOutlives(e *ast.CallExpr, t *scoped.Task, v *types2.Var, l
 	key := compat.Sprintf("scope|%p|%p", t.Call, v)
 	w.a.add(e.Pos(), key, func() *diag.Diagnostic {
 		d := diag.New(w.a.fset.Position(e.Pos()), diag.ScopeOutlivesVar,
-			"the task started here takes %s, %s, which the loop at %s reuses before %s waits for the task", v.Name(), what, w.a.basePos(L.node.Pos()), sname)
+			"the task started here takes %s, %s, which the loop at %s reuses before %s waits for the task", pu.Box(v.Name()), pu.Box(what), pu.Box(w.a.basePos(L.node.Pos())), pu.Box(sname))
 		name := "it"
 		if l.v != nil {
 			name = l.v.Name()

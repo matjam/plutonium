@@ -42,7 +42,7 @@ var catalog = map[Code]*Entry{}
 func register(entries ...*Entry) {
 	for _, e := range entries {
 		if _, dup := catalog[e.Code]; dup {
-			panic(compat.Concat("diag: duplicate catalog entry ", string(e.Code)))
+			panic(pu.Box(compat.Concat("diag: duplicate catalog entry ", string(e.Code))))
 		}
 		catalog[e.Code] = e
 	}

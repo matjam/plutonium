@@ -60,7 +60,7 @@ func (c *compiler) drain() {
 		j := c.queue[0]
 		c.queue = c.queue[1:]
 		if j.build == nil {
-			c.st.emit("%s: no build", j.name)
+			c.st.emit("%s: no build", pu.Box(j.name))
 			continue
 		}
 		j.build.Call(&c.st)
@@ -91,7 +91,7 @@ func (a *action) describef(format string, args ...any) {
 func (ch *checker) decl(name string) {
 	count := pu.New(0)
 	result := pu.Alloc[string]()
-	ch.later(pu.New(goClosure_decl_1{count: count, ch: ch, name: name, result: result})).describef("decl %s", name)
+	ch.later(pu.New(goClosure_decl_1{count: count, ch: ch, name: name, result: result})).describef("decl %s", pu.Box(name))
 	(*result) = strings.ToUpper(name)
 	ch.later(pu.New(goClosure_decl_2{ch: ch, name: name, result: result, count: count}))
 }

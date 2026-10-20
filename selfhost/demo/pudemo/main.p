@@ -167,7 +167,7 @@ func main() {
 	out.WriteRune('é')
 	out.Write(compat.Bytes("bytes"))
 	out.WriteString("]")
-	msg := pu.Sprintf("%s has %d bytes", out.String(), out.Len())
+	msg := pu.Sprintf("%s has %d bytes", pu.Box(out.String()), out.Len())
 	fmt.Println(msg.String())
 	msg.Drop()
 	unsafe.Drop(out)

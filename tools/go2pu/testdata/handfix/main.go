@@ -75,7 +75,30 @@ func safe() (err error) {
 	return nil
 }
 
+const debug = false
+
+type wide struct{ a, b, c int }
+
+type holder struct{ keep any }
+
+var sink holder
+
+// store keeps w in an interface: Go boxes it on the heap.
+func store(w wide) { sink.keep = w }
+
+// dead has code that never runs, which the translation leaves out.
+func dead(n int) int {
+	seen := 0
+	if debug {
+		seen = n
+		println("never", seen)
+	}
+	return n
+}
+
 func main() {
+	store(wide{1, 2, 3})
+	_ = dead(1)
 	x := 1
 	later(func() { x++ })
 	gater(new([]gjob[int]), 1)

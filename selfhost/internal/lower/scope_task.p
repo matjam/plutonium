@@ -60,7 +60,7 @@ func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 			if t.Taken[v] {
 				what = "takes"
 			}
-			s.l.errorf(lit.Pos(), diag.CheckerCode(typerr.NotSendable), "the task started by %s %s %s, of type %s, which is not sendable: it contains %s, whose count is not atomic, so it cannot be used by two tasks; use synced[T] (spec section 19.2)", shortExpr(e.Fun), what, v.Name(), T, bad)
+			s.l.errorf(lit.Pos(), diag.CheckerCode(typerr.NotSendable), "the task started by %s %s %s, of type %s, which is not sendable: it contains %s, whose count is not atomic, so it cannot be used by two tasks; use synced[T] (spec section 19.2)", pu.Box(shortExpr(e.Fun)), what, v.Name(), T, bad)
 			return
 		}
 	}

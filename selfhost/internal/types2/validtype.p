@@ -9,6 +9,7 @@ package types2
 import (
 	"selfhost/compat"
 	"selfhost/internal/syntax/token"
+	"selfhost/pu"
 )
 
 // validType verifies that the given type does not "expand" indefinitely
@@ -37,7 +38,7 @@ func (check *Checker) validType0(pos token.Pos, typ Type, nest, path []*Named) b
 			pos = t.obj.pos
 		}
 		check.indent++
-		check.trace(pos, "validType(%s) nest %v, path %v", typ, pathString(makeObjList(nest)), pathString(makeObjList(path)))
+		check.trace(pos, "validType(%s) nest %v, path %v", typ, pu.Box(pathString(makeObjList(nest))), pu.Box(pathString(makeObjList(path))))
 		defer func() {
 			check.indent--
 		}()

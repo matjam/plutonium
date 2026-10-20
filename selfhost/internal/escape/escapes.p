@@ -293,7 +293,7 @@ var checkFast = compat.Getenv("PLUTO_ESCAPE_CHECK") != ""
 func (w *walker) checkFastKey(argOf func(pkey, tset) tset, k pkey, one tset, key pkey, ok bool) {
 	v := argOf(k, one)
 	if ok != (len(v) == 1) || ok && (v[0].kind != tParam || v[0].sc.fn != one[0].sc.fn || keyOf(v[0]) != key) {
-		panic(compat.Sprintf("fastKey(%+v, %+v) = %+v, %v; the general way gives %+v", one[0], k, key, ok, v))
+		panic(pu.Box(compat.Sprintf("fastKey(%+v, %+v) = %+v, %v; the general way gives %+v", one[0], k, key, ok, v)))
 	}
 }
 

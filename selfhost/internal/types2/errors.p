@@ -26,7 +26,7 @@ func assert(p bool) {
 		if _, file, line, ok := compat.Caller(1); ok {
 			msg = compat.Sprintf("%s:%d: %s", file, line, msg)
 		}
-		panic(msg)
+		panic(pu.Box(msg))
 	}
 }
 
@@ -71,7 +71,7 @@ func (err *error_) addAltDecl(obj Object) {
 		// We use "other" rather than "previous" here because
 		// the first declaration seen may not be textually
 		// earlier in the source.
-		err.addf(obj, "other declaration of %s", obj.Name())
+		err.addf(obj, "other declaration of %s", pu.Box(obj.Name()))
 	}
 }
 
@@ -127,7 +127,7 @@ func (err *error_) report() {
 	}
 
 	if check.conf._Trace {
-		check.trace(err.posn().Pos(), "ERROR: %s (code = %d)", err.desc[0].msg, err.code)
+		check.trace(err.posn().Pos(), "ERROR: %s (code = %d)", pu.Box(err.desc[0].msg), err.code)
 	}
 
 	// In go/types, if there is a sub-error with a valid position,
@@ -216,14 +216,14 @@ func (check *Checker) handleError(index int, posn positioner, code Code, msg str
 	}
 
 	if check.firstErr == nil {
-		check.firstErr = e
+		check.firstErr = pu.Box(e).(error)
 	}
 
 	// Without an Error function the first error is recorded and checking
 	// goes on (Plutonium's panic does not unwind, so it cannot stop early);
 	// Files returns the first error.
 	if f := check.conf.Error; f != nil {
-		f(e)
+		f(pu.Box(e).(error))
 	}
 }
 
@@ -239,7 +239,7 @@ type positioner interface {
 
 func (check *Checker) error(at positioner, code Code, msg string) {
 	err := check.newError(code)
-	err.addf(at, "%s", msg)
+	err.addf(at, "%s", pu.Box(msg))
 	err.report()
 }
 
@@ -259,7 +259,7 @@ func (check *Checker) softErrorf(at positioner, code Code, format string, args .
 func (check *Checker) versionErrorf(at positioner, v goVersion, format string, args ...any) {
 	msg := check.sprintf(format, args...)
 	err := check.newError(UnsupportedFeature)
-	err.addf(at, "%s requires %s or later", msg, v)
+	err.addf(at, "%s requires %s or later", pu.Box(msg), pu.Box(v))
 	err.report()
 }
 

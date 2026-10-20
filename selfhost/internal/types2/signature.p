@@ -113,7 +113,7 @@ func NewSignatureType(recv *Var, recvTypeParams, typeParams []*TypeParam, params
 			}
 		}
 		if (*S) == nil {
-			panic(compat.Sprintf("got %s, want variadic parameter of slice or string type", last))
+			panic(pu.Box(compat.Sprintf("got %s, want variadic parameter of slice or string type", last)))
 		}
 	}
 	sig := pu.New(Signature{recv: recv, params: params, results: results, variadic: variadic})
@@ -266,7 +266,7 @@ func (check *Checker) collectRecv(rparam *ast.Field, scopePos token.Pos) (*Var, 
 			}
 		} else {
 			if cause != "" {
-				check.errorf(rbase, InvalidRecv, "%s", cause)
+				check.errorf(rbase, InvalidRecv, "%s", pu.Box(cause))
 			}
 			// Ok to continue but do not set baseType (see comment above).
 		}
@@ -307,7 +307,7 @@ func (check *Checker) collectRecv(rparam *ast.Field, scopePos token.Pos) (*Var, 
 				}
 			} else {
 				got := measure(len(recvTParams), "type parameter")
-				check.errorf(rbase, BadRecv, "receiver declares %s, but receiver base type declares %d", got, len(baseTParams))
+				check.errorf(rbase, BadRecv, "receiver declares %s, but receiver base type declares %d", pu.Box(got), len(baseTParams))
 			}
 
 			// The type parameters declared by the receiver also serve as
@@ -507,7 +507,7 @@ func (check *Checker) validRecv(pos positioner, recv *Var) {
 			panic("unreachable")
 		}
 		if cause != "" {
-			check.errorf(pos, InvalidRecv, "invalid receiver type %s (%s)", rtyp, cause)
+			check.errorf(pos, InvalidRecv, "invalid receiver type %s (%s)", rtyp, pu.Box(cause))
 		}
 	case *Basic:
 		check.errorf(pos, InvalidRecv, "cannot define new methods on non-local type %s", rtyp)

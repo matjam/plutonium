@@ -6,6 +6,7 @@ import (
 	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/syntax/token"
+	"selfhost/pu"
 )
 
 // Verify checks the function's structural invariants and returns an error
@@ -280,70 +281,70 @@ func (f *Func) verifyTypes(v *Value, fail func(string, ...any)) {
 	case OpAnd, OpOr, OpXor:
 		// Also defined on bools.
 		if !v.Type.IsInt() && !v.Type.IsBool() || !argType(0).Same(v.Type) || !argType(1).Same(v.Type) {
-			fail("%s: %s needs matching integer or bool operands", v.LongString(), v.Op)
+			fail("%s: %s needs matching integer or bool operands", pu.Box(v.LongString()), v.Op)
 		}
 	case OpAdd, OpSub, OpMul, OpDiv, OpDivu, OpMod, OpModu, OpAndNot, OpMulHi, OpMulHiu:
 		if !v.Type.IsInt() || !argType(0).Same(v.Type) || !argType(1).Same(v.Type) {
-			fail("%s: %s needs matching integer operands", v.LongString(), v.Op)
+			fail("%s: %s needs matching integer operands", pu.Box(v.LongString()), v.Op)
 		}
 	case OpShl, OpShrL, OpShrA, OpRotl:
 		if !v.Type.IsInt() || !argType(0).Same(v.Type) || !argType(1).IsInt() {
-			fail("%s: bad shift types", v.LongString())
+			fail("%s: bad shift types", pu.Box(v.LongString()))
 		}
 	case OpFAdd, OpFSub, OpFMul, OpFDiv:
 		if !v.Type.IsFloatOrVec() || !argType(0).Same(v.Type) || !argType(1).Same(v.Type) {
-			fail("%s: %s needs matching float operands", v.LongString(), v.Op)
+			fail("%s: %s needs matching float operands", pu.Box(v.LongString()), v.Op)
 		}
 	case OpFNeg, OpFSqrt, OpFAbs:
 		if !v.Type.IsFloatOrVec() || !argType(0).Same(v.Type) {
-			fail("%s: %s needs a matching float operand", v.LongString(), v.Op)
+			fail("%s: %s needs a matching float operand", pu.Box(v.LongString()), v.Op)
 		}
 	case OpVPack:
 		if !v.Type.IsVec() || !argType(0).Same(v.Type.Elems[0]) || !argType(1).Same(v.Type.Elems[1]) {
-			fail("%s: bad pack types", v.LongString())
+			fail("%s: bad pack types", pu.Box(v.LongString()))
 		}
 	case OpVLane:
 		if t := argType(0); !t.IsVec() || v.AuxInt < 0 || v.AuxInt >= int64(len(t.Elems)) || !v.Type.Same(t.Elems[v.AuxInt]) {
-			fail("%s: bad lane", v.LongString())
+			fail("%s: bad lane", pu.Box(v.LongString()))
 		}
 	case OpEq, OpNe, OpLess, OpLeq, OpLessu, OpLequ:
 		if !v.Type.IsBool() || !argType(0).Same(argType(1)) || !argType(0).IsScalar() || argType(0).IsFloat() {
-			fail("%s: bad comparison types", v.LongString())
+			fail("%s: bad comparison types", pu.Box(v.LongString()))
 		}
 	case OpFEq, OpFNe, OpFLess, OpFLeq:
 		if !v.Type.IsBool() || !argType(0).IsFloat() || !argType(0).Same(argType(1)) {
-			fail("%s: bad float comparison types", v.LongString())
+			fail("%s: bad float comparison types", pu.Box(v.LongString()))
 		}
 	case OpLoad:
 		if !argType(0).IsPtr() || !v.Type.IsScalar() && !v.Type.IsVec() {
-			fail("%s: bad load types", v.LongString())
+			fail("%s: bad load types", pu.Box(v.LongString()))
 		}
 	case OpStore:
 		st, ok := v.Aux.(*Type)
 		if !ok || !argType(0).IsPtr() || !argType(1).Same(st) || !v.Type.IsMem() {
-			fail("%s: bad store types", v.LongString())
+			fail("%s: bad store types", pu.Box(v.LongString()))
 		}
 	case OpFill:
 		if !argType(0).IsPtr() || argType(1).Size != 1 || !argType(2).Same(TI64) || !v.Type.IsMem() {
-			fail("%s: bad fill types", v.LongString())
+			fail("%s: bad fill types", pu.Box(v.LongString()))
 		}
 	case OpOffPtr, OpAddPtr, OpSlotAddr, OpSymAddr, OpFuncAddr, OpRegion:
 		if !v.Type.IsPtr() {
-			fail("%s: address op must produce a pointer", v.LongString())
+			fail("%s: address op must produce a pointer", pu.Box(v.LongString()))
 		}
 	case OpReturnAddr, OpCodeAddr:
 		if v.Type.Size != 8 || v.Type.IsFloat() {
-			fail("%s: return address must be a word", v.LongString())
+			fail("%s: return address must be a word", pu.Box(v.LongString()))
 		}
 	case OpPhi, OpCopy:
 		for _, a := range v.Args {
 			if a != nil && !a.Type.Same(v.Type) {
-				fail("%s: argument %s has type %s", v.LongString(), a, a.Type)
+				fail("%s: argument %s has type %s", pu.Box(v.LongString()), a, a.Type)
 			}
 		}
 	case OpSelect:
 		if !argType(0).IsBool() || !argType(1).Same(v.Type) || !argType(2).Same(v.Type) {
-			fail("%s: bad select types", v.LongString())
+			fail("%s: bad select types", pu.Box(v.LongString()))
 		}
 	}
 }

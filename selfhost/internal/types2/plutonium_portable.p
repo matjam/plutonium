@@ -242,5 +242,5 @@ func portableExplanation(c *PortableCause) *Explanation {
 
 // reportPortable reports a type argument that is not portable.
 func (check *Checker) reportPortable(at positioner, e *portableArgError, what string) {
-	check.explainf(at, NotPortable, e.ex, "cannot use %s as %s in %s: %s", check.sprintf("%s", e.targ), e.tpar.obj.name, what, e.msg)
+	check.explainf(at, NotPortable, e.ex, "cannot use %s as %s in %s: %s", pu.Box(check.sprintf("%s", e.targ)), pu.Box(e.tpar.obj.name), pu.Box(what), pu.Box(e.msg))
 }

@@ -262,7 +262,7 @@ func (s *fnState) defaultArg(def *defaultsOf, i, n int, T types2.Type, e *ast.Ca
 	k := i - (n - len(defs))
 	d := s.l.decls[fn]
 	if k < 0 || d == nil {
-		s.l.internalf(e.Pos(), "no argument for parameter %d of %s", i+1, fn.Name())
+		s.l.internalf(e.Pos(), "no argument for parameter %d of %s", i+1, pu.Box(fn.Name()))
 		return s.zeroValue(T)
 	}
 	pkg, info, tmap := s.pkg, s.info, s.tmap
@@ -502,7 +502,7 @@ func (l *Lowerer) rtFunc(name string) *types2.Func {
 			}
 		}
 	}
-	panic(compat.Sprintf("lower: pluto/rt.%s is missing", name))
+	panic(pu.Box(compat.Sprintf("lower: pluto/rt.%s is missing", name)))
 }
 
 // callRuntime calls pluto/rt.name with already-flattened scalar arguments and
@@ -635,7 +635,7 @@ func (s *fnState) withMethodTypeArgs(fn *types2.Func, id *ast.Ident, rtargs []ty
 	}
 	own := s.instanceArgs(id)
 	if len(own) != n {
-		s.l.internalf(id.Pos(), "method %s is not instantiated", fn.Name())
+		s.l.internalf(id.Pos(), "method %s is not instantiated", pu.Box(fn.Name()))
 		return rtargs
 	}
 	return compat.Append(compat.Append([]types2.Type(nil), rtargs...), own...)
@@ -675,7 +675,7 @@ func (s *fnState) selectedMethod(se *ast.SelectorExpr, sel *types2.Selection) (*
 	obj, index, _ := types2.LookupFieldOrMethod(T, false, fn.Pkg(), fn.Name())
 	m, ok := obj.(*types2.Func)
 	if !ok {
-		s.l.internalf(se.Sel.Pos(), "%s has no method %s", T, fn.Name())
+		s.l.internalf(se.Sel.Pos(), "%s has no method %s", T, pu.Box(fn.Name()))
 		return nil, nil, false
 	}
 	return m, index, true
@@ -806,7 +806,7 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *ty
 		obj, index, _ := types2.LookupFieldOrMethod(R, false, fn.Pkg(), fn.Name())
 		m, ok := obj.(*types2.Func)
 		if !ok {
-			s.l.internalf(e.Sel.Pos(), "%s has no method %s", R, fn.Name())
+			s.l.internalf(e.Sel.Pos(), "%s has no method %s", R, pu.Box(fn.Name()))
 			return nil
 		}
 		fn, path = m, index
@@ -874,10 +874,10 @@ func (l *Lowerer) methodExprThunk(R types2.Type, fn *types2.Func, path []int, ta
 func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos) *ssa.Value {
 	s.l.errorsNewValue(fn, pos, "used as a func value")
 	if isGateFunc(fn) {
-		s.l.errorf(pos, diag.GateArg, "x86.%s cannot be used as a func value: it must be called with the name of a handler", fn.Name())
+		s.l.errorf(pos, diag.GateArg, "x86.%s cannot be used as a func value: it must be called with the name of a handler", pu.Box(fn.Name()))
 	}
 	if fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" && countIntrinsics[fn.Name()] {
-		s.l.errorf(pos, diag.NotYetSupported, "rt.%s is expanded inline by the compiler and cannot be used as a func value", fn.Name())
+		s.l.errorf(pos, diag.NotYetSupported, "rt.%s is expanded inline by the compiler and cannot be used as a func value", pu.Box(fn.Name()))
 	}
 	sym := s.l.funcSym(fn, targs)
 	s.checkNotHandler(sym, pos, "used as a func value")

@@ -67,7 +67,7 @@ func (l *Lowerer) scalarType(T types2.Type) *ssa.Type {
 		}
 		return nil
 	case *types2.TypeParam:
-		panic(compat.Sprintf("lower: unsubstituted type parameter %s", T))
+		panic(pu.Box(compat.Sprintf("lower: unsubstituted type parameter %s", T)))
 	}
 	return nil
 }

@@ -431,7 +431,7 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 		w.publishAt(v, st.Arrow, "sent on a channel")
 		w.parkPoint()
 	default:
-		panic(compat.Sprintf("race: unsupported statement %T", st))
+		panic(pu.Box(compat.Sprintf("race: unsupported statement %T", st)))
 	}
 }
 
@@ -1460,7 +1460,7 @@ func (w *walker) value1(e ast.Expr) origins {
 		*ast.MapType, *ast.ChanType, *ast.Ellipsis:
 		return nil
 	}
-	panic(compat.Sprintf("race: unsupported expression %T", e))
+	panic(pu.Box(compat.Sprintf("race: unsupported expression %T", e)))
 }
 
 // fieldValue returns the value of a field selection whose places are ps.

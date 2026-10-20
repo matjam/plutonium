@@ -25,7 +25,7 @@ func (check *Checker) declare(scope *Scope, id *ast.Ident, obj Object, pos token
 	if obj.Name() != "_" {
 		if alt := scope.Insert(obj); alt != nil {
 			err := check.newError(DuplicateDecl)
-			err.addf(obj, "%s redeclared in this block", obj.Name())
+			err.addf(obj, "%s redeclared in this block", pu.Box(obj.Name()))
 			err.addAltDecl(alt)
 			err.report()
 			return
@@ -55,7 +55,7 @@ func (check *Checker) objDecl(obj Object) {
 		if check.indent == 0 {
 			fmt.Println() // empty line between top-level objects for readability
 		}
-		check.trace(obj.Pos(), "-- checking %s (objPath = %s)", obj, pathString(check.objPath))
+		check.trace(obj.Pos(), "-- checking %s (objPath = %s)", obj, pu.Box(pathString(check.objPath)))
 		check.indent++
 		defer func() {
 			check.indent--
@@ -198,7 +198,7 @@ loop:
 	}
 
 	if check.conf._Trace {
-		check.trace(obj.Pos(), "## cycle detected: objPath = %s->%s (len = %d)", pathString(cycle), obj.Name(), len(cycle))
+		check.trace(obj.Pos(), "## cycle detected: objPath = %s->%s (len = %d)", pu.Box(pathString(cycle)), pu.Box(obj.Name()), len(cycle))
 		if tparCycle {
 			check.trace(obj.Pos(), "## cycle contains: generic type in a type parameter list")
 		} else {
@@ -262,23 +262,23 @@ func (check *Checker) cycleError(cycle []Object, start int) {
 	// report a more concise error for self references
 	if len(cycle) == 1 {
 		if tname != nil {
-			check.errorf(obj, InvalidDeclCycle, "invalid recursive type: %s refers to itself", name(obj))
+			check.errorf(obj, InvalidDeclCycle, "invalid recursive type: %s refers to itself", pu.Box(name(obj)))
 		} else {
-			check.errorf(obj, InvalidDeclCycle, "invalid cycle in declaration: %s refers to itself", name(obj))
+			check.errorf(obj, InvalidDeclCycle, "invalid cycle in declaration: %s refers to itself", pu.Box(name(obj)))
 		}
 		return
 	}
 
 	err := check.newError(InvalidDeclCycle)
 	if tname != nil {
-		err.addf(obj, "invalid recursive type %s", name(obj))
+		err.addf(obj, "invalid recursive type %s", pu.Box(name(obj)))
 	} else {
-		err.addf(obj, "invalid cycle in declaration of %s", name(obj))
+		err.addf(obj, "invalid cycle in declaration of %s", pu.Box(name(obj)))
 	}
 	// "cycle[i] refers to cycle[j]" for (i,j) = (s,s+1), (s+1,s+2), ..., (n-1,0), (0,1), ..., (s-1,s) for len(cycle) = n, s = start.
 	for i := range cycle {
 		next := cycle[(start+i+1)%len(cycle)]
-		err.addf(obj, "%s refers to %s", name(obj), name(next))
+		err.addf(obj, "%s refers to %s", pu.Box(name(obj)), pu.Box(name(next)))
 		obj = next
 	}
 	err.report()
@@ -350,7 +350,7 @@ func (check *Checker) walkDecl(d ast.Decl, f func(decl)) {
 						inherited = false
 					}
 					check.arityMatch(s, last)
-					f(constDecl{spec: s, iota: iota, typ: last.Type, init: last.Values, inherited: inherited})
+					f(pu.Box(constDecl{spec: s, iota: iota, typ: last.Type, init: last.Values, inherited: inherited}).(decl))
 				case token.VAR:
 					check.arityMatch(s, nil)
 					f(varDecl{s})
@@ -701,9 +701,9 @@ func (check *Checker) collectMethods(obj *TypeName) {
 		assert(m.name != "_")
 		if alt := mset.insert(m); alt != nil {
 			if alt.Pos().IsValid() {
-				check.errorf(m, DuplicateMethod, "method %s.%s already declared at %v", obj.Name(), m.name, alt.Pos())
+				check.errorf(m, DuplicateMethod, "method %s.%s already declared at %v", pu.Box(obj.Name()), pu.Box(m.name), alt.Pos())
 			} else {
-				check.errorf(m, DuplicateMethod, "method %s.%s already declared", obj.Name(), m.name)
+				check.errorf(m, DuplicateMethod, "method %s.%s already declared", pu.Box(obj.Name()), pu.Box(m.name))
 			}
 			continue
 		}
@@ -735,7 +735,7 @@ func (check *Checker) checkFieldUniqueness(base *Named) {
 					// For historical consistency, we report the primary error on the
 					// method, and the alt decl on the field.
 					err := check.newError(DuplicateFieldAndMethod)
-					err.addf(alt, "field and method with the same name %s", fld.name)
+					err.addf(alt, "field and method with the same name %s", pu.Box(fld.name))
 					err.addAltDecl(fld)
 					err.report()
 				}

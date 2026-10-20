@@ -216,7 +216,7 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		p, _ := s.stringParts(s.expr(e.Args[0]))
 		return one(scalarValue(p, T))
 	}
-	s.l.unsupportedf(e.Pos(), "builtin %s is not supported", b.Name())
+	s.l.unsupportedf(e.Pos(), "builtin %s is not supported", pu.Box(b.Name()))
 	return nil
 }
 
@@ -783,7 +783,7 @@ func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []va
 		}
 		return compat.Clone([]value{s.loadFrom(out, et), scalarValue(s.load(ssa.TBool, res), boolT)})
 	}
-	s.l.internalf(pos, "unknown ring method %s", name)
+	s.l.internalf(pos, "unknown ring method %s", pu.Box(name))
 	return nil
 }
 

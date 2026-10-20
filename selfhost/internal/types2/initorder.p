@@ -140,16 +140,16 @@ func (check *Checker) reportCycle(cycle []Object) {
 
 	// report a more concise error for self references
 	if len(cycle) == 1 {
-		check.errorf(obj, InvalidInitCycle, "initialization cycle: %s refers to itself", obj.Name())
+		check.errorf(obj, InvalidInitCycle, "initialization cycle: %s refers to itself", pu.Box(obj.Name()))
 		return
 	}
 
 	err := check.newError(InvalidInitCycle)
-	err.addf(obj, "initialization cycle for %s", obj.Name())
+	err.addf(obj, "initialization cycle for %s", pu.Box(obj.Name()))
 	// "cycle[i] refers to cycle[j]" for (i,j) = (0,n-1), (n-1,n-2), ..., (1,0) for len(cycle) = n.
 	for j := len(cycle) - 1; j >= 0; j-- {
 		next := cycle[j]
-		err.addf(obj, "%s refers to %s", obj.Name(), next.Name())
+		err.addf(obj, "%s refers to %s", pu.Box(obj.Name()), pu.Box(next.Name()))
 		obj = next
 	}
 	err.report()

@@ -516,7 +516,7 @@ func (s *isel) reg(v *ssa.Value) Reg {
 		return r
 	}
 	if !isLazy(v) {
-		panic(compat.Sprintf("amd64: %s used before it was emitted", v.LongString()))
+		panic(pu.Box(compat.Sprintf("amd64: %s used before it was emitted", v.LongString())))
 	}
 	switch v.Op {
 	case ssa.OpConst:

@@ -36,7 +36,7 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 	default:
 		// we may get here because of other problems (go.dev/issue/39634, crash 12)
 		// TODO(gri) do we need a new "generic" error code here?
-		check.errorf(x, IncompatibleAssign, "cannot assign %s to %s in %s", x, T, context)
+		check.errorf(x, IncompatibleAssign, "cannot assign %s to %s in %s", x, T, pu.Box(context))
 		x.invalidate()
 		return
 	}
@@ -56,7 +56,7 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 		{ // go/types
 			if T == nil || isNonTypeParamInterface(T) {
 				if T == nil && x.typ() == Typ[UntypedNil] {
-					check.errorf(x, UntypedNilUse, "use of untyped nil in %s", context)
+					check.errorf(x, UntypedNilUse, "use of untyped nil in %s", pu.Box(context))
 					x.invalidate()
 					return
 				}
@@ -65,7 +65,7 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 		}
 		newType, val, code := check.implicitTypeAndValue(x, target)
 		if code != 0 {
-			msg := check.sprintf("cannot use %s as %s value in %s", x, target, context)
+			msg := check.sprintf("cannot use %s as %s value in %s", x, target, pu.Box(context))
 			switch code {
 			case TruncatedFloat:
 				msg = compat.Concat(msg, " (truncated)")
@@ -110,9 +110,9 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 	cause := ""
 	if ok, code := x.assignableTo(check, T, &cause); !ok {
 		if cause != "" {
-			check.errorf(x, code, "cannot use %s as %s value in %s: %s", x, T, context, cause)
+			check.errorf(x, code, "cannot use %s as %s value in %s: %s", x, T, pu.Box(context), pu.Box(cause))
 		} else {
-			check.errorf(x, code, "cannot use %s as %s value in %s", x, T, context)
+			check.errorf(x, code, "cannot use %s as %s value in %s", x, T, pu.Box(context))
 		}
 		x.invalidate()
 		return
@@ -170,7 +170,7 @@ func (check *Checker) initVar(lhs *Var, x *operand, context string) {
 		if isUntyped(typ) {
 			// convert untyped types to default types
 			if typ == Typ[UntypedNil] {
-				check.errorf(x, UntypedNilUse, "use of untyped nil in %s", context)
+				check.errorf(x, UntypedNilUse, "use of untyped nil in %s", pu.Box(context))
 				lhs.typ = Typ[Invalid]
 				x.invalidate()
 				return
@@ -244,7 +244,7 @@ func (check *Checker) lhsVar(lhs ast.Expr) Type {
 			op := pu.Alloc[operand]()
 			check.expr(nil, op, sel.X)
 			if op.mode() == mapindex {
-				check.errorf(x, UnaddressableFieldAssign, "cannot assign to struct field %s in map", ExprString(x.expr))
+				check.errorf(x, UnaddressableFieldAssign, "cannot assign to struct field %s in map", pu.Box(ExprString(x.expr)))
 				return Typ[Invalid]
 			}
 		}
@@ -367,11 +367,11 @@ func (check *Checker) assignError(rhs []ast.Expr, l, r int) {
 
 	if len(rhs) == 1 {
 		if call, _ := ast.Unparen(rhs0).(*ast.CallExpr); call != nil {
-			check.errorf(rhs0, WrongAssignCount, "assignment mismatch: %s but %s returns %s", vars, call.Fun, vals)
+			check.errorf(rhs0, WrongAssignCount, "assignment mismatch: %s but %s returns %s", pu.Box(vars), call.Fun, pu.Box(vals))
 			return
 		}
 	}
-	check.errorf(rhs0, WrongAssignCount, "assignment mismatch: %s but %s", vars, vals)
+	check.errorf(rhs0, WrongAssignCount, "assignment mismatch: %s but %s", pu.Box(vars), pu.Box(vals))
 }
 
 func (check *Checker) returnError(at positioner, lhs []*Var, rhs []*operand) {
@@ -384,9 +384,9 @@ func (check *Checker) returnError(at positioner, lhs []*Var, rhs []*operand) {
 		at = rhs[r-1] // report at last value
 	}
 	err := check.newError(WrongResultCount)
-	err.addf(at, "%s return values", qualifier)
-	err.addf(noposn, "have %s", check.typesSummary(operandTypes(rhs), false, false))
-	err.addf(noposn, "want %s", check.typesSummary(varTypes(lhs), false, false))
+	err.addf(at, "%s return values", pu.Box(qualifier))
+	err.addf(noposn, "have %s", pu.Box(check.typesSummary(operandTypes(rhs), false, false)))
+	err.addf(noposn, "want %s", pu.Box(check.typesSummary(varTypes(lhs), false, false)))
 	err.report()
 }
 

@@ -228,17 +228,17 @@ func (check *Checker) chanElem(pos positioner, x *operand, recv bool) Type {
 	cause := err.format(check)
 	if recv {
 		if isTypeParam(x.typ()) {
-			check.errorf(pos, InvalidReceive, invalidOp+"cannot receive from %s: %s", x, cause)
+			check.errorf(pos, InvalidReceive, invalidOp+"cannot receive from %s: %s", x, pu.Box(cause))
 		} else {
 			// In this case, only the non-channel and send-only channel error are possible.
-			check.errorf(pos, InvalidReceive, invalidOp+"cannot receive from %s %s", cause, x)
+			check.errorf(pos, InvalidReceive, invalidOp+"cannot receive from %s %s", pu.Box(cause), x)
 		}
 	} else {
 		if isTypeParam(x.typ()) {
-			check.errorf(pos, InvalidSend, invalidOp+"cannot send to %s: %s", x, cause)
+			check.errorf(pos, InvalidSend, invalidOp+"cannot send to %s: %s", x, pu.Box(cause))
 		} else {
 			// In this case, only the non-channel and receive-only channel error are possible.
-			check.errorf(pos, InvalidSend, invalidOp+"cannot send to %s %s", cause, x)
+			check.errorf(pos, InvalidSend, invalidOp+"cannot send to %s %s", pu.Box(cause), x)
 		}
 	}
 	return nil
@@ -621,13 +621,13 @@ Error:
 			if what == "" {
 				what = check.sprintf("%s", errOp.typ())
 			}
-			cause = check.sprintf("operator %s not defined on %s", op, what)
+			cause = check.sprintf("operator %s not defined on %s", op, pu.Box(what))
 		}
 	}
 	if switchCase {
-		check.errorf(x, code, "invalid case %s in switch on %s (%s)", x.expr, y.expr, cause) // error position always at 1st operand
+		check.errorf(x, code, "invalid case %s in switch on %s (%s)", x.expr, y.expr, pu.Box(cause)) // error position always at 1st operand
 	} else {
-		check.errorf(errOp, code, invalidOp+"%s %s %s (%s)", x.expr, op, y.expr, cause)
+		check.errorf(errOp, code, invalidOp+"%s %s %s (%s)", x.expr, op, y.expr, pu.Box(cause))
 	}
 	x.invalidate()
 }
@@ -1091,7 +1091,7 @@ func (check *Checker) nonGeneric(T *target, x *operand) {
 		}
 	}
 	if what != "" {
-		check.errorf(x.expr, WrongTypeArgCount, "cannot use generic %s %s without instantiation", what, x.expr)
+		check.errorf(x.expr, WrongTypeArgCount, "cannot use generic %s %s without instantiation", pu.Box(what), x.expr)
 		x.invalidate()
 		x.typ_ = Typ[Invalid]
 	}
@@ -1272,7 +1272,7 @@ func (check *Checker) exprInternal(T *target, x *operand, e ast.Expr, hint Type)
 		// types, which are comparatively rare.
 
 	default:
-		panic(compat.Sprintf("%s: unknown expression type %T", check.fset.Position(e.Pos()), e))
+		panic(pu.Box(compat.Sprintf("%s: unknown expression type %T", check.fset.Position(e.Pos()), e)))
 	}
 
 	// everything went well
@@ -1325,11 +1325,11 @@ func (check *Checker) typeAssertion(e ast.Expr, x *operand, T Type, typeSwitch b
 	}
 
 	if typeSwitch {
-		check.errorf(e, ImpossibleAssert, "impossible type switch case: %s\n\t%s cannot have dynamic type %s %s", e, x, T, cause)
+		check.errorf(e, ImpossibleAssert, "impossible type switch case: %s\n\t%s cannot have dynamic type %s %s", e, x, T, pu.Box(cause))
 		return
 	}
 
-	check.errorf(e, ImpossibleAssert, "impossible type assertion: %s\n\t%s does not implement %s %s", e, T, x.typ(), cause)
+	check.errorf(e, ImpossibleAssert, "impossible type assertion: %s\n\t%s does not implement %s %s", e, T, x.typ(), pu.Box(cause))
 }
 
 // expr typechecks expression e and initializes x with the expression value.

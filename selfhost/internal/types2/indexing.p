@@ -121,7 +121,7 @@ func (check *Checker) indexSig(at positioner, T Type, name string, sig *Signatur
 		want = "must have the form IndexOk(k K) (V, bool)"
 	}
 	if want != "" {
-		check.errorf(at, BadIndexMethod, "cannot index %s: method %s %s", T, name, want)
+		check.errorf(at, BadIndexMethod, "cannot index %s: method %s %s", T, pu.Box(name), pu.Box(want))
 		return nil, nil, false
 	}
 	key = params.At(0).Type()
@@ -175,9 +175,9 @@ func (check *Checker) containerIndex(x *operand, e *indexedExpr) bool {
 		check.use(index)
 		_, np := check.indexMethod(x, name)
 		if np {
-			check.errorf(x, UnaddressableContainer, "cannot %s %s: method %s of %s has a pointer receiver, and %s is not addressable", verb, ExprString(e.orig), name, T, x.expr)
+			check.errorf(x, UnaddressableContainer, "cannot %s %s: method %s of %s has a pointer receiver, and %s is not addressable", pu.Box(verb), pu.Box(ExprString(e.orig)), pu.Box(name), T, x.expr)
 		} else {
-			check.errorf(x, MissingIndexMethod, "cannot %s %s: %s has no method %s", verb, ExprString(e.orig), T, name)
+			check.errorf(x, MissingIndexMethod, "cannot %s %s: %s has no method %s", pu.Box(verb), pu.Box(ExprString(e.orig)), T, pu.Box(name))
 		}
 		x.invalidate()
 		return true
@@ -201,7 +201,7 @@ func (check *Checker) containerIndex(x *operand, e *indexedExpr) bool {
 			continue
 		}
 		if !Identical(k, key) || !Identical(el, elem) {
-			check.errorf(x, IndexMethodMismatch, "cannot index %s: methods %s and %s use different key or element types", T, first, names[i])
+			check.errorf(x, IndexMethodMismatch, "cannot index %s: methods %s and %s use different key or element types", T, pu.Box(first), pu.Box(names[i]))
 			check.use(index)
 			x.invalidate()
 			return true

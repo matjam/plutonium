@@ -11,6 +11,7 @@ import (
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/syntax/token"
 	. "selfhost/internal/types2/errors"
+	"selfhost/pu"
 )
 
 // This file implements a check to validate that a Go package doesn't
@@ -154,9 +155,9 @@ func (check *Checker) reportInstanceLoop(v int) {
 		default:
 			panic("unexpected type")
 		case *Named:
-			err.addf(atPos(edge.pos), "%s implicitly parameterized by %s", obj.Name(), TypeString(edge.typ, qf)) // secondary error, \t indented
+			err.addf(atPos(edge.pos), "%s implicitly parameterized by %s", pu.Box(obj.Name()), pu.Box(TypeString(edge.typ, qf))) // secondary error, \t indented
 		case *TypeParam:
-			err.addf(atPos(edge.pos), "%s instantiated as %s", obj.Name(), TypeString(edge.typ, qf)) // secondary error, \t indented
+			err.addf(atPos(edge.pos), "%s instantiated as %s", pu.Box(obj.Name()), pu.Box(TypeString(edge.typ, qf))) // secondary error, \t indented
 		}
 	}
 	err.report()

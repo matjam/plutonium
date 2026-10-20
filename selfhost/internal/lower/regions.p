@@ -529,7 +529,7 @@ func (l *Lowerer) sizeRegions() {
 		if rl := l.keyLayout(k); rl != nil {
 			id = rl
 		} else if k.sym == nil && k.name == "" && len(l.regionMembers[k.sig]) > 0 {
-			id = k.sig
+			id = pu.Box(k.sig)
 		} else {
 			return nil
 		}
