@@ -1164,7 +1164,6 @@ func (w *walker) funcLit(lit *ast.FuncLit) tset {
 		return tset{heapTok} // a static closure record
 	}
 	rec := w.tmp(lit, lkClosure)
-	rec.dynamic = w.typeOf(lit) // as an interface data word, a func value
 	rec.captures = captures
 	w.recLit[rec] = lit
 	for _, v := range captures {
@@ -1220,7 +1219,6 @@ func (w *walker) methodValue(e *ast.SelectorExpr, sel *types2.Selection) tset {
 		return tset{heapTok}
 	}
 	rec := w.tmp(e, lkMethodValue)
-	rec.dynamic = w.typeOf(e)
 	w.addContents(rec, recv)
 	return tset{frameTok(rec)}
 }

@@ -1166,7 +1166,6 @@ func (w *walker) funcLit(lit *ast.FuncLit) tset {
 		return compat.Clone(tset{heapTok}) // a static closure record
 	}
 	rec := w.tmp(lit, lkClosure)
-	rec.dynamic = w.typeOf(lit) // as an interface data word, a func value
 	rec.captures = captures
 	w.recLit[rec] = lit
 	for _, v := range captures {
@@ -1222,7 +1221,6 @@ func (w *walker) methodValue(e *ast.SelectorExpr, sel *types2.Selection) tset {
 		return compat.Clone(tset{heapTok})
 	}
 	rec := w.tmp(e, lkMethodValue)
-	rec.dynamic = w.typeOf(e)
 	w.addContents(rec, recv)
 	return compat.Clone(tset{frameTok(rec)})
 }
@@ -1499,7 +1497,7 @@ func (w *walker) escapeParam(t tok, why goFn1) {
 	w.a.grew = true
 }
 
-// goClosure_store_1 is the function literal at expr.go:1361, converted to a struct
+// goClosure_store_1 is the function literal at expr.go:1359, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_1 struct {
 	d   dest
@@ -1512,7 +1510,7 @@ func (goSelf *goClosure_store_1) Call() string {
 	return goSelf.d.why(goSelf.v.sc.fn.paramDesc(keyOf(goSelf.v)), goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_store_2 is the function literal at expr.go:1424, converted to a struct
+// goClosure_store_2 is the function literal at expr.go:1422, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_2 struct {
 	d   dest
@@ -1524,7 +1522,7 @@ func (goSelf *goClosure_store_2) Call() string {
 	return goSelf.d.why("it", goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_sink_1 is the function literal at expr.go:1457, converted to a struct
+// goClosure_sink_1 is the function literal at expr.go:1455, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sink_1 struct {
 	tail string
@@ -1538,7 +1536,7 @@ type goFn1 interface {
 	Call() string
 }
 
-// goClosure_sinkTail_1 is the function literal at expr.go:1472, converted to a struct
+// goClosure_sinkTail_1 is the function literal at expr.go:1470, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sinkTail_1 struct {
 	act  string

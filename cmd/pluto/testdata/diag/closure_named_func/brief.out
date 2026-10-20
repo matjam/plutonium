@@ -1,0 +1,4 @@
+$DIR/main.p:28:10: cannot pass HF((func() int literal)) to call, which keeps it after returning
+$DIR/main.p:36:11: cannot pass s to call, which keeps it after returning
+$DIR/main.p:43:10: cannot pass HF(c.get) to call, which keeps it after returning
+$DIR/main.p:50:10: cannot pass h to call, which keeps it after returning
