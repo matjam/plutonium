@@ -276,19 +276,20 @@ type posSpan struct {
 	start, pos, end token.Pos
 }
 
-func (e posSpan) Pos() token.Pos {
+func (e *posSpan) Pos() token.Pos {
 	return e.pos
 }
 
-// inNode creates a posSpan for the given node.
+// inNode creates a posSpan for the given node. It is a pointer so that it
+// is a word when it is held in a positioner.
 // Invariant: node.Pos() <= pos < node.End() (node.End() is the position of the
 // first byte after node within the source).
-func inNode(node ast.Node, pos token.Pos) posSpan {
+func inNode(node ast.Node, pos token.Pos) *posSpan {
 	start, end := node.Pos(), node.End()
 	if debug {
 		assert(start <= pos && pos < end)
 	}
-	return posSpan{start, pos, end}
+	return &posSpan{start, pos, end}
 }
 
 // spanOf extracts an error span from the given positioner. By default this is
@@ -298,8 +299,8 @@ func spanOf(at positioner) posSpan {
 	switch x := at.(type) {
 	case nil:
 		panic("nil positioner")
-	case posSpan:
-		return x
+	case *posSpan:
+		return *x
 	case ast.Node:
 		pos := x.Pos()
 		return posSpan{pos, pos, x.End()}
