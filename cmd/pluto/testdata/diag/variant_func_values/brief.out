@@ -1,0 +1,5 @@
+$DIR/main.p:46:2: cannot pass mk(&in) to store, which keeps it after returning
+$DIR/main.p:52:2: cannot pass apply(U.P, &in) to store, which keeps it after returning
+$DIR/main.p:59:2: cannot pass mk(&in) to storeOpt, which keeps it after returning
+$DIR/main.p:66:9: cannot return mk(&in), which points into in, a local variable of Returned
+$DIR/main.p:73:9: cannot return h.mk(&in), which points into in, a local variable of Field

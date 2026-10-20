@@ -1,0 +1,73 @@
+$DIR/main.p:46:2: cannot pass mk(&in) to store, which keeps it after returning
+    mk(&in) points into in. in is a local variable of Variable (declared at
+    main.p:44). store stores u in package variable keep (main.p:24), so mk(&in)
+    would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If store should keep its own copy of in, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[Inner] from new, a shared[Inner],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:52:2: cannot pass apply(U.P, &in) to store, which keeps it after returning
+    apply(U.P, &in) points into in. in is a local variable of Passed (declared
+    at main.p:51). store stores u in package variable keep (main.p:24), so
+    apply(U.P, &in) would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If store should keep its own copy of in, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[Inner] from new, a shared[Inner],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:59:2: cannot pass mk(&in) to storeOpt, which keeps it after returning
+    mk(&in) points into in. in is a local variable of Generic (declared at
+    main.p:57). storeOpt stores o in package variable keep (main.p:31), so
+    mk(&in) would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If storeOpt should keep its own copy of in, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[Inner] from new, a
+    shared[Inner], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:66:9: cannot return mk(&in), which points into in, a local variable of Returned
+    mk(&in) points into in. in is a local variable of Returned (declared at
+    main.p:64). Its memory is reclaimed when Returned returns, so mk(&in) would
+    point at memory that no longer holds in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of in, or allocate in and return its owner,
+    an owned[Inner]:
+        in := new(Inner)
+        ...
+        return in
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:73:9: cannot return h.mk(&in), which points into in, a local variable of Field
+    h.mk(&in) points into in. in is a local variable of Field (declared at
+    main.p:71). Its memory is reclaimed when Field returns, so h.mk(&in) would
+    point at memory that no longer holds in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of in, or allocate in and return its owner,
+    an owned[Inner]:
+        in := new(Inner)
+        ...
+        return in
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

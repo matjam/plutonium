@@ -410,6 +410,14 @@ func (w *walker) value1(e ast.Expr) tset {
 	case *ast.SelectorExpr:
 		sel := w.a.selections[e]
 		if sel == nil {
+			if v, ok := w.a.uses[e.Sel].(*types2.Variant); ok && v.HasPayload() {
+				// A variant as a function value, func(P) U: a call through it
+				// returns what its argument holds (dynFuncCall).
+				if sig, ok := underlying(w.typeOf(e)).(*types2.Signature); ok {
+					w.a.noteVariantValue(sig)
+				}
+				return nil
+			}
 			return w.identValue(e.Sel) // qualified identifier
 		}
 		switch sel.Kind() {
@@ -1545,7 +1553,7 @@ func (w *walker) escapeParam(t tok, why goFn1) {
 	w.a.grew = true
 }
 
-// goClosure_store_1 is the function literal at expr.go:1407, converted to a struct
+// goClosure_store_1 is the function literal at expr.go:1415, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_1 struct {
 	d   dest
@@ -1558,7 +1566,7 @@ func (goSelf *goClosure_store_1) Call() string {
 	return goSelf.d.why(goSelf.v.sc.fn.paramDesc(keyOf(goSelf.v)), goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_store_2 is the function literal at expr.go:1470, converted to a struct
+// goClosure_store_2 is the function literal at expr.go:1478, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_2 struct {
 	d   dest
@@ -1570,7 +1578,7 @@ func (goSelf *goClosure_store_2) Call() string {
 	return goSelf.d.why("it", goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_sink_1 is the function literal at expr.go:1503, converted to a struct
+// goClosure_sink_1 is the function literal at expr.go:1511, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sink_1 struct {
 	tail string
@@ -1584,7 +1592,7 @@ type goFn1 interface {
 	Call() string
 }
 
-// goClosure_sinkTail_1 is the function literal at expr.go:1518, converted to a struct
+// goClosure_sinkTail_1 is the function literal at expr.go:1526, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sinkTail_1 struct {
 	act  string

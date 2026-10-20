@@ -785,6 +785,11 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 			res[i].addAll(outer)
 		}
 	}
+	if nres == 1 && len(args) == 1 && w.a.variantCandidate(t.sig) {
+		// A union variant used as a function value: the union it makes holds
+		// what the payload does.
+		res[0].addAll(args[0])
+	}
 	return bufSets(res)
 }
 

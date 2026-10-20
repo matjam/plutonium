@@ -408,6 +408,14 @@ func (w *walker) value1(e ast.Expr) tset {
 	case *ast.SelectorExpr:
 		sel := w.a.selections[e]
 		if sel == nil {
+			if v, ok := w.a.uses[e.Sel].(*types2.Variant); ok && v.HasPayload() {
+				// A variant as a function value, func(P) U: a call through it
+				// returns what its argument holds (dynFuncCall).
+				if sig, ok := underlying(w.typeOf(e)).(*types2.Signature); ok {
+					w.a.noteVariantValue(sig)
+				}
+				return nil
+			}
 			return w.identValue(e.Sel) // qualified identifier
 		}
 		switch sel.Kind() {

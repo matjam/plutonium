@@ -408,6 +408,97 @@ func f() {
 	g(&arr)
 }
 func main() { f() }`, "fmt.Println"},
+	{"a union variant as a function value", `
+type Inner struct{ n int }
+var keep *Inner
+type U union {
+	None
+	P *Inner
+}
+func store(u U) {
+	if v, ok := u.(U.P); ok {
+		keep = v
+	}
+}
+func f() {
+	var in Inner
+	mk := U.P
+	store(mk(&in))
+}
+func main() { f() }`, "cannot pass mk(&in) to store"},
+	{"a union variant passed as a function value", `
+type Inner struct{ n int }
+var keep *Inner
+type U union {
+	None
+	P *Inner
+}
+func store(u U) {
+	if v, ok := u.(U.P); ok {
+		keep = v
+	}
+}
+func apply(mk func(*Inner) U, p *Inner) U { return mk(p) }
+func f() {
+	var in Inner
+	store(apply(U.P, &in))
+}
+func main() { f() }`, "cannot pass apply(U.P, &in) to store"},
+	{"a union made by a variant function value, returned", `
+type Inner struct{ n int }
+var keep *Inner
+type U union {
+	None
+	P *Inner
+}
+func store(u U) {
+	if v, ok := u.(U.P); ok {
+		keep = v
+	}
+}
+func g() U {
+	var in Inner
+	mk := U.P
+	return mk(&in)
+}
+func main() { store(g()) }`, "cannot return mk(&in)"},
+	{"a union variant function value in a struct field, returned", `
+type Inner struct{ n int }
+var keep *Inner
+type U union {
+	None
+	P *Inner
+}
+func store(u U) {
+	if v, ok := u.(U.P); ok {
+		keep = v
+	}
+}
+type H struct{ mk func(*Inner) U }
+func g() U {
+	var in Inner
+	h := H{U.P}
+	return h.mk(&in)
+}
+func main() { store(g()) }`, "cannot return h.mk(&in)"},
+	{"a variant of a generic union as a function value", `
+type Inner struct{ n int }
+var keep *Inner
+type Opt[T any] union {
+	None
+	Some T
+}
+func store(o Opt[*Inner]) {
+	if p, ok := o.(Opt[*Inner].Some); ok {
+		keep = p
+	}
+}
+func f() {
+	var in Inner
+	mk := Opt[*Inner].Some
+	store(mk(&in))
+}
+func main() { f() }`, "cannot pass mk(&in) to store"},
 }
 
 func TestKeepsFrameWays(t *testing.T) {
@@ -509,6 +600,24 @@ func (d D) String() string { keep = d.P; return "d" }
 type Outer struct{ W W }
 func f() {
 	fmt.Println(Outer{W{nil, 0}})
+}
+func main() { f() }`},
+	{"a union variant as a function value, of a package variable's address", `
+type Inner struct{ n int }
+var keep *Inner
+var global Inner
+type U union {
+	None
+	P *Inner
+}
+func store(u U) {
+	if v, ok := u.(U.P); ok {
+		keep = v
+	}
+}
+func f() {
+	mk := U.P
+	store(mk(&global))
 }
 func main() { f() }`},
 }

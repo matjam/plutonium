@@ -119,9 +119,12 @@ type analyzer struct {
 	convMethods map[string][]convMethod
 	convCands   map[string][]candidate
 	funcValues  map[funcValue]bool // functions used as values
-	embedded    map[*types2.TypeName]bool
-	tpArgs      map[*types2.TypeParam][]types2.Type // type arguments of each type parameter
-	tpRecv      map[*types2.TypeParam]*types2.TypeParam
+	// The types of the union variants used as function values (U.V, of type
+	// func(P) U, section 7.13), which have no body to summarise.
+	variantValues []*types2.Signature
+	embedded      map[*types2.TypeName]bool
+	tpArgs        map[*types2.TypeParam][]types2.Type // type arguments of each type parameter
+	tpRecv        map[*types2.TypeParam]*types2.TypeParam
 
 	// Heap-only fields (fields.go), by origin field: fields whose address
 	// is taken, and fields something other than heap memory is stored in.
@@ -816,6 +819,35 @@ func (a *analyzer) noteFuncValue(fn *function, kind fvKind) {
 	a.funcValues[k] = true
 	a.ver.fv++
 	a.grew = true
+}
+
+// noteVariantValue records that a union variant of type sig, func(P) U, is used
+// as a function value.
+func (a *analyzer) noteVariantValue(sig *types2.Signature) {
+	for _, s := range a.variantValues {
+		if types2.Identical(s, sig) {
+			return
+		}
+	}
+	a.variantValues = append(a.variantValues, sig)
+	a.ver.fv++
+	a.grew = true
+}
+
+// variantCandidate reports whether a call through a value of signature sig
+// may call a union variant used as a function value, whose result holds its
+// argument.
+func (a *analyzer) variantCandidate(sig *types2.Signature) bool {
+	if sig.Params().Len() != 1 || sig.Results().Len() != 1 {
+		return false
+	}
+	for _, s := range a.variantValues {
+		if a.typeMatch(s.Params().At(0).Type(), sig.Params().At(0).Type()) &&
+			a.typeMatch(s.Results().At(0).Type(), sig.Results().At(0).Type()) {
+			return true
+		}
+	}
+	return false
 }
 
 // ifaceCandidates returns the methods a dynamic call of method name may
