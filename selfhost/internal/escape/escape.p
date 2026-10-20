@@ -105,6 +105,7 @@ type analyzer struct {
 	deps map[*function]uint32
 
 	dynFilters map[types2.Type]*dynFilter
+	ptrFilters map[types2.Type]types2.Type // filters that also require a pointer (walkkey.go)
 
 	// sites remember what calls have applied of their callees (escapes.go).
 	sites  map[siteKey]*siteState
@@ -782,6 +783,9 @@ func (a *analyzer) ifaceCandidates(name string, byName bool, msig *types2.Signat
 			// The receiver's own type says how it sits behind the data
 			// word: a pointer or a word-sized value is the data word, a
 			// larger value is boxed.
+			if a.neverInstantiated(f) {
+				continue
+			}
 			mode := recvBoxed
 			if a.isDirectType(f.sig.Recv().Type()) {
 				mode = recvExact
@@ -1004,6 +1008,17 @@ func (a *analyzer) methodSigMatch(m, msig *types2.Signature) bool {
 		}
 	}
 	return true
+}
+
+// neverInstantiated reports whether f is a method of a generic type that the
+// program never instantiates, with a type or, through a generic function,
+// with a type parameter that is not instantiated either: it cannot be called.
+func (a *analyzer) neverInstantiated(f *function) bool {
+	rp := f.sig.RecvTypeParams()
+	if rp == nil || rp.Len() == 0 || f.sig.Recv() == nil {
+		return false
+	}
+	return len(a.tparamTypes(rp.At(0))) == 0
 }
 
 // tparamMatches reports whether type parameter tp may be instantiated

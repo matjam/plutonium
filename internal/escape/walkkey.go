@@ -4,6 +4,7 @@ import (
 	"strings"
 	"unsafe"
 
+	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -72,11 +73,42 @@ type dynFilter struct {
 	I     types2.Type
 	iface *types2.Interface
 	exact bool // I is a concrete type, the receiver of a method
+	ptr   bool // the dynamic type must also be a pointer (see ptrFilter)
 	noop  bool // the filter keeps every pointer
+}
+
+// ptrFilterPkg is the package of the types ptrFilter makes.
+var ptrFilterPkg = types2.NewPackage("escape.ptrfilter", "ptrfilter")
+
+// ptrFilter returns the filter for a data word that passed a type assertion
+// to the interface I and is the receiver of a pointer method: the dynamic
+// type implements I and is a pointer, so a box holding a value of a type
+// whose method of that name has a value receiver cannot be the receiver. It is
+// a named type with I as its underlying type, one for each I so that equal
+// filters are the same type.
+func (a *analyzer) ptrFilter(I types2.Type) types2.Type {
+	if n, ok := I.(*types2.Named); ok && n.Obj().Pkg() == ptrFilterPkg {
+		return I // already
+	}
+	if iface, _ := I.Underlying().(*types2.Interface); iface == nil || containsTypeParam(I) {
+		return I
+	}
+	if p, ok := a.ptrFilters[I]; ok {
+		return p
+	}
+	if a.ptrFilters == nil {
+		a.ptrFilters = map[types2.Type]types2.Type{}
+	}
+	p := types2.NewNamed(types2.NewTypeName(token.NoPos, ptrFilterPkg, "ptr", nil), I.Underlying(), nil)
+	a.ptrFilters[I] = p
+	return p
 }
 
 func newDynFilter(I types2.Type) dynFilter {
 	iface, _ := I.Underlying().(*types2.Interface)
+	if n, ok := I.(*types2.Named); ok && n.Obj().Pkg() == ptrFilterPkg {
+		return dynFilter{I: I, iface: iface, ptr: true, noop: false}
+	}
 	exact := iface == nil
 	return dynFilter{I: I, iface: iface, exact: exact,
 		noop: exact && containsTypeParam(I) || !exact && iface.Empty()}
@@ -87,6 +119,11 @@ func (d *dynFilter) keep(t tok) (tok, bool) {
 	switch t.kind {
 	case tFrame:
 		if dyn := t.loc.dynamicType(); t.path == "" && dyn != nil && !containsTypeParam(dyn) {
+			if d.ptr {
+				if _, isPtr := dyn.Underlying().(*types2.Pointer); !isPtr {
+					return t, false
+				}
+			}
 			if d.exact && !types2.Identical(dyn, d.I) && !types2.Identical(dyn, types2.NewPointer(d.I)) {
 				return t, false
 			}

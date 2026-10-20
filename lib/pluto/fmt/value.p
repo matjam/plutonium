@@ -36,7 +36,7 @@ func (p *printer) printValue(t *rt.Type, ptr unsafe.Pointer, verb rune, depth in
 	// An operand's own methods were tried by printArg. An interface is
 	// tried for the value it holds, one level down.
 	if depth > 0 && !ro && t.HasMethods() && t.Kind() != rt.KindInterface {
-		if p.handleMethods(rt.Make(t, t.Word(ptr)), verb) {
+		if p.handleMethods(rt.Make(t, viewWord(t, ptr)), verb) {
 			return
 		}
 	}
@@ -44,6 +44,20 @@ func (p *printer) printValue(t *rt.Type, ptr unsafe.Pointer, verb rune, depth in
 	p.curT, p.curP = t, uintptr(ptr)
 	p.printKind(t, ptr, verb, depth, ro)
 	p.curT, p.curP = curT, curP
+}
+
+// viewWord returns the data word of an interface holding the value of
+// type t at ptr, for calling the value's methods. A direct type's word is the
+// value's bits, which the compiler does not follow back to ptr. Any other
+// type is boxed, and the interface holds ptr itself: a method of such a
+// type takes its receiver by value, so it gets a copy and cannot keep ptr,
+// which is what the compiler would otherwise have to assume of every method
+// of that name in the program, including a pointer method that stores its
+// receiver, since it does not know the type that is dynamically there. So
+// the word is made from an integer, and is assumed to point outside every
+// frame (language spec section 18.3).
+func viewWord(t *rt.Type, ptr unsafe.Pointer) unsafe.Pointer {
+	return unsafe.Pointer(uintptr(t.Word(ptr)))
 }
 
 // printPayload prints a union variant's payload as printArg prints an
@@ -123,7 +137,7 @@ func (p *printer) printKind(t *rt.Type, ptr unsafe.Pointer, verb rune, depth int
 		p.fmtPointer(t, ptr, verb)
 	case rt.KindUnion:
 		// The variant's name, then its payload in parentheses.
-		variant, payload, hasPayload := rt.UnionInfo(rt.Make(t, t.Word(ptr)))
+		variant, payload, hasPayload := rt.UnionInfo(rt.Make(t, viewWord(t, ptr)))
 		p.writeString(variant)
 		if hasPayload {
 			p.writeByte('(')

@@ -160,7 +160,8 @@ type closureFlow struct {
 	storeAny  bitset                  // values kept where callers cannot see: through other pointers, in package variables, by unknown code
 	started   bitset                  // values a task may be started with
 	changed   bool
-	foreign   []ast.Node // nested literals and range-over-func bodies (ownFrame)
+	foreign   []ast.Node           // nested literals and range-over-func bodies (ownFrame)
+	fresh     map[*types2.Var]bool // pointer variables that hold only memory allocated here (freshptr.go)
 }
 
 // A flowSummary says what a function does with its parameters (the
@@ -509,6 +510,11 @@ func (f *closureFlow) assign(lhs ast.Expr, m bitset) {
 		return
 	}
 	v, ind := f.root(lhs)
+	if ind && f.storesInFresh(lhs) {
+		// Into memory just allocated here (freshptr.go): the value goes
+		// where the pointer goes.
+		ind = false
+	}
 	if ind {
 		// Through a pointer: record where it may point, for the summary.
 		var to bitset

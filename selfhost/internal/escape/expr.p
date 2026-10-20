@@ -1166,6 +1166,7 @@ func (w *walker) funcLit(lit *ast.FuncLit) tset {
 		return compat.Clone(tset{heapTok}) // a static closure record
 	}
 	rec := w.tmp(lit, lkClosure)
+	rec.dynamic = w.typeOf(lit) // as an interface data word, a func value
 	rec.captures = captures
 	w.recLit[rec] = lit
 	for _, v := range captures {
@@ -1221,6 +1222,7 @@ func (w *walker) methodValue(e *ast.SelectorExpr, sel *types2.Selection) tset {
 		return compat.Clone(tset{heapTok})
 	}
 	rec := w.tmp(e, lkMethodValue)
+	rec.dynamic = w.typeOf(e)
 	w.addContents(rec, recv)
 	return compat.Clone(tset{frameTok(rec)})
 }
@@ -1500,7 +1502,7 @@ func (w *walker) escapeParam(t tok, why goFn1) {
 	w.a.grew = true
 }
 
-// goClosure_store_1 is the function literal at expr.go:1362, converted to a struct
+// goClosure_store_1 is the function literal at expr.go:1364, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_1 struct {
 	why func(tok, string) func() string
@@ -1524,7 +1526,7 @@ func (a *goFnFunc1) Call() string {
 	return a.f()
 }
 
-// goClosure_sink_1 is the function literal at expr.go:1458, converted to a struct
+// goClosure_sink_1 is the function literal at expr.go:1460, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sink_1 struct {
 	tail string
@@ -1532,7 +1534,7 @@ type goClosure_sink_1 struct {
 
 func (goSelf *goClosure_sink_1) Call() string { return goSelf.tail }
 
-// goClosure_sinkTail_1 is the function literal at expr.go:1473, converted to a struct
+// goClosure_sinkTail_1 is the function literal at expr.go:1475, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sinkTail_1 struct {
 	act  string

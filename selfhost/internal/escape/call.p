@@ -534,7 +534,7 @@ func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []t
 				continue
 			}
 			if c.recv != recvReach {
-				recv = markRecv(recv, f)
+				recv = markRecv(w.a, recv, f)
 			}
 			cargs = compat.Append([]tset{recv}, args[1:]...)
 		}
@@ -589,21 +589,32 @@ func filterRecv(ts tset, f *function) tset {
 // they reach method f only if the interface holds f's receiver type: a
 // caller that knows the dynamic type then drops what f's summary says
 // about other types (filterDyn).
-func markRecv(ts tset, f *function) tset {
+func markRecv(a *analyzer, ts tset, f *function) tset {
 	if len(f.params) == 0 {
 		return ts
 	}
 	T := f.params[0].Type()
+	ptrRecv := false
 	if el := pointerElem(T); el != nil {
-		T = el
+		T, ptrRecv = el, true
 	}
 	if containsTypeParam(T) {
 		return ts
 	}
 	var out tbuf
 	for _, t := range ts {
-		if t.kind == tParam && t.filt == nil && !t.ge {
-			t.filt, t.filtAt = T, len(t.path)
+		if t.kind == tParam && !t.ge {
+			switch {
+			case t.filt == nil:
+				t.filt, t.filtAt = T, len(t.path)
+			case t.filtAt == len(t.path) && ptrRecv:
+				// A type assertion to an interface already constrains
+				// this data word, and a token has room for one filter.
+				// A pointer method is called only on a pointer, which
+				// a box holding a value is not: the filter becomes the
+				// interface and a pointer.
+				t.filt = a.ptrFilter(t.filt)
+			}
 		}
 		out.add(t)
 	}
