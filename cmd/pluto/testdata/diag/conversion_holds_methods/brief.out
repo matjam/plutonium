@@ -1,0 +1,4 @@
+$DIR/main.p:46:10: cannot pass &q[1] to call, which keeps it after returning
+$DIR/main.p:53:10: cannot pass q[1].visit to callf, which keeps it after returning
+$DIR/main.p:59:10: cannot pass &x to inCallee, which keeps it after returning
+$DIR/main.p:67:10: cannot pass &sl[1] to call, which keeps it after returning

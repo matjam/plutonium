@@ -965,9 +965,12 @@ func isString(T types2.Type) bool {
 func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
 	v := w.explicitConv1(e, to)
 	if len(e.Args) == 1 && retypesPointer(w.typeOf(e.Args[0]), to) {
-		if te := pointerElem(to); te == nil || w.a.mayHaveMethods(te) {
-			// A pointer to a type with no methods is no receiver, and a
-			// conversion of it to a type with some marks it again.
+		if te := pointerElem(to); te == nil || w.a.mayHoldMethods(te) {
+			// A pointer to a type with no methods, which has no field or
+			// element with some, is no receiver and leads to none: a
+			// conversion of it to a type with some marks it again. An element
+			// or field of what it points to is no conversion, so a type that
+			// holds one with methods is marked here.
 			return asShape(v, shapeOther)
 		}
 	}

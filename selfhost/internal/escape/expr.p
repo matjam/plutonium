@@ -967,9 +967,12 @@ func isString(T types2.Type) bool {
 func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
 	v := w.explicitConv1(e, to)
 	if len(e.Args) == 1 && retypesPointer(w.typeOf(e.Args[0]), to) {
-		if te := pointerElem(to); te == nil || w.a.mayHaveMethods(te) {
-			// A pointer to a type with no methods is no receiver, and a
-			// conversion of it to a type with some marks it again.
+		if te := pointerElem(to); te == nil || w.a.mayHoldMethods(te) {
+			// A pointer to a type with no methods, which has no field or
+			// element with some, is no receiver and leads to none: a
+			// conversion of it to a type with some marks it again. An element
+			// or field of what it points to is no conversion, so a type that
+			// holds one with methods is marked here.
 			return asShape(v, shapeOther)
 		}
 	}
@@ -1553,7 +1556,7 @@ func (w *walker) escapeParam(t tok, why goFn1) {
 	w.a.grew = true
 }
 
-// goClosure_store_1 is the function literal at expr.go:1415, converted to a struct
+// goClosure_store_1 is the function literal at expr.go:1418, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_1 struct {
 	d   dest
@@ -1566,7 +1569,7 @@ func (goSelf *goClosure_store_1) Call() string {
 	return goSelf.d.why(goSelf.v.sc.fn.paramDesc(keyOf(goSelf.v)), goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_store_2 is the function literal at expr.go:1478, converted to a struct
+// goClosure_store_2 is the function literal at expr.go:1481, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_2 struct {
 	d   dest
@@ -1578,7 +1581,7 @@ func (goSelf *goClosure_store_2) Call() string {
 	return goSelf.d.why("it", goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_sink_1 is the function literal at expr.go:1511, converted to a struct
+// goClosure_sink_1 is the function literal at expr.go:1514, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sink_1 struct {
 	tail string
@@ -1592,7 +1595,7 @@ type goFn1 interface {
 	Call() string
 }
 
-// goClosure_sinkTail_1 is the function literal at expr.go:1526, converted to a struct
+// goClosure_sinkTail_1 is the function literal at expr.go:1529, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sinkTail_1 struct {
 	act  string

@@ -1242,6 +1242,29 @@ func (a *analyzer) mayHaveMethods(T types2.Type) bool {
 	return r
 }
 
+// mayHoldMethods reports whether a pointer to a value of type T, or to a field
+// or element in it, may have methods (mayHaveMethods).
+func (a *analyzer) mayHoldMethods(T types2.Type) bool {
+	return a.holdsMethods(T, 0)
+}
+
+func (a *analyzer) holdsMethods(T types2.Type, depth int) bool {
+	if a.mayHaveMethods(T) || depth > 8 {
+		return true
+	}
+	switch u := underlying(T).(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if a.holdsMethods(u.Field(i).Type(), depth+1) {
+				return true
+			}
+		}
+	case *types2.Array:
+		return a.holdsMethods(u.Elem(), depth+1)
+	}
+	return false
+}
+
 func isInterface(T types2.Type) bool {
 	if T == nil {
 		return false

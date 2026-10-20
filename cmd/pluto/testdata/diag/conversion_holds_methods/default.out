@@ -1,0 +1,59 @@
+$DIR/main.p:46:10: cannot pass &q[1] to call, which keeps it after returning
+    &q[1] points into x. x is a local array of Element (declared at main.p:44).
+    call passes s to s.String (which may call main.(*S).String) (main.p:28),
+    which stores s in package variable keepS (main.p:18), so &q[1] would outlive
+    x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If call should keep its own copy of x, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[[2]int] from new, a
+    shared[[2]int], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:53:10: cannot pass q[1].visit to callf, which keeps it after returning
+    q[1].visit points into x. x is a local array of MethodValue (declared at
+    main.p:51). callf passes a pointer loaded from *f to f (which may call
+    (*S).visit) (main.p:31), which stores s in package variable keepS
+    (main.p:23), so q[1].visit would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If callf should keep its own copy of x, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[[2]int] from new, a
+    shared[[2]int], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:59:10: cannot pass &x to inCallee, which keeps it after returning
+    &x is a pointer to x. x is a local array of InCallee (declared at
+    main.p:58). inCallee passes p to call (main.p:36), which passes s to
+    s.String (which may call main.(*S).String) (main.p:28), which stores s in
+    package variable keepS (main.p:18), so &x would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If inCallee should keep its own copy of x, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[[2]int] from new, a
+    shared[[2]int], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:67:10: cannot pass &sl[1] to call, which keeps it after returning
+    &sl[1] points into x. x is a local array of SliceElement (declared at
+    main.p:64). call passes s to s.String (which may call main.(*S).String)
+    (main.p:28), which stores s in package variable keepS (main.p:18), so &sl[1]
+    would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If call should keep its own copy of x, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[[2]int] from new, a
+    shared[[2]int], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

@@ -499,6 +499,86 @@ func f() {
 	store(mk(&in))
 }
 func main() { f() }`, "cannot pass mk(&in) to store"},
+	{"an element of a pointer converted to an array of a type with methods", `
+import "unsafe"
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func f() {
+	var x [2]int
+	q := (*[2]S)(unsafe.Pointer(&x))
+	println(call(&q[1]))
+}
+func main() { f() }`, "cannot pass &q[1] to call"},
+	{"a method value of an element of a converted pointer", `
+import "unsafe"
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func f() {
+	var x [2]int
+	q := (*[2]S)(unsafe.Pointer(&x))
+	println(callf(q[1].visit))
+}
+func main() { f() }`, "cannot pass q[1].visit to callf"},
+	{"an element of a pointer a callee converts", `
+import "unsafe"
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func g(p *[2]int) string {
+	q := (*[2]S)(unsafe.Pointer(p))
+	return call(&q[1])
+}
+func f() {
+	var x [2]int
+	println(g(&x))
+}
+func main() { f() }`, "cannot pass &x to g"},
+	{"an element of a slice of a converted pointer", `
+import "unsafe"
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+func f() {
+	var x [2]int
+	q := (*[2]S)(unsafe.Pointer(&x))
+	sl := q[:]
+	println(call(&sl[1]))
+}
+func main() { f() }`, "cannot pass &sl[1] to call"},
+	{"a field of a struct of a converted pointer", `
+import "unsafe"
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func (s *S) visit(x int) bool { keepS = s; return x > 0 }
+func call(s Stringer) string { return s.String() }
+func callf(f func(int) bool) bool { return f(1) }
+type B struct{ a, b S }
+func f() {
+	var x [2]int
+	q := (*B)(unsafe.Pointer(&x))
+	println(call(&q.b))
+}
+func main() { f() }`, "cannot pass &q.b to call"},
 }
 
 func TestKeepsFrameWays(t *testing.T) {
@@ -618,6 +698,20 @@ func store(u U) {
 func f() {
 	mk := U.P
 	store(mk(&global))
+}
+func main() { f() }`},
+	{"an element of a pointer converted to an array of a type without methods", `
+import "unsafe"
+type S struct{ n int }
+var keepS *S
+type Stringer interface{ String() string }
+func (s *S) String() string { keepS = s; return "s" }
+func call(s Stringer) string { return s.String() }
+func sum(p *int) int { return *p + 1 }
+func f() {
+	var x [2]S
+	q := (*[2]int)(unsafe.Pointer(&x))
+	println(sum(&q[1]))
 }
 func main() { f() }`},
 }
