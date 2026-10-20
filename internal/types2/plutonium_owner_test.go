@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/matjam/plutonium/internal/diag"
+	_ "github.com/matjam/plutonium/internal/load" // installs types2.DeclPrinter
 	"github.com/matjam/plutonium/internal/types2"
 )
 

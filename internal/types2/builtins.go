@@ -7,10 +7,10 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 )
 
 // builtin type-checks a call to the built-in specified by id and
@@ -321,7 +321,9 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 
 		// if both arguments are constants, the result is a constant
 		if x.mode() == constant_ && y.mode() == constant_ {
-			x.val = constBinaryOp(constant.ToFloat(x.val), token.ADD, constant.MakeImag(constant.ToFloat(y.val)))
+			// complex is not a function of the language (universe.go), and
+			// there are no complex constants.
+			panic("unreachable")
 		} else {
 			x.mode_ = value
 		}
@@ -888,7 +890,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			if x.mode() == variable || indirect {
 				mode = variable
 			}
-			check.record(&operand{mode, selx, obj.Type(), nil, 0})
+			check.record(&operand{mode, selx, obj.Type(), constant.Value{}, 0})
 		}
 
 		// The field offset is considered a variable even if the field is declared before

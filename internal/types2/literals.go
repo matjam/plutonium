@@ -7,7 +7,7 @@
 package types2
 
 import (
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"strings"
 	"unicode/utf8"
 
@@ -364,7 +364,7 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 			// that case there is nothing to record (there is no type in
 			// the source at that point).
 			if e.Type != nil {
-				check.recordTypeAndValue(e.Type, typexpr, utyp, nil)
+				check.recordTypeAndValue(e.Type, typexpr, utyp, constant.Value{})
 			}
 		}
 
@@ -376,7 +376,7 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 		// the type of a constant key must be considered when checking for
 		// duplicates.
 		keyIsInterface := isNonTypeParamInterface(utyp.key)
-		visited := make(map[any][]Type, len(e.Elts))
+		visited := make(map[goValue][]Type, len(e.Elts))
 		for _, e := range e.Elts {
 			kv, _ := e.(*ast.KeyValueExpr)
 			if kv == nil {

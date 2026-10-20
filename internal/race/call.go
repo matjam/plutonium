@@ -358,7 +358,7 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 	one := func(o origins) []origins { return []origins{o} }
 	switch b.Name() {
 	case "len", "cap":
-		if tv := w.a.types[e]; tv.Value != nil {
+		if tv := w.a.types[e]; !tv.Value.IsNil() {
 			return one(nil) // the length of an array: a constant
 		}
 		if len(e.Args) == 1 {

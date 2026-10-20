@@ -1,7 +1,7 @@
 package moves
 
 import (
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"slices"
 	"strconv"
 	"strings"
@@ -421,7 +421,7 @@ func litParts(c *checker, lit *ast.CompositeLit) *zset {
 		for _, el := range lit.Elts {
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
 				tv := c.types[kv.Key]
-				if tv.Value == nil {
+				if tv.Value.IsNil() {
 					return nil
 				}
 				i, exact := constant.Int64Val(constant.ToInt(tv.Value))
@@ -553,7 +553,7 @@ func (f *fn) placePath(lhs ast.Expr) (v *types2.Var, path Path, box, ok bool) {
 			return nil, nil, false, false
 		}
 		step := "[*]"
-		if tv := f.c.types[x.Index]; tv.Value != nil {
+		if tv := f.c.types[x.Index]; !tv.Value.IsNil() {
 			if i, exact := constant.Int64Val(constant.ToInt(tv.Value)); exact {
 				step = "[" + strconv.FormatInt(i, 10) + "]"
 			}

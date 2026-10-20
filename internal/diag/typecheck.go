@@ -1192,7 +1192,7 @@ func explainMakeSlice(s *spec) {
 		return
 	}
 	n := types2.ExprString(sizes[0])
-	if tv, ok := s.Info.Types[sizes[0]]; ok && tv.Value != nil && len(sizes) == 1 && alloc == "" && name != "v" {
+	if tv, ok := s.Info.Types[sizes[0]]; ok && !tv.Value.IsNil() && len(sizes) == 1 && alloc == "" && name != "v" {
 		s.d.Fix = &Fix{Intro: "The size is a constant, so an array needs no allocation",
 			Code: fmt.Sprintf("var %s [%s]%s", name, n, el)}
 		return

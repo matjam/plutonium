@@ -68,7 +68,7 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 			return t.orText(r), true
 		}
 	case *ast.RangeStmt:
-		t.checkHeapRange(n)
+		return t.heapRange(n)
 	case *ast.CallExpr:
 		return t.call(n)
 	case *ast.TypeSpec:
@@ -476,7 +476,13 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 		if n.Ellipsis.IsValid() {
 			dots = "..."
 		}
-		return fmt.Sprintf("%s.Append%s(%s%s)", t.compat(), t.appendTypeArg(n), t.list(n.Args), dots), true
+		call := fmt.Sprintf("%s.Append%s(%s%s)", t.compat(), t.appendTypeArg(n), t.list(n.Args), dots)
+		if named, ok := t.typeOf(n).(*types.Named); ok {
+			// compat.Append returns a plain slice; convert it back to the
+			// named slice type (termlist).
+			call = fmt.Sprintf("%s(%s)", t.typeText(named), call)
+		}
+		return call, true
 	case "new":
 		// Go's new returns a pointer to a fresh variable, which Plutonium's
 		// owned[T] is not: the translation allocates in the phase arena

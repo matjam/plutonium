@@ -8,9 +8,9 @@ package types2
 
 import (
 	"fmt"
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 	"strings"
 )
 
@@ -91,7 +91,7 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 			return
 		}
 		if obj == universeIota {
-			if check.iota == nil {
+			if check.iota.IsNil() {
 				check.error(e, InvalidIota, "cannot use iota outside constant declaration")
 				return
 			}
@@ -99,7 +99,7 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 		} else {
 			x.val = obj.val
 		}
-		assert(x.val != nil)
+		assert(!x.val.IsNil())
 		x.mode_ = constant_
 
 	case *TypeName:
@@ -193,7 +193,7 @@ func (check *Checker) declaredType(e ast.Expr, def *TypeName) Type {
 		check.errorf(e, WrongTypeArgCount, "cannot use generic type %s without instantiation", typ)
 		typ = Typ[Invalid]
 	}
-	check.recordTypeAndValue(e, typexpr, typ, nil)
+	check.recordTypeAndValue(e, typexpr, typ, constant.Value{})
 	return typ
 }
 
@@ -214,7 +214,7 @@ func (check *Checker) genericType(e ast.Expr, cause *string) Type {
 		typ = Typ[Invalid]
 	}
 	// TODO(gri) what is the correct call below?
-	check.recordTypeAndValue(e, typexpr, typ, nil)
+	check.recordTypeAndValue(e, typexpr, typ, constant.Value{})
 	return typ
 }
 

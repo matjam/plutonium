@@ -37,10 +37,10 @@ package types2
 import (
 	"bytes"
 	"fmt"
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 	_ "unsafe" // for linkname
 )
 
@@ -165,8 +165,8 @@ type Config struct {
 	// Secondary errors (for instance, to enumerate all types
 	// involved in an invalid recursive type declaration) have
 	// error strings that start with a '\t' character.
-	// If Error == nil, type-checking stops with the first
-	// error found.
+	// If Error == nil, the first error found is the one that
+	// Checker.Files returns; type-checking goes on.
 	Error func(err error)
 
 	// An importer is used to import packages referred to from

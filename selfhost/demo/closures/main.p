@@ -153,7 +153,33 @@ func setHook(prefix string) {
 	hook = pu.New(goClosure_setHook_1{prefix: prefix})
 }
 
+// Variables whose address is kept: a multi-value :=, a declaration of
+// several names, and a range variable.
+var kept []*int
+
+func pair() (int, int) { return 3, 4 }
+
+func keep() {
+	a, goh := pair()
+	h := pu.New(goh)
+	kept = compat.Append(kept, h)
+	var p int = 1
+	q := pu.New(int(2))
+	kept = compat.Append(kept, q)
+	for _, gov := range []int{7, 8} {
+		v := pu.New(gov)
+
+		kept = compat.Append(kept, v)
+	}
+	fmt.Println(a, (*h), p, (*q))
+	(*h) = 10
+	for _, k := range kept {
+		fmt.Println(*k)
+	}
+}
+
 func main() {
+	keep()
 	c := pu.New(compiler{})
 	c.enqueue("a", 1)
 	c.enqueue("b", 2)

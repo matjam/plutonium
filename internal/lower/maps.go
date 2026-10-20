@@ -80,7 +80,7 @@ func (s *fnState) makeMap(e *ast.CallExpr, T types2.Type) value {
 	m := mapOf(T)
 	hint := scalarValue(s.constInt(ssa.TI64, 0), types2.Typ[types2.Int])
 	rest := e.Args[1:]
-	if len(rest) > 0 && (isIntegerType(unwrap(s.typeOf(rest[0]))) || s.info.Types[rest[0]].Value != nil) {
+	if len(rest) > 0 && (isIntegerType(unwrap(s.typeOf(rest[0]))) || !s.info.Types[rest[0]].Value.IsNil()) {
 		hint = scalarValue(s.indexValue(rest[0]), types2.Typ[types2.Int])
 		rest = rest[1:]
 	}

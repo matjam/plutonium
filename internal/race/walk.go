@@ -1439,7 +1439,7 @@ func (w *walker) value1(e ast.Expr) origins {
 	case *ast.BinaryExpr:
 		w.value(e.X)
 		w.value(e.Y)
-		if e.Op == token.ADD && isString(w.typeOf(e)) && w.a.types[e].Value == nil {
+		if e.Op == token.ADD && isString(w.typeOf(e)) && w.a.types[e].Value.IsNil() {
 			w.sum.mayAlloc = true // a new string
 		}
 		return nil

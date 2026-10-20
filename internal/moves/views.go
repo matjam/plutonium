@@ -694,7 +694,7 @@ func (f *fn) viewPlace(e ast.Expr) (*ast.Ident, Path) {
 			return nil, nil
 		}
 		step := "[*]"
-		if tv := f.c.types[x.Index]; tv.Value != nil {
+		if tv := f.c.types[x.Index]; !tv.Value.IsNil() {
 			step = "[" + tv.Value.ExactString() + "]"
 		}
 		return root, append(p, step)

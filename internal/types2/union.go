@@ -5,6 +5,7 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
@@ -77,7 +78,7 @@ func parseUnion(check *Checker, uexpr ast.Expr) Type {
 		}
 
 		if i > 0 {
-			check.recordTypeAndValue(blist[i-1], typexpr, u, nil)
+			check.recordTypeAndValue(blist[i-1], typexpr, u, constant.Value{})
 		}
 	}
 
@@ -163,7 +164,7 @@ func parseTilde(check *Checker, tx ast.Expr) *Term {
 	}
 	term := NewTerm(tilde, typ)
 	if tilde {
-		check.recordTypeAndValue(tx, typexpr, &Union{[]*Term{term}}, nil)
+		check.recordTypeAndValue(tx, typexpr, &Union{[]*Term{term}}, constant.Value{})
 	}
 	return term
 }

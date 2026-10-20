@@ -388,7 +388,7 @@ func (s *fnState) copySlice(dst, src value, srcStr bool) *ssa.Value {
 // constants their default type.
 func (s *fnState) printOperand(a ast.Expr) value {
 	T := unwrap(s.typeOf(a))
-	if tv := s.info.Types[a]; tv.Value != nil {
+	if tv := s.info.Types[a]; !tv.Value.IsNil() {
 		if b, ok := T.Underlying().(*types2.Basic); ok && b.Info()&types2.IsUntyped != 0 {
 			T = defaultType(tv.Value)
 		}

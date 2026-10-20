@@ -7,8 +7,8 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 	"unicode"
 )
 

@@ -165,7 +165,7 @@ func (check *Checker) handleError(index int, posn positioner, code Code, msg str
 		// TODO(gri) We may also want to augment the error message and
 		// refer to the position (pos) in the original expression.
 		if check.errpos != nil && check.errpos.Pos().IsValid() {
-			assert(check.iota != nil)
+			assert(!check.iota.IsNil())
 			posn = check.errpos
 		}
 
@@ -216,11 +216,12 @@ func (check *Checker) handleError(index int, posn positioner, code Code, msg str
 		check.firstErr = e
 	}
 
-	f := check.conf.Error
-	if f == nil {
-		panic(bailout{}) // record first error and exit
+	// Without an Error function the first error is recorded and checking
+	// goes on (Plutonium's panic does not unwind, so it cannot stop early);
+	// Files returns the first error.
+	if f := check.conf.Error; f != nil {
+		f(e)
 	}
-	f(e)
 }
 
 const (

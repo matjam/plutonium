@@ -7,10 +7,10 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 )
 
 // If e is a valid function instantiation, indexExpr returns true.

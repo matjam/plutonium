@@ -118,6 +118,8 @@ var stdMap = map[string]string{
 	"unsafe":          "unsafe",
 	"sync":            "pluto/sync",
 	"sync/atomic":     "pluto/sync/atomic",
+	"container/heap":  "pluto/container/heap",
+	"runtime":         "",
 	"encoding/binary": "",
 	"debug/elf":       "$MOD/elf",
 	"debug/dwarf":     "$MOD/dwarf",
@@ -128,12 +130,15 @@ var stdMap = map[string]string{
 // follow Go (language spec section 16), except errors.New at run time (see
 // call).
 var special = map[string]string{
-	"fmt.Sprintf":     "compat.Sprintf",
-	"fmt.Sprint":      "compat.Sprint",
-	"fmt.Sprintln":    "compat.Sprintln",
-	"strings.Builder": "compat.Builder",
-	"strings.Join":    "compat.Join",
-	"bytes.Buffer":    "compat.Buffer",
+	"fmt.Sprintf":           "compat.Sprintf",
+	"fmt.Sprint":            "compat.Sprint",
+	"fmt.Sprintln":          "compat.Sprintln",
+	"strings.Builder":       "compat.Builder",
+	"strings.Join":          "compat.Join",
+	"bytes.Buffer":          "compat.Buffer",
+	"bytes.NewBufferString": "compat.NewBufferString",
+	"slices.Insert":         "compat.Insert",
+	"runtime.Caller":        "compat.Caller",
 	// The library's Append functions append to a vec.Appender; the compat
 	// forms keep Go's []byte destination, growing it as compat.Append does.
 	"strconv.AppendInt":       "compat.AppendInt",
@@ -439,6 +444,11 @@ func (t *fileTr) translate() ([]byte, error) {
 			name = imp.Name.Name
 		}
 		t.local[p] = name
+		if (name == "." || name == "_") && t.mapPath(p) != "" {
+			// A dot import or a blank import names nothing the translation
+			// would otherwise refer to: keep it.
+			t.use(t.mapPath(p), name)
+		}
 		if t.mapPath(p) == "" && stdMap[p] != "" {
 			t.note(imp, "no Plutonium package for import %q", p)
 		}
@@ -465,7 +475,7 @@ func (t *fileTr) translate() ([]byte, error) {
 		out.WriteString("\n")
 		out.WriteString(d)
 	}
-	src, err := format.Source(out.Bytes())
+	src, err := format.Source(dropGoDirectives(out.Bytes()))
 	if err != nil {
 		if dump := os.Getenv("GO2PU_DUMP_UNFORMATTED"); dump != "" {
 			_ = os.WriteFile(dump, out.Bytes(), 0o644)
@@ -617,4 +627,26 @@ func elemBasic(T types.Type) types.BasicKind {
 		return b.Kind()
 	}
 	return types.Invalid
+}
+
+// dropGoDirectives removes the //go: comment lines (//go:linkname,
+// //go:noinline, //go:fix, //go:generate): Plutonium rejects them, since it
+// does not read them and a comment that looks like a directive must not be
+// ignored (language spec section 20.3). //go:build lines have already
+// selected the files that were translated.
+func dropGoDirectives(src []byte) []byte {
+	var out bytes.Buffer
+	for len(src) > 0 {
+		line := src
+		if i := bytes.IndexByte(src, '\n'); i >= 0 {
+			line, src = src[:i+1], src[i+1:]
+		} else {
+			src = nil
+		}
+		if bytes.HasPrefix(bytes.TrimSpace(line), []byte("//go:")) {
+			continue
+		}
+		out.Write(line)
+	}
+	return out.Bytes()
 }

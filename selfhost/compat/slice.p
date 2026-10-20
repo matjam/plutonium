@@ -67,6 +67,24 @@ func MakeCap[T any](n, c int) []T {
 	return unsafe.Slice((*T)(p), c)[:n]
 }
 
+// Insert is Go's slices.Insert: it inserts v into s at index i, growing as
+// Append grows, and returns the modified slice.
+func Insert[S ~[]E, E any](s S, i int, v ...E) S {
+	_ = s[i:] // bounds check
+	m := len(v)
+	if m == 0 {
+		return s
+	}
+	n := len(s)
+	if n+m > cap(s) {
+		s = S(grow([]E(s), n+m))
+	}
+	s = s[:n+m]
+	copy(s[i+m:], s[i:n])
+	copy(s[i:], v)
+	return s
+}
+
 // AppendString is append(b, s...) for a string s.
 func AppendString(b []byte, s string) []byte {
 	n := len(b)

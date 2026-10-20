@@ -655,7 +655,7 @@ func (s *fnState) makeChan(e *ast.CallExpr, T types2.Type) value {
 	s.checkSendable(et, e.Pos(), "channel element type")
 	size := s.constInt(ssa.TI64, 0)
 	rest := e.Args[1:]
-	if len(rest) > 0 && (isIntegerType(unwrap(s.typeOf(rest[0]))) || s.info.Types[rest[0]].Value != nil) {
+	if len(rest) > 0 && (isIntegerType(unwrap(s.typeOf(rest[0]))) || !s.info.Types[rest[0]].Value.IsNil()) {
 		size = s.indexValue(rest[0])
 		rest = rest[1:]
 	}

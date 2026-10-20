@@ -7,10 +7,10 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 	"slices"
 )
 
@@ -209,11 +209,35 @@ func (check *Checker) suspendedCall(keyword string, call *ast.CallExpr) {
 	check.errorf(&x, code, "%s %s %s", keyword, msg, &x)
 }
 
-// goVal returns the Go value for val, or nil.
-func goVal(val constant.Value) any {
+// A goValue is the Go value of a constant, as a key of a map: the kind says
+// which field holds it. Two goValues are equal when Go's values of the
+// same type are, as Go's interface values holding them would be.
+type goValue struct {
+	kind goKind
+	i    int64
+	u    uint64
+	f    float64
+	s    string
+	b    bool
+}
+
+type goKind uint8
+
+const (
+	goNone goKind = iota // no Go value
+	goInt64
+	goUint64
+	goFloat64
+	goString
+	goBool
+	goOpaque // a value of no Go type, equal to every other such value (keyVal)
+)
+
+// goVal returns the Go value for val, or one of kind goNone.
+func goVal(val constant.Value) goValue {
 	// val should exist, but be conservative and check
-	if val == nil {
-		return nil
+	if val.IsNil() {
+		return goValue{}
 	}
 	// Match implementation restriction of other compilers.
 	// gc only checks duplicates for integer, floating-point
@@ -222,19 +246,19 @@ func goVal(val constant.Value) any {
 	switch val.Kind() {
 	case constant.Int:
 		if x, ok := constant.Int64Val(val); ok {
-			return x
+			return goValue{kind: goInt64, i: x}
 		}
 		if x, ok := constant.Uint64Val(val); ok {
-			return x
+			return goValue{kind: goUint64, u: x}
 		}
 	case constant.Float:
 		if x, ok := constant.Float64Val(val); ok {
-			return x
+			return goValue{kind: goFloat64, f: x}
 		}
 	case constant.String:
-		return constant.StringVal(val)
+		return goValue{kind: goString, s: constant.StringVal(val)}
 	}
-	return nil
+	return goValue{}
 }
 
 // A valueMap maps a case value (of a basic Go type) to a list of positions
@@ -244,7 +268,7 @@ func goVal(val constant.Value) any {
 // types we need to also check the value's types (e.g., byte(1) vs myByte(1))
 // when the switch expression is of interface type.
 type (
-	valueMap  map[any][]valueType // underlying Go value -> valueType
+	valueMap  map[goValue][]valueType // underlying Go value -> valueType
 	valueType struct {
 		pos token.Pos
 		typ Type
@@ -275,7 +299,7 @@ L:
 			continue L // we're done
 		}
 		// look for duplicate values
-		if val := goVal(v.val); val != nil {
+		if val := goVal(v.val); val.kind != goNone {
 			// look for duplicate types for a given value
 			// (quadratic algorithm, but these lists tend to be very short)
 			for _, vt := range seen[val] {
@@ -378,10 +402,6 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 	// statements must end with the same top scope as they started with
 	if debug {
 		defer func(scope *Scope) {
-			// don't check if code is panicking
-			if p := recover(); p != nil {
-				panic(p)
-			}
 			assert(scope == check.scope)
 		}(check.scope)
 	}

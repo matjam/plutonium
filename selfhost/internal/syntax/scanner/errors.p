@@ -43,7 +43,7 @@ type ErrorList []*Error
 
 // Add adds an [Error] with given position and error message to an [ErrorList].
 func (p *ErrorList) Add(pos token.Position, msg string) {
-	*p = compat.Append(*p, pu.New(Error{pos, msg}))
+	*p = ErrorList(compat.Append(*p, pu.New(Error{pos, msg})))
 }
 
 // Reset resets an [ErrorList] to no errors.

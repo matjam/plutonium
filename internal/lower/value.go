@@ -1,7 +1,7 @@
 package lower
 
 import (
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"math"
 
 	"github.com/matjam/plutonium/internal/ssa"

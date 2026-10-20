@@ -28,7 +28,7 @@ package types2
 // union of terms in a type constraint.
 
 import (
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"slices"
 	"strconv"
 	"strings"

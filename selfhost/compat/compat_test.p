@@ -78,3 +78,20 @@ func TestSprintfNewError(t *testing.T) {
 		}
 	}
 }
+
+func TestInsertCaller(t *testing.T) {
+	s := []int{1, 2, 5}
+	s = Insert(s, 2, 3, 4)
+	if len(s) != 5 || s[0] != 1 || s[1] != 2 || s[2] != 3 || s[3] != 4 || s[4] != 5 {
+		t.Fatalf("Insert in the middle: %v", s)
+	}
+	s = Insert(s, 5, 6)
+	s = Insert(s, 0)
+	s = Insert(s, 0, 0)
+	if len(s) != 7 || s[0] != 0 || s[6] != 6 {
+		t.Fatalf("Insert at the ends: %v", s)
+	}
+	if _, _, _, ok := Caller(1); ok {
+		t.Fatalf("Caller reported a caller")
+	}
+}

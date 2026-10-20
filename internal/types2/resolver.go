@@ -7,10 +7,10 @@ package types2
 import (
 	"cmp"
 	"fmt"
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 	"slices"
 	"strconv"
 	"strings"

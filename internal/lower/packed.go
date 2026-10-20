@@ -1,7 +1,6 @@
 package lower
 
 import (
-	"encoding/binary"
 	"slices"
 
 	"github.com/matjam/plutonium/internal/ssa"
@@ -48,9 +47,11 @@ func comparedBitsInMemory(T types2.Type) []byte {
 
 // leWord reads up to eight bytes as a little-endian word.
 func leWord(b []byte) uint64 {
-	var buf [8]byte
-	copy(buf[:], b)
-	return binary.LittleEndian.Uint64(buf[:])
+	var v uint64
+	for i := 0; i < len(b) && i < 8; i++ {
+		v |= uint64(b[i]) << (8 * i)
+	}
+	return v
 }
 
 // packedEqual compares two packed values of type T whose reserved bits are

@@ -3,7 +3,7 @@ package lower
 import (
 	"encoding/binary"
 	"fmt"
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"math"
 	"slices"
 	"strings"
@@ -57,7 +57,7 @@ func (l *Lowerer) lowerGlobals() {
 			for _, init := range p.Info.InitOrder {
 				hasInit = hasInit || slices.Contains(init.Lhs, v)
 				if len(init.Lhs) == 1 && init.Lhs[0] == v {
-					if tv := p.Info.Types[init.Rhs]; tv.Value != nil {
+					if tv := p.Info.Types[init.Rhs]; !tv.Value.IsNil() {
 						if l.staticConst(d, tv.Value, T) {
 							static[v] = true
 						}
@@ -284,7 +284,7 @@ func (l *Lowerer) staticConst(d *ssa.Data, c constant.Value, T types2.Type) bool
 // out stay zero.
 func (l *Lowerer) staticValue(p *load.Package, d *ssa.Data, e ast.Expr, T types2.Type, off int64) bool {
 	T = unwrap(T)
-	if tv := p.Info.Types[e]; tv.Value != nil {
+	if tv := p.Info.Types[e]; !tv.Value.IsNil() {
 		var c ssa.Data
 		if !l.staticConst(&c, tv.Value, T) {
 			return false
@@ -374,7 +374,7 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 			if len(init.Lhs) == 1 && static[init.Lhs[0]] {
 				continue
 			}
-			if len(init.Lhs) == 1 && init.Lhs[0].Name() == "_" && p.Info.Types[init.Rhs].Value != nil {
+			if len(init.Lhs) == 1 && init.Lhs[0].Name() == "_" && !p.Info.Types[init.Rhs].Value.IsNil() {
 				// var _ = constant has no effect.
 				continue
 			}

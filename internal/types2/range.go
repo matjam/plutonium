@@ -7,9 +7,9 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 )
 
 // rangeStmt type-checks a range statement of form
@@ -113,7 +113,7 @@ func (check *Checker) rangeStmt(inner stmtContext, rangeStmt *ast.RangeStmt, noN
 	lhs := [2]ast.Expr{sKey, sValue} // sKey, sValue may be nil
 	rhs := [2]Type{key, val}         // key, val may be nil
 
-	rangeOverInt := isInteger(x.typ())
+	rangeOverInt := x.typ() != nil && isInteger(x.typ()) // x may be invalid, without a type
 
 	if isDef {
 		// short variable declaration

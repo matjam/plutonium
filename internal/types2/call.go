@@ -7,6 +7,7 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
@@ -328,7 +329,7 @@ func (check *Checker) callExpr(x *operand, call *ast.CallExpr) exprKind {
 
 	if wasGeneric && sig.TypeParams().Len() == 0 {
 		// Update the recorded type of call.Fun to its instantiated type.
-		check.recordTypeAndValue(call.Fun, value, sig, nil)
+		check.recordTypeAndValue(call.Fun, value, sig, constant.Value{})
 	}
 
 	// determine result
@@ -779,7 +780,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 			// - imported objects are always fully initialized
 			switch exp := exp.(type) {
 			case *Const:
-				assert(exp.Val() != nil)
+				assert(!exp.Val().IsNil())
 				x.mode_ = constant_
 				x.typ_ = exp.typ
 				x.val = exp.val

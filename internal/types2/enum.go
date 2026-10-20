@@ -15,7 +15,7 @@ package types2
 // range E, and a generated String method.
 
 import (
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"slices"
 	"strings"
 
@@ -122,7 +122,7 @@ func (check *Checker) enumType(e *ast.EnumType, def *TypeName) Type {
 			val = check.enumValue(m)
 		case i == 0:
 			val = constant.MakeInt64(0)
-		case prev != nil:
+		case !prev.IsNil():
 			val = constBinaryOp(prev, token.ADD, constant.MakeInt64(1))
 		}
 		prev = val
@@ -132,10 +132,10 @@ func (check *Checker) enumType(e *ast.EnumType, def *TypeName) Type {
 		if name == "_" {
 			check.error(m.Name, BlankEnumMember, "enum member cannot be _: every member needs a name")
 			ok = false
-		} else if !check.declareInSet(&names, m.Name.Pos(), NewConst(m.Name.Pos(), check.pkg, name, nil, nil)) {
+		} else if !check.declareInSet(&names, m.Name.Pos(), NewConst(m.Name.Pos(), check.pkg, name, nil, constant.Value{})) {
 			ok = false
 		}
-		if val == nil {
+		if val.IsNil() {
 			ok = false
 			continue
 		}
@@ -196,20 +196,20 @@ func (check *Checker) enumValue(m *ast.EnumMember) constant.Value {
 	var x operand
 	check.expr(nil, &x, m.Value)
 	if !x.isValid() {
-		return nil
+		return constant.Value{}
 	}
 	if x.mode() != constant_ {
 		check.errorf(&x, BadEnumValue, "enum member %s: value %s is not constant", m.Name.Name, &x)
-		return nil
+		return constant.Value{}
 	}
 	if !isInteger(x.typ()) && !isUntyped(x.typ()) {
 		check.errorf(&x, BadEnumValue, "enum member %s: value %s is not an integer", m.Name.Name, &x)
-		return nil
+		return constant.Value{}
 	}
 	val := constant.ToInt(x.val)
 	if val.Kind() != constant.Int {
 		check.errorf(&x, BadEnumValue, "enum member %s: value %s is not an integer", m.Name.Name, &x)
-		return nil
+		return constant.Value{}
 	}
 	if isUntyped(x.typ()) {
 		check.updateExprType(m.Value, Typ[UntypedInt], true)

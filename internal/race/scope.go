@@ -2,7 +2,7 @@ package race
 
 import (
 	"fmt"
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"sort"
 	"strings"
 
@@ -794,7 +794,7 @@ func (fc *frameCheck) noteEdge(w *walker, f *function, args []origins, locks loc
 // selects: a constant, or in a check of scoped tasks the loop variable of
 // the task being walked.
 func (w *walker) indexPart(idx ast.Expr) string {
-	if tv, ok := w.a.types[idx]; ok && tv.Value != nil {
+	if tv, ok := w.a.types[idx]; ok && !tv.Value.IsNil() {
 		if n, exact := constant.Int64Val(constant.ToInt(tv.Value)); exact {
 			return "@c" + itoa(int(n))
 		}
@@ -901,7 +901,7 @@ func (w *walker) splitVar(e ast.Expr) *types2.Var {
 // posConst returns e's value if it is a positive integer constant.
 func (w *walker) posConst(e ast.Expr) (int64, bool) {
 	tv, ok := w.a.types[e]
-	if !ok || tv.Value == nil {
+	if !ok || tv.Value.IsNil() {
 		return 0, false
 	}
 	n, exact := constant.Int64Val(constant.ToInt(tv.Value))

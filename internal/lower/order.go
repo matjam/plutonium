@@ -104,7 +104,7 @@ func (s *fnState) evalFirst(e ast.Expr) {
 	if e == nil {
 		return
 	}
-	if tv := s.info.Types[e]; tv.Value != nil || tv.IsType() || tv.IsBuiltin() {
+	if tv := s.info.Types[e]; !tv.Value.IsNil() || tv.IsType() || tv.IsBuiltin() {
 		return // constants and types are not evaluated
 	}
 	if _, done := s.evaluated[e]; done {

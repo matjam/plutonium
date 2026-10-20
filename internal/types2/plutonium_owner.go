@@ -1,10 +1,7 @@
 package types2
 
 import (
-	"strings"
-
 	"github.com/matjam/plutonium/internal/syntax/ast"
-	"github.com/matjam/plutonium/internal/syntax/printer"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
 )
@@ -178,17 +175,27 @@ func (check *Checker) ownerFixDecl(tdecl *ast.TypeSpec, fallback string) string 
 	if tdecl == nil || tdecl.Owner.IsValid() || tdecl.Name == nil {
 		return fallback
 	}
+	if DeclPrinter == nil {
+		return fallback
+	}
 	spec := *tdecl
 	spec.Doc, spec.Comment = nil, nil
 	spec.Owner = spec.Name.End()
-	var buf strings.Builder
 	decl := &ast.GenDecl{TokPos: tdecl.Pos(), Tok: token.TYPE, Specs: []ast.Spec{&spec}}
-	cfg := printer.Config{Mode: printer.UseSpaces | printer.TabIndent, Tabwidth: 8}
-	if err := cfg.Fprint(&buf, check.fset, decl); err != nil {
+	text, err := DeclPrinter(check.fset, decl)
+	if err != nil {
 		return fallback
 	}
-	return buf.String()
+	return text
 }
+
+// DeclPrinter formats a declaration as source text, with tabs for
+// indentation. The checker uses it to show a fix in the code of the
+// program; it does not import the printer itself, so that it can be
+// translated to Plutonium before the printer is. A package that can print
+// (internal/load) installs it. Without one the checker shows the fix as a
+// description.
+var DeclPrinter func(fset *token.FileSet, decl *ast.GenDecl) (string, error)
 
 // mustBeOwner reports a type definition that holds owners without being
 // declared owner. what says what holds one ("its field buf is a Buf, which

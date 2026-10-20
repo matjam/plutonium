@@ -2,7 +2,6 @@ package lower
 
 import (
 	"encoding/binary"
-	"hash/fnv"
 	"sort"
 
 	"github.com/matjam/plutonium/internal/ssa"
@@ -492,9 +491,12 @@ func (tt *typeTable) emit() {
 // descHash is the hash stored in a type descriptor: FNV-1a of the type's
 // key string.
 func descHash(key string) uint32 {
-	h := fnv.New32a()
-	h.Write([]byte(key))
-	return h.Sum32()
+	h := uint32(2166136261)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= 16777619
+	}
+	return h
 }
 
 // itabHash combines the descriptor hashes of a concrete type and an

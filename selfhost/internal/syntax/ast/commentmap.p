@@ -95,7 +95,7 @@ type nodeStack []Node
 // and then pushes n on the stack.
 func (s *nodeStack) push(n Node) {
 	s.pop(n.Pos())
-	*s = compat.Append((*s), n)
+	*s = nodeStack(compat.Append((*s), n))
 }
 
 // pop pops all nodes that appear lexically before pos

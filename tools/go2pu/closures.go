@@ -1007,6 +1007,9 @@ func (p *closurePlan) decide(res *Result) {
 		}
 		sort.Slice(capturing, func(i, j int) bool { return capturing[i].Pos() < capturing[j].Pos() })
 		if why, at := p.problem(members, litsOf[r]); why != "" {
+			if at == nil {
+				at = capturing[0]
+			}
 			tc.noteRes(res, at, "closure conversion refused for the func values stored here (%s); the closures stay and Plutonium reports them: hand-fix", why)
 			continue
 		}
@@ -1104,10 +1107,12 @@ func (p *closurePlan) decide(res *Result) {
 func (p *closurePlan) problem(members []slotKey, lits []*ast.FuncLit) (string, ast.Node) {
 	for _, m := range members {
 		var at ast.Node
-		if m.v != nil {
-			at = p.tc.defOf[m.v]
-		} else {
+		if id := p.tc.defOf[m.v]; m.v != nil && id != nil {
+			at = id
+		} else if m.v == nil {
 			at = m.ft
+		} else if len(lits) > 0 {
+			at = lits[0]
 		}
 		if why := p.apiProblem(m); why != "" {
 			return why, at

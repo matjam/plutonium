@@ -7,9 +7,9 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 	"math"
 )
 
@@ -154,7 +154,7 @@ func representableConst(x constant.Value, check *Checker, typ *Basic, rounded *c
 				return fitsFloat32(x)
 			}
 			r := roundFloat32(x)
-			if r != nil {
+			if !r.IsNil() {
 				*rounded = r
 				return true
 			}
@@ -163,7 +163,7 @@ func representableConst(x constant.Value, check *Checker, typ *Basic, rounded *c
 				return fitsFloat64(x)
 			}
 			r := roundFloat64(x)
-			if r != nil {
+			if !r.IsNil() {
 				*rounded = r
 				return true
 			}
@@ -174,36 +174,10 @@ func representableConst(x constant.Value, check *Checker, typ *Basic, rounded *c
 		}
 
 	case isComplex(typ):
-		x := constant.ToComplex(x)
-		if x.Kind() != constant.Complex {
-			return false
-		}
-		switch typ.kind {
-		case Complex64:
-			if rounded == nil {
-				return fitsFloat32(constant.Real(x)) && fitsFloat32(constant.Imag(x))
-			}
-			re := roundFloat32(constant.Real(x))
-			im := roundFloat32(constant.Imag(x))
-			if re != nil && im != nil {
-				*rounded = constBinaryOp(re, token.ADD, constant.MakeImag(im))
-				return true
-			}
-		case Complex128:
-			if rounded == nil {
-				return fitsFloat64(constant.Real(x)) && fitsFloat64(constant.Imag(x))
-			}
-			re := roundFloat64(constant.Real(x))
-			im := roundFloat64(constant.Imag(x))
-			if re != nil && im != nil {
-				*rounded = constBinaryOp(re, token.ADD, constant.MakeImag(im))
-				return true
-			}
-		case UntypedComplex:
-			return true
-		default:
-			panic("unreachable")
-		}
+		// Plutonium has no complex constants (language spec section 5.1): a
+		// value that would be one is a placeholder real number, and the
+		// checker reports the complex value (reportComplex).
+		return x.Kind() == constant.Int || x.Kind() == constant.Float
 
 	case isString(typ):
 		return x.Kind() == constant.String
@@ -227,7 +201,7 @@ func roundFloat32(x constant.Value) constant.Value {
 	if !math.IsInf(f, 0) {
 		return constant.MakeFloat64(f)
 	}
-	return nil
+	return constant.Value{}
 }
 
 func fitsFloat64(x constant.Value) bool {
@@ -240,7 +214,7 @@ func roundFloat64(x constant.Value) constant.Value {
 	if !math.IsInf(f, 0) {
 		return constant.MakeFloat64(f)
 	}
-	return nil
+	return constant.Value{}
 }
 
 // representable checks that a constant operand is representable in the given
@@ -252,7 +226,7 @@ func (check *Checker) representable(x *operand, typ *Basic) {
 		x.invalidate()
 		return
 	}
-	assert(v != nil)
+	assert(!v.IsNil())
 	x.val = v
 }
 
@@ -273,12 +247,12 @@ func (check *Checker) representation(x *operand, typ *Basic) (constant.Value, Co
 			// float   -> float   : overflows
 			//
 			if !isInteger(x.typ()) && isInteger(typ) {
-				return nil, TruncatedFloat
+				return constant.Value{}, TruncatedFloat
 			} else {
-				return nil, NumericOverflow
+				return constant.Value{}, NumericOverflow
 			}
 		}
-		return nil, InvalidConstVal
+		return constant.Value{}, InvalidConstVal
 	}
 	return v, 0
 }
@@ -314,7 +288,7 @@ func (check *Checker) convertUntyped(x *operand, target Type) {
 		x.invalidate()
 		return
 	}
-	if val != nil {
+	if !val.IsNil() {
 		x.val = val
 		check.updateExprVal(x.expr, val)
 	}

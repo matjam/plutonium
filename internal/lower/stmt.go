@@ -710,7 +710,7 @@ func (s *fnState) callsFunction(e ast.Expr) bool {
 	found := false
 	ast.Inspect(e, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
-			if tv := s.info.Types[call]; tv.Value == nil && !s.info.Types[call.Fun].IsType() {
+			if tv := s.info.Types[call]; tv.Value.IsNil() && !s.info.Types[call.Fun].IsType() {
 				found = true
 			}
 		}

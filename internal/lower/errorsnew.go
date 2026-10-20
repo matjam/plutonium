@@ -1,7 +1,7 @@
 package lower
 
 import (
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
@@ -39,7 +39,7 @@ func isErrorString(obj *types2.TypeName) bool {
 func (s *fnState) errorsNew(e *ast.CallExpr, fn *types2.Func) []value {
 	T := s.typeOf(e)
 	tv := s.info.Types[e.Args[0]]
-	if tv.Value == nil || tv.Value.Kind() != constant.String {
+	if tv.Value.IsNil() || tv.Value.Kind() != constant.String {
 		s.l.errorf(e.Pos(), diag.CheckerCode(typerr.ErrorsNewNotConstant), "errors.New needs a constant message; use fmt.Errorf")
 		return []value{s.zeroValue(T)}
 	}

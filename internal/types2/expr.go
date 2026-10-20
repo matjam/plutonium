@@ -8,10 +8,10 @@ package types2
 
 import (
 	"fmt"
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 )
 
 /*
@@ -328,13 +328,13 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 		// never get "materialized" into a typed value. If
 		// left in the untyped map, they will be processed
 		// at the end of the type check.
-		if old.val != nil {
+		if !old.val.IsNil() {
 			break
 		}
 		check.updateExprType(x.X, typ, final)
 
 	case *ast.BinaryExpr:
-		if old.val != nil {
+		if !old.val.IsNil() {
 			break // see comment for unary expressions
 		}
 		if isComparison(x.Op) {
@@ -378,7 +378,7 @@ func (check *Checker) updateExprType(x ast.Expr, typ Type, final bool) {
 		// still must check that it is representable as the specific
 		// int type requested (was go.dev/issue/22969). Fall through here.
 	}
-	if old.val != nil {
+	if !old.val.IsNil() {
 		// If x is a constant, it must be representable as a value of typ.
 		c := operand{old.mode, x, old.typ, old.val, 0}
 		check.convertUntyped(&c, typ)
@@ -407,22 +407,22 @@ func (check *Checker) updateExprVal(x ast.Expr, val constant.Value) {
 // representation of x in this context.
 func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, constant.Value, Code) {
 	if !x.isValid() || isTyped(x.typ()) || !isValid(target) {
-		return x.typ(), nil, 0
+		return x.typ(), constant.Value{}, 0
 	}
 	// x is untyped
 
 	if isUntyped(target) {
 		// both x and target are untyped
 		if m := maxType(x.typ(), target); m != nil {
-			return m, nil, 0
+			return m, constant.Value{}, 0
 		}
-		return nil, nil, InvalidUntypedConversion
+		return nil, constant.Value{}, InvalidUntypedConversion
 	}
 
 	// Plutonium: an untyped constant is not a member; name one (E.Member)
 	// or convert (E(1)).
 	if isEnum(target) {
-		return nil, nil, InvalidUntypedConversion
+		return nil, constant.Value{}, InvalidUntypedConversion
 	}
 
 	switch u := target.Underlying().(type) {
@@ -430,7 +430,7 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 		if x.mode() == constant_ {
 			v, code := check.representation(x, u)
 			if code != 0 {
-				return nil, nil, code
+				return nil, constant.Value{}, code
 			}
 			return target, v, code
 		}
@@ -441,28 +441,28 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 		switch x.typ().(*Basic).kind {
 		case UntypedBool:
 			if !isBoolean(target) {
-				return nil, nil, InvalidUntypedConversion
+				return nil, constant.Value{}, InvalidUntypedConversion
 			}
 		case UntypedInt, UntypedRune, UntypedFloat, UntypedComplex:
 			if !isNumeric(target) {
-				return nil, nil, InvalidUntypedConversion
+				return nil, constant.Value{}, InvalidUntypedConversion
 			}
 		case UntypedString:
 			// Non-constant untyped string values are not permitted by the spec and
 			// should not occur during normal typechecking passes, but this path is
 			// reachable via the AssignableTo API.
 			if !isString(target) {
-				return nil, nil, InvalidUntypedConversion
+				return nil, constant.Value{}, InvalidUntypedConversion
 			}
 		case UntypedNil:
 			// Unsafe.Pointer is a basic type that includes nil.
 			if !hasNil(target) {
-				return nil, nil, InvalidUntypedConversion
+				return nil, constant.Value{}, InvalidUntypedConversion
 			}
 			// Preserve the type of nil as UntypedNil: see go.dev/issue/13061.
-			return Typ[UntypedNil], nil, 0
+			return Typ[UntypedNil], constant.Value{}, 0
 		default:
-			return nil, nil, InvalidUntypedConversion
+			return nil, constant.Value{}, InvalidUntypedConversion
 		}
 	case *Interface:
 		if isTypeParam(target) {
@@ -473,11 +473,11 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 				t, _, _ := check.implicitTypeAndValue(x, u)
 				return t != nil
 			}) {
-				return nil, nil, InvalidUntypedConversion
+				return nil, constant.Value{}, InvalidUntypedConversion
 			}
 			// keep nil untyped (was bug go.dev/issue/39755)
 			if x.isNil() {
-				return Typ[UntypedNil], nil, 0
+				return Typ[UntypedNil], constant.Value{}, 0
 			}
 			break
 		}
@@ -486,29 +486,29 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 		// need the dynamic type for argument checking of say, print
 		// functions)
 		if x.isNil() {
-			return Typ[UntypedNil], nil, 0
+			return Typ[UntypedNil], constant.Value{}, 0
 		}
 		// cannot assign untyped values to non-empty interfaces
 		if !u.Empty() {
-			return nil, nil, InvalidUntypedConversion
+			return nil, constant.Value{}, InvalidUntypedConversion
 		}
-		return Default(x.typ()), nil, 0
+		return Default(x.typ()), constant.Value{}, 0
 	case *Pointer, *Signature, *Slice, *Map, *Chan:
 		if !x.isNil() {
-			return nil, nil, InvalidUntypedConversion
+			return nil, constant.Value{}, InvalidUntypedConversion
 		}
 		// Keep nil untyped - see comment for interfaces, above.
-		return Typ[UntypedNil], nil, 0
+		return Typ[UntypedNil], constant.Value{}, 0
 	case *Wrapper:
 		// Plutonium: owned, shared, synced and weak are nil when empty.
 		if !u.IsBox() || !x.isNil() {
-			return nil, nil, InvalidUntypedConversion
+			return nil, constant.Value{}, InvalidUntypedConversion
 		}
-		return Typ[UntypedNil], nil, 0
+		return Typ[UntypedNil], constant.Value{}, 0
 	default:
-		return nil, nil, InvalidUntypedConversion
+		return nil, constant.Value{}, InvalidUntypedConversion
 	}
-	return target, nil, 0
+	return target, constant.Value{}, 0
 }
 
 // If switchCase is true, the operator op is ignored.
@@ -670,7 +670,7 @@ func (check *Checker) shift(x, y *operand, e ast.Expr, op token.Token) {
 		return
 	}
 
-	if allInteger(x.typ()) || isUntyped(x.typ()) && xval != nil && xval.Kind() == constant.Int {
+	if allInteger(x.typ()) || isUntyped(x.typ()) && !xval.IsNil() && xval.Kind() == constant.Int {
 		// The lhs is of integer type or an untyped constant representable
 		// as an integer. Nothing to do.
 	} else {
@@ -1299,46 +1299,36 @@ Error:
 	return statement // avoid follow-up errors
 }
 
-// keyVal maps a complex, float, integer, string or boolean constant value
-// to the corresponding complex128, float64, int64, uint64, string, or bool
-// Go value if possible; otherwise it returns x.
-// A complex constant that can be represented as a float (such as 1.2 + 0i)
-// is returned as a floating point value; if a floating point value can be
-// represented as an integer (such as 1.0) it is returned as an integer value.
-// This ensures that constants of different kind but equal value (such as
-// 1.0 + 0i, 1.0, 1) result in the same value.
-func keyVal(x constant.Value) any {
+// keyVal maps a float, integer, string or boolean constant value to the
+// corresponding float64, int64, uint64, string, or bool Go value if
+// possible; otherwise it returns an opaque value, equal to every other such
+// value.
+// A floating point value that can be represented as an integer (such as
+// 1.0) is returned as an integer value. This ensures that constants of
+// different kind but equal value (such as 1.0, 1) result in the same value.
+func keyVal(x constant.Value) goValue {
 	switch x.Kind() {
-	case constant.Complex:
-		f := constant.ToFloat(x)
-		if f.Kind() != constant.Float {
-			r, _ := constant.Float64Val(constant.Real(x))
-			i, _ := constant.Float64Val(constant.Imag(x))
-			return complex(r, i)
-		}
-		x = f
-		fallthrough
 	case constant.Float:
 		i := constant.ToInt(x)
 		if i.Kind() != constant.Int {
 			v, _ := constant.Float64Val(x)
-			return v
+			return goValue{kind: goFloat64, f: v}
 		}
 		x = i
 		fallthrough
 	case constant.Int:
 		if v, ok := constant.Int64Val(x); ok {
-			return v
+			return goValue{kind: goInt64, i: v}
 		}
 		if v, ok := constant.Uint64Val(x); ok {
-			return v
+			return goValue{kind: goUint64, u: v}
 		}
 	case constant.String:
-		return constant.StringVal(x)
+		return goValue{kind: goString, s: constant.StringVal(x)}
 	case constant.Bool:
-		return constant.BoolVal(x)
+		return goValue{kind: goBool, b: constant.BoolVal(x)}
 	}
-	return x
+	return goValue{kind: goOpaque}
 }
 
 // typeAssertion checks x.(T). The type of x must be an interface.

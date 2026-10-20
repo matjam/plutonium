@@ -8,11 +8,10 @@ package types2
 
 import (
 	"fmt"
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
-	"os"
 )
 
 // nopos, noposn indicate an unknown position
@@ -21,9 +20,6 @@ var noposn = atPos(nopos)
 
 // debugging/development support
 const debug = false // leave on during development
-
-// position tracing for panics during type checking
-const tracePos = true
 
 // exprInfo stores information about an untyped expression.
 type exprInfo struct {
@@ -220,8 +216,7 @@ type Checker struct {
 	paramPlaceholders map[*Var]bool
 
 	// debugging
-	posStack []positioner // stack of source positions seen; used for panic tracing
-	indent   int          // indentation for tracing
+	indent int // indentation for tracing
 }
 
 // addDeclDep adds the dependency edge (check.decl -> to) if check.decl exists
@@ -417,48 +412,6 @@ func versionMax(a, b goVersion) goVersion {
 	return a
 }
 
-// pushPos pushes pos onto the pos stack.
-func (check *Checker) pushPos(pos positioner) {
-	check.posStack = append(check.posStack, pos)
-}
-
-// popPos pops from the pos stack.
-func (check *Checker) popPos() {
-	check.posStack = check.posStack[:len(check.posStack)-1]
-}
-
-// A bailout panic is used for early termination.
-type bailout struct{}
-
-func (check *Checker) handleBailout(err *error) {
-	switch p := recover().(type) {
-	case nil, bailout:
-		// normal return or early exit
-		*err = check.firstErr
-	default:
-		if len(check.posStack) > 0 {
-			doPrint := func(ps []positioner) {
-				for i := len(ps) - 1; i >= 0; i-- {
-					fmt.Fprintf(os.Stderr, "\t%v\n", check.fset.Position(ps[i].Pos()))
-				}
-			}
-
-			fmt.Fprintln(os.Stderr, "The following panic happened checking types near:")
-			if len(check.posStack) <= 10 {
-				doPrint(check.posStack)
-			} else {
-				// if it's long, truncate the middle; it's least likely to help
-				doPrint(check.posStack[len(check.posStack)-5:])
-				fmt.Fprintln(os.Stderr, "\t...")
-				doPrint(check.posStack[:5])
-			}
-		}
-
-		// re-panic
-		panic(p)
-	}
-}
-
 // Files checks the provided files as part of the checker's package.
 func (check *Checker) Files(files []*ast.File) (err error) {
 	if check.pkg == Unsafe {
@@ -472,9 +425,8 @@ func (check *Checker) Files(files []*ast.File) (err error) {
 	// localized to a piece of syntax and needn't prevent
 	// type-checking of the rest of the package.
 
-	defer check.handleBailout(&err)
 	check.checkFiles(files)
-	return
+	return check.firstErr
 }
 
 // checkFiles type-checks the specified files. Errors are reported as

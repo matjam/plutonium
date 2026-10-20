@@ -1,7 +1,7 @@
 package types2
 
 import (
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"strings"
 
 	"github.com/matjam/plutonium/internal/syntax/ast"

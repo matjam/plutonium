@@ -492,11 +492,11 @@ func (s *fnState) makesTemps(e ast.Expr) bool {
 		case *ast.FuncLit:
 			return false
 		case *ast.CallExpr:
-			found = s.info.Types[n].Value == nil
+			found = s.info.Types[n].Value.IsNil()
 		case *ast.CompositeLit:
 			found = true
 		case *ast.BinaryExpr:
-			if tv := s.info.Types[n]; tv.Value == nil && tv.Type != nil && isString(tv.Type) {
+			if tv := s.info.Types[n]; tv.Value.IsNil() && tv.Type != nil && isString(tv.Type) {
 				found = true
 			}
 		}

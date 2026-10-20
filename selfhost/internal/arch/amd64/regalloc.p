@@ -564,7 +564,7 @@ func (a *allocator) firstMove() *MInst {
 type intHeap []int
 
 func (h *intHeap) push(x int) {
-	*h = compat.Append(*h, x)
+	*h = intHeap(compat.Append(*h, x))
 	s := *h
 	for i := len(s) - 1; i > 0; {
 		p := (i - 1) / 2

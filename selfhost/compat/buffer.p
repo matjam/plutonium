@@ -15,6 +15,14 @@ type Buffer struct {
 	buf []byte
 }
 
+// NewBufferString is bytes.NewBufferString: a Buffer holding s, in memory
+// from alloc.Default().
+func NewBufferString(s string) *Buffer {
+	b := alloc.New[Buffer]()
+	b.WriteString(s)
+	return b
+}
+
 // Builder is strings.Builder.
 type Builder = Buffer
 

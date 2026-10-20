@@ -10,9 +10,9 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
-	"go/constant"
 )
 
 const isTypes2 = false
@@ -54,5 +54,11 @@ func endPos(n ast.Node) token.Pos { return n.End() }
 
 // makeFromLiteral returns the constant value for the given literal string and kind.
 func makeFromLiteral(lit string, kind token.Token) constant.Value {
+	if kind == token.IMAG {
+		// Plutonium has no complex constants (language spec section 5.1):
+		// an imaginary literal has the placeholder value 0, and the checker
+		// reports the complex value (reportComplex).
+		return constant.MakeInt64(0)
+	}
 	return constMakeFromLiteral(lit, kind, 0)
 }

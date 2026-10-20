@@ -693,7 +693,7 @@ func paramIdent(lit *ast.FuncLit, i int) *ast.Ident {
 func (f *closureFlow) expr(e ast.Expr) bitset {
 	m := f.expr1(e)
 	if e != nil && !f.pool.empty() && f.l.refers(f.typeOf(e)) {
-		if tv, ok := f.info.Types[e]; !ok || (!tv.IsType() && tv.Value == nil) {
+		if tv, ok := f.info.Types[e]; !ok || (!tv.IsType() && tv.Value.IsNil()) {
 			m = m.or(f.pool)
 		}
 	}
@@ -704,7 +704,7 @@ func (f *closureFlow) expr1(e ast.Expr) bitset {
 	if e == nil {
 		return nil
 	}
-	if tv, ok := f.info.Types[e]; ok && (tv.IsType() || tv.Value != nil) {
+	if tv, ok := f.info.Types[e]; ok && (tv.IsType() || !tv.Value.IsNil()) {
 		return nil
 	}
 	switch e := e.(type) {
@@ -857,7 +857,7 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 	}
 	var cm bitset // the callee's origins, for a call through a func value
 	if recv == nil {
-		if tv, ok := f.info.Types[c.Fun]; !ok || tv.Value == nil {
+		if tv, ok := f.info.Types[c.Fun]; !ok || tv.Value.IsNil() {
 			if _, builtin := f.info.ObjectOf(identOf(fun)).(*types2.Builtin); !builtin || identOf(fun) == nil {
 				cm = f.expr(c.Fun)
 			}

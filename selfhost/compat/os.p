@@ -59,3 +59,10 @@ func ReadAll(r io.Reader) ([]byte, error) {
 		}
 	}
 }
+
+// Caller is runtime.Caller: Plutonium has no way to ask for the caller's file
+// and line, so ok is always false. The compiler's assertion messages lose
+// their location, which the panic's own trace gives.
+func Caller(skip int) (pc uintptr, file string, line int, ok bool) {
+	return 0, "", 0, false
+}

@@ -64,8 +64,25 @@ func (t *fileTr) heapDefine(n *ast.AssignStmt) (string, bool) {
 		return "", false
 	}
 	if len(n.Lhs) != len(n.Rhs) {
-		t.note(n, "multi-value := of a variable moved to heap: hand-fix")
-		return "", false
+		// a, h := f() where h is moved to the heap: f's results go to
+		// ordinary variables, and each heap variable is allocated from its
+		// own.
+		switch t.parent[n].(type) {
+		case *ast.BlockStmt, *ast.CaseClause, *ast.CommClause:
+		default:
+			t.note(n, "multi-value := of a variable moved to heap in a statement header: hand-fix")
+			return "", false
+		}
+		var lhs, after []string
+		for _, l := range n.Lhs {
+			if id, ok := l.(*ast.Ident); ok && t.isHeapDef(id) {
+				lhs = append(lhs, "go"+id.Name)
+				after = append(after, fmt.Sprintf("%s := %s", id.Name, t.puNew("go"+id.Name)))
+				continue
+			}
+			lhs = append(lhs, t.text(l))
+		}
+		return strings.Join(lhs, ", ") + " := " + t.render(n.Rhs[0]) + "\n" + strings.Join(after, "\n"), true
 	}
 	lhs := make([]string, len(n.Lhs))
 	rhs := make([]string, len(n.Rhs))
@@ -101,19 +118,38 @@ func (t *fileTr) heapVarDecl(d *ast.GenDecl) (string, bool) {
 			continue
 		}
 		found = true
-		if len(vs.Names) != 1 || len(vs.Values) > 1 {
-			t.note(d, "var declaration of several variables, one moved to heap: hand-fix")
+		if len(vs.Values) != 0 && len(vs.Values) != len(vs.Names) {
+			t.note(d, "var declaration of several variables from one call, one moved to heap: hand-fix")
 			return "", false
 		}
-		name := vs.Names[0].Name
-		switch {
-		case len(vs.Values) == 0:
-			out = append(out, fmt.Sprintf("%s := %s.Alloc[%s]()", name, t.use(puPkg, "pu"), t.render(vs.Type)))
-		case vs.Type != nil:
-			out = append(out, fmt.Sprintf("%s := %s", name, t.puNew(convType(t.render(vs.Type))+"("+t.render(vs.Values[0])+")")))
-		default:
-			out = append(out, fmt.Sprintf("%s := %s", name, t.puNew(t.render(vs.Values[0]))))
+		// One declaration per name.
+		for i, id := range vs.Names {
+			var value ast.Expr
+			if len(vs.Values) > 0 {
+				value = vs.Values[i]
+			}
+			if !t.isHeapDef(id) {
+				line := "var " + id.Name
+				if vs.Type != nil {
+					line += " " + t.render(vs.Type)
+				}
+				if value != nil {
+					line += " = " + t.render(value)
+				}
+				out = append(out, line)
+				continue
+			}
+			name := id.Name
+			switch {
+			case value == nil:
+				out = append(out, fmt.Sprintf("%s := %s.Alloc[%s]()", name, t.use(puPkg, "pu"), t.render(vs.Type)))
+			case vs.Type != nil:
+				out = append(out, fmt.Sprintf("%s := %s", name, t.puNew(convType(t.render(vs.Type))+"("+t.render(value)+")")))
+			default:
+				out = append(out, fmt.Sprintf("%s := %s", name, t.puNew(t.render(value))))
+			}
 		}
+		continue
 	}
 	if !found {
 		return "", false
@@ -183,11 +219,34 @@ func convType(typ string) string {
 	return typ
 }
 
-// checkHeapRange notes range variables moved to the heap.
-func (t *fileTr) checkHeapRange(r *ast.RangeStmt) {
+// heapRange translates a range loop whose variables are moved to the heap:
+// the loop variable is renamed and copied into a heap variable of its
+// original name at the top of the body, which is what the per-iteration
+// variable of Go 1.22 is.
+func (t *fileTr) heapRange(r *ast.RangeStmt) (string, bool) {
+	if r.Tok != token.DEFINE {
+		return "", false
+	}
+	var prologue []string
+	var ids []*ast.Ident
 	for _, e := range []ast.Expr{r.Key, r.Value} {
-		if id, ok := e.(*ast.Ident); ok && r.Tok == token.DEFINE && t.isHeapDef(id) {
-			t.note(r, "range variable %s moved to heap: hand-fix", id.Name)
+		if id, ok := e.(*ast.Ident); ok && t.isHeapDef(id) {
+			ids = append(ids, id)
+			prologue = append(prologue, fmt.Sprintf("%s := %s", id.Name, t.puNew("go"+id.Name)))
 		}
 	}
+	if len(ids) == 0 {
+		return "", false
+	}
+	b := t.render(r.Body)
+	t.subst[r.Body] = "{\n" + strings.Join(prologue, "\n") + "\n" + strings.TrimPrefix(b, "{")
+	for _, id := range ids {
+		t.subst[id] = "go" + id.Name
+	}
+	s := t.splice(r)
+	delete(t.subst, r.Body)
+	for _, id := range ids {
+		delete(t.subst, id)
+	}
+	return s, true
 }

@@ -7,9 +7,9 @@ package types2
 import (
 	"bytes"
 	"fmt"
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
-	"go/constant"
 	"strings"
 	"unicode"
 	"unicode/utf8"

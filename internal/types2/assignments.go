@@ -85,7 +85,7 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 			x.invalidate()
 			return
 		}
-		if val != nil {
+		if !val.IsNil() {
 			x.val = val
 			check.updateExprVal(x.expr, val)
 		}

@@ -160,7 +160,29 @@ func setHook(prefix string) {
 	hook = func(s string) string { return prefix + s }
 }
 
+// Variables whose address is kept: a multi-value :=, a declaration of
+// several names, and a range variable.
+var kept []*int
+
+func pair() (int, int) { return 3, 4 }
+
+func keep() {
+	a, h := pair()
+	kept = append(kept, &h)
+	var p, q int = 1, 2
+	kept = append(kept, &q)
+	for _, v := range []int{7, 8} {
+		kept = append(kept, &v)
+	}
+	fmt.Println(a, h, p, q)
+	h = 10
+	for _, k := range kept {
+		fmt.Println(*k)
+	}
+}
+
 func main() {
+	keep()
 	c := &compiler{}
 	c.enqueue("a", 1)
 	c.enqueue("b", 2)

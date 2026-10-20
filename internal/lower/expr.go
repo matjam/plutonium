@@ -1,7 +1,7 @@
 package lower
 
 import (
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 
 	"github.com/matjam/plutonium/internal/ssa"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -23,7 +23,7 @@ func (s *fnState) expr(e ast.Expr) value {
 	}
 	defer s.at(e.Pos())()
 	tv := s.info.Types[e]
-	if tv.Value != nil {
+	if !tv.Value.IsNil() {
 		return s.constValue(tv.Value, s.typeOf(e), e)
 	}
 	T := s.typeOf(e)
@@ -129,7 +129,7 @@ func (s *fnState) scalar(e ast.Expr) *ssa.Value {
 // constants take T, concrete values convert to interfaces.
 func (s *fnState) exprAs(e ast.Expr, T types2.Type) value {
 	tv := s.info.Types[e]
-	if tv.Value != nil {
+	if !tv.Value.IsNil() {
 		if isInterface(T) {
 			// A constant becomes an interface value of its own type, or of
 			// its default type if untyped.
@@ -393,7 +393,7 @@ func (s *fnState) indexRaw(e *ast.IndexExpr) lvalue {
 }
 
 func constIndex(info *types2.Info, e ast.Expr) (int64, bool) {
-	if tv := info.Types[e]; tv.Value != nil {
+	if tv := info.Types[e]; !tv.Value.IsNil() {
 		if c, ok := constant.Int64Val(constant.ToInt(tv.Value)); ok {
 			return c, true
 		}

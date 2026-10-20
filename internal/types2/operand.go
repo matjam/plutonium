@@ -9,10 +9,10 @@ package types2
 import (
 	"bytes"
 	"fmt"
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 )
 
 // An operandMode specifies the (addressing) mode of an operand.

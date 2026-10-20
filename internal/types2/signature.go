@@ -6,6 +6,7 @@ package types2
 
 import (
 	"fmt"
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
@@ -281,7 +282,7 @@ func (check *Checker) collectRecv(rparam *ast.Field, scopePos token.Pos) (*Var, 
 			// are considered both definitions and uses and thus must be recorded
 			// in the Info.Uses and Info.Types maps (see go.dev/issue/68670).
 			check.recordUse(rparam, tpar.obj)
-			check.recordTypeAndValue(rparam, typexpr, tpar, nil)
+			check.recordTypeAndValue(rparam, typexpr, tpar, constant.Value{})
 		}
 		recvTParamsList = bindTParams(recvTParams)
 
@@ -382,7 +383,7 @@ func unpointer(t Type) Type {
 //	   T[P]           T[P]
 func (check *Checker) recordParenthesizedRecvTypes(expr ast.Expr, typ Type) {
 	for {
-		check.recordTypeAndValue(expr, typexpr, typ, nil)
+		check.recordTypeAndValue(expr, typexpr, typ, constant.Value{})
 		switch e := expr.(type) {
 		case *ast.ParenExpr:
 			expr = e.X
@@ -459,7 +460,7 @@ func (check *Checker) collectParams(kind VarKind, list *ast.FieldList) (names []
 	if variadic {
 		last := params[len(params)-1]
 		last.typ = &Slice{elem: last.typ}
-		check.recordTypeAndValue(list.List[len(list.List)-1].Type, typexpr, last.typ, nil)
+		check.recordTypeAndValue(list.List[len(list.List)-1].Type, typexpr, last.typ, constant.Value{})
 	}
 
 	return

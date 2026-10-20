@@ -7,7 +7,7 @@ package lower
 import (
 	"encoding/binary"
 	"fmt"
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"slices"
 
 	"github.com/matjam/plutonium/internal/ssa"

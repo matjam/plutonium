@@ -8,8 +8,8 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
-	"go/constant"
 )
 
 func (check *Checker) record(x *operand) {
@@ -61,7 +61,7 @@ func (check *Checker) recordTypeAndValue(x ast.Expr, mode operandMode, typ Type,
 	}
 	check.checkComplexValue(x, mode, typ)
 	if mode == constant_ {
-		assert(val != nil)
+		assert(!val.IsNil())
 		// We check allBasic(typ, IsConstType) here as constant expressions may be
 		// recorded as type parameters.
 		assert(!isValid(typ) || allBasic(typ, IsConstType))
@@ -78,7 +78,7 @@ func (check *Checker) recordBuiltinType(f ast.Expr, sig *Signature) {
 	// functions Add and Slice): record the signature for f and possible
 	// children.
 	for {
-		check.recordTypeAndValue(f, builtin, sig, nil)
+		check.recordTypeAndValue(f, builtin, sig, constant.Value{})
 		switch p := f.(type) {
 		case *ast.Ident, *ast.SelectorExpr:
 			return // we're done

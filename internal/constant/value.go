@@ -12,8 +12,10 @@
 //
 // The differences from go/constant:
 //
-//   - Value is a struct, not an interface. Its zero value is Unknown, and
-//     the methods Kind, String and ExactString work as go/constant's.
+//   - Value is a struct, not an interface. Its zero value stands for the nil
+//     Value of go/constant (IsNil); it has the kind Unknown, as MakeUnknown's
+//     Unknown value does, and the methods Kind, String and ExactString work
+//     as go/constant's.
 //   - There are no complex constants (Plutonium has no complex numbers):
 //     MakeFromLiteral returns Unknown for imaginary literals, and MakeImag,
 //     ToComplex and complex operands do not exist. Real returns its
@@ -55,8 +57,8 @@ func (k Kind) String() string {
 	return "Kind(" + itoa(int64(k)) + ")"
 }
 
-// A Value represents the value of a Go constant. The zero Value is
-// Unknown.
+// A Value represents the value of a Go constant. The zero Value is no value
+// (IsNil), the counterpart of a nil go/constant.Value.
 type Value struct {
 	kind Kind
 	rep  rep
@@ -70,10 +72,11 @@ type Value struct {
 type rep uint8
 
 const (
-	repInt64 rep = iota // Int that fits in int64: i
-	repInt              // larger Int: n.i
-	repRat              // Float that is an exact fraction: n.r
-	repFloat            // Float that is not: n.f
+	repInt64   rep = iota // Int that fits in int64: i
+	repInt                // larger Int: n.i
+	repRat                // Float that is an exact fraction: n.r
+	repFloat              // Float that is not: n.f
+	repUnknown            // Unknown made by MakeUnknown, as opposed to the zero Value
 )
 
 type num struct {
@@ -134,7 +137,7 @@ func makeFloat(x bigFloat) Value {
 		return floatVal(newFloat()) // no -0
 	}
 	if x.form == inf {
-		return Value{}
+		return unknownVal
 	}
 	return floatVal(x)
 }
@@ -174,7 +177,16 @@ func (x Value) floatOf() bigFloat {
 // Factories
 
 // MakeUnknown returns the Unknown value.
-func MakeUnknown() Value { return Value{} }
+func MakeUnknown() Value { return unknownVal }
+
+// unknownVal is the Unknown value. It differs from the zero Value, which
+// stands for no value at all (IsNil), as a nil go/constant.Value does; both
+// have the kind Unknown.
+var unknownVal = Value{kind: Unknown, rep: repUnknown}
+
+// IsNil reports whether x is the zero Value: no value, where go/constant
+// code has a nil Value. It is not the Unknown value that MakeUnknown returns.
+func (x Value) IsNil() bool { return x == Value{} }
 
 // MakeBool returns the Bool value for b.
 func MakeBool(b bool) Value {
@@ -202,7 +214,7 @@ func MakeUint64(x uint64) Value {
 // 0.0; if x is not finite, the result is Unknown.
 func MakeFloat64(x float64) Value {
 	if math.IsInf(x, 0) || math.IsNaN(x) {
-		return Value{}
+		return unknownVal
 	}
 	if smallFloat64(x) {
 		return ratVal(ratFloat64(x + 0))
@@ -246,13 +258,13 @@ func MakeFromLiteral(lit string, tok token.Token, zero uint) Value {
 	default:
 		panic("constant: " + tok.String() + " is not a valid token")
 	}
-	return Value{}
+	return unknownVal
 }
 
 func floatFromLiteral(lit string) (Value, bool) {
 	f, ok := floatFromString(lit, floatPrec)
 	if !ok {
-		return Value{}, false
+		return unknownVal, false
 	}
 	if smallFloat(&f) {
 		if f.form == zero {
@@ -479,9 +491,9 @@ func Num(x Value) Value {
 				return makeInt(x.n.f.toRat().a)
 			}
 		}
-		return Value{}
+		return unknownVal
 	case Unknown:
-		return Value{}
+		return unknownVal
 	}
 	panic("constant: " + x.String() + " not Int or Float")
 }
@@ -502,9 +514,9 @@ func Denom(x Value) Value {
 				return makeInt(bigInt{abs: x.n.f.toRat().b})
 			}
 		}
-		return Value{}
+		return unknownVal
 	case Unknown:
-		return Value{}
+		return unknownVal
 	}
 	panic("constant: " + x.String() + " not Int or Float")
 }
@@ -545,7 +557,7 @@ func ToInt(x Value) Value {
 			if x.n.r.isInt() {
 				return makeInt(x.n.r.a)
 			}
-			return Value{}
+			return unknownVal
 		}
 		f := &x.n.f
 		if smallFloat(f) {
@@ -565,7 +577,7 @@ func ToInt(x Value) Value {
 			}
 		}
 	}
-	return Value{}
+	return unknownVal
 }
 
 // ToFloat converts x to a Float value if x is representable as a Float.
@@ -583,7 +595,7 @@ func ToFloat(x Value) Value {
 	case Float:
 		return x
 	}
-	return Value{}
+	return unknownVal
 }
 
 // ----------------------------------------------------------------------------
@@ -939,7 +951,7 @@ func int64Op(a int64, op token.Token, b int64) (Value, bool) {
 	case token.AND_NOT:
 		c = a &^ b
 	default:
-		return Value{}, false
+		return unknownVal, false
 	}
 	return int64Val(c), true
 }

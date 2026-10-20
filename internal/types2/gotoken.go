@@ -1,32 +1,30 @@
 package types2
 
 import (
-	"go/constant"
-	gotoken "go/token"
+	"github.com/matjam/plutonium/internal/constant"
 
 	"github.com/matjam/plutonium/internal/syntax/token"
 )
 
-// The syntax/token package keeps every Go token at its go/token ordinal
-// (Plutonium tokens are appended after Go's), so operator and literal
-// tokens convert to go/token for go/constant by a plain conversion.
+// The constant package takes the syntax/token tokens, which keep every Go
+// token at its go/token ordinal.
 
 func constBinaryOp(x constant.Value, op token.Token, y constant.Value) constant.Value {
-	return constant.BinaryOp(x, gotoken.Token(op), y)
+	return constant.BinaryOp(x, op, y)
 }
 
 func constUnaryOp(op token.Token, y constant.Value, prec uint) constant.Value {
-	return constant.UnaryOp(gotoken.Token(op), y, prec)
+	return constant.UnaryOp(op, y, prec)
 }
 
 func constCompare(x constant.Value, op token.Token, y constant.Value) bool {
-	return constant.Compare(x, gotoken.Token(op), y)
+	return constant.Compare(x, op, y)
 }
 
 func constShift(x constant.Value, op token.Token, s uint) constant.Value {
-	return constant.Shift(x, gotoken.Token(op), s)
+	return constant.Shift(x, op, s)
 }
 
 func constMakeFromLiteral(lit string, tok token.Token, zero uint) constant.Value {
-	return constant.MakeFromLiteral(lit, gotoken.Token(tok), zero)
+	return constant.MakeFromLiteral(lit, tok, zero)
 }

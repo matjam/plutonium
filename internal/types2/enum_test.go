@@ -2,7 +2,7 @@ package types2_test
 
 import (
 	"fmt"
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 	"strings"
 	"testing"
 

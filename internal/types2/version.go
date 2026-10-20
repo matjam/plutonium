@@ -5,7 +5,7 @@
 package types2
 
 import (
-	"go/version"
+	"github.com/matjam/plutonium/internal/goversion"
 )
 
 // goLanguageVersion is the Go language version whose semantics Plutonium
@@ -21,7 +21,7 @@ type goVersion string
 // asGoVersion returns v as a goVersion (e.g., "go1.20.1" becomes "go1.20").
 // If v is not a valid Go version, the result is the empty string.
 func asGoVersion(v string) goVersion {
-	return goVersion(version.Lang(v))
+	return goVersion(goversion.Lang(v))
 }
 
 // isValid reports whether v is a valid Go version.
@@ -32,7 +32,7 @@ func (v goVersion) isValid() bool {
 // cmp returns -1, 0, or +1 depending on whether x < y, x == y, or x > y,
 // interpreted as Go versions.
 func (x goVersion) cmp(y goVersion) int {
-	return version.Compare(string(x), string(y))
+	return goversion.Compare(string(x), string(y))
 }
 
 var (

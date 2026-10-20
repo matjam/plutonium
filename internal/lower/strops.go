@@ -2,7 +2,7 @@ package lower
 
 import (
 	"fmt"
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/ssa"
@@ -23,7 +23,7 @@ func (s *fnState) concat(e *ast.BinaryExpr, T types2.Type) value {
 	var collect func(x ast.Expr)
 	collect = func(x ast.Expr) {
 		x = ast.Unparen(x)
-		if b, ok := x.(*ast.BinaryExpr); ok && b.Op == token.ADD && s.info.Types[b].Value == nil && isString(unwrap(s.typeOf(b))) {
+		if b, ok := x.(*ast.BinaryExpr); ok && b.Op == token.ADD && s.info.Types[b].Value.IsNil() && isString(unwrap(s.typeOf(b))) {
 			collect(b.X)
 			collect(b.Y)
 			return
@@ -104,7 +104,7 @@ func (s *fnState) stringConversion(e *ast.CallExpr, to, from types2.Type) (value
 // call made only for others. A bound that is the constant 0, or left out,
 // needs none either.
 func (s *fnState) runeBoundaryCheck(e *ast.SliceExpr, base, length, lo, hi, ctl *ssa.Value) {
-	if tv := s.info.Types[e.X]; tv.Value != nil && strFlags(constant.StringVal(tv.Value)) == 0 {
+	if tv := s.info.Types[e.X]; !tv.Value.IsNil() && strFlags(constant.StringVal(tv.Value)) == 0 {
 		return // an ASCII constant
 	}
 	if e.Low == nil || isZeroConst(s.info, e.Low) {

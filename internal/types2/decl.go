@@ -6,10 +6,10 @@ package types2
 
 import (
 	"fmt"
+	"github.com/matjam/plutonium/internal/constant"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
-	"go/constant"
 	"slices"
 )
 
@@ -47,17 +47,6 @@ func pathString(path []Object) string {
 
 // objDecl type-checks the declaration of obj in its respective (file) environment.
 func (check *Checker) objDecl(obj Object) {
-	if tracePos {
-		check.pushPos(atPos(obj.Pos()))
-		defer func() {
-			// If we're panicking, keep stack of source positions.
-			if p := recover(); p != nil {
-				panic(p)
-			}
-			check.popPos()
-		}()
-	}
-
 	if check.conf._Trace && obj.Type() == nil {
 		if check.indent == 0 {
 			fmt.Println() // empty line between top-level objects for readability
@@ -774,7 +763,7 @@ func (check *Checker) funcDecl(obj *Func, decl *declInfo) {
 	assert(obj.typ == nil)
 
 	// func declarations cannot use iota
-	assert(check.iota == nil)
+	assert(check.iota.IsNil())
 
 	sig := new(Signature)
 	obj.typ = sig // guard against cycles
@@ -803,7 +792,7 @@ func (check *Checker) funcDecl(obj *Func, decl *declInfo) {
 	// (functions implemented elsewhere have no body)
 	if !check.conf.IgnoreFuncBodies && fdecl.Body != nil {
 		check.later(func() {
-			check.funcBody(decl, obj.name, sig, fdecl.Body, nil)
+			check.funcBody(decl, obj.name, sig, fdecl.Body, constant.Value{})
 		}).describef(obj, "func %s", obj.name)
 	}
 }

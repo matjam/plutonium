@@ -19,7 +19,7 @@
 package scoped
 
 import (
-	"go/constant"
+	"github.com/matjam/plutonium/internal/constant"
 
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -520,7 +520,7 @@ func (a *analyzer) loop(L ast.Stmt) Loop {
 				return out
 			}
 			step := post.Rhs[0]
-			if tv := a.info.Types[step]; tv.Value != nil {
+			if tv := a.info.Types[step]; !tv.Value.IsNil() {
 				if n, exact := constant.Int64Val(constant.ToInt(tv.Value)); !exact || n == 0 {
 					return out
 				}
