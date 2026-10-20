@@ -277,7 +277,8 @@ func (a *analyzer) scanDeps() {
 		a.propagateCPU(all)
 		changed := false
 		for _, f := range fns {
-			d := &depWalk{a: a, f: f, fi: a.cpuFn[f]}
+			d := pu.Alloc[depWalk]()
+			d.a, d.f, d.fi = a, f, a.cpuFn[f]
 			d.run()
 			changed = changed || d.changed
 		}
@@ -707,6 +708,7 @@ type depWalk struct {
 	f  *function
 	fi *cpuFnInfo
 
+	headT   taint // what the head of the loop being read read (loop)
 	cur     *flow
 	pc      taint // the conditions that control the statement being read
 	exitPC  taint // the conditions of branches that may leave the function or loop: they control all that follows
@@ -1053,11 +1055,11 @@ func (d *depWalk) stmt(s ast.Stmt) {
 		}
 	case *ast.ForStmt:
 		d.stmt(s.Init)
-		t := d.loop(func() taint {
+		t := d.loop(func() {
+			d.headT = nil
 			if s.Cond != nil {
-				return d.ex(s.Cond)
+				d.headT = d.ex(s.Cond)
 			}
-			return nil
 		}, func() { d.block(s.Body) }, func() { d.stmt(s.Post) })
 		if s.Cond != nil {
 			// The loop ends when the condition is false: what follows runs
@@ -1078,7 +1080,7 @@ func (d *depWalk) stmt(s ast.Stmt) {
 			xt = xt.deref().union(d.heapRead())
 			keyT = xt
 		}
-		d.loop(func() taint {
+		d.loop(func() {
 			for i, e := range []ast.Expr{s.Key, s.Value} {
 				if e == nil {
 					continue
@@ -1089,7 +1091,7 @@ func (d *depWalk) stmt(s ast.Stmt) {
 				}
 				d.assignTo(e, t, s.Pos(), s.Tok == token.DEFINE)
 			}
-			return keyT
+			d.headT = keyT
 		}, func() { d.block(s.Body) }, nil)
 	case *ast.SwitchStmt:
 		d.stmt(s.Init)
@@ -1171,14 +1173,15 @@ func (d *depWalk) guarded(t taint, body func(), exits func() bool) {
 
 // loop walks a loop twice, so that what the body assigns reaches its top. It
 // returns the taint of the head condition at the last pass.
-func (d *depWalk) loop(head func() taint, body, post func()) taint {
+func (d *depWalk) loop(head func(), body, post func()) taint {
 	entry := d.cur
 	acc := denv{}
 	d.brk = compat.Append(d.brk, acc)
 	var t taint
 	for i := 0; i < 2; i++ {
 		d.cur = entry.clone()
-		t = head()
+		head() // leaves what it read in d.headT
+		t = d.headT
 		d.branch(t, func() {
 			body()
 			if post != nil {

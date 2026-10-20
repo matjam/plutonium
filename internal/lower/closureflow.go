@@ -994,10 +994,13 @@ func (f *closureFlow) call(c *ast.CallExpr) bitset {
 		store = all.or(f.state(all)).or(f.kept(cm)).or(r)
 		f.storeState(cm.or(all), store)
 	}
-	if sig, ok := underlying(f.typeOf(c.Fun)).(*types2.Signature); ok && regionSig(sig) && builds && f.l.carries(f.typeOf(c)) {
+	if sig, ok := underlying(f.typeOf(c.Fun)).(*types2.Signature); ok && regionSig(sig) && builds {
 		// The callee builds the closures it returns in a region this
-		// frame provides.
-		ret.add(f.source(c))
+		// frame provides. They are in the result only if its type can hold
+		// a func value (a types2.Type cannot).
+		if f.l.carries(f.typeOf(c)) {
+			ret.add(f.source(c))
+		}
 		f.noteSrcArgs(f.source(c), c, all, cm)
 		if keepsOwn {
 			var b bitset

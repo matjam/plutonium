@@ -395,15 +395,6 @@ func Walk(v Visitor, node Node) {
 	v.Visit(nil)
 }
 
-type inspector func(Node) bool
-
-func (f inspector) Visit(node Node) Visitor {
-	if f(node) {
-		return f
-	}
-	return nil
-}
-
 // Inspect traverses an AST in depth-first order: It starts by calling
 // f(node); node must not be nil. If f returns true, Inspect invokes f
 // recursively for each of the non-nil children of node, followed by a
@@ -417,7 +408,7 @@ func Inspect(node Node, f func(Node) bool) {
 	inspect(node, f)
 }
 
-// inspect is Walk with an inspector for the visitor: f(node), then, if it
+// inspect is Walk with a visitor that returns itself if f(node) is true: f(node), then, if it
 // returned true, the children, then f(nil). It is Walk written out for a
 // func, so that a func that captures variables is not turned into an
 // interface value that Visit may keep (a closure in a frame is not one a

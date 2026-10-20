@@ -174,11 +174,16 @@ func (t tok) extend(step string) tok {
 		// least two loads, so the pointers it reaches are all reachable
 		// from the memory the first load's result points to.
 		t.ge = true
-		t.filt, t.filtAt = nil, 0 // the cut may lose where the filter applied
 		if i := strings.IndexByte(t.path, '*'); i >= 0 {
 			t.path = t.path[:i+1] + "*"
 		} else {
 			t.path = ""
+		}
+		if t.filtAt > len(t.path) {
+			// The cut lost where the filter applied. (One that applies
+			// within what is left still does: it constrains the pointers
+			// found there, and the ones past them come from those.)
+			t.filt, t.filtAt = nil, 0
 		}
 		return t
 	}

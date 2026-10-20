@@ -127,9 +127,6 @@ type Named struct {
 	// Plutonium: the members of an enum type, or nil. The underlying type
 	// of an enum is its integer type.
 	enum *Enum
-
-	// loader may be provided to lazily load type parameters, underlying type, methods, and delayed functions
-	loader func(*Named) ([]*TypeParam, Type, []*Func, []func())
 }
 
 // instance holds information that is only necessary for instantiated named
@@ -237,7 +234,6 @@ func (n *Named) unpack() *Named {
 
 	if n.inst != nil {
 		assert(n.fromRHS == nil) // instantiated types are not declared types
-		assert(n.loader == nil)  // cannot import an instantiation
 
 		orig := n.inst.orig
 		orig.unpack()
@@ -253,35 +249,6 @@ func (n *Named) unpack() *Named {
 		}
 		// underlying comes after unpacking, do not set it
 		assert(!n.stateHas(hasUnder))
-		return n
-	}
-
-	// TODO(mdempsky): Since we're passing n to the loader anyway
-	// (necessary because types2 expects the receiver type for methods
-	// on defined interface types to be the Named rather than the
-	// underlying Interface), maybe it should just handle calling
-	// SetTypeParams, SetUnderlying, and AddMethod instead?  Those
-	// methods would need to support reentrant calls though. It would
-	// also make the API more future-proof towards further extensions.
-	if n.loader != nil {
-		assert(n.fromRHS == nil) // not loaded yet
-		assert(n.inst == nil)    // cannot import an instantiation
-
-		tparams, underlying, methods, delayed := n.loader(n)
-		n.loader = nil
-
-		n.tparams = bindTParams(tparams)
-		n.underlying = underlying
-		n.fromRHS = underlying // for cycle detection
-		n.methods = methods
-
-		// Careful: A delayed function could need the underlying type of
-		// the type we are loading, so we must advance to hasUnder to
-		// avoid a deadlock (see go.dev/issue/80258).
-		n.setState(lazyLoaded | unpacked | hasMethods | hasUnder)
-		for _, f := range delayed {
-			f()
-		}
 		return n
 	}
 

@@ -26,12 +26,11 @@ func TestHandOffMessages(t *testing.T) {
 	l := &loc{kind: lkVar, v: req, fn: "serve", pos: req.Pos()}
 	addr := &ast.UnaryExpr{OpPos: pos(30), Op: token.AND, X: &ast.Ident{NamePos: pos(30), Name: "req"}}
 	call := &ast.CallExpr{Fun: &ast.Ident{Name: "handle"}, Args: []ast.Expr{addr}}
-	q := types2.RelativeTo(pkg)
 
 	full := func(d *diag.Diagnostic) string {
 		return strings.Join(strings.Fields(d.Msg+" "+diag.Explanation(d)), " ")
 	}
-	goErr := a.viewDiag(&viewErr{sink: sinkGo, pos: pos(30), expr: addr, l: l, fn: "serve", call: call, qual: q})
+	goErr := a.viewDiag(&viewErr{sink: sinkGo, pos: pos(30), expr: addr, l: l, fn: "serve", call: call, qual: pkg})
 	for _, want := range []string{
 		"cannot pass &req to a task statement: the new task may outlive req",
 		"req is a local variable of serve (declared at srv.p:24)",
@@ -43,7 +42,7 @@ func TestHandOffMessages(t *testing.T) {
 			t.Errorf("task statement: %q not in\n%s", want, got)
 		}
 	}
-	sendErr := a.viewDiag(&viewErr{sink: sinkSend, pos: pos(30), expr: addr, l: l, fn: "serve", ch: &ast.Ident{Name: "ch"}, qual: q})
+	sendErr := a.viewDiag(&viewErr{sink: sinkSend, pos: pos(30), expr: addr, l: l, fn: "serve", ch: &ast.Ident{Name: "ch"}, qual: pkg})
 	for _, want := range []string{
 		"cannot send &req on ch: the receiver may outlive req",
 		"may be received after serve returns",
@@ -55,7 +54,7 @@ func TestHandOffMessages(t *testing.T) {
 		}
 	}
 	// A view that is not &x gets advice without code.
-	other := a.viewDiag(&viewErr{sink: sinkSend, pos: pos(30), expr: &ast.Ident{Name: "p"}, l: l, fn: "serve", ch: &ast.Ident{Name: "ch"}, qual: q})
+	other := a.viewDiag(&viewErr{sink: sinkSend, pos: pos(30), expr: &ast.Ident{Name: "p"}, l: l, fn: "serve", ch: &ast.Ident{Name: "ch"}, qual: pkg})
 	if got := full(other); !strings.Contains(got, "p points into req.") || !strings.Contains(got, "Pass a value, which is copied") {
 		t.Errorf("send of p: %s", got)
 	}

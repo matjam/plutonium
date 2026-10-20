@@ -556,6 +556,12 @@ func (w *walker) yieldValues(xv tset) tset {
 				}
 			}
 		}
+		if t.kind == tParam && !t.ge || t.kind == tFrame && t.path == "" && (t.loc.kind == lkClosure || t.loc.kind == lkMethodValue) {
+			// What the record holds, not the record: an iterator cannot
+			// yield its own closure record.
+			start.addAll(w.load(tset{t}))
+			continue
+		}
 		start.add(t)
 	}
 	return append(w.reach(start), heapTok)

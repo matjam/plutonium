@@ -516,7 +516,7 @@ func (check *Checker) processDelayed(top int) {
 			if a.desc != nil {
 				check.trace(a.desc.pos.Pos(), "-- "+a.desc.format, a.desc.args...)
 			} else {
-				check.trace(nopos, "-- delayed %p", a.f)
+				check.trace(nopos, "-- delayed")
 			}
 		}
 		check.version = a.version // reestablish the effective Go version captured earlier

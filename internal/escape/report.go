@@ -65,9 +65,9 @@ type viewErr struct {
 	call *ast.CallExpr
 	ch   ast.Expr
 
-	loop    ast.Node    // sinkLoop: the loop whose iterations reuse l
-	iterVar *types2.Var // sinkLoop with a closure: the loop's variable it uses
-	qual    types2.Qualifier
+	loop    ast.Node        // sinkLoop: the loop whose iterations reuse l
+	iterVar *types2.Var     // sinkLoop with a closure: the loop's variable it uses
+	qual    *types2.Package // the package the messages are relative to
 }
 
 // report records e as a diagnostic, once per key.
@@ -87,7 +87,7 @@ func (w *walker) report(e *viewErr, key string) {
 		return
 	}
 	if e.qual == nil {
-		e.qual = types2.RelativeTo(w.f.pkg.Types)
+		e.qual = w.f.pkg.Types
 	}
 	w.a.add(e.pos, fmt.Sprintf("%p|%s", w.f, key), func() *diag.Diagnostic { return w.a.viewDiag(e) })
 }
@@ -403,7 +403,7 @@ func (a *analyzer) subject(x string, e ast.Expr, l *loc, q types2.Qualifier) str
 
 // viewDiag builds the diagnostic for e.
 func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
-	l, q := e.l, e.qual
+	l, q := e.l, types2.RelativeTo(e.qual)
 	x := exprText(e.expr)
 	if x == "" {
 		x = defaultText(l)
@@ -734,7 +734,7 @@ func (a *analyzer) handOffFixes(d *diag.Diagnostic, e *viewErr, l *loc, how stri
 // view is kept either by a store in the function itself (e.dst says where)
 // or by a callee (e.callee and e.calleeWhy say what it does).
 func (a *analyzer) loopDiag(d *diag.Diagnostic, e *viewErr, x string, add func(string)) {
-	l, q := e.l, e.qual
+	l, q := e.l, types2.RelativeTo(e.qual)
 	line := a.line(e.loop.Pos())
 	// head starts the message and holder is what would see the next
 	// iteration's value. keeps is the callee's own sentence, if a callee

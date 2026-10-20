@@ -217,11 +217,14 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 	// overflowed is extend's cutting of a path that has become too long, back
 	// to its first load and one more.
 	overflowed := func() {
-		ge, filt, filtAt = true, nil, 0
+		ge = true
 		if first >= 0 {
 			b = compat.Append(b[:first+1], '*')
 		} else {
 			b = b[:0]
+		}
+		if filtAt > len(b) {
+			filt, filtAt = nil, 0 // the cut lost where the filter applied (see tok.extend)
 		}
 	}
 	// star is the step of a load; it reports whether the path overflowed.

@@ -567,14 +567,14 @@ func (m *typeMap) subst(T types2.Type) types2.Type {
 	if m == nil || T == nil {
 		return T
 	}
-	return types2.SubstLocal(m.l.ctxt, T, m.tparams, m.targs, m.local)
+	return types2.SubstLocal(m.l.ctxt, T, m.tparams, m.targs, m)
 }
 
-// local instantiates a type declared inside the generic function, which
+// Local instantiates a type declared inside the generic function, which
 // may mention the function's type parameters: each instance of the
 // function has its own copy of the type, as in Go. It returns nil for any
 // other named type.
-func (m *typeMap) local(t *types2.Named) types2.Type {
+func (m *typeMap) Local(t *types2.Named) types2.Type {
 	obj := t.Obj()
 	if obj.Pos() < m.start || obj.Pos() >= m.end || obj.Pkg() == nil || obj.Parent() == obj.Pkg().Scope() {
 		return nil

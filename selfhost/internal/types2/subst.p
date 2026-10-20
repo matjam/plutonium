@@ -89,9 +89,18 @@ type subster struct {
 	expanding *Named   // if non-nil, the instance that is being expanded
 	ctxt      *Context
 
-	// Plutonium: if set, called for each named type without type
+	// Plutonium: if set, asked for each named type without type
 	// parameters; a non-nil result replaces it (see SubstLocal).
-	local func(*Named) Type
+	local LocalSubster
+}
+
+// A LocalSubster finds the type that stands for a named type declared in the
+// body of a generic function in an instance of it (see SubstLocal). It is an
+// interface, not a func, so that what it holds is a value the instantiation
+// can keep.
+type LocalSubster interface {
+	// Local returns the type to use instead of t, or nil to keep it.
+	Local(t *Named) Type
 }
 
 func (subst *subster) typ(typ Type) Type {
@@ -343,7 +352,7 @@ func (subst *subster) typ(typ Type) Type {
 		n := orig.TypeParams().Len()
 		if n == 0 {
 			if subst.local != nil {
-				if r := subst.local(t); r != nil {
+				if r := subst.local.Local(t); r != nil {
 					return r
 				}
 			}

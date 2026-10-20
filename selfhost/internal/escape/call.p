@@ -634,6 +634,24 @@ func markRecv(a *analyzer, ts tset, f *function) tset {
 	return out.set
 }
 
+// filterBoundRecv drops from what a closure record holds the pointers to
+// frame locations that cannot be the pointer receiver of type T it would
+// hold if it were a method value's record: a function literal's record holds
+// pointers to the variables it uses, of types of their own.
+func filterBoundRecv(ts tset, T types2.Type) tset {
+	if _, ptr := T.(*types2.Pointer); !ptr || containsTypeParam(T) {
+		return ts
+	}
+	var out tbuf
+	for _, t := range ts {
+		if dyn := t.loc.dynamicType(); t.kind == tFrame && t.path == "" && dyn != nil && !containsTypeParam(dyn) && !types2.Identical(dyn, T) {
+			continue
+		}
+		out.add(t)
+	}
+	return out.set
+}
+
 // dynFuncCall applies a call through a func value: the union of the
 // summaries of every function of that type used as a value. Results may
 // point anywhere the arguments or the func value reach.
@@ -670,7 +688,17 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 		switch fv.kind {
 		case fvBound:
 			// A method value: the closure record holds the receiver.
-			fargs = compat.Append([]tset{w.load(t.fv)}, args...)
+			recv := w.load(t.fv)
+			if r := f.sig.Recv(); r != nil {
+				if _, ptr := r.Type().(*types2.Pointer); ptr {
+					// The record holds the receiver: only a pointer to a
+					// T can be there (a literal's record holds pointers
+					// to the variables it uses), and the callers of this
+					// function know which of theirs are.
+					recv = markRecv(w.a, filterBoundRecv(recv, r.Type()), f)
+				}
+			}
+			fargs = compat.Append([]tset{recv}, args...)
 			fcs = &callSite{site: cs.site, pos: cs.pos, exprs: compat.Append(compat.Clone([]ast.Expr{fun}), cs.exprs...), keys: boundKeys(cs, fun), packed_: cs.packed_, packedAt: cs.packedAt + 1}
 		case fvBoundIface:
 			// The record holds an interface, whose data word leads to the

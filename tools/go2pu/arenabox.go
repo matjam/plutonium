@@ -54,10 +54,9 @@ func (t *fileTr) arenaBox(e ast.Expr) (string, bool) {
 		if !ok {
 			return "", false
 		}
-		switch pkg := n.Obj().Pkg(); {
-		case pkg == nil || pkg == t.pkg:
+		if pkg := n.Obj().Pkg(); pkg == nil || pkg == t.pkg {
 			assert = ".(" + goName(n.Obj().Name()) + ")"
-		default:
+		} else {
 			to := t.mapPath(pkg.Path())
 			if to == "" {
 				return "", false

@@ -155,12 +155,12 @@ func Subst(ctxt *Context, t Type, tparams []*TypeParam, targs []Type) Type {
 
 // SubstLocal is Subst for types that appear in the body of a generic
 // function, where named types declared in the body may mention the
-// function's type parameters. local is called for each named type that has
+// function's type parameters. local is asked for each named type that has
 // no type parameters of its own; it returns the type to use instead (such
 // a local type instantiated for targs), or nil to keep it. Aliases without
 // type parameters are replaced by the substituted type they stand for when
 // that differs.
-func SubstLocal(ctxt *Context, t Type, tparams []*TypeParam, targs []Type, local func(*Named) Type) Type {
+func SubstLocal(ctxt *Context, t Type, tparams []*TypeParam, targs []Type, local LocalSubster) Type {
 	if len(tparams) == 0 {
 		return t
 	}
