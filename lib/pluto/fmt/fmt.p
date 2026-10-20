@@ -79,6 +79,7 @@ type printer struct {
 	// (language spec section 18.3); nothing reads it outside that window.
 	curT     *rt.Type
 	curP     uintptr
+	curWord  bool // curP is the value's bits (a direct value), not its address
 	erroring bool // printing a bad verb's value: call no methods
 }
 
@@ -647,7 +648,13 @@ func (p *printer) badVerb(verb rune) {
 	if t := p.curT; t != nil {
 		p.writeString(t.Name())
 		p.writeByte('=')
-		p.printValue(t, unsafe.Pointer(p.curP), 'v', 0, false)
+		// The value is the one being printed, whose methods are called
+		// where it is walked; a bad verb's value calls none (erroring).
+		if p.curWord {
+			p.printWord(t, unsafe.Pointer(p.curP), 'v', 0, false)
+		} else {
+			p.printValue(t, unsafe.Pointer(p.curP), 'v', 0, false)
+		}
 	} else {
 		p.writeString("<nil>")
 	}
@@ -664,7 +671,7 @@ func (p *printer) badVerb(verb rune) {
 func (p *printer) printArg(arg any, verb rune) {
 	t, word := rt.TypeOf(arg)
 	if t == nil {
-		p.curT, p.curP = nil, 0
+		p.curT, p.curP, p.curWord = nil, 0, false
 		if verb == 'T' || verb == 'v' {
 			p.fieldString("<nil>")
 		} else {
@@ -672,18 +679,19 @@ func (p *printer) printArg(arg any, verb rune) {
 		}
 		return
 	}
-	// The value in memory: a direct value is the data word itself.
-	ptr := word
-	if t.Direct() {
-		ptr = unsafe.Pointer(&word)
-	}
-	p.curT, p.curP = t, uintptr(ptr)
+	// The value: a direct value is the data word itself, otherwise the word
+	// points to it.
+	p.curT, p.curP, p.curWord = t, wordBits(word), t.Direct()
 	switch verb {
 	case 'T':
 		p.fmtS(t.Name())
 		return
 	case 'p':
-		p.fmtPointer(t, ptr, 'p')
+		if t.Direct() {
+			p.fmtPointerBits(t, uint64(wordBits(word)), 'p')
+		} else {
+			p.fmtPointer(t, word, 'p')
+		}
 		return
 	}
 	switch v := arg.(type) {
@@ -720,7 +728,7 @@ func (p *printer) printArg(arg any, verb rune) {
 	case string:
 		p.printString(v, verb)
 	case []byte:
-		p.fmtBytes(v, verb, "[]byte", t, ptr)
+		p.fmtBytes(v, verb, "[]byte", t, word)
 	default:
 		if verb == 'w' {
 			// %w takes an error operand and is otherwise %v. Only an
@@ -736,7 +744,7 @@ func (p *printer) printArg(arg any, verb rune) {
 			verb = 'v'
 		}
 		if !p.handleMethods(arg, verb) {
-			p.printValue(t, ptr, verb, 0, false)
+			p.printWord(t, word, verb, 0, false)
 		}
 	}
 }

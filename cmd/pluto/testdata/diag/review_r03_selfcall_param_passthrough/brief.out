@@ -1,0 +1,1 @@
+$DIR/main.p:13:10: main.main.func1 cannot return the closures of this call: the call reaches main.main.func1 again, so its region would have no fixed size

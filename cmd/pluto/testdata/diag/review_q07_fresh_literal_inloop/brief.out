@@ -1,0 +1,2 @@
+$DIR/main.p:15:4: cannot store mk(i) in p.f, which outlives the function literal's frame
+$DIR/main.p:17:5: cannot store &W{} in p, which outlives the function literal's frame

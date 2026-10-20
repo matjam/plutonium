@@ -1011,7 +1011,12 @@ What the port found, and where it was fixed. Compiler bugs (each with a test; th
   check reject the program, through two faults: a type assertion's filter hid the receiver type of the method
   (`ptrFilter`: the filter becomes the interface and a pointer, so a box holding a value cannot be a pointer
   method's receiver), and `fmt` gave the interface of a boxed value the word of its own frame (`viewWord`).
-  `testdata/lib/fmtstringerkeeps.p` and `internal/escape` tests.
+  `testdata/lib/fmtstringerkeeps.p` and `internal/escape` tests. (The adversarial review of these changes found
+  that `viewWord`, and the integer arithmetic `fmt` and `rt` did on data words, hid frame pointers from the methods
+  `fmt` calls on nested values: they are gone. `fmt` walks a direct value that holds a pointer from its data word
+  and the compiler follows the pointer: a pointer carries how it relates to its variable (`ptrShape`) so
+  that a type filter never judges an element, field or converted pointer by the type of the whole variable, and
+  the types a converted type is made of are candidates of dynamic calls. `internal/escape/soundness_test.go`.)
 - `lower`: a store into memory from `new`, `&T{}` or `alloc.New` is not a store through any pointer (`pu.New(v)`
   put every value in the pool of what every read through a pointer sees, `freshptr.go`); the closures a call builds
   are in its result only if the result's type can hold a func value (a call through a func value returning a

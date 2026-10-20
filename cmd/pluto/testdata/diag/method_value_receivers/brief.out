@@ -1,0 +1,9 @@
+$DIR/main.p:38:6: cannot pass s.visit to call, which keeps it after returning
+$DIR/main.p:44:6: cannot pass arr[1].visit to call, which keeps it after returning
+$DIR/main.p:51:6: cannot pass sl[1].visit to call, which keeps it after returning
+$DIR/main.p:57:6: cannot pass (*S)(&b).visit to call, which keeps it after returning
+$DIR/main.p:63:6: cannot pass (*S)(unsafe.Pointer(&x)).visit to call, which keeps it after returning
+$DIR/main.p:70:6: cannot pass g to call, which keeps it after returning
+$DIR/main.p:76:6: cannot pass o.visit to call, which keeps it after returning
+$DIR/main.p:78:6: cannot pass n.s.visit to call, which keeps it after returning
+$DIR/main.p:80:6: cannot pass arr[1].s.visit to call, which keeps it after returning

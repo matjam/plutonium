@@ -1,0 +1,1 @@
+$DIR/main.p:23:2: cannot pass &g to call, which keeps it after returning

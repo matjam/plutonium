@@ -98,7 +98,10 @@ func (s *escSet) place(e *escEnt) {
 }
 
 // hasEscape reports whether k is a key of escapes.
-func (s *summary) hasEscape(k pkey) bool { return s.escSet.find(k, s.keyHash(k)) != nil }
+func (s *summary) hasEscape(k pkey) bool {
+	k.shape = shapeWhole
+	return s.escSet.find(k, s.keyHash(k)) != nil
+}
 
 // keyHash hashes a key. A filter type has no hash of its own to use, so the
 // summary numbers the filters it sees.
@@ -125,6 +128,7 @@ func (s *summary) keyHash(k pkey) uint64 {
 			flags |= 1 << i
 		}
 	}
+	flags |= uint64(k.shape) << 4
 	h = (h ^ uint64(k.idx)<<48 ^ uint64(k.filtAt)<<32 ^ id<<8 ^ flags) * 1099511628211
 	h ^= h >> 29
 	h *= 0xbf58476d1ce4e5b9
@@ -134,6 +138,7 @@ func (s *summary) keyHash(k pkey) uint64 {
 
 // escapeReason returns the reason of key k, or nil.
 func (s *summary) escapeReason(k pkey) *reason {
+	k.shape = shapeWhole
 	if e := s.escSet.find(k, s.keyHash(k)); e != nil {
 		return &e.r
 	}
@@ -159,6 +164,11 @@ func (s *summary) escapeKeys() iter.Seq[pkey] {
 
 // addEscape adds key k with reason r and reports whether it was new.
 func (s *summary) addEscape(k pkey, r reason) bool {
+	// What a pointer is of matters to the filters that judge it, which a key
+	// of escapes applies to the pointers the caller passes, by their own
+	// shapes (walkTok): the key's shape is of no use, and a key for each
+	// would be millions.
+	k.shape = shapeWhole
 	h := s.keyHash(k)
 	if s.escSet.find(k, h) != nil {
 		return false

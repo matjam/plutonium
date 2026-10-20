@@ -237,7 +237,14 @@ func UnionInfo(v any) (variant string, payload any, hasPayload bool) {
 		out[0] = unsafe.Pointer(vd.typ)
 		out[1] = p
 		if vd.typ.flags&flagDirect != 0 {
-			// The data word holds a direct value's bits, zero-extended.
+			// The data word holds a direct value's bits, zero-extended. A
+			// word that is a pointer is read as one, so that the escape
+			// analysis follows what the union holds (language spec section
+			// 18.3).
+			if vd.typ.size == 8 {
+				out[1] = *(*unsafe.Pointer)(p)
+				return vd.name, payload, true
+			}
 			var bits uint64
 			b := (*[8]byte)(unsafe.Pointer(&bits))
 			for i := uintptr(0); i < vd.typ.size; i++ {

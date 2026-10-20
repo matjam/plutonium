@@ -1,0 +1,1 @@
+$DIR/main.p:18:2: cannot pass &h to call, which keeps it after returning

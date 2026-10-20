@@ -583,7 +583,7 @@ func (w *walker) typeSwitch(st *ast.TypeSwitchStmt, label string) {
 		cc := c.(*ast.CaseClause)
 		if v, ok := w.a.implicits[cc].(*types2.Var); ok {
 			cv := xv
-			if len(cc.List) == 1 {
+			if len(cc.List) == 1 && types2.UnionVariants(w.typeOf(x)) == nil {
 				cv = w.unbox(xv, w.typeOf(cc.List[0]))
 			}
 			switch {

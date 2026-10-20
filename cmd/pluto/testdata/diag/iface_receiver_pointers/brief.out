@@ -1,0 +1,8 @@
+$DIR/main.p:48:10: cannot pass &arr[1] to call, which keeps it after returning
+$DIR/main.p:54:10: cannot pass &arr[1] to callAny, which keeps it after returning
+$DIR/main.p:60:10: cannot pass (*S)(&b) to call, which keeps it after returning
+$DIR/main.p:65:10: cannot pass (*S)(&b) to callAny, which keeps it after returning
+$DIR/main.p:71:10: cannot pass (*S)(unsafe.Pointer(&x)) to call, which keeps it after returning
+$DIR/main.p:77:10: cannot pass D{...} to call, which keeps it after returning
+$DIR/main.p:83:10: cannot pass s to s.String (which may call main.(*S).String), which keeps it after returning
+$DIR/main.p:88:10: cannot pass D{...} to callAny, which keeps it after returning

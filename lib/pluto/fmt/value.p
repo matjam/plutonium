@@ -36,28 +36,14 @@ func (p *printer) printValue(t *rt.Type, ptr unsafe.Pointer, verb rune, depth in
 	// An operand's own methods were tried by printArg. An interface is
 	// tried for the value it holds, one level down.
 	if depth > 0 && !ro && t.HasMethods() && t.Kind() != rt.KindInterface {
-		if p.handleMethods(rt.Make(t, viewWord(t, ptr)), verb) {
+		if p.handleMethods(rt.Make(t, t.Word(ptr)), verb) {
 			return
 		}
 	}
-	curT, curP := p.curT, p.curP
-	p.curT, p.curP = t, uintptr(ptr)
+	curT, curP, curW := p.curT, p.curP, p.curWord
+	p.curT, p.curP, p.curWord = t, uintptr(ptr), false
 	p.printKind(t, ptr, verb, depth, ro)
-	p.curT, p.curP = curT, curP
-}
-
-// viewWord returns the data word of an interface holding the value of
-// type t at ptr, for calling the value's methods. A direct type's word is the
-// value's bits, which the compiler does not follow back to ptr. Any other
-// type is boxed, and the interface holds ptr itself: a method of such a
-// type takes its receiver by value, so it gets a copy and cannot keep ptr,
-// which is what the compiler would otherwise have to assume of every method
-// of that name in the program, including a pointer method that stores its
-// receiver, since it does not know the type that is dynamically there. So
-// the word is made from an integer, and is assumed to point outside every
-// frame (language spec section 18.3).
-func viewWord(t *rt.Type, ptr unsafe.Pointer) unsafe.Pointer {
-	return unsafe.Pointer(uintptr(t.Word(ptr)))
+	p.curT, p.curP, p.curWord = curT, curP, curW
 }
 
 // printPayload prints a union variant's payload as printArg prints an
@@ -74,11 +60,115 @@ func (p *printer) printPayload(arg any, verb rune) {
 	if p.handleMethods(arg, verb) {
 		return
 	}
+	p.printWord(t, word, verb, 0, false)
+}
+
+// printWord formats the value of type t held in the data word word of an
+// interface (rt.TypeOf): a pointer to the value, or the value's bits if t is
+// direct. A direct value that is or holds a pointer is walked from the word
+// itself, not from a copy of it in this frame, so that the escape analysis
+// follows the pointer to the methods of what it reaches: a copy's address
+// would be taken for the receiver of every pointer method of that name, and a
+// pointer made from the bits would hide the methods that keep it (language
+// spec section 18.3).
+func (p *printer) printWord(t *rt.Type, word unsafe.Pointer, verb rune, depth int, ro bool) {
 	if !t.Direct() {
-		p.printValue(t, word, verb, 0, false)
+		p.printValue(t, word, verb, depth, ro)
 		return
 	}
-	p.printValue(t, unsafe.Pointer(&word), verb, 0, false)
+	if depth > 0 && !ro && t.HasMethods() && t.Kind() != rt.KindInterface {
+		if p.handleMethods(rt.Make(t, word), verb) {
+			return
+		}
+	}
+	curT, curP, curW := p.curT, p.curP, p.curWord
+	p.curT, p.curP, p.curWord = t, wordBits(word), true
+	switch t.Kind() {
+	case rt.KindPointer, rt.KindOwned:
+		// As printKind prints a pointer.
+		if depth == 0 && word != nil {
+			if e := t.Elem(); e != nil {
+				switch e.Kind() {
+				case rt.KindArray, rt.KindSlice, rt.KindStruct:
+					p.writeByte('&')
+					p.printValue(e, word, verb, depth+1, ro)
+					p.curT, p.curP, p.curWord = curT, curP, curW
+					return
+				}
+			}
+		}
+		p.fmtPointerBits(t, uint64(wordBits(word)), verb)
+	case rt.KindUnsafePointer, rt.KindFunc:
+		p.fmtPointerBits(t, uint64(wordBits(word)), verb)
+	case rt.KindMap:
+		if word == nil && p.sharpV {
+			p.writeString(t.Name())
+			p.writeString("(nil)")
+		} else {
+			p.printMap(t, builtinMap{t: t, m: word}, verb, depth)
+		}
+	case rt.KindStruct:
+		if t.Size() == 0 {
+			p.printWordBits(t, word, verb, depth, ro)
+			break
+		}
+		// A struct of one pointer-shaped field.
+		if p.sharpV {
+			p.writeString(t.Name())
+		}
+		p.writeByte('{')
+		for i := 0; i < t.Len(); i++ {
+			f := t.Field(i)
+			p.listSep(i)
+			if (p.plusV || p.sharpV) && f.Name != "" {
+				p.writeString(f.Name)
+				p.writeByte(':')
+			}
+			p.printWord(f.Type, word, verb, depth+1, ro || !f.Exported)
+		}
+		p.writeByte('}')
+	case rt.KindArray:
+		if t.Size() == 0 {
+			p.printWordBits(t, word, verb, depth, ro)
+			break
+		}
+		// An array of one pointer-shaped element.
+		if p.sharpV {
+			p.writeString(t.Name())
+			p.writeByte('{')
+		} else {
+			p.writeByte('[')
+		}
+		p.printWord(t.Elem(), word, verb, depth+1, ro)
+		if p.sharpV {
+			p.writeByte('}')
+		} else {
+			p.writeByte(']')
+		}
+	default:
+		p.printWordBits(t, word, verb, depth, ro)
+	}
+	p.curT, p.curP, p.curWord = curT, curP, curW
+}
+
+// printWordBits formats a direct value that holds no pointer from a copy of its
+// bits.
+func (p *printer) printWordBits(t *rt.Type, word unsafe.Pointer, verb rune, depth int, ro bool) {
+	bits := wordBits(word)
+	p.printKind(t, unsafe.Pointer(&bits), verb, depth, ro)
+}
+
+// wordBits returns the bits of a data word, which a conversion of the pointer
+// to uintptr need not keep when the bits are a float's or a large integer's.
+func wordBits(word unsafe.Pointer) uintptr {
+	return *(*uintptr)(unsafe.Pointer(&word))
+}
+
+// A sliceHeader is the layout of a slice value (abi.md section 1).
+type sliceHeader struct {
+	data unsafe.Pointer
+	n    int
+	c    int
 }
 
 func (p *printer) printKind(t *rt.Type, ptr unsafe.Pointer, verb rune, depth int, ro bool) {
@@ -100,8 +190,11 @@ func (p *printer) printKind(t *rt.Type, ptr unsafe.Pointer, verb rune, depth int
 	case rt.KindArray:
 		p.printList(t, ptr, t.Len(), false, verb, depth, ro)
 	case rt.KindSlice:
-		s := (*[3]uintptr)(ptr)
-		p.printList(t, unsafe.Pointer(s[0]), int(s[1]), s[0] == 0, verb, depth, ro)
+		// The data pointer is read as a pointer, so that the escape analysis
+		// follows the elements to the methods of their types (language spec
+		// section 18.3).
+		s := (*sliceHeader)(ptr)
+		p.printList(t, s.data, s.n, s.data == nil, verb, depth, ro)
 	case rt.KindInterface:
 		dt, word := t.IfaceAt(ptr)
 		if dt == nil {
@@ -113,11 +206,7 @@ func (p *printer) printKind(t *rt.Type, ptr unsafe.Pointer, verb rune, depth int
 			}
 			return
 		}
-		q := word
-		if dt.Direct() {
-			q = unsafe.Pointer(&word)
-		}
-		p.printValue(dt, q, verb, depth+1, ro)
+		p.printWord(dt, word, verb, depth+1, ro)
 	case rt.KindPointer, rt.KindOwned:
 		// A pointer to an array, slice or struct operand prints as &value;
 		// deeper pointers print as addresses, which also stops cycles.
@@ -137,7 +226,7 @@ func (p *printer) printKind(t *rt.Type, ptr unsafe.Pointer, verb rune, depth int
 		p.fmtPointer(t, ptr, verb)
 	case rt.KindUnion:
 		// The variant's name, then its payload in parentheses.
-		variant, payload, hasPayload := rt.UnionInfo(rt.Make(t, viewWord(t, ptr)))
+		variant, payload, hasPayload := rt.UnionInfo(rt.Make(t, t.Word(ptr)))
 		p.writeString(variant)
 		if hasPayload {
 			p.writeByte('(')
@@ -206,7 +295,17 @@ func (p *printer) fmtPointer(t *rt.Type, ptr unsafe.Pointer, verb rune) {
 		p.badVerb(verb)
 		return
 	}
-	u := uint64(*(*uintptr)(ptr))
+	p.fmtPointerBits(t, uint64(*(*uintptr)(ptr)), verb)
+}
+
+// fmtPointerBits is fmtPointer for the pointer's bits u.
+func (p *printer) fmtPointerBits(t *rt.Type, u uint64, verb rune) {
+	switch t.Kind() {
+	case rt.KindPointer, rt.KindUnsafePointer, rt.KindFunc, rt.KindOwned, rt.KindSlice:
+	default:
+		p.badVerb(verb)
+		return
+	}
 	switch verb {
 	case 'v':
 		switch {

@@ -1,0 +1,119 @@
+$DIR/main.p:48:10: cannot pass &arr[1] to call, which keeps it after returning
+    &arr[1] is a pointer to arr. arr is a local array of ArrayElem (declared at
+    main.p:47). call passes s to s.String (which may call main.(*S).String)
+    (main.p:35), which stores s in package variable keepS (main.p:17), so
+    &arr[1] would outlive arr.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If call should keep its own copy of arr, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[[2]S] from new, a shared[[2]S],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:54:10: cannot pass &arr[1] to callAny, which keeps it after returning
+    &arr[1] is a pointer to arr. arr is a local array of ArrayElemAsserted
+    (declared at main.p:53). callAny passes v to s.String (which may call
+    main.(*S).String) (main.p:40), which stores s in package variable keepS
+    (main.p:17), so &arr[1] would outlive arr.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If callAny should keep its own copy of arr, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[[2]S] from new, a shared[[2]S],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:60:10: cannot pass (*S)(&b) to call, which keeps it after returning
+    (*S)(&b) points into b. b is a local variable of Converted (declared at
+    main.p:59). call passes s to s.String (which may call main.(D).String)
+    (main.p:35), which stores d in package variable keepInner (main.p:28), so
+    (*S)(&b) would outlive b.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If call should keep its own copy of b, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[B] from new, a shared[B], or a
+    library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:65:10: cannot pass (*S)(&b) to callAny, which keeps it after returning
+    (*S)(&b) points into b. b is a local variable of ConvertedAsserted (declared
+    at main.p:64). callAny passes v to s.String (which may call
+    main.(*S).String) (main.p:40), which stores s in package variable keepS
+    (main.p:17), so (*S)(&b) would outlive b.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If callAny should keep its own copy of b, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[B] from new, a shared[B], or a
+    library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:71:10: cannot pass (*S)(unsafe.Pointer(&x)) to call, which keeps it after returning
+    (*S)(unsafe.Pointer(&x)) points into x. x is a local array of Unsafe
+    (declared at main.p:70). call passes s to s.String (which may call
+    main.(D).String) (main.p:35), which stores d in package variable keepInner
+    (main.p:28), so (*S)(unsafe.Pointer(&x)) would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If call should keep its own copy of x, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[[2]int] from new, a
+    shared[[2]int], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:77:10: cannot pass D{...} to call, which keeps it after returning
+    D{...} points into in. in is a local variable of Direct (declared at
+    main.p:76). call passes s to s.String (which may call main.(D).String)
+    (main.p:35), which stores d in package variable keepInner (main.p:28), so
+    D{...} would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If call should keep its own copy of in, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[Inner] from new, a shared[Inner],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:83:10: cannot pass s to s.String (which may call main.(*S).String), which keeps it after returning
+    s points into in. in is a local variable of DirectVariable (declared at
+    main.p:81). s.String (which may call main.(*S).String) stores s in package
+    variable keepS (main.p:17), so s would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If s.String (which may call main.(*S).String) should keep its own copy of
+    in, change it to take the value, not a pointer, or an owner it can keep: an
+    owned[Inner] from new, a shared[Inner], or a library owner such as a
+    vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:88:10: cannot pass D{...} to callAny, which keeps it after returning
+    D{...} points into in. in is a local variable of DirectAsserted (declared at
+    main.p:87). callAny passes v to s.String (which may call main.(*S).String)
+    (main.p:40), which stores s in package variable keepS (main.p:17), so D{...}
+    would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If callAny should keep its own copy of in, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[Inner] from new, a
+    shared[Inner], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

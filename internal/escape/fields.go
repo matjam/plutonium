@@ -35,6 +35,23 @@ func (a *analyzer) scanFields() {
 	a.nonHeap = map[*types2.Var]bool{}
 	a.fieldDeps = map[*types2.Var]map[paramRef]bool{}
 	a.paramNonHeap = map[paramRef]bool{}
+	// The fields of a struct type that has no name are a variable of their own
+	// in every place the type is written: identical types do not share them,
+	// so what is stored in one cannot be told from what is read from another.
+	a.namedField = map[*types2.Var]bool{}
+	for _, obj := range a.defs {
+		tn, _ := obj.(*types2.TypeName)
+		if tn == nil || tn.IsAlias() {
+			continue
+		}
+		if n, ok := tn.Type().(*types2.Named); ok {
+			if st, ok := n.Underlying().(*types2.Struct); ok {
+				for i := 0; i < st.NumFields(); i++ {
+					a.namedField[fieldKey(st.Field(i))] = true
+				}
+			}
+		}
+	}
 	for _, p := range a.prog.Packages {
 		for _, f := range p.Files {
 			ast.Inspect(f, func(n ast.Node) bool {
@@ -162,7 +179,7 @@ func (a *analyzer) implicitAddr(e *ast.SelectorExpr) {
 // isHeapField reports whether loading field f yields only heap pointers.
 func (a *analyzer) isHeapField(f *types2.Var) bool {
 	k := fieldKey(f)
-	if a.addrField[k] || a.nonHeap[k] || containsTypeParam(f.Type()) {
+	if !a.namedField[k] || a.addrField[k] || a.nonHeap[k] || containsTypeParam(f.Type()) {
 		return false
 	}
 	for p := range a.fieldDeps[k] {

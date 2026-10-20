@@ -1,0 +1,1 @@
+$DIR/main.p:38:2: cannot pass &n0 to call, which keeps it after returning

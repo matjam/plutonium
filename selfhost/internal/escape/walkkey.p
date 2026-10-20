@@ -39,7 +39,9 @@ func loadTok(t tok, out *tbuf) {
 			out.add(heapTok) // what a box's object or an arena holds is heap memory
 			return
 		}
-		out.addAll(t.loc.getShared(t.path))
+		for _, u := range t.loc.getShared(t.path) {
+			out.add(t.loaded(u))
+		}
 	case tParam:
 		out.add(t.untag().extend("*"))
 	}
@@ -59,6 +61,9 @@ func offset(ts tset, i int) tset {
 // offsetTok returns the pointer to field i of what t points to.
 func offsetTok(t tok, i int) tok {
 	t = t.untag()
+	if t.shape >= shapeOffset {
+		return t // a pointer into the object, at an offset it does not tell
+	}
 	if t.kind != tHeap && fieldTail(t.path) >= maxFieldNest {
 		return t
 	}
@@ -121,7 +126,20 @@ func newDynFilter(I types2.Type) dynFilter {
 func (d *dynFilter) keep(t tok) (tok, bool) {
 	switch t.kind {
 	case tFrame:
-		if dyn := t.loc.dynamicType(); t.path == "" && dyn != nil && !containsTypeParam(dyn) {
+		if t.path == "" && t.interior() {
+			// A pointer into the location: of the type of something in it.
+			if vt := t.loc.valueType(); vt != nil && !containsTypeParam(vt) {
+				if d.exact && !holdsType(vt, d.I, 0) {
+					return t, false
+				}
+				// A pointer to something in a box is the address of a value of
+				// that type in an interface (boxed, so not a pointer); a pointer
+				// into another location is a pointer of that type.
+				if !d.exact && (t.loc.box && d.ptr || !holdsImplementer(vt, d.iface, t.loc.box, 0)) {
+					return t, false
+				}
+			}
+		} else if dyn := t.loc.dynamicType(); t.path == "" && dyn != nil && t.shape == shapeWhole && !containsTypeParam(dyn) {
 			if d.ptr {
 				if _, isPtr := dyn.Underlying().(*types2.Pointer); !isPtr {
 					return t, false
@@ -135,7 +153,7 @@ func (d *dynFilter) keep(t tok) (tok, bool) {
 			}
 		}
 	case tParam:
-		if t.filt == nil && !t.ge {
+		if t.filt == nil && !t.ge && t.shape != shapeOther {
 			t.filt, t.filtAt = d.I, len(t.path)
 		}
 	}
@@ -167,7 +185,7 @@ func (a *analyzer) filterDyn(ts tset, I types2.Type, _ int) tset {
 // walkKey follows k's path from the pointers in ts, applying its type
 // filter where the path reaches the interface value it constrains.
 func (w *walker) walkKey(ts tset, k pkey) tset {
-	if len(ts) == 0 || k.path == "" && k.filt == nil && !k.ge {
+	if len(ts) == 0 || k.path == "" && k.filt == nil && !k.ge && k.shape == shapeWhole {
 		return ts
 	}
 	var d dynFilter
@@ -210,6 +228,7 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 		}
 	}
 	ge, filt, filtAt := t.ge, t.filt, t.filtAt
+	sh := t.shape // the shape of the pointer as the key's path is followed (extend, offsetTok)
 	var d *dynFilter
 	if k.filt != nil {
 		d = w.a.dynFilterFor(k.filt)
@@ -232,6 +251,8 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 		if ge {
 			return false
 		}
+		wide := sh >= shapeOffset // what a load through a pointer at an offset finds (tok.extend)
+		sh = shapeWhole
 		if depth+1 > maxDepth || steps+1 > maxSteps {
 			overflowed()
 			return true
@@ -243,12 +264,15 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 		depth++
 		steps++
 		tail = 0
+		if wide {
+			ge = true
+		}
 		return false
 	}
 	over := preLoad && star()
 	p := k.path
 	for pos := 0; !over; {
-		if d != nil && pos == k.filtAt && !d.noop && filt == nil && !ge {
+		if d != nil && pos == k.filtAt && !d.noop && filt == nil && !ge && sh != shapeOther {
 			filt, filtAt = d.I, len(b)
 		}
 		if pos >= len(p) {
@@ -264,7 +288,7 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 			pos++
 		}
 		pos++
-		if tail >= maxFieldNest || ge {
+		if tail >= maxFieldNest || ge || sh >= shapeOffset {
 			continue
 		}
 		if steps+1 > maxSteps {
@@ -278,8 +302,9 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 	if k.ge {
 		ge = true
 	}
+	shape := max(sh, k.shape)
 	key := pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, borrowed: t.borrowed || k.borrowed,
-		ge: ge, filt: filt, filtAt: filtAt}
+		ge: ge, shape: shape, filt: filt, filtAt: filtAt}
 	if len(b) > 0 {
 		key.path = unsafe.String(&b[0], len(b))
 	}
@@ -342,7 +367,7 @@ func (w *walker) walkTok(t tok, k pkey, d *dynFilter, pos int, out *tbuf) {
 			}
 		}
 		if pos >= len(p) {
-			out.add(t)
+			out.add(t.as(k.shape)) // the pointer found is of the shape the key says, after the filter
 			return
 		}
 		if p[pos] == '*' {
@@ -358,7 +383,7 @@ func (w *walker) walkTok(t tok, k pkey, d *dynFilter, pos int, out *tbuf) {
 					continue
 				}
 				for _, u := range t.loc.getShared(t.path) {
-					w.walkTok(u, k, d, pos, out)
+					w.walkTok(t.loaded(u), k, d, pos, out)
 				}
 				return
 			}

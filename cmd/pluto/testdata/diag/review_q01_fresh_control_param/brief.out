@@ -1,0 +1,1 @@
+$DIR/main.p:11:12: cannot keep the closure mk(i) returns past this iteration of the loop: it is stored in keep, declared outside the loop (main.p:9)

@@ -335,23 +335,6 @@ func (w *walker) objLoc(v *types2.Var) *loc {
 	return l
 }
 
-// collapse forgets the field paths of pointers that pass through
-// unsafe.Pointer, where they may be reinterpreted as another type.
-func collapse(ts tset) tset {
-	var out tbuf
-	for _, t := range ts {
-		t = t.untag()
-		switch t.kind {
-		case tFrame:
-			t.path = ""
-		case tParam:
-			t = t.widen()
-		}
-		out.add(t)
-	}
-	return out.set
-}
-
 // reach returns the pointers in ts and everything reachable from them.
 func (w *walker) reach(ts tset) tset {
 	// The tokens widened are added to out as they are found, and each round
@@ -619,6 +602,18 @@ func (w *walker) unbox(xv tset, T types2.Type) tset {
 	return w.load(xv)
 }
 
+// elemShape is the shape of a pointer to the element e of an array or slice
+// (shapeElement), which matters only to a filter that a pointer to a value of
+// the element's type can pass: a type with no methods is the receiver of none
+// and implements no interface with methods, so a filter drops its pointer
+// whether it judges it by the type of the element or of the array.
+func (w *walker) elemShape(e *ast.IndexExpr) ptrShape {
+	if w.a.mayHaveMethods(w.typeOf(e)) {
+		return shapeElement
+	}
+	return shapeWhole
+}
+
 // place returns what the address of e may point to, if e is addressable.
 func (w *walker) place(e ast.Expr) (tset, bool) {
 	switch e := e.(type) {
@@ -649,7 +644,7 @@ func (w *walker) place(e ast.Expr) (tset, bool) {
 	case *ast.IndexExpr:
 		w.value(e.Index)
 		if isBoxPtr(w.typeOf(e.X)) {
-			return w.pointee(e.X), true
+			return asShape(w.pointee(e.X), w.elemShape(e)), true
 		}
 		if isMap(w.typeOf(e.X)) {
 			// A map's table is heap memory that any copy of the map may
@@ -659,10 +654,13 @@ func (w *walker) place(e ast.Expr) (tset, bool) {
 		}
 		switch u := underlying(w.typeOf(e.X)).(type) {
 		case *types2.Array:
-			return w.place(e.X)
+			// An element is not the array: its address is a pointer of
+			// another type than the location's (ptrShape).
+			p, ok := w.place(e.X)
+			return asShape(p, w.elemShape(e)), ok
 		case *types2.Pointer, *types2.Slice:
 			_ = u
-			return w.value(e.X), true
+			return asShape(w.value(e.X), w.elemShape(e)), true
 		}
 		w.value(e.X)
 		return nil, false
@@ -807,14 +805,19 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 	if w.a.isDirectConv(from) {
 		switch {
 		case types2.PointerShaped(from):
-			return shapeOut(v, from)
+			if _, ptr := from.Underlying().(*types2.Pointer); ptr {
+				return shapeOut(v, from)
+			}
+			// A struct or array of one pointer: the data word is the
+			// pointer, but the value is of the wrapper's type.
+			return asShape(shapeOut(v, from), shapeOther)
 		case !known:
 			// A type parameter whose instances are all direct, some of
 			// them perhaps pointer-shaped structs: the data word is the
 			// value, whichever field held its pointer.
 			var out tbuf
 			for _, t := range v {
-				out.add(t.untag())
+				out.add(t.untag().as(shapeOther))
 			}
 			return out.set
 		}
@@ -954,6 +957,40 @@ func isString(T types2.Type) bool {
 
 // explicitConv handles T(x).
 func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
+	v := w.explicitConv1(e, to)
+	if len(e.Args) == 1 && retypesPointer(w.typeOf(e.Args[0]), to) {
+		if te := pointerElem(to); te == nil || w.a.mayHaveMethods(te) {
+			// A pointer to a type with no methods is no receiver, and a
+			// conversion of it to a type with some marks it again.
+			return asShape(v, shapeOther)
+		}
+	}
+	return v
+}
+
+// retypesPointer reports whether converting a value of type from to type to
+// gives a pointer that is not of the type of the location it points to, though
+// the one converted was: a pointer to another type, a pointer made from an
+// unsafe.Pointer, or from a slice (ptrShape). An unsafe.Pointer made from a
+// pointer is the same pointer, to the same whole location (section 18.3).
+func retypesPointer(from, to types2.Type) bool {
+	if from == nil || to == nil {
+		return false
+	}
+	if isUnsafePointer(from) {
+		return !isUnsafePointer(to)
+	}
+	if isUnsafePointer(to) {
+		return false
+	}
+	if _, ok := underlying(from).(*types2.Slice); ok {
+		return pointerElem(to) != nil
+	}
+	fe, te := pointerElem(from), pointerElem(to)
+	return fe != nil && te != nil && !types2.Identical(fe, te)
+}
+
+func (w *walker) explicitConv1(e *ast.CallExpr, to types2.Type) tset {
 	if len(e.Args) != 1 {
 		return nil
 	}
@@ -992,7 +1029,7 @@ func (w *walker) explicitConv(e *ast.CallExpr, to types2.Type) tset {
 			if isUnsafePointer(to) || !hasPointers(elemOrPointee(to)) {
 				return v
 			}
-			return collapse(v)
+			return intoSet(v, shapeOffset)
 		}
 	}
 	return w.conv(v, from, to, x)
@@ -1037,6 +1074,16 @@ func (w *walker) compLit(e *ast.CompositeLit) tset {
 		}
 	case *types2.Array:
 		val = w.elems(e.Elts, u.Elem())
+	case *types2.TaggedUnion:
+		// U.V{...}: a variant with a struct payload. The union holds what
+		// the payload's fields do.
+		for _, el := range e.Elts {
+			x := el
+			if kv, ok := el.(*ast.KeyValueExpr); ok {
+				x = kv.Value
+			}
+			val.addAll(w.elem(x, w.typeOf(x)))
+		}
 	case *types2.Map:
 		// The keys and elements are stored in the map's table, heap
 		// memory that any copy of the map may reach.
@@ -1054,6 +1101,7 @@ func (w *walker) compLit(e *ast.CompositeLit) tset {
 			return compat.Clone(tset{heapTok})
 		}
 		l := w.tmp(e, lkSliceLit)
+		l.typ = types2.NewArray(u.Elem(), int64(len(e.Elts))) // what a pointer to an element is into (valueType)
 		w.addContents(l, val)
 		return compat.Clone(tset{frameTok(l)})
 	default:
@@ -1497,7 +1545,7 @@ func (w *walker) escapeParam(t tok, why goFn1) {
 	w.a.grew = true
 }
 
-// goClosure_store_1 is the function literal at expr.go:1359, converted to a struct
+// goClosure_store_1 is the function literal at expr.go:1407, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_1 struct {
 	d   dest
@@ -1510,7 +1558,7 @@ func (goSelf *goClosure_store_1) Call() string {
 	return goSelf.d.why(goSelf.v.sc.fn.paramDesc(keyOf(goSelf.v)), goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_store_2 is the function literal at expr.go:1422, converted to a struct
+// goClosure_store_2 is the function literal at expr.go:1470, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_2 struct {
 	d   dest
@@ -1522,7 +1570,7 @@ func (goSelf *goClosure_store_2) Call() string {
 	return goSelf.d.why("it", goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_sink_1 is the function literal at expr.go:1455, converted to a struct
+// goClosure_sink_1 is the function literal at expr.go:1503, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sink_1 struct {
 	tail string
@@ -1536,7 +1584,7 @@ type goFn1 interface {
 	Call() string
 }
 
-// goClosure_sinkTail_1 is the function literal at expr.go:1470, converted to a struct
+// goClosure_sinkTail_1 is the function literal at expr.go:1518, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sinkTail_1 struct {
 	act  string

@@ -1,0 +1,27 @@
+$DIR/main.p:15:4: cannot store mk(i) in p.f, which outlives the function literal's frame
+    mk(i) returns a closure, which it builds in a region of its caller's frame,
+    the function literal's (at main.p:15); the closure lives as long as that
+    frame (section 4.5). The function literal's frame is reclaimed each time the
+    literal returns, but p.f belongs to the function around it and lives longer.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of the function literal's frame, or
+    allocate it so that it lives as long as p.f.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)
+
+$DIR/main.p:17:5: cannot store &W{} in p, which outlives the function literal's frame
+    A composite literal whose address is taken (at main.p:17) is made in the
+    function literal's frame, as a local variable would be. The function
+    literal's frame is reclaimed each time the literal returns, but p belongs to
+    the function around it and lives longer.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of the function literal's frame, or
+    allocate it so that it lives as long as p.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

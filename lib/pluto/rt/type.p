@@ -62,7 +62,10 @@ func (t *Type) Word(p unsafe.Pointer) unsafe.Pointer {
 	case 4:
 		w = uintptr(*(*uint32)(p))
 	case 8:
-		w = *(*uintptr)(p)
+		// A word that is a pointer (a pointer, or a struct of one) is read
+		// as one, not made from an integer: the escape analysis follows
+		// what p holds into the data word (language spec section 18.3).
+		return *(*unsafe.Pointer)(p)
 	}
 	return unsafe.Pointer(w)
 }

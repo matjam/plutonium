@@ -37,6 +37,14 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 	if tv.IsType() {
 		return []tset{w.explicitConv(e, tv.Type)}
 	}
+	if v := w.variantOf(e.Fun); v != nil {
+		// U.V(payload): the union holds what the payload does.
+		var out tbuf
+		for _, a := range e.Args {
+			out.addAll(w.conv(w.value(a), w.typeOf(a), v.Payload(), a))
+		}
+		return []tset{out.set}
+	}
 	if tv.IsBuiltin() {
 		return w.builtin(e)
 	}
@@ -81,6 +89,20 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 		res = make([]tset, nres)
 	}
 	return w.explicitArenaResult(e, t, args, res)
+}
+
+// variantOf returns the union variant that fun, as in U.V(payload), names, or
+// nil.
+func (w *walker) variantOf(fun ast.Expr) *types2.Variant {
+	se, ok := ast.Unparen(fun).(*ast.SelectorExpr)
+	if !ok {
+		return nil
+	}
+	v, _ := w.a.uses[se.Sel].(*types2.Variant)
+	if v == nil || !v.HasPayload() {
+		return nil
+	}
+	return v
 }
 
 // A callSite is a call being applied, for messages: its position and the
@@ -582,7 +604,14 @@ func boundKeys(cs *callSite, fun ast.Expr) []ast.Expr {
 func filterRecv(ts tset, f *function) tset {
 	var out tbuf
 	for _, t := range ts {
-		if dyn := t.loc.dynamicType(); t.kind == tFrame && t.path == "" && dyn != nil && f.obj != nil && !containsTypeParam(dyn) {
+		if t.kind == tFrame && t.path == "" && t.interior() && f.obj != nil {
+			// A pointer into the location: of the type of something in it.
+			if vt := t.loc.valueType(); vt != nil && !containsTypeParam(vt) {
+				if R := recvBase(f.obj); R != nil && !containsTypeParam(R) && !holdsType(vt, R, 0) {
+					continue
+				}
+			}
+		} else if dyn := t.loc.dynamicType(); t.kind == tFrame && t.path == "" && dyn != nil && t.shape == shapeWhole && f.obj != nil && !containsTypeParam(dyn) {
 			sel := types2.NewMethodSet(dyn).Lookup(f.obj.Pkg(), f.obj.Name())
 			if sel == nil {
 				continue
@@ -594,6 +623,20 @@ func filterRecv(ts tset, f *function) tset {
 		out.add(t)
 	}
 	return out.set
+}
+
+// recvBase returns the type a method is declared on, without the pointer of a
+// pointer receiver.
+func recvBase(m *types2.Func) types2.Type {
+	sig, _ := m.Type().(*types2.Signature)
+	if sig == nil || sig.Recv() == nil {
+		return nil
+	}
+	T := sig.Recv().Type()
+	if el := pointerElem(T); el != nil {
+		return el
+	}
+	return T
 }
 
 // markRecv records on the caller's pointers in an interface data word that
@@ -614,7 +657,7 @@ func markRecv(a *analyzer, ts tset, f *function) tset {
 	}
 	var out tbuf
 	for _, t := range ts {
-		if t.kind == tParam && !t.ge {
+		if t.kind == tParam && !t.ge && t.shape != shapeOther {
 			switch {
 			case t.filt == nil:
 				t.filt, t.filtAt = T, len(t.path)
@@ -642,7 +685,11 @@ func filterBoundRecv(ts tset, T types2.Type) tset {
 	}
 	var out tbuf
 	for _, t := range ts {
-		if dyn := t.loc.dynamicType(); t.kind == tFrame && t.path == "" && dyn != nil && !containsTypeParam(dyn) && !types2.Identical(dyn, T) {
+		if t.kind == tFrame && t.path == "" && t.interior() {
+			if vt := t.loc.valueType(); vt != nil && !containsTypeParam(vt) && !holdsType(vt, T.(*types2.Pointer).Elem(), 0) {
+				continue
+			}
+		} else if dyn := t.loc.dynamicType(); t.kind == tFrame && t.path == "" && dyn != nil && t.shape == shapeWhole && !containsTypeParam(dyn) && !types2.Identical(dyn, T) {
 			continue
 		}
 		out.add(t)
@@ -783,13 +830,17 @@ func (w *walker) builtin(e *ast.CallExpr) []tset {
 		for _, a := range e.Args[1:] {
 			w.value(a)
 		}
-		if name != "Add" && !hasPointers(elemOrPointee(w.typeOf(e))) {
-			// The same address, seen as memory that holds no pointers:
-			// nothing can be loaded from it as a pointer, so its path
-			// stays exact.
-			return []tset{v}
+		// The same address at an offset (unsafe.Add), or seen as the elements
+		// of the slice or pointer made: of a type that matters to a filter
+		// only if that type may have methods.
+		shape := shapeOffset
+		if name != "Add" {
+			shape = shapeWhole
+			if w.a.mayHaveMethods(elemOrPointee(w.typeOf(e))) {
+				shape = shapeElement
+			}
 		}
-		return []tset{collapse(v)}
+		return []tset{intoSet(v, shape)}
 	}
 	// len, cap, min, max, print, println, panic, close, clear, delete:
 	// nothing is kept.

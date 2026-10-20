@@ -73,15 +73,16 @@ const (
 // abstract form is a set of them; a value with no pointers has none.
 type tok struct {
 	kind        tokKind
-	counted     bool   // tHeap: a strong reference; tParam: conversion to a counted error
-	directCount bool   // tParam: the conversion's source is known to be shared or synced
-	borrowed    bool   // tParam: the selected value lends its box payload
-	holder      *loc   // tHeap: holder to use only when borrowing this strong value
-	loc         *loc   // tFrame
-	path        string // tFrame: the field within loc; tParam: the access path from the parameter
-	sc          *scope // tParam
-	idx         int    // tParam: parameter index, receiver first
-	ge          bool   // tParam: the path or any extension of it
+	counted     bool     // tHeap: a strong reference; tParam: conversion to a counted error
+	directCount bool     // tParam: the conversion's source is known to be shared or synced
+	borrowed    bool     // tParam: the selected value lends its box payload
+	shape       ptrShape // what the pointer is of, relative to its location (see ptrShape)
+	holder      *loc     // tHeap: holder to use only when borrowing this strong value
+	loc         *loc     // tFrame
+	path        string   // tFrame: the field within loc; tParam: the access path from the parameter
+	sc          *scope   // tParam
+	idx         int      // tParam: parameter index, receiver first
+	ge          bool     // tParam: the path or any extension of it
 
 	// tParam: a type assertion to the interface filt, applied when the path
 	// was filtAt bytes long, constrains the dynamic type of the interface
@@ -96,6 +97,147 @@ type tok struct {
 	// unknown or the value is not a struct. Struct values are told apart
 	// field by field, like locations.
 	tag string
+}
+
+// A ptrShape says how a pointer relates to the location its token names. A
+// type filter (a type assertion, or the receiver type of a method) judges a
+// pointer by the type of its location, which holds only for a pointer to the
+// whole of it.
+type ptrShape uint8
+
+const (
+	shapeWhole   ptrShape = iota // a pointer to the whole location, of its type
+	shapeElement                 // a pointer to an element of an array or slice, which are followed as a whole: of a type in the location, at the path of the location
+	shapeOffset                  // a pointer into the location at an offset unsafe.Add made: of a type in the location, at no path
+	shapeOther                   // a pointer that may be of any type: converted to another type, through unsafe.Pointer, or the one pointer of a pointer-shaped struct
+)
+
+// interior reports whether the pointer is into the location, of the type of
+// something in it.
+func (t tok) interior() bool { return t.shape == shapeElement || t.shape == shapeOffset }
+
+// loaded returns a token found in what t points to: a pointer to a field of a
+// location is followed to the field, but one made by an offset or of another
+// type points to memory whose fields are not those of the location, so the
+// pointers it holds are not told apart by field.
+func (t tok) loaded(u tok) tok {
+	if t.shape >= shapeOffset {
+		return u.untag()
+	}
+	return u
+}
+
+// as returns t marked as a pointer of shape s, which it keeps if it has a
+// less exact one already. A filter the token has stays: it constrains the
+// interface the pointer was the data word of, which a conversion of the pointer
+// does not change. The pointer a load finds is another one (extend).
+func (t tok) as(s ptrShape) tok {
+	if t.kind == tHeap || s <= t.shape {
+		return t
+	}
+	t.shape = s
+	return t
+}
+
+// asShape marks every pointer in ts as one of shape s (see tok.as).
+func asShape(ts tset, s ptrShape) tset {
+	var out tbuf
+	for _, t := range ts {
+		out.add(t.as(s))
+	}
+	return out.set
+}
+
+// valueType returns the type of what the location holds, as a whole.
+func (l *loc) valueType() types2.Type {
+	if l == nil {
+		return nil
+	}
+	if l.dynamic != nil {
+		if el := pointerElem(l.dynamic); el != nil {
+			return el
+		}
+		return l.dynamic
+	}
+	return l.typ
+}
+
+// holdsType reports whether a value of type T has in it, or is, a value of
+// type R: a field, an element, or a field of one, which a pointer into the
+// value may point to. What a pointer in it points to is another location.
+func holdsType(T, R types2.Type, depth int) bool {
+	if types2.Identical(T, R) {
+		return true
+	}
+	if depth > 8 {
+		return true // too deep to tell
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if holdsType(u.Field(i).Type(), R, depth+1) {
+				return true
+			}
+		}
+	case *types2.Array:
+		return holdsType(u.Elem(), R, depth+1)
+	}
+	return false
+}
+
+// holdsImplementer reports whether a value of type T has in it, or is, a
+// value whose type implements the interface iface (when value is set), or
+// whose pointer type does (when it is not).
+func holdsImplementer(T types2.Type, iface *types2.Interface, value bool, depth int) bool {
+	if depth > 8 {
+		return true
+	}
+	if value && types2.Implements(T, iface) || !value && types2.Implements(types2.NewPointer(T), iface) {
+		return true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if holdsImplementer(u.Field(i).Type(), iface, value, depth+1) {
+				return true
+			}
+		}
+	case *types2.Array:
+		return holdsImplementer(u.Elem(), iface, value, depth+1)
+	}
+	return false
+}
+
+// into returns t as a pointer into the object it points into, at an offset
+// (unsafe.Add): of the type of something in the object, at no path of it. A
+// pointer to the object is kept, whole, for a type filter to apply to; what a
+// load through the pointer finds is any pointer the object holds.
+func (t tok) into(s ptrShape) tok {
+	t = t.untag()
+	switch t.kind {
+	case tFrame:
+		t.path = ""
+	case tParam:
+		// The object is the one the last load found.
+		if i := strings.LastIndexByte(t.path, '*'); i >= 0 {
+			t.path = t.path[:i+1]
+		} else {
+			t.path = ""
+		}
+		if t.filtAt > len(t.path) {
+			t.filt, t.filtAt = nil, 0
+		}
+	}
+	return t.as(s)
+}
+
+// intoSet is into for every pointer in ts.
+func intoSet(ts tset, s ptrShape) tset {
+	var out tbuf
+	for _, t := range ts {
+		out.add(t.into(s))
+	}
+	return out.set
 }
 
 // untag drops the field tag: the token as a pointer in its own right.
@@ -167,6 +309,13 @@ func (t tok) extend(step string) tok {
 	if t.ge {
 		return t
 	}
+	wide := false
+	if step == "*" {
+		// What a pointer at an offset into an object holds is any of the
+		// pointers the object holds: the load is what is widened.
+		wide = t.shape >= shapeOffset
+		t.shape = shapeWhole // the pointer loaded is another one
+	}
 	p := t.path + step
 	if pathDepth(p) > maxDepth || pathSteps(p) > maxSteps {
 		// Too long: cut the path back to its first load and one more,
@@ -188,6 +337,7 @@ func (t tok) extend(step string) tok {
 		return t
 	}
 	t.path = p
+	t.ge = wide
 	return t
 }
 
@@ -358,6 +508,9 @@ func (l *loc) dynamicType() types2.Type {
 	if l.dynamic != nil {
 		return l.dynamic
 	}
+	if l.kind == lkSliceLit {
+		return nil // the backing array of a slice is not pointed to as an array
+	}
 	if l.typ == nil || l.box {
 		return l.typ
 	}
@@ -493,14 +646,15 @@ type pkey struct {
 	filt        types2.Type // see tok
 	idx         int
 	filtAt      int
-	borrowed    bool // the selected value lends its box payload
-	counts      bool // conversion of this parameter to a counted error
-	directCount bool // a definite strong-box conversion, rather than a generic one
+	borrowed    bool     // the selected value lends its box payload
+	counts      bool     // conversion of this parameter to a counted error
+	directCount bool     // a definite strong-box conversion, rather than a generic one
+	shape       ptrShape // see tok
 	ge          bool
 }
 
 func keyOf(t tok) pkey {
-	return pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, borrowed: t.borrowed, path: t.path, ge: t.ge, filt: t.filt, filtAt: t.filtAt}
+	return pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, borrowed: t.borrowed, path: t.path, ge: t.ge, shape: t.shape, filt: t.filt, filtAt: t.filtAt}
 }
 
 // An edge records that a function stores pointers derived from one

@@ -105,13 +105,15 @@ type analyzer struct {
 
 	dynFilters map[types2.Type]*dynFilter
 	ptrFilters map[types2.Type]types2.Type // filters that also require a pointer (walkkey.go)
+	methodful  map[types2.Type]bool        // types a pointer to which may have methods (mayHaveMethods)
 
 	// sites remember what calls have applied of their callees (escapes.go).
 	sites  map[siteKey]*siteState
 	byName map[string][]*function
 
 	// Candidates for dynamic calls.
-	converted map[string]types2.Type // concrete types converted to an interface
+	converted map[string]types2.Type // concrete types converted to an interface, and the types they are made of
+	walked    map[string]bool        // converted types whose pointer targets noteConverted has followed
 	// The methods of the converted types by method name (indexConverted),
 	// and the candidates of a name in key order, until a new type adds one.
 	convMethods map[string][]convMethod
@@ -124,6 +126,7 @@ type analyzer struct {
 	// Heap-only fields (fields.go), by origin field: fields whose address
 	// is taken, and fields something other than heap memory is stored in.
 	addrField    map[*types2.Var]bool
+	namedField   map[*types2.Var]bool // fields of a struct type that has a name
 	nonHeap      map[*types2.Var]bool
 	fieldDeps    map[*types2.Var]map[paramRef]bool // parameters stored in a field
 	paramNonHeap map[paramRef]bool                 // parameters some call passes non-heap memory for
@@ -663,6 +666,18 @@ func (a *analyzer) isDirectConv(T types2.Type) bool {
 // noteConversion records that values of type T are converted to an
 // interface somewhere, so its methods may be called dynamically.
 func (a *analyzer) noteConversion(T types2.Type) {
+	a.noteConverted(T, true)
+}
+
+// noteConverted is noteConversion for a type T that is the one converted
+// (top), or one that a converted type is made of. The descriptor of a type
+// that is converted to an interface tells how to walk its values, which pluto/fmt
+// does: it calls the methods of the types of the fields, elements and variant
+// payloads it reaches, with no conversion in the program to say so. So those
+// types may have their methods called dynamically too (language spec section
+// 18.3). It follows a pointer or box only from the converted type itself: a
+// pointer reached deeper prints as an address.
+func (a *analyzer) noteConverted(T types2.Type, top bool) {
 	if T == nil {
 		return
 	}
@@ -671,7 +686,7 @@ func (a *analyzer) noteConversion(T types2.Type) {
 		// program are what can be converted. One that is never
 		// instantiated is never run.
 		for _, t := range a.tparamTypes(tp) {
-			a.noteConversion(t)
+			a.noteConverted(t, top)
 		}
 		return
 	}
@@ -679,11 +694,52 @@ func (a *analyzer) noteConversion(T types2.Type) {
 		return
 	}
 	key := types2.TypeString(T, nil)
-	if _, ok := a.converted[key]; !ok {
+	if _, ok := a.converted[key]; ok {
+		if !top {
+			return
+		}
+		// Seen before as a part: the parts of what it points to are not yet.
+		if a.walked[key] {
+			return
+		}
+	} else {
 		a.converted[key] = T
 		a.ver.conv++
 		a.grew = true
 		a.indexConverted(key, T)
+	}
+	if top {
+		if a.walked == nil {
+			a.walked = map[string]bool{}
+		}
+		a.walked[key] = true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			a.noteConverted(u.Field(i).Type(), false)
+		}
+	case *types2.Array:
+		a.noteConverted(u.Elem(), false)
+	case *types2.Slice:
+		a.noteConverted(u.Elem(), false)
+	case *types2.Map:
+		a.noteConverted(u.Key(), false)
+		a.noteConverted(u.Elem(), false)
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() {
+				a.noteConverted(v.Payload(), false)
+			}
+		}
+	case *types2.Pointer:
+		if top {
+			a.noteConverted(u.Elem(), false)
+		}
+	case *types2.Wrapper:
+		if top && u.IsPointer() {
+			a.noteConverted(u.Elem(), false)
+		}
 	}
 }
 
@@ -1123,10 +1179,35 @@ func hasPointersSeen(T types2.Type, seen map[types2.Type]bool) bool {
 			return true
 		}
 		return hasPointersSeen(u.Elem(), seen)
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() && hasPointersSeen(v.Payload(), seen) {
+				return true
+			}
+		}
+		return false
 	case *types2.TypeParam:
 		return true
 	}
 	return false
+}
+
+// mayHaveMethods reports whether a pointer to a value of type T may have
+// methods: T or a type embedded in it has some, or T is an interface or a
+// type parameter.
+func (a *analyzer) mayHaveMethods(T types2.Type) bool {
+	if T == nil {
+		return true
+	}
+	if r, ok := a.methodful[T]; ok {
+		return r
+	}
+	r := isInterface(T) || containsTypeParam(T) || types2.NewMethodSet(types2.NewPointer(T)).Len() > 0
+	if a.methodful == nil {
+		a.methodful = map[types2.Type]bool{}
+	}
+	a.methodful[T] = r
+	return r
 }
 
 func isInterface(T types2.Type) bool {
