@@ -1,6 +1,10 @@
 package build_test
 
 import (
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/matjam/plutonium/internal/build"
@@ -391,6 +395,69 @@ func main() {
 `},
 	}
 	runTimerCases(t, cases, build.Config{NoTrace: true})
+}
+
+// firstAllowedCPU returns the lowest CPU this process may run on, as taskset
+// names it, or skips the test where taskset is not available.
+func firstAllowedCPU(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("taskset"); err != nil {
+		t.Skip("taskset is not available")
+	}
+	out, err := exec.Command("taskset", "-pc", strconv.Itoa(os.Getpid())).Output()
+	if err != nil {
+		t.Skipf("taskset cannot read this process's CPUs: %v", err)
+	}
+	// "pid 123's current affinity list: 0-23"
+	list := strings.TrimSpace(string(out))
+	list = list[strings.LastIndex(list, ": ")+2:]
+	first := strings.FieldsFunc(list, func(r rune) bool { return r == '-' || r == ',' })
+	if len(first) == 0 {
+		t.Skipf("unexpected taskset output %q", out)
+	}
+	return first[0]
+}
+
+// TestAfterFuncDroppedBurst checks, under the debug allocator, that a burst
+// of AfterFunc timers whose handles are all dropped can fire while their
+// functions are being started and the runtime's last reference to each is
+// released. The timer heap touches a firing timer once more after its
+// function has queued it; that access must not outlive the release that
+// frees the timer (a use after free in the heap when the release ran first).
+func TestAfterFuncDroppedBurst(t *testing.T) {
+	prog := buildConc(t, `package main
+
+import (
+	"pluto/sync/atomic"
+	"pluto/time"
+)
+
+var ran atomic.Int64
+
+func run() { ran.Add(1) }
+
+func main() {
+	const rounds, burst = 20, 100
+	for r := 0; r < rounds; r++ {
+		for i := 0; i < burst; i++ {
+			time.AfterFunc(time.Millisecond, run) // the handle is dropped at once
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	for ran.Load() < rounds*burst {
+		time.Sleep(time.Millisecond)
+	}
+	println("ran", ran.Load())
+}
+`, build.Config{OptLevel: 2, Alloc: "debug"})
+	// The race is between two threads, so it shows when the kernel switches
+	// between them at the wrong moment, as it does under load: pin the
+	// program to one CPU to make that likely (14 of 20 runs without the fix).
+	cpu := firstAllowedCPU(t)
+	out, status := runConcCmd(t, exec.Command("taskset", "-c", cpu, prog), "PLUTO_DEBUGALLOC=leaks=fail")
+	if status != 0 || out != "ran 2000\n" {
+		t.Errorf("status %d, output:\n%s", status, out)
+	}
 }
 
 // TestTimersDebugAlloc checks under the debug allocator, which fails the

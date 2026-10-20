@@ -83,7 +83,12 @@ func buildConcAll(t *testing.T, builds []concBuild) []string {
 // fails the test.
 func runConc(t *testing.T, prog string, env ...string) (string, int) {
 	t.Helper()
-	cmd := exec.Command(prog)
+	return runConcCmd(t, exec.Command(prog), env...)
+}
+
+// runConcCmd is runConc for a prepared command.
+func runConcCmd(t *testing.T, cmd *exec.Cmd, env ...string) (string, int) {
+	t.Helper()
 	cmd.Env = append(os.Environ(), env...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

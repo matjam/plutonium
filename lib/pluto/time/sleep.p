@@ -243,6 +243,16 @@ func releaseFunc(t *Timer) bool {
 // dropHeld releases the reference the runtime held to t. Nothing may use t
 // after it unless the caller has a reference of its own.
 func dropHeld(t *Timer) {
+	// The timer heap still touches the rt.Timer once after the function
+	// of a firing timer (goFunc) has returned: it publishes that the timer
+	// is no longer in the heap, and that store must be its last access. The
+	// runner can get here as soon as goFunc has queued t, so wait for the
+	// store before the release that may free t. The timer is neither armed
+	// nor expired when a release is taken (releaseFunc), so only a firing
+	// that is still finishing keeps it in the heap, and only briefly.
+	for rt.Pinned(&t.r).Active() {
+		rt.Yield()
+	}
 	h := synced[Timer](unsafe.Pointer(t))
 	_ = h
 }
