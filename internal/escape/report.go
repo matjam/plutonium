@@ -212,6 +212,8 @@ func (a *analyzer) noun(l *loc, q types2.Qualifier) string {
 		return "a method value whose receiver is in " + frame
 	case lkCtor:
 		return "the closure " + exprText(l.node.(ast.Expr)) + " returns, built in " + frame
+	case lkLoopBody:
+		return "the loop body, a closure built in " + frame
 	case lkObject:
 		if l.v != nil {
 			return "the object " + l.v.Name() + " refers to, which " + l.v.Name() + " keeps alive in " + l.fn
@@ -278,6 +280,8 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 		return fmt.Sprintf("A function literal that uses variables of the function around it refers to those variables where they live, in %s frame%s.", possessive(l.fn), decl)
 	case lkMethodValue:
 		return fmt.Sprintf("A method value (at %s) is a record in %s frame that holds its receiver, and calling it calls the method on that receiver.", at, possessive(l.fn))
+	case lkLoopBody:
+		return fmt.Sprintf("A range loop over a function (at %s) calls the function with a yield function whose body is the loop body, a closure built in %s frame (section 12.11); yield may be called only while the loop runs.", at, possessive(l.fn))
 	case lkCtor:
 		return fmt.Sprintf("%s returns a closure, which it builds in a region of its caller's frame, %s (at %s); the closure lives as long as that frame (section 4.5).", exprText(l.node.(ast.Expr)), possessive(l.fn), at)
 	case lkArena:
@@ -393,6 +397,8 @@ func (a *analyzer) subject(x string, e ast.Expr, l *loc, q types2.Qualifier) str
 		return x + " points into " + l.v.Name() + "."
 	case l.kind == lkClosure:
 		return x + " is a function literal that uses " + l.captureList() + "."
+	case l.kind == lkLoopBody:
+		return ""
 	case l.kind == lkBox:
 		return x + " is an interface that points at a copy of its value in " + possessive(l.fn) + " frame."
 	case l.kind == lkObject && l.v != nil && refNoun(l.typ) != "" && x == l.v.Name():
@@ -693,6 +699,10 @@ func trimAddr(dst string) string {
 }
 
 func (a *analyzer) passFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Qualifier) {
+	if l.kind == lkLoopBody {
+		d.Fix = &diag.Fix{Intro: fmt.Sprintf("Change %s to call yield only while it runs, without keeping it (language spec section 12.11).", e.callee)}
+		return
+	}
 	if l.isVarLoc() {
 		d.Fix = &diag.Fix{Intro: fmt.Sprintf("If %s should keep its own copy of %s, change it to take the value, not a pointer, or an owner it can keep: an owned[%s] from new, a shared[%s], or a library owner such as a vec.Vec.", e.callee, l.v.Name(), varType(l, q), varType(l, q))}
 		return

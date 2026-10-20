@@ -1233,25 +1233,7 @@ func (w *walker) funcLit(lit *ast.FuncLit) tset {
 
 // captured lists the local variables declared outside lit that it uses.
 func (w *walker) captured(lit *ast.FuncLit) []*types2.Var {
-	var out []*types2.Var
-	seen := map[*types2.Var]bool{}
-	ast.Inspect(lit.Body, func(n ast.Node) bool {
-		id, ok := n.(*ast.Ident)
-		if !ok {
-			return true
-		}
-		v, ok := w.a.uses[id].(*types2.Var)
-		if !ok || seen[v] || v.IsField() || isGlobal(v) {
-			return true
-		}
-		if v.Pos() >= lit.Pos() && v.Pos() < lit.End() {
-			return true
-		}
-		seen[v] = true
-		out = append(out, v)
-		return true
-	})
-	return out
+	return w.capturedIn(lit.Body, lit.Pos(), lit.End())
 }
 
 // methodValue returns x.M used as a value: a closure record in the frame
@@ -1286,13 +1268,16 @@ func (w *walker) methodValue(e *ast.SelectorExpr, sel *types2.Selection) tset {
 // following embedded fields and taking the address or loading the value as
 // the method's receiver type requires.
 func (w *walker) receiver(x ast.Expr, sel *types2.Selection) tset {
-	fn := sel.Obj().(*types2.Func)
+	return w.receiverOf(x, sel.Obj().(*types2.Func), sel.Index())
+}
+
+// receiverOf is receiver for method fn, selected from x by path.
+func (w *walker) receiverOf(x ast.Expr, fn *types2.Func, path []int) tset {
 	recv := fn.Type().(*types2.Signature).Recv()
 	wantPtr := false
 	if recv != nil {
 		_, wantPtr = recv.Type().(*types2.Pointer)
 	}
-	path := sel.Index()
 	xt := w.typeOf(x)
 	var cur tset
 	isAddr := false
@@ -1449,7 +1434,7 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 						w.loopErr(v.loc, L, d, pos)
 					}
 				case tParam:
-					if v.sc.level > t.loc.level {
+					if v.sc.level > t.loc.level && !v.sc.holds(t.loc) {
 						// A literal's parameter kept in an enclosing frame: the
 						// literal's callers must not pass frame pointers.
 						escape(v)

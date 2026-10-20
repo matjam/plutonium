@@ -23,9 +23,12 @@ type walker struct {
 	arenas []*arenaWindow       // where a local arena is the default allocator (arena.go)
 	tmps   map[tmpKey]*loc
 	scopes map[*ast.FuncLit]*scope
-	grew   bool // a location's contents grew during this walk
-	static bool // package initialisation: &T{} and slice literals are static
-	noBox  bool // converting for a built-in that keeps no interface (conv)
+	// bodyScopes are the scopes of the bodies of range loops over functions
+	// as yield functions (rangefunc.go).
+	bodyScopes map[*ast.RangeStmt]*scope
+	grew       bool // a location's contents grew during this walk
+	static     bool // package initialisation: &T{} and slice literals are static
+	noBox      bool // converting for a built-in that keeps no interface (conv)
 
 	recLit map[*loc]*ast.FuncLit // closure records made here, and their literals
 
@@ -484,8 +487,28 @@ func (w *walker) lhsType(lhs ast.Expr) types2.Type {
 }
 
 func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
-	xv := w.value(st.X)
 	xt := w.typeOf(st.X)
+	if sig, ok := underlying(xt).(*types2.Signature); ok {
+		call := &ast.CallExpr{Fun: st.X, Lparen: st.X.End(), Rparen: st.X.End()}
+		w.rangeFunc(st, label, sig, call, w.target(call))
+		return
+	}
+	if xt != nil && types2.RangesByMethod(xt) {
+		// A container: a range over the iterator its All method returns
+		// (language spec section 12.10).
+		if all, ok := w.sugarTarget(st.X, types2.RangeMethodName); ok {
+			e := w.a.sugarCall(st, st.X, types2.RangeMethodName)
+			cs := &callSite{site: e, pos: st.X.Pos(), exprs: []ast.Expr{all.recvExpr}, sig: all.sig}
+			it := w.applyTarget(e, all, []tset{all.recv}, cs, 1)
+			if sig, ok := underlying(all.sig.Results().At(0).Type()).(*types2.Signature); ok && all.sig.Results().Len() == 1 {
+				w.rangeFunc(st, label, sig, e, callTarget{sig: sig, fv: it[0], dynFunc: true, name: exprText(e)})
+				return
+			}
+		}
+		w.a.internalf(st.Pos(), "range over %s, whose %s method returns no iterator", exprText(st.X), types2.RangeMethodName)
+		return
+	}
+	xv := w.value(st.X)
 	var key, val tset
 	var keyT, valT types2.Type
 	switch u := underlying(xt).(type) {
@@ -508,20 +531,6 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 			key, keyT = tset{heapTok}, m.Key()
 			val, valT = tset{heapTok}, m.Elem()
 		}
-	case *types2.Signature:
-		// Range over a function: the iterator passes its yield values,
-		// made from what its closure reaches or from the heap.
-		yv := w.yieldValues(xv)
-		if u.Params().Len() == 1 {
-			if y, ok := u.Params().At(0).Type().Underlying().(*types2.Signature); ok {
-				if y.Params().Len() > 0 {
-					key, keyT = yv, y.Params().At(0).Type()
-				}
-				if y.Params().Len() > 1 {
-					val, valT = yv, y.Params().At(1).Type()
-				}
-			}
-		}
 	}
 	w.loop(label, st, func() {
 		for _, kv := range []struct {
@@ -539,32 +548,6 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 	}, func() {
 		w.block(st.Body)
 	})
-}
-
-// yieldValues returns what an iterator whose closure may point to xv may
-// pass to yield: what its closure reaches, or the heap. The region a
-// closure constructor builds is left out when its closure never passes on
-// memory of the region (analyzer.addrsCaptures).
-func (w *walker) yieldValues(xv tset) tset {
-	var start tset
-	for _, t := range xv {
-		if t.kind == tFrame && t.loc.kind == lkCtor {
-			if call, ok := t.loc.node.(*ast.CallExpr); ok {
-				if f := w.a.staticCallee(call); f != nil && w.a.dep(f) && f.builds && !w.a.addrsCaptures(f) {
-					start.addAll(w.load(tset{t}))
-					continue
-				}
-			}
-		}
-		if t.kind == tParam && !t.ge || t.kind == tFrame && t.path == "" && (t.loc.kind == lkClosure || t.loc.kind == lkMethodValue) {
-			// What the record holds, not the record: an iterator cannot
-			// yield its own closure record.
-			start.addAll(w.load(tset{t}))
-			continue
-		}
-		start.add(t)
-	}
-	return append(w.reach(start), heapTok)
 }
 
 func (w *walker) typeSwitch(st *ast.TypeSwitchStmt, label string) {
@@ -661,6 +644,13 @@ func (w *walker) returnVal(sc *scope, k int, v tset, pos token.Pos, expr ast.Exp
 			}
 		case tParam:
 			switch {
+			case t.sc.loopBody && t.sc.level > sc.level:
+				// A value the iterator passed the loop body, returned by the
+				// function around it: it outlives the call of yield
+				// (rangefunc.go).
+				w.escapeParam(t, func() string {
+					return fmt.Sprintf("returns %s from %s (%s)", t.sc.fn.paramDesc(keyOf(t)), w.scopeName(sc), shortPos(w.a.fset.Position(pos)))
+				})
 			case t.sc == sc:
 				if sc.fn.sum.addResult(k, keyOf(t), t.tag) {
 					w.a.grew = true

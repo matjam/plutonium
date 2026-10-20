@@ -148,7 +148,7 @@ func h() {
 		saved = f
 	}
 }
-func main() { h() }`, []string{"cannot store f in package variable saved"}},
+func main() { h() }`, []string{"cannot pass inner to yield (which may call the loop body at main.p:10)", "stores f in package variable saved (main.p:11)"}},
 
 	{"address of a variable in a call's region returned by calling its closure", `
 var saved *int
@@ -693,7 +693,7 @@ func main() {
 	for p := range ptrs(1) {
 		saved = p
 	}
-}`, []string{"cannot store p in package variable saved"}},
+}`, []string{"cannot pass &n to yield (which may call the loop body at main.p:8)", "stores p in package variable saved (main.p:9)"}},
 
 	{"field of a box returned", `
 type N struct{ v int }

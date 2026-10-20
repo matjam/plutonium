@@ -9,6 +9,7 @@ a13_chan_param_chan_in_struct: main.p:17:2: cannot pass &x to put, which keeps i
 a14_chan_func_value_send: main.p:16:2: cannot pass &x to hook (which may call send), which keeps it after returning
 a15_select_recv_then_store_frame: main.p:16:3: cannot store &x in package variable keep, which outlives x
 a16_chan_send_via_method_value: main.p:20:2: cannot pass &x to callf, which keeps it after returning
+a17_chan_send_in_rangefunc_body: main.p:11:2: cannot pass &x to yield (which may call the loop body at main.p:16), which keeps it after returning
 b02_task_helper_starts: main.p:17:2: cannot pass &x to start, which keeps it after returning
 b03_task_func_param: main.p:15:2: cannot pass the function literal to run, which keeps it after returning
 b04_task_iface_method: main.p:20:2: cannot pass R{...} to start, which keeps it after returning
@@ -26,6 +27,7 @@ b18_scope_loop_body_slice_in_struct: main.p:19:3: the task started here takes h,
 b19_scope_task_stores_to_outer_var: main.p:19:3: cannot keep &y in p after this iteration: the loop at line 14 reuses y in every iteration
 b20_scope_or_continue_before_wait: accepted
 b21_scope_panic_select_break_before_wait: accepted
+b25_task_from_rangefunc_body: main.p:17:2: cannot pass &x to yield (which may call the loop body at main.p:22), which keeps it after returning
 d01_defer_sets_named_result: main.p:14:1: cannot return p, which points into x, a local variable of g
 d06_defer_sets_named_result_struct: main.p:16:1: cannot return r, which points into x, a local variable of g
 d07_defer_call_sets_result_via_ptr: main.p:16:1: cannot return p, which points into x, a local variable of g
@@ -59,7 +61,23 @@ k05_atomic_cas_then_load: main.p:15:2: cannot store ap.Load() in package variabl
 k06_unsafe_string_global: main.p:12:2: cannot store unsafe.String(&buf[0], 8) in package variable gstr, which outlives buf
 k07_aligned_global: main.p:12:2: cannot store &x in package variable g, which outlives x
 k08_ring_global: main.p:12:2: cannot store &x in package variable g, which outlives x
+l01_rangefunc_yield_frame_ptr: main.p:11:2: cannot pass &x to yield (which may call the loop body at main.p:17), which keeps it after returning
+l02_rangefunc_yield_then_return: main.p:11:2: cannot pass &x to yield (which may call the loop body at main.p:16), which keeps it after returning
+l03_rangefunc_iter_seq_closure: main.p:13:3: cannot pass &x to yield (which may call the loop body at main.p:20), which keeps it after returning
+l04_rangefunc_local_in_caller_of_last: main.p:9:2: cannot pass &x to yield (which may call the loop body at main.p:15), which keeps it after returning
 l06_loop_ptr_to_outer_via_alias: main.p:17:3: cannot keep &v in q.p after this iteration: the loop at line 15 reuses v in every iteration
+l10_explicit_call_yield_literal: main.p:11:2: cannot pass &x to yield (which may call func literal in f at line 17), which keeps it after returning
+l11_rangefunc_body_stores_global: main.p:11:2: cannot pass &x to yield (which may call the loop body at main.p:16), which keeps it after returning
+l12_rangefunc_body_calls_storer: main.p:13:2: cannot pass &x to yield (which may call the loop body at main.p:18), which keeps it after returning
+l13_rangefunc_seq2: main.p:11:7: cannot pass &i to yield (which may call the loop body at main.p:20), which keeps it after returning
+l14_rangefunc_method_iter: main.p:13:3: cannot pass &local to yield (which may call the loop body at main.p:24), which keeps it after returning
+l15_rangefunc_struct_yield: main.p:13:2: cannot pass H{...} to yield (which may call the loop body at main.p:19), which keeps it after returning
+l16_rangefunc_yield_closure: main.p:11:2: cannot pass the function literal to yield (which may call the loop body at main.p:17), which keeps it after returning
+l17_yield_stored_by_iterator: main.p:16:17: cannot pass the loop body to seq, which keeps it after returning
+l18_rangefunc_iterator_param_closure_kept: main.p:14:3: cannot pass &x to yield (which may call the loop body at main.p:16), which keeps it after returning
+l19_rangefunc_yield_of_param_ok: accepted
+l20_yield_kept_called_later: main.p:17:17: cannot pass the loop body to seq, which keeps it after returning
+l21_yield_passed_to_storer: main.p:16:17: cannot pass the loop body to seq, which keeps it after returning
 l22_loop_ptr_kept_via_method_on_outer: main.p:16:3: cannot pass &v to (*Holder).set, which keeps it after this iteration: the loop at line 14 reuses v in every iteration
 l23_loop_closure_into_outer_array_elem: main.p:11:3: cannot keep the function literal in fs[i] after this iteration: it uses i, which the loop at line 10 reuses in every iteration
 l24_loop_header_var_holds_body_ptr: main.p:14:3: cannot keep &v in p after this iteration: the loop at line 9 reuses v in every iteration
@@ -130,6 +148,7 @@ r17_heaponly_via_multi_return: main.p:23:2: cannot pass &b to keepNext, which ke
 r18_heaponly_via_closure_param: main.p:22:2: cannot pass &b to keepNext, which keeps it after returning
 r19_depth4_load: main.p:18:2: cannot pass &p3 to g, which keeps it after returning
 r20_deep_fields: main.p:34:2: cannot pass &v to g, which keeps it after returning
+s06_user_all_sugar_range: main.p:13:3: cannot pass &local to yield (which may call the loop body at main.p:23), which keeps it after returning
 v10_variant_value_in_generic_func: main.p:22:9: cannot return wrap(&x), which points into x, a local variable of g
 v11_variant_value_named_func_type: main.p:19:9: cannot return m(&x), which points into x, a local variable of g
 v12_variant_value_generic_apply: main.p:19:9: cannot return apply(U.P, &x), which points into x, a local variable of g

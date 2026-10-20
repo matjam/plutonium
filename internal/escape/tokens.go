@@ -465,6 +465,7 @@ const (
 	lkCtor                       // the region a call that returns closures builds them in
 	lkObject                     // the heap object a box (owned, shared, synced) held in a frame refers to
 	lkArena                      // memory allocated from a local arena installed as the default allocator (arena.go)
+	lkLoopBody                   // the closure record of the body of a range loop over a function (rangefunc.go)
 	lkStmtTemp                   // an owner or counted box temporary, dropped at the end of its statement
 )
 
@@ -631,6 +632,10 @@ type scope struct {
 	node    ast.Node // the FuncDecl, FuncLit or nil for package initialisation
 	results []*loc
 	named   bool // the results have names
+	// loopBody: the scope is the body of a range loop over a function, as
+	// the yield function the loop passes (rangefunc.go); node is the loop.
+	// Only its parameters, the loop's variables, belong to it.
+	loopBody bool
 
 	// What a function literal returns that belongs to an enclosing frame:
 	// addresses of its locations and its parameters' pointers.
@@ -686,7 +691,7 @@ type summary struct {
 	escLog []escLog
 
 	// ver counts the changes to what other functions read of this one: the
-	// summary and the facts kept beside it (function.builds, regionLeaks and
+	// summary and the facts kept beside it (function.builds and
 	// outerResults), for deps.go.
 	ver uint32
 }
@@ -848,9 +853,6 @@ type function struct {
 	// builds: the function may return closures it builds in a region of
 	// its caller's frame (regions.go).
 	builds bool
-	// regionLeaks: a function literal returned in a caller's region whose
-	// calls may give back memory of the region (regions.go).
-	regionLeaks bool
 	// outerResults identifies literal result fields that may refer to
 	// captured frame memory. Other results do not inherit the record's provenance.
 	outerResults map[int]map[string]bool
@@ -858,6 +860,7 @@ type function struct {
 	// storage from copies of captured parameters' values.
 	outerRegionResults map[int]map[string]bool
 	inits              bool // the initialisers of a package's variables
+	loopBody           bool // the body of a range loop over a function, as its yield function (rangefunc.go)
 	// tracked is the walker's computeTracked result for the function's
 	// body, kept for later passes.
 	tracked map[*types2.Var]bool

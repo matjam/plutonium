@@ -76,18 +76,7 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 		cs.exprs = append([]ast.Expr{t.recvExpr}, cs.exprs...)
 		cs.keys = append([]ast.Expr{t.recvKey}, cs.keys...)
 	}
-	nres := t.sig.Results().Len()
-	var res []tset
-	switch {
-	case t.static != nil:
-		res = w.regionResults(e, t, args, w.apply(t.static, args, cs, t.name, recvExact, nres))
-	case t.method != "":
-		res = w.regionResults(e, t, args, w.dynIface(t, args, cs, nres))
-	case t.dynFunc:
-		res = w.regionResults(e, t, args, w.dynFuncCall(t, args, cs, e.Fun, nres))
-	default:
-		res = make([]tset, nres)
-	}
+	res := w.applyTarget(e, t, args, cs, t.sig.Results().Len())
 	return w.explicitArenaResult(e, t, args, res)
 }
 
@@ -367,6 +356,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		passed = append([]tset{w.reach(args[0])}, args[1:]...)
 	}
 	w.a.passArgs(f, passed)
+	w.noteBodyArgs(f, passed)
 	if w.a.report {
 		w.reportEscapes(f, args, passErr, label, argOf)
 	} else {
@@ -728,10 +718,24 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 		}
 		only[lit] = true
 	}
+	body := -1 // whether the func value may be a loop body's closure, once known
 	for _, fv := range w.a.funcCandidates(t.sig) {
 		f := fv.f
 		if only != nil && !only[f.lit] {
 			continue
+		}
+		if f.loopBody {
+			// A loop body is called only through what its closure was passed
+			// to (noteBodyArgs).
+			if body < 0 {
+				body = 0
+				if w.carriesBody(t.fv) {
+					body = 1
+				}
+			}
+			if body == 0 {
+				continue
+			}
 		}
 		label := fmt.Sprintf("%s (which may call %s)", t.name, f.name)
 		fargs, mode, fcs := args, recvExact, cs

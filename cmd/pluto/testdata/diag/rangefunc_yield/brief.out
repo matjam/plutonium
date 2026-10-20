@@ -1,0 +1,2 @@
+$DIR/main.p:16:2: cannot pass &x to yield (which may call the loop body at main.p:27), which keeps it after returning
+$DIR/main.p:36:17: cannot pass the loop body to stash, which keeps it after returning

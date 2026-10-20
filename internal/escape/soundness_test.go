@@ -75,6 +75,49 @@ func f() {
 	println(call(L{T0{&x}}))
 }
 func main() { one(); f() }`, "cannot pass L{...} to call"},
+	// The third adversarial review: the body of a range loop over a function
+	// is the yield function the loop passes (section 12.11).
+	{"an iterator yields its own variable to a body that keeps it", `
+var keep *int
+func seq(yield func(*int) bool) {
+	x := 42
+	yield(&x)
+}
+func f() {
+	var last *int
+	for p := range seq {
+		last = p
+	}
+	keep = last
+}
+func main() { f() }`, "cannot pass &x to yield (which may call the loop body at main.p:10)"},
+	{"an iterator keeps yield", `
+var keepY func(*int) bool
+func seq(yield func(*int) bool) { keepY = yield }
+func f() {
+	n := 1
+	for p := range seq {
+		n += *p
+	}
+}
+func main() { f() }`, "cannot pass the loop body to seq, which keeps it"},
+	{"a container's All method yields its own variable", `
+import "pluto/iter"
+type C struct{ n int }
+func (c *C) All() iter.Seq2[int, *int] {
+	return func(yield func(int, *int) bool) {
+		local := c.n
+		yield(0, &local)
+	}
+}
+var keep *int
+func f() {
+	c := C{1}
+	for _, p := range c {
+		keep = p
+	}
+}
+func main() { f() }`, "cannot pass &local to yield"},
 	{"element of an array as a pointer in an interface", `
 type S struct{ n int }
 var keepS *S
@@ -637,6 +680,39 @@ func TestKeepsFrameWays(t *testing.T) {
 // type is not a receiver of another type's method that keeps it, and an
 // interface holding a value that holds no such pointer calls no such method.
 var staysExact = []struct{ name, src string }{
+	{"a loop body that keeps what a vector yields in a variable of its function", `
+import "pluto/vec"
+var a, b int
+func f() int {
+	v := vec.New[*int]()
+	defer v.Free()
+	v.Push(&a)
+	v.Push(&b)
+	var last *int
+	for _, p := range v.All() {
+		last = p
+	}
+	return *last
+}
+func main() { println(f()) }`},
+	{"a loop body that uses its own variable's address while yield runs", `
+func seq(yield func(int) bool) {
+	for i := 0; i < 3; i++ {
+		if !yield(i) {
+			return
+		}
+	}
+}
+func use(p *int) int { return *p }
+func f() int {
+	sum := 0
+	for x := range seq {
+		y := x
+		sum += use(&y)
+	}
+	return sum
+}
+func main() { println(f()) }`},
 	{"a pointer to a whole variable of another type", `
 type S struct{ n int }
 var keepS *S

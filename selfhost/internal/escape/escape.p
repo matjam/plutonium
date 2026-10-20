@@ -98,7 +98,15 @@ type analyzer struct {
 
 	funcs map[*types2.Func]*function // declared functions and methods, by origin
 	lits  map[*ast.FuncLit]*function
-	order []*function // what to analyse: declarations and package initialisers
+	// bodies are the bodies of range loops over functions, as the yield
+	// functions the loops pass (rangefunc.go).
+	bodies map[*ast.RangeStmt]*function
+	// bodyParams are the parameters that may hold the closure of a loop
+	// body, through which a call may call the body (rangefunc.go).
+	bodyParams map[paramRef]bool
+	matchDepth int                        // the nesting of tparamMatches
+	sugar      map[ast.Node]*ast.CallExpr // the calls statements make by sugar (sugar.go)
+	order      []*function                // what to analyse: declarations and package initialisers
 	// ver counts the changes to the facts every function may read, and deps
 	// is what the function being analysed has read of the others (deps.go).
 	ver  globalVers
@@ -227,36 +235,6 @@ func newAnalyzer(prog *load.Program, userResultHolds bool) *analyzer {
 	sort.SortFunc(a.implicitVars, func(a, b *types2.Var) bool { return a.Pos() < b.Pos() })
 	a.scanFields()
 	return a
-}
-
-// staticCallee returns the declared function or concrete method a call
-// names, or nil.
-func (a *analyzer) staticCallee(call *ast.CallExpr) *function {
-	fun := ast.Unparen(call.Fun)
-	switch ix := fun.(type) {
-	case *ast.IndexExpr:
-		fun = ix.X
-	case *ast.IndexListExpr:
-		fun = ix.X
-	}
-	var obj types2.Object
-	switch x := fun.(type) {
-	case *ast.Ident:
-		obj = a.uses[x]
-	case *ast.SelectorExpr:
-		if sel := a.selections[x]; sel != nil {
-			if sel.Kind() != types2.MethodVal || isInterface(sel.Recv()) || len(sel.Index()) != 1 {
-				return nil
-			}
-			obj = sel.Obj()
-		} else {
-			obj = a.uses[x.Sel]
-		}
-	}
-	if fn, ok := obj.(*types2.Func); ok {
-		return a.funcs[fn.Origin()]
-	}
-	return nil
 }
 
 // sigParams lists a signature's receiver and parameters.
@@ -1060,7 +1038,7 @@ func (a *analyzer) sigMatch(fv funcValue, sig *types2.Signature) bool {
 
 // typeMatch reports whether x and y could be the same type in some
 // instantiation: identical, with a type parameter matching the types it is
-// instantiated with (any type, if those are not known), and the rest of
+// instantiated with (none, if it is never instantiated), and the rest of
 // their structure the same.
 func (a *analyzer) typeMatch(x, y types2.Type) bool {
 	if !containsTypeParam(x) && !containsTypeParam(y) {
@@ -1117,7 +1095,37 @@ func (a *analyzer) typeMatch(x, y types2.Type) bool {
 		return true
 	}
 	// Other composite types with type parameters inside: assume they can
-	// match.
+	// match if they are of the same kind. Types of different kinds (a basic
+	// type and a func type) are never identical.
+	return sameTypeKind(x, y)
+}
+
+// sameTypeKind reports whether x and y are types of the same kind: both
+// maps, both channels, both basic types, and so on.
+func sameTypeKind(x, y types2.Type) bool {
+	switch x.(type) {
+	case *types2.Basic:
+		_, ok := y.(*types2.Basic)
+		return ok
+	case *types2.Map:
+		_, ok := y.(*types2.Map)
+		return ok
+	case *types2.Chan:
+		_, ok := y.(*types2.Chan)
+		return ok
+	case *types2.Struct:
+		_, ok := y.(*types2.Struct)
+		return ok
+	case *types2.Interface:
+		_, ok := y.(*types2.Interface)
+		return ok
+	case *types2.Signature:
+		_, ok := y.(*types2.Signature)
+		return ok
+	case *types2.Named:
+		_, ok := y.(*types2.Named)
+		return ok
+	}
 	return true
 }
 
@@ -1154,20 +1162,34 @@ func (a *analyzer) neverInstantiated(f *function) bool {
 // tparamMatches reports whether type parameter tp may be instantiated
 // with a type matching t.
 func (a *analyzer) tparamMatches(tp *types2.TypeParam, t types2.Type) bool {
-	if _, ok := types2.Unalias(t).(*types2.TypeParam); ok {
-		return true
+	if a.matchDepth > maxMatchDepth {
+		return true // instantiations made of themselves: assume they can
 	}
-	insts := a.tparamTypes(tp)
-	if len(insts) == 0 {
-		return true // not known: assume it can
+	a.matchDepth++
+	defer func() { a.matchDepth-- }()
+	// A type parameter the program never instantiates belongs to a generic
+	// function or type that never runs (tparamTypes follows instantiations
+	// with other type parameters to theirs): no value matches it. Two type
+	// parameters match if some of their instantiations do.
+	var others []types2.Type
+	if tq, ok := types2.Unalias(t).(*types2.TypeParam); ok {
+		others = a.tparamTypes(tq)
+	} else {
+		others = []types2.Type{t}
 	}
-	for _, u := range insts {
-		if a.typeMatch(u, t) {
-			return true
+	for _, u := range a.tparamTypes(tp) {
+		for _, v := range others {
+			if a.typeMatch(u, v) {
+				return true
+			}
 		}
 	}
 	return false
 }
+
+// maxMatchDepth bounds the nesting of tparamMatches through instantiations
+// that hold type parameters.
+const maxMatchDepth = 8
 
 func containsTypeParam(t types2.Type) bool {
 	switch t := t.(type) {

@@ -1,0 +1,71 @@
+package escape
+
+import (
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// Method calls that statements make by sugar: a range over a container
+// calls its All method (language spec section 12.10), and an index
+// expression on a container calls Index, or SetIndex when it is assigned to
+// (section 11.11). They are checked as the calls they stand for.
+
+// sugarCall returns the call expression x.name() stands for, made once per
+// node so that what the analysis keeps by node (the region of a call that
+// returns closures) is the same in every walk.
+func (a *analyzer) sugarCall(node ast.Node, x ast.Expr, name string) *ast.CallExpr {
+	if a.sugar == nil {
+		a.sugar = map[ast.Node]*ast.CallExpr{}
+	}
+	if e := a.sugar[node]; e != nil {
+		return e
+	}
+	sel := &ast.SelectorExpr{X: x, Sel: &ast.Ident{NamePos: x.End(), Name: name}}
+	e := &ast.CallExpr{Fun: sel, Lparen: x.End(), Rparen: x.End()}
+	a.sugar[node] = e
+	return e
+}
+
+// sugarTarget is target for the method call x.name(...) that a statement
+// makes by sugar. ok is false if x has no such method.
+func (w *walker) sugarTarget(x ast.Expr, name string) (t callTarget, ok bool) {
+	T := w.typeOf(x)
+	if T == nil {
+		return callTarget{}, false
+	}
+	obj, path, _ := types2.LookupFieldOrMethod(T, true, w.f.pkg.Types, name)
+	fn, ok := obj.(*types2.Func)
+	if !ok {
+		return callTarget{}, false
+	}
+	sig := fn.Type().(*types2.Signature)
+	label := exprText(x) + "." + name
+	if r := sig.Recv(); r != nil && isInterface(r.Type()) {
+		_, byName := types2.Unalias(T).(*types2.TypeParam)
+		if p := pointerElem(T); p != nil {
+			_, byName = types2.Unalias(p).(*types2.TypeParam)
+		}
+		return callTarget{sig: sig, recv: w.value(x), hasRecv: true, recvExpr: x, recvKey: x, method: name, byName: byName, name: label}, true
+	}
+	f := w.a.funcs[fn.Origin()]
+	recvExpr := x
+	if r := sig.Recv(); r != nil && pointerElem(r.Type()) != nil && pointerElem(T) == nil {
+		recvExpr = &ast.UnaryExpr{OpPos: x.Pos(), Op: token.AND, X: x}
+	}
+	return callTarget{static: f, sig: sig, recv: w.receiverOf(x, fn, path), hasRecv: true, recvExpr: recvExpr, recvKey: x, name: w.funcLabel(f, fn)}, true
+}
+
+// applyTarget applies the call e of t to args (receiver first) and returns
+// what its nres results may point to.
+func (w *walker) applyTarget(e *ast.CallExpr, t callTarget, args []tset, cs *callSite, nres int) []tset {
+	switch {
+	case t.static != nil:
+		return w.regionResults(e, t, args, w.apply(t.static, args, cs, t.name, recvExact, nres))
+	case t.method != "":
+		return w.regionResults(e, t, args, w.dynIface(t, args, cs, nres))
+	case t.dynFunc:
+		return w.regionResults(e, t, args, w.dynFuncCall(t, args, cs, e.Fun, nres))
+	}
+	return make([]tset, nres)
+}
