@@ -9,7 +9,6 @@
 package load
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"github.com/matjam/plutonium/internal/syntax/constraint"
@@ -495,7 +494,7 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		}
 	}
 	if len(list) > 0 {
-		return nil, list
+		return nil, &list
 	}
 	l.packages[importPath] = pkg
 	l.order = append(l.order, pkg)
@@ -562,7 +561,7 @@ func (l *loader) parse(pkg *Package, src source) error {
 		}
 	}
 	if len(errs) > 0 {
-		return errs
+		return &errs
 	}
 	if len(pkg.Files) == 0 {
 		return fail(diag.NoSourceFiles, "package %q: no Plutonium source files for this build", pkg.Path)
@@ -649,9 +648,8 @@ func nameMatches(tags map[string]bool, name string) bool {
 // constraintMatches evaluates the //pu:build line (or #pu:build in assembly)
 // before the package clause.
 func constraintMatches(tags map[string]bool, data []byte, isAsm bool) (bool, error) {
-	sc := bufio.NewScanner(strings.NewReader(string(data)))
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+	for line := range strings.Lines(string(data)) {
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}

@@ -276,7 +276,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		l.checkContexts()
 	}
 	if len(l.errs) > 0 {
-		return nil, l.errs
+		return nil, &l.errs
 	}
 	l.dropUnusedGlobals()
 	sort.Slice(l.out.Funcs, func(i, j int) bool { return l.out.Funcs[i].Name < l.out.Funcs[j].Name })

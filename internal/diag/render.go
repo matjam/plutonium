@@ -38,8 +38,8 @@ func (p *Printer) Print(err error) {
 	case nil:
 	case *Diagnostic:
 		p.diagnostic(e)
-	case List:
-		for _, d := range e {
+	case *List:
+		for _, d := range *e {
 			p.diagnostic(d)
 		}
 	case scanner.ErrorList:

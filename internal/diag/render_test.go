@@ -27,7 +27,7 @@ func TestPrint(t *testing.T) {
 		{Pos: pos(5, 2), Code: CheckerCode(typerr.InvalidCond), Msg: "non-boolean condition in if statement"},
 		{Pos: pos(9, 2), Code: CheckerCode(typerr.InvalidCond), Msg: "non-boolean condition in if statement"},
 	}
-	err := errors.Join(list, errors.New("some other failure\n"))
+	err := errors.Join(&list, errors.New("some other failure\n"))
 	var b strings.Builder
 	Print(&b, err, false)
 	want := `main.p:4:2: declared and not used: x
@@ -62,7 +62,7 @@ some other failure
 	if got := list.Error(); got != "main.p:4:2: declared and not used: x\nmain.p:5:2: non-boolean condition in if statement\nmain.p:9:2: non-boolean condition in if statement" {
 		t.Errorf("List.Error() = %q", got)
 	}
-	if (List{}).Err() != nil || list.Err() == nil {
+	if (&List{}).Err() != nil || list.Err() == nil {
 		t.Error("List.Err")
 	}
 	var d *Diagnostic
@@ -171,7 +171,7 @@ func TestFromTool(t *testing.T) {
 			`running ld failed: exec: "ld": executable file not found in $PATH`, "GNU linker (ld)"},
 	}
 	for _, tc := range tests {
-		d := FromTool(tc.tool, tc.err, tc.output, map[string]string{"/tmp/w/p_0.s": "pkg/x.s"})
+		d := FromTool(tc.tool, errors.Is(tc.err, exec.ErrNotFound), tc.err.Error(), tc.output, map[string]string{"/tmp/w/p_0.s": "pkg/x.s"})
 		first, rest, _ := strings.Cut(d.Msg, "\n")
 		if d.Code != tc.code || first != tc.first || !strings.Contains(d.Text, tc.text) {
 			t.Errorf("%s %q:\ncode %s, first line %q, text %q", tc.tool, tc.output, d.Code, first, d.Text)

@@ -3,7 +3,6 @@ package diag
 import (
 	"fmt"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -49,7 +48,7 @@ func FromChecker(err error, ctx *CheckContext) *Diagnostic {
 		return d
 	}
 	if f := specialisers[code]; f != nil && ctx != nil && ctx.Info != nil {
-		s := &spec{CheckContext: ctx, pos: te.Pos, d: d, first: strings.SplitN(te.Msg, "\n", 2)[0]}
+		s := &spec{CheckContext: ctx, pos: te.Pos, d: d, first: firstLine(te.Msg)}
 		s.path = s.enclosing(te.Pos)
 		s.run(f)
 	}
@@ -302,17 +301,10 @@ func plural(n int, what string) string {
 // ----------------------------------------------------------------------------
 // Assignability
 
-var (
-	cannotUse      = regexp.MustCompile(`^cannot use (.+) as (.+?) value in (.+?)(?:: (.+))?$`)
-	consumesRecv   = regexp.MustCompile(`^(.+) does not implement (.+?) \(method (\w+) has a value receiver of owner type`)
-	doesNotImpl    = regexp.MustCompile(`^(.+) does not implement (.+?) \((missing method|method) (\w+)(\)| has pointer receiver\))`)
-	overflowSuffix = regexp.MustCompile(` \((overflows|truncated)\)$`)
-)
-
 // explainAssign explains "cannot use x (variable of type V) as T value in
 // context": what the target holds, what the value is, and how to convert.
 func explainAssign(s *spec) {
-	m := cannotUse.FindStringSubmatch(s.first)
+	m := matchCannotUse(s.first)
 	if m == nil {
 		return
 	}
@@ -329,14 +321,14 @@ func explainAssign(s *spec) {
 	}
 	var text []string
 	if cause != "" {
-		if mm := consumesRecv.FindStringSubmatch(cause); mm != nil {
+		if mm := matchConsumesRecv(cause); mm != nil {
 			s.explainConsumes(src, V, T, mm[3])
 			if target != "" && s.d.Text != "" {
 				s.d.Text = fmt.Sprintf("%s, so it can only hold values whose type has every method of %s.\n%s", target, s.str(T), s.d.Text)
 			}
 			return
 		}
-		if mm := doesNotImpl.FindStringSubmatch(cause); mm != nil {
+		if mm := matchDoesNotImpl(cause); mm != nil {
 			s.explainImplements(src, V, T, mm[4], mm[5] != ")", context == "return statement")
 			if target != "" && s.d.Text != "" {
 				s.d.Text = fmt.Sprintf("%s, so it can only hold values whose type has every method of %s.\n%s", target, s.str(T), s.d.Text)
@@ -588,8 +580,8 @@ var intRanges = map[string][2]string{
 
 // explainOverflow explains a constant that does not fit its type.
 func explainOverflow(s *spec) {
-	line := overflowSuffix.ReplaceAllString(s.first, "")
-	m := cannotUse.FindStringSubmatch(line)
+	line := trimOverflowSuffix(s.first)
+	m := matchCannotUse(line)
 	if m == nil {
 		return
 	}
@@ -620,12 +612,10 @@ var stdPackages = map[string]string{
 	"x86": "pluto/arch/x86",
 }
 
-var undefinedName = regexp.MustCompile(`^undefined: (\w+)`)
-
 // explainUndeclared explains "undefined: x": a missing import, a name
 // declared after its use, or a misspelling of a name in scope.
 func explainUndeclared(s *spec) {
-	m := undefinedName.FindStringSubmatch(s.first)
+	m := matchUndefinedName(s.first)
 	if m == nil {
 		return
 	}
@@ -677,11 +667,9 @@ func explainUndeclared(s *spec) {
 	s.d.Text = base + " Check the spelling (names are case-sensitive), declare it before this point with var or :=, or import the package it belongs to."
 }
 
-var undefinedQualified = regexp.MustCompile(`^undefined: (\w+)\.(\w+)`)
-
 // explainImportedName explains "undefined: pkg.Name".
 func explainImportedName(s *spec) {
-	m := undefinedQualified.FindStringSubmatch(s.first)
+	m := matchUndefinedQualified(s.first)
 	if m == nil {
 		return
 	}
@@ -806,11 +794,9 @@ func explainResultCount(s *spec) {
 	}
 }
 
-var inferMsg = regexp.MustCompile(`^in call to (.+), cannot infer (\w+)`)
-
 // explainInfer explains type arguments that a call does not determine.
 func explainInfer(s *spec) {
-	m := inferMsg.FindStringSubmatch(s.first)
+	m := matchInfer(s.first)
 	if m == nil {
 		return
 	}
@@ -880,11 +866,9 @@ func explainMissingReturn(s *spec) {
 // ----------------------------------------------------------------------------
 // Unused names
 
-var unusedVar = regexp.MustCompile(`declared and not used: (\w+)|^(\w+) declared and not used`)
-
 // explainUnusedVar explains a variable whose value is never used.
 func explainUnusedVar(s *spec) {
-	m := unusedVar.FindStringSubmatch(s.first)
+	m := matchUnusedVar(s.first)
 	if m == nil {
 		return
 	}
@@ -892,8 +876,6 @@ func explainUnusedVar(s *spec) {
 	s.d.Text = fmt.Sprintf("%s is declared on %s, but its value is never used. Plutonium, like Go, treats this as an error, because an unused variable often means a mistake, such as assigning to the wrong variable or forgetting a check.\nDelete the variable, use it, or replace it with _ where it is declared if you only need the other values.", name, s.where(s.pos))
 	s.d.Fix = &Fix{Intro: "To keep it for now", Code: "_ = " + name}
 }
-
-var unusedImport = regexp.MustCompile(`^"([^"]+)" imported (?:as (\w+) )?and not used`)
 
 // explainUnusedImport explains an import the file does not use.
 // explainOrCount explains the left side of an or statement whose number of
@@ -909,7 +891,7 @@ func explainOrCount(s *spec) {
 }
 
 func explainUnusedImport(s *spec) {
-	m := unusedImport.FindStringSubmatch(s.first)
+	m := matchUnusedImport(s.first)
 	if m == nil {
 		return
 	}
@@ -923,11 +905,9 @@ func explainUnusedImport(s *spec) {
 // ----------------------------------------------------------------------------
 // Operators
 
-var mismatched = regexp.MustCompile(`\(mismatched types (.+) and (.+)\)$`)
-
 // explainMismatched explains a binary operation on operands of two types.
 func explainMismatched(s *spec) {
-	if !mismatched.MatchString(s.first) {
+	if !isMismatched(s.first) {
 		return
 	}
 	var bin *ast.BinaryExpr
@@ -967,11 +947,9 @@ func explainMismatched(s *spec) {
 	s.d.Text = text
 }
 
-var undefinedOp = regexp.MustCompile(`operator (\S+) not defined on (.+)$`)
-
 // explainUndefinedOp explains an operator applied to a type without it.
 func explainUndefinedOp(s *spec) {
-	m := undefinedOp.FindStringSubmatch(s.first)
+	m := matchUndefinedOp(s.first)
 	if m == nil {
 		return
 	}

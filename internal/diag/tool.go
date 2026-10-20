@@ -1,29 +1,26 @@
 package diag
 
 import (
-	"errors"
 	"fmt"
-	"os/exec"
-	"regexp"
 	"strings"
 )
 
 // FromTool returns the diagnostic for a failed run of an external tool:
-// the assembler (as), the linker (ld) or the C compiler. err is what
-// running it returned, and output its error output. rename maps the
+// the assembler (as), the linker (ld) or the C compiler. cause is what
+// running it returned (its error text; notFound is set when the tool was
+// not found), and output its error output. rename maps the
 // temporary file names the tool saw to the names the user knows.
 //
 // The message starts "running <tool> failed: ", followed by the cause
 // when it is one of the common ones, and then the tool's output, indented.
-func FromTool(tool string, err error, output string, rename map[string]string) *Diagnostic {
+func FromTool(tool string, notFound bool, cause, output string, rename map[string]string) *Diagnostic {
 	for from, to := range rename {
 		output = strings.ReplaceAll(output, from, to)
 	}
 	output = strings.TrimRight(output, "\n")
 	d := &Diagnostic{Code: LinkFailed}
-	cause := err.Error()
 	switch {
-	case errors.Is(err, exec.ErrNotFound):
+	case notFound:
 		d.Code = ToolNotFound
 		d.Text = fmt.Sprintf("Plutonium uses the system's %s, which is not installed or not on the PATH. On most Linux systems the binutils package provides as and ld, and a C compiler package provides cc.", toolName(tool))
 	case tool == "as":
@@ -50,21 +47,13 @@ func toolName(tool string) string {
 	return "C compiler (" + tool + ")"
 }
 
-var (
-	undefinedRef = regexp.MustCompile("undefined reference to `([^']*)'")
-	inFunction   = regexp.MustCompile("in function `([^']*)'")
-	relocTrunc   = regexp.MustCompile("relocation truncated to fit: (R_X86_64_[A-Z0-9]+) against (?:symbol )?`?([^' ]*)'?")
-	multipleDef  = regexp.MustCompile("multiple definition of `([^']*)'")
-)
-
 // linkCause recognises the common linker failures in ld's output and
 // returns the cause for the message, the code and an explanation.
 func linkCause(output, status string) (string, Code, string) {
-	if m := undefinedRef.FindStringSubmatch(output); m != nil {
-		sym := m[1]
+	if sym, ok := matchQuoted(output, "undefined reference to `"); ok {
 		user := ""
-		if f := inFunction.FindStringSubmatch(output); f != nil {
-			user = f[1]
+		if f, ok := matchQuoted(output, "in function `"); ok {
+			user = f
 		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "The program uses the symbol %s", sym)
@@ -79,13 +68,13 @@ func linkCause(output, status string) (string, Code, string) {
 		}
 		return "undefined reference to " + sym, UndefinedSymbol, b.String()
 	}
-	if m := relocTrunc.FindStringSubmatch(output); m != nil {
-		text := fmt.Sprintf("The code reaches %s with a %s relocation, a 32-bit offset, and the linker placed it too far away for that. Compiled Plutonium code expects all code and data within 2 GiB of each other: near address 0 in hosted builds, and in the top 2 GiB of the address space in kernel mode.\nThe usual cause is a linker script that places a section elsewhere. In kernel mode, link the image at or above 0xFFFFFFFF80000000, as the default kernel linker script does.", m[2], m[1])
-		return "relocation truncated to fit (" + m[1] + " against " + m[2] + ")", RelocOverflow, text
+	if reloc, rsym, ok := matchRelocTrunc(output); ok {
+		text := fmt.Sprintf("The code reaches %s with a %s relocation, a 32-bit offset, and the linker placed it too far away for that. Compiled Plutonium code expects all code and data within 2 GiB of each other: near address 0 in hosted builds, and in the top 2 GiB of the address space in kernel mode.\nThe usual cause is a linker script that places a section elsewhere. In kernel mode, link the image at or above 0xFFFFFFFF80000000, as the default kernel linker script does.", rsym, reloc)
+		return "relocation truncated to fit (" + reloc + " against " + rsym + ")", RelocOverflow, text
 	}
-	if m := multipleDef.FindStringSubmatch(output); m != nil {
-		text := fmt.Sprintf("Two of the objects linked into the program define %s. Rename one of them, or remove the duplicate .s, .c or .o file. A //pu:export name must not also be defined in C or assembly.", m[1])
-		return "multiple definition of " + m[1], MultipleDefs, text
+	if def, ok := matchQuoted(output, "multiple definition of `"); ok {
+		text := fmt.Sprintf("Two of the objects linked into the program define %s. Rename one of them, or remove the duplicate .s, .c or .o file. A //pu:export name must not also be defined in C or assembly.", def)
+		return "multiple definition of " + def, MultipleDefs, text
 	}
 	return status, LinkFailed, ""
 }

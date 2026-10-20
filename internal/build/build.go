@@ -384,7 +384,7 @@ func runIn(cfg *Config, dir string, rename map[string]string, name string, args 
 	cmd.Stderr = &stderr
 	cmd.Stdout = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return diag.FromTool(name, err, stderr.String(), rename)
+		return diag.FromTool(name, errors.Is(err, exec.ErrNotFound), err.Error(), stderr.String(), rename)
 	}
 	return nil
 }
@@ -408,8 +408,8 @@ func prefixed(prefix string, err error) error {
 func joinLifetimeErrors(errs ...error) error {
 	var all diag.List
 	for _, err := range errs {
-		if l, ok := err.(diag.List); ok {
-			all = append(all, l...)
+		if l, ok := err.(*diag.List); ok {
+			all = append(all, *l...)
 		} else if err != nil {
 			return err
 		}

@@ -89,13 +89,14 @@ func New(pos token.Position, code Code, format string, args ...any) *Diagnostic 
 	return &Diagnostic{Pos: pos, Code: code, Msg: fmt.Sprintf(format, args...)}
 }
 
-// A List is several diagnostics, reported together.
+// A List is several diagnostics, reported together. A *List is the error: a
+// pointer fits in the word of an interface, a slice does not.
 type List []*Diagnostic
 
 // Error returns each diagnostic's Error on a line of its own.
-func (l List) Error() string {
+func (l *List) Error() string {
 	var sb strings.Builder
-	for i, d := range l {
+	for i, d := range *l {
 		if i > 0 {
 			sb.WriteByte('\n')
 		}
@@ -105,17 +106,17 @@ func (l List) Error() string {
 }
 
 // Unwrap returns the diagnostics as errors, for errors.Is and errors.As.
-func (l List) Unwrap() []error {
-	errs := make([]error, len(l))
-	for i, d := range l {
+func (l *List) Unwrap() []error {
+	errs := make([]error, len(*l))
+	for i, d := range *l {
 		errs[i] = d
 	}
 	return errs
 }
 
 // Err returns l as an error: nil if l is empty.
-func (l List) Err() error {
-	if len(l) == 0 {
+func (l *List) Err() error {
+	if len(*l) == 0 {
 		return nil
 	}
 	return l

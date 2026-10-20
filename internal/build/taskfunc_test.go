@@ -177,15 +177,15 @@ var _ = time.Second
 			if err == nil {
 				t.Fatal("built, want a compile error")
 			}
-			var list diag.List
+			var list *diag.List
 			if !errors.As(err, &list) {
 				var d *diag.Diagnostic
 				if !errors.As(err, &d) {
 					t.Fatalf("not a diagnostic: %v", err)
 				}
-				list = diag.List{d}
+				list = &diag.List{d}
 			}
-			for _, d := range list {
+			for _, d := range *list {
 				if string(d.Code) == c.code {
 					return
 				}
