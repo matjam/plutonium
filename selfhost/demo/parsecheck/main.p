@@ -101,14 +101,14 @@ func dump(out *compat.Buffer, name string, src []byte, mode parser.Mode) {
 		return
 	}
 	fmt.Fprintf(out, "start %d end %d goversion %q imports %d\n", int(f.FileStart), int(f.FileEnd), f.GoVersion, len(f.Imports))
-	depth := pu.New(0)
-	ast.Inspect(f /* go2pu: closure escapes its frame (passed to a function that keeps it) */, func(n ast.Node) bool {
+	depth := 0
+	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
-			(*depth)--
+			depth--
 			return true
 		}
-		fmt.Fprintf(out, "%d ", (*depth))
-		(*depth)++
+		fmt.Fprintf(out, "%d ", depth)
+		depth++
 		start := fset.Position(n.Pos())
 		end := fset.Position(n.End())
 		fmt.Fprintf(out, "%s %d:%d-%d:%d [%d-%d]%s\n", kind(n), start.Line, start.Column, end.Line, end.Column, int(n.Pos()), int(n.End()), detail(n))

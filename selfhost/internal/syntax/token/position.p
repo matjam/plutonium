@@ -568,7 +568,7 @@ func (s *FileSet) Iterate(yield func(*File) bool) {
 	// Unlock around user code.
 	// The iterator is robust to modification by yield.
 	// Avoid range here, so we can use defer.
-	s.tree.all()( /* go2pu: closure escapes its frame (passed to a function that keeps it) */ func(f *File) bool {
+	s.tree.all()(func(f *File) bool {
 		s.mutex.RUnlock()
 		defer s.mutex.RLock()
 		return yield(f)

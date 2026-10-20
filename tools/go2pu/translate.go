@@ -108,6 +108,7 @@ var stdMap = map[string]string{
 	"errors":          "pluto/errors",
 	"fmt":             "pluto/fmt",
 	"io":              "pluto/io",
+	"io/fs":           "$MOD/compat/fs",
 	"math":            "pluto/math",
 	"math/bits":       "pluto/bits",
 	"os":              "pluto/os",
@@ -135,9 +136,13 @@ var special = map[string]string{
 	"fmt.Sprintln":          "compat.Sprintln",
 	"strings.Builder":       "compat.Builder",
 	"strings.Join":          "compat.Join",
+	"strings.Split":         "compat.Split",
+	"strings.SplitN":        "compat.SplitN",
+	"strings.Fields":        "compat.Fields",
 	"bytes.Buffer":          "compat.Buffer",
 	"bytes.NewBufferString": "compat.NewBufferString",
 	"slices.Insert":         "compat.Insert",
+	"slices.Clone":          "compat.Clone",
 	"runtime.Caller":        "compat.Caller",
 	// The library's Append functions append to a vec.Appender; the compat
 	// forms keep Go's []byte destination, growing it as compat.Append does.
@@ -223,10 +228,11 @@ func (t *fileTr) puNew(e string) string {
 }
 
 const (
-	puPkg     = "$MOD/pu"
-	compatPkg = "$MOD/compat"
-	ioPkg     = "pluto/io"
-	sortPkg   = "pluto/sort"
+	puPkg       = "$MOD/pu"
+	compatPkg   = "$MOD/compat"
+	compatFSPkg = "$MOD/compat/fs"
+	ioPkg       = "pluto/io"
+	sortPkg     = "pluto/sort"
 )
 
 // untranslated lists the Go files that have no Plutonium counterpart, by path
@@ -384,6 +390,15 @@ type translator struct {
 	scopeVars  map[*types.Var]bool   // the variables that become Scopes
 	exports    map[string]map[string]bool
 
+	// Function values that are only called (callonly.go).
+	callOnly       map[types.Object]bool // local func variables that are only called
+	callOnlyParams map[callOnlyKey]bool  // func parameters that are only called
+	funcDecls      map[*types.Func]bool  // the functions declared with a body in the package
+
+	// Values returned in an interface that become pointers (boxing.go).
+	assertedTypes []types.Type
+	boxed, boxing map[ast.Expr]bool
+
 	// Closure conversion (closures.go).
 	cl       *closurePlan
 	ptrSubst map[*ast.Ident]string // the pointer to a captured variable inside a converted closure
@@ -414,7 +429,7 @@ type fileTr struct {
 	src    []byte
 	res    *Result
 	local  map[string]string // Go import path -> local name in this file
-	needed map[string]string // Plutonium import path -> local name
+	needed map[string]string // Plutonium import path and local name (joined by NUL) -> local name
 	subst  map[ast.Node]string
 	extra  []string        // generated declarations
 	gen    map[string]bool // generated declaration names
@@ -492,15 +507,16 @@ func (t *fileTr) importBlock() string {
 	if len(t.needed) == 0 {
 		return ""
 	}
-	var paths []string
-	for p := range t.needed {
-		paths = append(paths, p)
+	var keys []string
+	for k := range t.needed {
+		keys = append(keys, k)
 	}
-	sort.Strings(paths)
+	sort.Strings(keys)
 	var b strings.Builder
 	b.WriteString("import (\n")
-	for _, p := range paths {
-		name := t.needed[p]
+	for _, k := range keys {
+		p, _, _ := strings.Cut(k, "\x00")
+		name := t.needed[k]
 		if name == path.Base(p) {
 			fmt.Fprintf(&b, "\t%q\n", p)
 		} else {
@@ -514,7 +530,9 @@ func (t *fileTr) importBlock() string {
 // use records that the translation refers to package p as name.
 func (t *fileTr) use(p, name string) string {
 	p = strings.ReplaceAll(p, "$MOD", t.cfg.Module)
-	t.needed[p] = name
+	// A package may be imported under several names: Go's path and
+	// path/filepath are both pluto/path/filepath.
+	t.needed[p+"\x00"+name] = name
 	return name
 }
 

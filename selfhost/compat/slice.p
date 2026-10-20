@@ -39,11 +39,11 @@ func Append[T any](s []T, xs ...T) []T {
 // Clone returns a copy of s in memory from alloc.Default(). It translates
 // a slice literal []T{...} that Go's escape analysis moves to the heap: in
 // Plutonium its backing array is in the frame.
-func Clone[T any](s []T) []T {
+func Clone[S ~[]E, E any](s S) S {
 	if s == nil {
 		return nil
 	}
-	c := Make[T](len(s))
+	c := Make[E](len(s))
 	copy(c, s)
 	return c
 }
@@ -206,6 +206,35 @@ func Join(elems []string, sep string) string {
 		b.WriteString(e)
 	}
 	return b.String()
+}
+
+// Split slices s into all substrings separated by sep, as strings.Split. The
+// result is a new slice from alloc.Default().
+func Split(s, sep string) []string { return SplitN(s, sep, -1) }
+
+// SplitN is strings.SplitN: at most n substrings (all of them if n < 0), the
+// last one holding the unsplit remainder; nil if n is 0.
+func SplitN(s, sep string, n int) []string {
+	if n == 0 {
+		return nil
+	}
+	if n < 0 || n > len(s)+1 {
+		if sep == "" {
+			n = utf8.RuneCountInString(s)
+		} else {
+			n = strings.Count(s, sep) + 1
+		}
+	}
+	out := Make[string](n)
+	return out[:strings.SplitInto(s, sep, out)]
+}
+
+// Fields splits s around each run of white space, as strings.Fields. The
+// result is a new slice from alloc.Default().
+func Fields(s string) []string {
+	out := Make[string](strings.FieldsInto(s, nil))
+	strings.FieldsInto(s, out)
+	return out
 }
 
 // PutUint16 stores v in b[0:2], little-endian.

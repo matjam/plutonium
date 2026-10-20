@@ -9,7 +9,6 @@ package ast
 import (
 	"pluto/iter"
 	"selfhost/compat"
-	"selfhost/pu"
 )
 
 // A Visitor's Visit method is invoked for each node encountered by [Walk].
@@ -428,13 +427,13 @@ func Inspect(node Node, f func(Node) bool) {
 // [Inspect] or [PreorderStack].
 func Preorder(root Node) iter.Seq[Node] {
 	return func(yield func(Node) bool) {
-		ok := pu.New(true)
-		Inspect(root /* go2pu: closure escapes its frame (passed to a function that keeps it) */, func(n Node) bool {
+		ok := true
+		Inspect(root, func(n Node) bool {
 			if n != nil {
 				// yield must not be called once ok is false.
-				(*ok) = (*ok) && yield(n)
+				ok = ok && yield(n)
 			}
-			return (*ok)
+			return ok
 		})
 	}
 }
@@ -451,23 +450,21 @@ func Preorder(root Node) iter.Seq[Node] {
 // [Inspect], no second call to f is made after visiting node n.
 // (In practice, the second call is nearly always used only to pop the
 // stack, and it is surprisingly tricky to do this correctly.)
-func PreorderStack(root Node, gostack []Node, f func(n Node, stack []Node) bool) {
-	stack := pu.New(gostack)
-
-	before := len((*stack))
-	Inspect(root /* go2pu: closure escapes its frame (passed to a function that keeps it) */, func(n Node) bool {
+func PreorderStack(root Node, stack []Node, f func(n Node, stack []Node) bool) {
+	before := len(stack)
+	Inspect(root, func(n Node) bool {
 		if n != nil {
-			if !f(n, (*stack)) {
+			if !f(n, stack) {
 				// Do not push, as there will be no corresponding pop.
 				return false
 			}
-			(*stack) = compat.Append((*stack), n) // push
+			stack = compat.Append(stack, n) // push
 		} else {
-			(*stack) = (*stack)[:len((*stack))-1] // pop
+			stack = stack[:len(stack)-1] // pop
 		}
 		return true
 	})
-	if len((*stack)) != before {
+	if len(stack) != before {
 		panic("push/pop mismatch")
 	}
 }

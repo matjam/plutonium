@@ -111,6 +111,10 @@ type closurePlan struct {
 	typeConv map[*ast.FuncType]*types.Signature
 	slotConv map[slotKey]bool // by slot, after planning
 
+	// extraKeeps holds the func variables of functions that converted
+	// closures capture (see decide).
+	extraKeeps map[*types.Var]bool
+
 	// Generated declarations, shared by the files of the package.
 	ifaces   map[string]string
 	adapters map[string]string
@@ -668,7 +672,7 @@ func (p *closurePlan) keeps(k slotKey) bool {
 	if v.IsField() {
 		return true
 	}
-	if v.Parent() == p.tc.pkg.Scope() {
+	if v.Parent() == p.tc.pkg.Scope() || p.extraKeeps[v] {
 		return true
 	}
 	return p.leakingParam(v)
@@ -987,34 +991,36 @@ func (p *closurePlan) decide(res *Result) {
 		roots = append(roots, r)
 	}
 	sort.Slice(roots, func(i, j int) bool { return p.slotPos(roots[i]) < p.slotPos(roots[j]) })
-	converted := map[slotKey]bool{}
-	for _, r := range roots {
-		members := groups[r]
-		keeps := false
-		for _, m := range members {
-			if p.keeps(m) {
-				keeps = true
+	// A func variable of a function that a converted closure captures keeps
+	// what it holds as long as the closure lives, so the group of its slots
+	// keeps too, and may convert closures in its turn: repeat until no
+	// variable is added. The notes of a group that cannot convert are
+	// made once, by the last pass.
+	var converted map[slotKey]bool
+	for {
+		converted = p.convertible(nil, roots, groups, litsOf)
+		added := false
+		for _, r := range roots {
+			if !converted[r] {
+				continue
+			}
+			for _, lit := range litsOf[r] {
+				for _, v := range tc.capturedVars(lit) {
+					if isSig(v.Type()) && !v.IsField() && !p.extraKeeps[v] {
+						if p.extraKeeps == nil {
+							p.extraKeeps = map[*types.Var]bool{}
+						}
+						p.extraKeeps[v] = true
+						added = true
+					}
+				}
 			}
 		}
-		var capturing []*ast.FuncLit
-		for _, lit := range litsOf[r] {
-			if len(tc.capturedVars(lit)) > 0 {
-				capturing = append(capturing, lit)
-			}
+		if !added {
+			break
 		}
-		if !keeps || len(capturing) == 0 {
-			continue
-		}
-		sort.Slice(capturing, func(i, j int) bool { return capturing[i].Pos() < capturing[j].Pos() })
-		if why, at := p.problem(members, litsOf[r]); why != "" {
-			if at == nil {
-				at = capturing[0]
-			}
-			tc.noteRes(res, at, "closure conversion refused for the func values stored here (%s); the closures stay and Plutonium reports them: hand-fix", why)
-			continue
-		}
-		converted[r] = true
 	}
+	converted = p.convertible(res, roots, groups, litsOf)
 	for _, r := range roots {
 		if !converted[r] {
 			continue
@@ -1101,6 +1107,44 @@ func (p *closurePlan) decide(res *Result) {
 			}
 		}
 	}
+}
+
+// convertible returns the groups (by root) that convert: those with a place
+// that keeps its values and a capturing literal, that nothing prevents. If
+// res is not nil, the groups that would convert but cannot get a note.
+func (p *closurePlan) convertible(res *Result, roots []slotKey, groups map[slotKey][]slotKey, litsOf map[slotKey][]*ast.FuncLit) map[slotKey]bool {
+	tc := p.tc
+	converted := map[slotKey]bool{}
+	for _, r := range roots {
+		members := groups[r]
+		keeps := false
+		for _, m := range members {
+			if p.keeps(m) {
+				keeps = true
+			}
+		}
+		var capturing []*ast.FuncLit
+		for _, lit := range litsOf[r] {
+			if len(tc.capturedVars(lit)) > 0 {
+				capturing = append(capturing, lit)
+			}
+		}
+		if !keeps || len(capturing) == 0 {
+			continue
+		}
+		sort.Slice(capturing, func(i, j int) bool { return capturing[i].Pos() < capturing[j].Pos() })
+		if why, at := p.problem(members, litsOf[r]); why != "" {
+			if res != nil {
+				if at == nil {
+					at = capturing[0]
+				}
+				tc.noteRes(res, at, "closure conversion refused for the func values stored here (%s); the closures stay and Plutonium reports them: hand-fix", why)
+			}
+			continue
+		}
+		converted[r] = true
+	}
+	return converted
 }
 
 // problem returns why the slots of a group cannot be converted, or "".
@@ -1382,7 +1426,10 @@ func (t *fileTr) declareClosure(lit *ast.FuncLit, cl *closureLit) {
 		field := "goSelf." + cl.field[v]
 		text := field
 		if cl.ptr[v] {
-			if sel, ok := t.parent[id].(*ast.SelectorExpr); !ok || sel.X != id {
+			// x.f dereferences the pointer to a struct variable itself; a
+			// variable that is a pointer needs the explicit (*x).
+			_, isPtr := v.Type().Underlying().(*types.Pointer)
+			if sel, ok := t.parent[id].(*ast.SelectorExpr); !ok || sel.X != id || isPtr {
 				text = "(*" + field + ")"
 			}
 			if old, had := t.ptrSubst[id]; had {

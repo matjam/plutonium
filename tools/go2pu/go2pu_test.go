@@ -19,6 +19,7 @@ import (
 var translations = []struct {
 	dir  string // Go package, relative to this directory
 	demo bool   // a main package under testdata, translated to selfhost/demo
+	slow bool   // the demo imports the translated type checker, which the escape analysis cannot build in reasonable time yet (GO2PU_SLOW=1 builds it anyway)
 }{
 	{dir: "../../internal/objfile"},
 	{dir: "../../internal/ssa"},
@@ -33,17 +34,29 @@ var translations = []struct {
 	{dir: "../../internal/syntax/scanner"},
 	{dir: "../../internal/syntax/ast"},
 	{dir: "../../internal/syntax/parser"},
+	{dir: "../../internal/types2/errors"},
+	{dir: "../../internal/goversion"},
+	{dir: "../../internal/types2"},
+	{dir: "../../internal/diag"},
+	{dir: "../../internal/directive"},
+	{dir: "../../internal/scoped"},
+	{dir: "../../internal/load"},
+	{dir: "../../internal/escape"},
+	{dir: "../../internal/moves"},
+	{dir: "../../internal/race"},
+	{dir: "../../internal/lower"},
 	{dir: "testdata/objdemo", demo: true},
 	{dir: "testdata/ssademo", demo: true},
 	{dir: "testdata/amd64demo", demo: true},
 	{dir: "testdata/optdemo", demo: true},
 	{dir: "testdata/rewrites", demo: true},
-	{dir: "testdata/scopes", demo: true},     // WaitGroups rewritten to Scopes
-	{dir: "testdata/pudemo", demo: true},     // internal/pu, translated name for name
-	{dir: "testdata/ssaback", demo: true},    // the back end as a program (TestMixedPipeline)
-	{dir: "testdata/constdemo", demo: true},  // the constant package
-	{dir: "testdata/parsecheck", demo: true}, // the syntax packages, over the repository (TestParseCheck)
-	{dir: "testdata/closures", demo: true},   // closures that outlive their frame, converted to structs
+	{dir: "testdata/scopes", demo: true},               // WaitGroups rewritten to Scopes
+	{dir: "testdata/pudemo", demo: true},               // internal/pu, translated name for name
+	{dir: "testdata/ssaback", demo: true},              // the back end as a program (TestMixedPipeline)
+	{dir: "testdata/constdemo", demo: true},            // the constant package
+	{dir: "testdata/parsecheck", demo: true},           // the syntax packages, over the repository (TestParseCheck)
+	{dir: "testdata/closures", demo: true},             // closures that outlive their frame, converted to structs
+	{dir: "testdata/diagdemo", demo: true, slow: true}, // the diagnostics, over the golden files (TestDiagDemoRecords)
 }
 
 const selfhostDir = "../../selfhost"
@@ -115,6 +128,10 @@ func TestDifferential(t *testing.T) {
 			continue
 		}
 		name := filepath.Base(tr.dir)
+		if tr.slow && os.Getenv("GO2PU_SLOW") == "" {
+			t.Logf("skipping %s: it builds the translated type checker (set GO2PU_SLOW=1)", name)
+			continue
+		}
 		// The demos and their levels build and run in parallel, after
 		// TestTranslationsUpToDate (which is not parallel) has checked
 		// or regenerated the translations.
@@ -161,14 +178,18 @@ func TestCompat(t *testing.T) {
 	if _, err := exec.LookPath("ld"); err != nil {
 		t.Skip("no linker")
 	}
-	bin := filepath.Join(t.TempDir(), "compat.test")
-	cfg := &build.Config{Output: bin, Stdlib: plutonium.Stdlib()}
-	if _, err := build.BuildTest(cfg, filepath.Join(selfhostDir, "compat"), &build.TestOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	out, err := exec.Command(bin).CombinedOutput()
-	if err != nil {
-		t.Fatalf("%v\n%s", err, out)
+	for _, pkg := range []string{"compat", "compat/fs"} {
+		t.Run(pkg, func(t *testing.T) {
+			bin := filepath.Join(t.TempDir(), "compat.test")
+			cfg := &build.Config{Output: bin, Stdlib: plutonium.Stdlib()}
+			if _, err := build.BuildTest(cfg, filepath.Join(selfhostDir, pkg), &build.TestOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			out, err := exec.Command(bin).CombinedOutput()
+			if err != nil {
+				t.Fatalf("%v\n%s", err, out)
+			}
+		})
 	}
 }
 
@@ -206,7 +227,7 @@ func TestHandFixNotes(t *testing.T) {
 	// x is captured by a closure that outlives main, so it moves to the
 	// heap. Maps translate as they are, deleting while ranging included.
 	src := string(res.Files[0].Src)
-	for _, want := range []string{"x := pu.New(1)", "(*x)++", "m := map[string]int{\"a\": 1}", "for k := range m {\n\t\tdelete(m, k)", `compat.Runes("é")`, "task /* go2pu: closure escapes its frame (passed to a function that keeps it) */ func(v int) { ch <- v }(c())"} {
+	for _, want := range []string{"x := pu.New(1)", "return pu.New(big{1, 2, 3})", "(*x)++", "m := map[string]int{\"a\": 1}", "for k := range m {\n\t\tdelete(m, k)", `compat.Runes("é")`, "task /* go2pu: closure escapes its frame (passed to a function that keeps it) */ func(v int) { ch <- v }(c())"} {
 		if !strings.Contains(src, want) {
 			t.Errorf("translation lacks %q:\n%s", want, src)
 		}

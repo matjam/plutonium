@@ -45,6 +45,32 @@ func TestAppendConcat(t *testing.T) {
 	}
 }
 
+func eqStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestSplitFields(t *testing.T) {
+	if !eqStrings(Split("a\nb\n\nc", "\n"), []string{"a", "b", "", "c"}) || !eqStrings(Split("", ","), []string{""}) ||
+		!eqStrings(Split("abc", ""), []string{"a", "b", "c"}) || len(Split("", "")) != 0 || !eqStrings(Split("xyz", "q"), []string{"xyz"}) {
+		t.Fatalf("Split")
+	}
+	if !eqStrings(SplitN("a,b,c,d", ",", 2), []string{"a", "b,c,d"}) || SplitN("a,b", ",", 0) != nil ||
+		!eqStrings(SplitN("a,b", ",", 99), []string{"a", "b"}) || !eqStrings(SplitN("é世x", "", 2), []string{"é", "世x"}) {
+		t.Fatalf("SplitN")
+	}
+	if !eqStrings(Fields("  a  bb\t c\n"), []string{"a", "bb", "c"}) || len(Fields("   ")) != 0 || len(Fields("")) != 0 {
+		t.Fatalf("Fields")
+	}
+}
+
 func TestSprintfNewError(t *testing.T) {
 	if s := Sprintf("v%d %s %q", 3, "x", "y"); s != `v3 x "y"` {
 		t.Fatalf("Sprintf: %s", s)

@@ -16,6 +16,16 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 	if s, ok := t.subst[n]; ok {
 		return s, true
 	}
+	if e, ok := n.(ast.Expr); ok && t.boxed[e] && !t.boxing[e] {
+		// A value returned in an interface becomes a pointer (boxing.go).
+		t.boxing[e] = true
+		s, ok := t.rewrite(e)
+		if !ok {
+			s = t.splice(e)
+		}
+		delete(t.boxing, e)
+		return t.puNew(s), true
+	}
 	if e, ok := t.scopeEdits[n]; ok {
 		return t.scopeRewrite(n, e), true
 	}
@@ -27,9 +37,16 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 		t.checkBinaryString(n)
 	case *ast.Ident:
 		name := goName(n.Name)
+		if _, isPkg := t.info.ObjectOf(n).(*types.PkgName); isPkg {
+			name = n.Name // a package qualifier keeps its name
+		}
 		if t.isHeapUse(n) {
 			if sel, ok := t.parent[n].(*ast.SelectorExpr); ok && sel.X == n {
-				return name, true // x.f and x.m() dereference the pointer themselves
+				// x.f and x.m() dereference the pointer to a struct variable
+				// themselves; a pointer variable needs the explicit (*x).
+				if _, isPtr := t.typeOf(n).Underlying().(*types.Pointer); !isPtr {
+					return name, true
+				}
 			}
 			return "(*" + name + ")", true
 		}
@@ -117,6 +134,18 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 	case *ast.ChanType:
 		t.note(n, "channel type: channels are planned (roadmap item 15)")
 	case *ast.DeferStmt:
+		if t.isGuardRecover(n) {
+			// A guard that keeps the work going when a helper panics
+			// ("an explanation is not worth a crash"): a panic in
+			// Plutonium ends the task, and the helper must not have
+			// one. The guard is dropped.
+			// The variables it used stay used.
+			s := "/* go2pu: deferred recover dropped: a panic is not recovered in Plutonium */"
+			for _, v := range t.guardVars(n) {
+				s += "\n_ = " + goName(v)
+			}
+			return s, true
+		}
 		if t.inLoop(n) {
 			t.note(n, "defer in a loop: rejected by Plutonium")
 		}
@@ -125,9 +154,11 @@ func (t *fileTr) rewrite(n ast.Node) (string, bool) {
 }
 
 // plutoKeywords are the reserved words of Plutonium that are not keywords of
-// Go (language spec appendix B): an identifier of that spelling gets an
-// underscore.
-var plutoKeywords = map[string]bool{"enum": true, "packed": true}
+// Go (language spec appendix B), and the names of the packages the
+// translation refers to by a fixed name (pu.New, compat.Append): a variable,
+// field or function of that spelling gets an underscore, so that it does not
+// hide the package.
+var plutoKeywords = map[string]bool{"enum": true, "packed": true, "pu": true, "compat": true}
 
 // goName returns the Plutonium spelling of the Go identifier name.
 func goName(name string) string {
@@ -192,6 +223,10 @@ func (t *fileTr) qualified(sel *ast.SelectorExpr) (string, bool) {
 			return "", false
 		}
 		return t.use(r.pkg, r.local) + "." + r.name, true
+	}
+	if fsName, ok := t.local["io/fs"]; ok && p == "os" && (sel.Sel.Name == "ReadDir" || sel.Sel.Name == "Stat") {
+		// The file uses the file system types of $MOD/compat/fs.
+		return t.use(compatFSPkg, fsName) + ".OS" + sel.Sel.Name, true
 	}
 	if r, ok := t.specialName(p, sel.Sel.Name); ok {
 		t.compat()
@@ -291,7 +326,7 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 	// the system gave as a string; the library's Name returns an error as
 	// well for bytes that are not valid UTF-8 (language spec F.9), so the
 	// translation takes the display form.
-	if sel.Sel.Name == "Name" && len(n.Args) == 0 && isOSNamed(t.typeOf(sel.X)) {
+	if sel.Sel.Name == "Name" && len(n.Args) == 0 && t.isOSNamed(t.typeOf(sel.X)) {
 		return t.render(sel.X) + ".NameLossy()", true
 	}
 	if id, ok := sel.X.(*ast.Ident); ok {
@@ -336,7 +371,10 @@ func (t *fileTr) call(n *ast.CallExpr) (string, bool) {
 // isOSNamed reports whether T is Go's os.DirEntry, os.FileInfo or os.File
 // (or a pointer to one): the types whose Name method has the name split of
 // language spec F.9 in pluto/os.
-func isOSNamed(T types.Type) bool {
+//
+// A file that imports io/fs uses the types of $MOD/compat/fs (its os.ReadDir
+// and os.Stat are theirs, see qualified), whose Name is plain.
+func (t *fileTr) isOSNamed(T types.Type) bool {
 	if T == nil {
 		return false
 	}
@@ -348,8 +386,11 @@ func isOSNamed(T types.Type) bool {
 		return false
 	}
 	switch named.Obj().Pkg().Path() + "." + named.Obj().Name() {
-	case "os.File", "io/fs.DirEntry", "io/fs.FileInfo":
+	case "os.File":
 		return true
+	case "io/fs.DirEntry", "io/fs.FileInfo":
+		_, usesFS := t.local["io/fs"]
+		return !usesFS
 	}
 	return false
 }
@@ -712,6 +753,9 @@ func (t *fileTr) closureEscape(lit *ast.FuncLit) string {
 	if !t.captures(lit) || !t.esc.has(t.fset, lit.Pos(), "func literal escapes", "") {
 		return ""
 	}
+	if t.callOnlyLiteral(lit) {
+		return "" // Go reports it; Plutonium accepts a function that is only called
+	}
 	if why := t.escapeContext(lit); why == "returned" {
 		// A function may return a closure: it is built in a region of the
 		// caller's frame (language spec section 11.5).
@@ -811,6 +855,13 @@ func (t *fileTr) checkReturnBoxes(r *ast.ReturnStmt) {
 		}
 		tv := t.info.Types[e]
 		if tv.Type == nil || tv.IsNil() || direct(tv.Type) {
+			continue
+		}
+		if t.boxedReturn(e, tv.Type) {
+			if t.boxed == nil {
+				t.boxed, t.boxing = map[ast.Expr]bool{}, map[ast.Expr]bool{}
+			}
+			t.boxed[e] = true
 			continue
 		}
 		t.note(e, "returns a %s in an interface: Plutonium boxes it in the returning frame; return a pointer", tv.Type)

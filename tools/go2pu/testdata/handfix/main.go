@@ -54,6 +54,18 @@ func seq(n int) iter.Seq[int] {
 
 func fail() error { return big{1, 2, 3} }
 
+// A type the package asserts keeps the note: the interface must hold a value.
+type asserted struct{ a, b, c int }
+
+func (asserted) Error() string { return "asserted" }
+
+func fail2() error { return asserted{1, 2, 3} }
+
+func isAsserted(err error) bool {
+	_, ok := err.(asserted)
+	return ok
+}
+
 func safe() (err error) {
 	defer func() {
 		if r := recover(); r != nil {

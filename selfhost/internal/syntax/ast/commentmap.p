@@ -39,14 +39,14 @@ func (cmap CommentMap) addComment(n Node, c *CommentGroup) {
 
 // nodeList returns the list of nodes of the AST n in source order.
 func nodeList(n Node) []Node {
-	list := pu.Alloc[[]Node]()
-	Inspect(n /* go2pu: closure escapes its frame (passed to a function that keeps it) */, func(n Node) bool {
+	var list []Node
+	Inspect(n, func(n Node) bool {
 		// don't collect comments
 		switch n.(type) {
 		case nil, *CommentGroup, *Comment:
 			return false
 		}
-		(*list) = compat.Append((*list), n)
+		list = compat.Append(list, n)
 		return true
 	})
 
@@ -62,7 +62,7 @@ func nodeList(n Node) []Node {
 	//       return cmp.Compare(a.End(), b.End())
 	// })
 
-	return (*list)
+	return list
 }
 
 // A commentListReader helps iterating through a list of comment groups.
@@ -241,7 +241,7 @@ func (cmap CommentMap) Update(old, new Node) Node {
 // the AST specified by node.
 func (cmap CommentMap) Filter(node Node) CommentMap {
 	umap := make(CommentMap)
-	Inspect(node /* go2pu: closure escapes its frame (passed to a function that keeps it) */, func(n Node) bool {
+	Inspect(node, func(n Node) bool {
 		if g := cmap[n]; len(g) > 0 {
 			umap[n] = g
 		}
