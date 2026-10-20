@@ -840,9 +840,9 @@ Sizes are in lines written or changed, not in time.
 | 2 | Back end: `ssa`, `opt`, `amd64`, `objfile` (**done** in the prototype, differential at `-O0`/`-O2`); port their Go tests; per-function arenas in `ssa` | 9,356 translated, ~300 by hand | mechanical | low | arenas | prototype done |
 | 3 | SSA reader; mixed pipeline (Go front end, Plutonium back end) on the whole test corpus | 400 | hand | low | 2 | done (2026-10-19; below) |
 | 4 | Syntax: `token`, `scanner`, `ast`, `parser` (`recover` in the parser, `FileSet` without `sync`, iterators, drop `ast/print.go`) | 8,377 translated, ~400 by hand | mechanical | low | 1 | translated and differentially tested (2026-10-19; below) |
-| 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 5,766 translated, ~400 by hand | mechanical plus conversion | medium | constant package, go2pu closure conversion | not started |
+| 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 22,644 translated (the 5,766 of the inventory predates the counted-error, region, shutdown and C ABI work), ~400 by hand | mechanical plus conversion | high | constant package, go2pu closure conversion, and the packages lower imports: `types2`, `diag`, `directive`, `scoped`, `load`, `moves`, `escape` (about 55,000 more lines) | go2pu closure conversion and the move to `internal/constant` done; the translation is checked in nowhere yet, because it cannot be built before the packages it imports (Phase 5 and 7 status, below) |
 | 6 | Constant package | 2,500-3,500 | hand | medium | - | done in Go (`internal/constant`, 2,800 lines, differential against go/constant; roadmap item 56); the quoting prerequisite is complete; translated and differentially tested (2026-10-19; below) |
-| 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 26,772 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup | not started |
+| 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 30,055 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup | the translation type-checks (`load.Load`, 0.13 s); building it is blocked on the escape analysis (Phase 5 and 7 status, below) |
 | 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 | not started |
 | 9 | PlutoniumOS: target and OS layer, integrated assembler and linker, cross-built seed, on-system rebuild | 5,000+ | hand | high | 8, kernel system calls | not started |
 | later | Formatter (`printer`, `format`, `diff`, `tabwriter`, `go/doc/comment`); idiomatic cleanup replacing compat; performance | 4,534 translated + 2,100 library | mixed | low | 8 | not started |
@@ -880,6 +880,71 @@ code that makes it is reachable); the closure analysis took a call's interface r
 (`ast.Expr` may hold a func value only if a named func type implements it, `lower.interfaceMayHoldFunc`) and
 its summaries of mutually recursive functions grew with the depth of their calls (`closureflow.go`); and the
 escape analysis boxed a generic conversion of interface instantiations (`escape.isDirectConv`).
+
+Phase 5 and 7 status (2026-10-19). `lower` imports `types2`, `diag`, `directive`, `load`, `moves` (and through
+it `escape`) and `scoped`, so it cannot be built, let alone compared with the Go build, before those are. The
+inventory of section 2 predates that: `lower` is 22,644 lines, `types2` 30,055, `escape` 7,799, `moves` 4,261,
+`diag` 5,313, `load` 762, `scoped` 726, `directive` 367, and the printer (4,085) is reached through `types2`.
+The demo that lowers every program of the repository in Go and in Plutonium therefore needs the whole front end
+translated (the type checker, the loader, the three checks, `diag`), which is phase 7 and part of 8. What landed
+on the way:
+
+- **Closure conversion** (`tools/go2pu/closures.go`, a description at the top of the file). The func-typed slots
+  of a package (variables, fields, parameters, results) are joined by the flow of values between them; a group
+  that keeps a value after the frame is gone (a struct field, a package variable, a parameter Go reports as
+  leaking) and that a capturing function literal flows into changes its type to an interface `goFnN{ Call(...) }`,
+  each such literal becomes a struct of the variables it captures (by value when nothing assigns them or takes
+  their address, otherwise a pointer to a variable allocated in the arena) with a `Call` method, calls become
+  `x.Call(...)`, named functions get an adapter, and a converted value given to another package's function
+  becomes the method value `x.Call`. What it will not convert is a note: an exported field or function, a named
+  func type, a generic function, a type declared inside a function. `testdata/closures` covers a job queue, the
+  type checker's `later` pattern, a func variable assigned in branches, closures that create closures, a returned
+  closure that is stored, a package variable and a converted value handed to `strings.Map`; Go and Plutonium
+  print the same at `-O0` and `-O2`. It converts all 36 `funcJob.build` literals of `lower`, all of `check.later`
+  in `types2`, and the `deferInfo.run` literals; the one refusal in the closure packages was a local type of
+  `lower` (`scope_task.go`), moved to package level.
+- go2pu also keeps dot and blank imports, drops `//go:` lines, keeps the named type of `append` to a named slice,
+  and translates the `:=` of a call with several results, a `var` of several names and a range variable that Go
+  moves to the heap. `compat` gained `Insert`, `Caller` and `NewBufferString`.
+- **Constants.** `types2`, `lower`, `moves`, `scoped` and `race` use `internal/constant` instead of `go/constant`.
+  Its `Value` is a struct whose zero value is go/constant's nil (`IsNil`; `MakeUnknown` is a different value, and
+  both have the kind `Unknown`), complex constants are gone (an imaginary literal is a placeholder 0 that
+  `reportComplex` rejects as before), and the case-value and map-key sets use a `goValue` struct instead of
+  `any`. All tests pass unchanged.
+- Other changes to the Go sources, none visible in the compiler's output: `types2/hash.go` (the unused `Hasher`
+  API, which needed `hash/maphash`) is deleted; `go/version` is `internal/goversion`, a fork tested against it;
+  `types2` no longer imports the printer (`types2.DeclPrinter`, installed by `load`, shows an owner fix as source;
+  the translation has no printer yet and shows the description); `Checker.Files` returns the first error and
+  checking goes on when `Config.Error` is nil, instead of `panic(bailout{})` and `recover` (this exposed a crash
+  of `rangeStmt` on a range over a type, fixed); `lower.Lower` no longer recovers from its own crash after an
+  error; `descHash` and `leWord` of `lower` do not use `hash/fnv` and `encoding/binary`.
+
+What blocks translating and building each package (go2pu run over the Go sources, then `pluto build`):
+
+| Package | State |
+|---|---|
+| `types2/errors`, `goversion`, `types2` | translate, and type-check as Plutonium (`load.Load` of the translation takes 0.13 s). `types2` went from 273 notes to 2: a closure Go reports as escaping that is a plain argument in Plutonium (`index.go`), and `posSpan` returned in an interface (`util.go`, to become a pointer). Building it is blocked on the escape analysis (below). |
+| `diag` (5,313) | 28 notes: `regexp` (used by `typecheck.go` to rewrite the type checker's messages, by `tool.go` for tool versions), `os/exec`, `strings.Split`, `SplitN` and `Fields` (not in `pluto/strings`), a `recover` in `typecheck.go`, `diag.List` returned as an `error` (a slice in an interface: it must become a pointer, which every user of `diag.List` sees). |
+| `load` (762) | 29 notes: `io/fs` (`fs.FS`, `fs.DirEntry`, `fs.ReadDir`, `Stat`) for the embedded library, `path`, `bufio`, the same string functions, `fsDir`, `osDir` and `diag.List` returned in interfaces. The loader reads the library through an `fs.FS`; the self-hosted one reads a directory, so `fsDir` and the embedded library need a hand-written file (`printhook.p` is the example of one). |
+| `escape` (7,799), `moves` (4,261), `scoped` (726), `directive` (367) | 15, 18, 10 and 2 notes: closures that Go reports as escaping (about 40 sites, nearly all passed to a function that only calls them, which Plutonium accepts), `strings.Fields`, `slices.Insert` (now `compat.Insert`). |
+| `lower` (22,644) | 36 notes after the changes above: about 30 closures of the same kind, `diag.List` in an interface, a named result moved to the heap (`closureflow.go`). |
+| printer (4,085) | reached through `types2` only for `DeclPrinter`; `pluto fmt` needs it with `text/tabwriter` and `go/doc/comment` translated (the latter is the large one). Later. |
+
+The compiler problem this found: **the escape analysis cannot build the translated type checker in reasonable
+time or memory.** `pluto build` of a program that imports `selfhost/internal/types2` ran for more than 25
+minutes and passed 6 GB without finishing, in `escape.run`. Profiling by sampling goroutine stacks and heap
+profiles found three causes. (1) Every key of a function summary stored the full text of its reason, which
+contains the reasons of the callees below it: 1.2 GB of strings at 200 s. Reasons are now built when a message
+needs them. (2) Every call through an interface or a func value sorted the callee's summary keys (formatting a
+type for each comparison) and every dynamic call looked at the method set of every type ever converted to an
+interface (thousands): the methods are now indexed by name once, and the sorted keys are kept until a key is
+added. These three changes (a unit test and the escape and move suites cover them; messages are unchanged) took
+the heap at 200 s from 1.5 GB to 0.8 GB and the resident size at 770 s from 8.7 GB to 3.7 GB. (3) Not fixed:
+the time. Most of the remaining samples are in `tset.has`, a linear scan with a struct comparison, on token sets
+that are far from small for translated code (a pointer to the checker reaches dozens of field paths, and the
+`goFnN.Call` and `ast.Node` calls fan out to every implementation), and the fixed point repeats the walk of
+every function. The next step is a hashed or sorted `tset` and a cap on candidate fan-out, measured on the
+translated type checker; the translated `types2` is the benchmark. Until then phase 7 cannot be built or tested.
 
 Phase 3 status (2026-10-19). The Go front end (`build.Frontend`) lowers a program and `internal/ssawrite` writes
 its SSA as text; `internal/ssatext` (reader, translated by go2pu) reads it back; the back end is now a Go package
