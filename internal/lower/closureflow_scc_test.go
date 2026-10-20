@@ -104,3 +104,65 @@ func main() {
 		t.Errorf("an empty interface is not reported:\n%s", got)
 	}
 }
+
+// TestClosureResultOfInterfaceHoldingFuncValue checks that an interface with
+// methods can hold a closure when a struct or array with a func in it
+// implements it, as well as when a named func type does (the adversarial
+// review's c08 and c09), and that a type that holds a func only through a
+// pointer does not make it so (the translated type checker's types2.Type).
+func TestClosureResultOfInterfaceHoldingFuncValue(t *testing.T) {
+	const prelude = `package main
+
+type Node interface{ Pos() int }
+type Ident struct{ n int }
+
+func (i *Ident) Pos() int { return i.n }
+
+var one = &Ident{1}
+
+type P struct{}
+
+func (p *P) ident() Node { return one }
+
+type Holder struct{ n Node }
+
+func call(f func() Node) Node { return f() }
+
+func build(p *P, h *Holder) *Holder {
+	var local Holder
+	local.n = call(p.ident)
+	*h = local
+	return h
+}
+
+func main() {
+	var h Holder
+	println(build(&P{}, &h).n.Pos())
+}
+`
+	for name, decl := range map[string]string{
+		"struct":   "type V struct{ f func() int }\nfunc (v V) Pos() int { return v.f() }\n",
+		"array":    "type V [1]func() int\nfunc (v V) Pos() int { return v[0]() }\n",
+		"nested":   "type W struct{ f func() int }\ntype V struct{ w W }\nfunc (v V) Pos() int { return v.w.f() }\n",
+		"embedded": "type W struct{ f func() int }\nfunc (w W) Pos() int { return w.f() }\ntype V struct{ W }\n",
+		"generic":  "type V[T any] struct{ f func() T }\nfunc (v V[T]) Pos() int { return 1 }\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := lowerModeError(t, prelude+decl, hosted); !strings.Contains(got, "E3100") {
+				t.Errorf("an interface that a type holding a func implements is not reported:\n%s", got)
+			}
+		})
+	}
+	for name, decl := range map[string]string{
+		"pointer":  "type Cfg struct{ f func() int }\ntype V struct{ c *Cfg }\nfunc (v V) Pos() int { return v.c.f() }\n",
+		"ptrrecv":  "type V struct{ f func() int }\nfunc (v *V) Pos() int { return v.f() }\n",
+		"slice":    "type V struct{ fs []func() int }\nfunc (v V) Pos() int { return len(v.fs) }\n",
+		"noMethod": "type V struct{ f func() int }\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := lowerModeError(t, prelude+decl, hosted); got != "" {
+				t.Errorf("an interface that no type holding a func in itself implements held a closure:\n%s", got)
+			}
+		})
+	}
+}

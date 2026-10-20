@@ -254,44 +254,155 @@ func (f *closureFlow) typeOf(e ast.Expr) types2.Type {
 // carries reports whether a value of type T can hold a func value.
 func (l *Lowerer) carries(T types2.Type) bool { return l.mayHoldFunc(T, map[types2.Type]bool{}) }
 
-// funcTypesWithMethods returns the named func types of the program that have
-// methods: the only func values that an interface with methods can hold.
-func (l *Lowerer) funcTypesWithMethods() []*types2.Named {
-	if !l.funcTypesDone {
-		l.funcTypesDone = true
-		for _, p := range l.prog.Packages {
-			scope := p.Types.Scope()
-			for _, name := range scope.Names() {
-				tn, _ := scope.Lookup(name).(*types2.TypeName)
-				if tn == nil {
-					continue
-				}
-				if n, ok := types2.Unalias(tn.Type()).(*types2.Named); ok && n.NumMethods() > 0 {
-					if _, ok := n.Underlying().(*types2.Signature); ok {
-						l.funcTypes = append(l.funcTypes, n)
-					}
-				}
+// implementers returns the types of the program that can implement an
+// interface with methods: the named types that have methods or embed a field
+// (whose methods they promote), local ones included, and the struct types
+// written without a name that embed a field. A value of any other type has no
+// methods, so no interface with methods holds it.
+func (l *Lowerer) implementers() []types2.Type {
+	if l.implDone {
+		return l.impls
+	}
+	l.implDone = true
+	hasEmbedded := func(st *types2.Struct) bool {
+		for i := 0; i < st.NumFields(); i++ {
+			if st.Field(i).Embedded() {
+				return true
+			}
+		}
+		return false
+	}
+	for _, p := range l.prog.Packages {
+		if p.Info == nil {
+			continue
+		}
+		for _, obj := range p.Info.Defs {
+			tn, _ := obj.(*types2.TypeName)
+			if tn == nil || tn.IsAlias() {
+				continue
+			}
+			n, ok := tn.Type().(*types2.Named)
+			if !ok {
+				continue
+			}
+			st, _ := n.Underlying().(*types2.Struct)
+			if n.NumMethods() > 0 || st != nil && hasEmbedded(st) {
+				l.impls = append(l.impls, n)
+			}
+		}
+		for _, tv := range p.Info.Types {
+			if st, ok := tv.Type.(*types2.Struct); ok && tv.IsType() && hasEmbedded(st) {
+				l.impls = append(l.impls, st)
 			}
 		}
 	}
-	return l.funcTypes
+	return l.impls
 }
 
-// interfaceMayHoldFunc reports whether a value of interface type t can be a
-// func value. A func value of an unnamed type has no methods, so an interface
-// with methods holds one only if a named func type with methods implements it:
-// ast.Expr, for one, does not, and the result of a call of that type holds no
-// closure.
+// interfaceMayHoldFunc reports whether a value of interface type t can hold a
+// func value: be one, or hold one in a field or element. A func value of an
+// unnamed type has no methods, so an interface with methods holds one only if
+// a type that implements it holds a func in itself: a named func type with
+// methods, or a struct with a func field and methods (holdsFuncValue).
+// ast.Expr, for one, is implemented by no such type, and the result of a call
+// of that type holds no closure.
 func (l *Lowerer) interfaceMayHoldFunc(t *types2.Interface) bool {
 	if t.NumMethods() == 0 || !t.IsMethodSet() {
 		return true
 	}
-	for _, n := range l.funcTypesWithMethods() {
-		if n.TypeParams().Len() > 0 || types2.Implements(n, t) {
-			return true
+	if r, ok := l.ifaceHolds[t]; ok {
+		return r
+	}
+	if l.ifaceHolds == nil {
+		l.ifaceHolds = map[*types2.Interface]bool{}
+	}
+	// A type that holds an interface of this kind and implements it too is
+	// judged by the other things it holds: assume no while looking.
+	l.ifaceHolds[t] = false
+	l.ifaceDepth++
+	res := false
+	for _, T := range l.implementers() {
+		if l.mayImplement(T, t) && l.holdsFuncValue(T, map[types2.Type]bool{}) {
+			res = true
+			break
 		}
 	}
-	return false
+	l.ifaceDepth--
+	if res || l.ifaceDepth == 0 {
+		l.ifaceHolds[t] = res
+	} else {
+		// A no that rests on an assumption of an outer interface that may
+		// still turn out yes is not final.
+		delete(l.ifaceHolds, t)
+	}
+	return res
+}
+
+// mayImplement reports whether a value of type T, or an instance of it when it
+// is generic, may implement the interface t. A generic type has no method set
+// to ask until it is instantiated: it may implement t if it has a method of
+// each name of t's, or embeds a field that may have them.
+func (l *Lowerer) mayImplement(T types2.Type, t *types2.Interface) bool {
+	n, ok := T.(*types2.Named)
+	if !ok || n.TypeParams().Len() == 0 {
+		return types2.Implements(T, t)
+	}
+	if st, ok := n.Underlying().(*types2.Struct); ok {
+		for i := 0; i < st.NumFields(); i++ {
+			if st.Field(i).Embedded() {
+				return true
+			}
+		}
+	}
+	for i := 0; i < t.NumMethods(); i++ {
+		found := false
+		for j := 0; j < n.NumMethods(); j++ {
+			if n.Method(j).Name() == t.Method(i).Name() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
+}
+
+// holdsFuncValue reports whether a value of type T holds a func value in
+// itself: it is one, or a struct or array that has one in a field or element.
+// What a pointer, slice, map or channel refers to is other memory, which no
+// value an interface holds in its data word is: a value larger than a word is
+// boxed in a frame or on the heap, and a closure that a callee builds in the
+// region of its caller's frame is not stored in either.
+func (l *Lowerer) holdsFuncValue(T types2.Type, seen map[types2.Type]bool) bool {
+	if T == nil {
+		return true
+	}
+	if seen[T] {
+		return false
+	}
+	seen[T] = true
+	switch t := types2.Unalias(T).Underlying().(type) {
+	case *types2.Basic:
+		return t.Kind() == types2.UnsafePointer
+	case *types2.Signature, *types2.TypeParam:
+		return true
+	case *types2.Interface:
+		return l.interfaceMayHoldFunc(t)
+	case *types2.Array:
+		return l.holdsFuncValue(t.Elem(), seen)
+	case *types2.Struct:
+		for i := 0; i < t.NumFields(); i++ {
+			if l.holdsFuncValue(t.Field(i).Type(), seen) {
+				return true
+			}
+		}
+		return false
+	case *types2.Pointer, *types2.Slice, *types2.Chan, *types2.Map, *types2.Wrapper:
+		return false
+	}
+	return true
 }
 
 func (l *Lowerer) mayHoldFunc(T types2.Type, seen map[types2.Type]bool) bool {

@@ -95,8 +95,10 @@ type Lowerer struct {
 	flowStack         []string                // summaries being computed
 	flowTent          []string                // tentative summaries
 	flowMin           int                     // the outermost summary being computed that was read
-	funcTypes         []*types2.Named         // named func types with methods (closureflow.go)
-	funcTypesDone     bool
+	impls             []types2.Type           // types that can implement an interface with methods (closureflow.go)
+	implDone          bool
+	ifaceDepth        int
+	ifaceHolds        map[*types2.Interface]bool     // interfaceMayHoldFunc, by interface
 	flowVersion       int                            // counts the growths of any summary (closureSummary)
 	flowReported      map[token.Pos]bool             // returned closure records already reported
 	noRet             map[*types2.Func]int           // which functions never return (noreturn.go)
