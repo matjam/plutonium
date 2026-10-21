@@ -127,11 +127,12 @@ func dropMethod(T types2.Type) *types2.Func {
 // needsDrop reports whether destroying a value of T runs drop glue
 // (internal/lower drop.go needsDrop, the same rule): T is an owner with a
 // Drop method, or with parts that need destroying (owners, or counted
-// references to release). A type parameter may: its drop is a call of the
-// drop glue of the type parameter, which each instance resolves.
+// references to release). A type parameter that admits owners ([T owner
+// any], section 18.5, Generic code) may: its drop is a call on the type
+// parameter, which each instance resolves; any other cannot hold an owner.
 func (b *builder) needsDrop(T types2.Type) bool {
-	if isTypeParam(T) {
-		return true
+	if tp, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return types2.IsOwnerTypeParam(tp)
 	}
 	if v, ok := b.dropNeeds.get(T); ok {
 		return v

@@ -32,7 +32,6 @@ const untriaged = "untriaged: EIR builder, or a later stage (3: tags; 4: loops, 
 
 var knownGaps = map[string]string{
 	"review2/f38_fmt_named_slice_type_string":             untriaged,
-	"review3/g09_generic_method_through_iface_type_param": untriaged,
 	"review3/o14_drop_in_vec_of_owners_local":             untriaged,
 	"review4/e08_errorbuf_sprint_control":                 untriaged,
 	"review4/ea01_errors_as_target_frame":                 untriaged,
