@@ -76,6 +76,14 @@ package solve
 // equals its one definition; flow sensitivity for unaddressed locals comes
 // from SSA (section 18.3, "How precise the frame check is").
 //
+// # Paths past the limits
+//
+// Extending a path P by a step past the limits of section 18.3 (the cut
+// domain.Paths.Extend reports) gives P itself with GE: it covers P and the
+// step, and every extension. (The domain's own cut goes back to an earlier
+// prefix, which may name the pointer P was reached through rather than what
+// it leads to.) Every "cut" below is this.
+//
 // # Operations on values
 //
 //	off(t, Q)    pointer t offset by field path Q:

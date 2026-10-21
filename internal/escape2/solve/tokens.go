@@ -80,15 +80,23 @@ func key(t tok) domain.Key {
 	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge})
 }
 
-// extend appends one step to p; ge reports a cut.
+// extend appends one step to p; ge reports that the step went past the
+// limits, and then the result is p itself (rules.go, "Paths past the
+// limits"): with GE it covers p+st, and it is narrower than the domain's cut
+// back to an earlier prefix, which could cover the pointer p was found
+// through (vec.Collect: the vector itself, not only what it holds).
 func (s *solver) extend(p domain.PathID, st domain.Step) (domain.PathID, bool) {
-	return s.ps.Extend(p, st)
+	q, cut := s.ps.Extend(p, st)
+	if cut {
+		return p, true
+	}
+	return q, false
 }
 
-// extendAll appends steps to p, stopping at a cut.
+// extendAll appends steps to p, stopping at the first past the limits.
 func (s *solver) extendAll(p domain.PathID, steps []domain.Step) (domain.PathID, bool) {
 	for _, st := range steps {
-		q, cut := s.ps.Extend(p, st)
+		q, cut := s.extend(p, st)
 		if cut {
 			return q, true
 		}

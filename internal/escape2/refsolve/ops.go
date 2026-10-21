@@ -9,15 +9,26 @@ import (
 // that knows the limits; a cut is reported to the caller, which sets the GE
 // bit (rules.go, "off", "pre").
 
-// concat is a followed by b.
+// extend is a followed by step st; past the limits it is a itself, with the
+// GE bit to set (rules.go, "Paths past the limits").
+func (s *solver) extend(a domain.PathID, st domain.Step) (domain.PathID, bool) {
+	q, c := s.ps.Extend(a, st)
+	if c {
+		return a, true
+	}
+	return q, false
+}
+
+// concat is a followed by b, stopping at the first step past the limits.
 func (s *solver) concat(a, b domain.PathID) (domain.PathID, bool) {
-	cut := false
 	for _, st := range s.ps.Steps(b) {
 		var c bool
-		a, c = s.ps.Extend(a, st)
-		cut = cut || c
+		a, c = s.extend(a, st)
+		if c {
+			return a, true
+		}
 	}
-	return a, cut
+	return a, false
 }
 
 // pathOf is the path of the instruction steps (field indices, ElemStep).
@@ -29,8 +40,10 @@ func (s *solver) pathOf(steps []int) (domain.PathID, bool) {
 			step = domain.StepElem
 		}
 		var c bool
-		p, c = s.ps.Extend(p, step)
-		cut = cut || c
+		p, c = s.extend(p, step)
+		if c {
+			return p, true
+		}
 	}
 	return p, cut
 }
@@ -97,7 +110,7 @@ func (s *solver) step(v value, st domain.Step) value {
 	if st == domain.StepLoad {
 		return s.load(v)
 	}
-	q, qc := s.ps.Extend(domain.Root, st)
+	q, qc := s.extend(domain.Root, st)
 	out := s.sel(v, q, qc)
 	for x := range v {
 		if x.t.kind != kObj {
@@ -129,7 +142,7 @@ func (s *solver) load(v value) value {
 				out.add(ptr(x.t)) // kg covers every extension
 				continue
 			}
-			p, c := s.ps.Extend(x.t.path, domain.StepLoad)
+			p, c := s.extend(x.t.path, domain.StepLoad)
 			out.add(ptr(tok{kind: kIn, id: x.t.id, path: p, ge: c}))
 		default:
 			out.add(ptr(tok{kind: kHeap}))

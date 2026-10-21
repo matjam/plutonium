@@ -26,6 +26,28 @@ import "pluto/fmt"
 func main() { fmt.Println("hi", 1) }
 `, "fmt.p:989",
 	},
+	{
+		// vec.Collect: AppendSeq's range body appends to v through its
+		// record; realloc's same-input store must not make v itself go
+		// into v's own buffer (vec.p:377-387).
+		"vec_collect", `package main
+
+import "pluto/vec"
+
+func seq(yield func(int) bool) {
+	for i := 0; i < 3; i++ {
+		if !yield(i) {
+			return
+		}
+	}
+}
+
+func main() {
+	v := vec.Collect[int](seq)
+	println(v.Len())
+}
+`, "vec.p:3",
+	},
 }
 
 func TestLibraryControls(t *testing.T) {
