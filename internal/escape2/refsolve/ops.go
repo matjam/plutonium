@@ -49,12 +49,13 @@ func (s *solver) strip(t, q domain.PathID) domain.PathID {
 // values"). qcut says Q itself was cut when it was built.
 func (s *solver) off(t tok, q domain.PathID, qcut bool) tok {
 	switch t.kind {
-	case kObj:
-		p, c := s.concat(t.path, q)
-		return tok{kind: kObj, id: t.id, path: p, ge: t.ge || c || qcut}
-	case kIn:
+	case kObj, kIn:
 		if t.ge {
-			return t
+			return t // anywhere under its path already covers the offset
+		}
+		if t.kind == kObj {
+			p, c := s.concat(t.path, q)
+			return tok{kind: kObj, id: t.id, path: p, ge: c || qcut}
 		}
 		p, c := s.concat(t.path, q)
 		return tok{kind: kIn, id: t.id, path: p, ge: c || qcut}

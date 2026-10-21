@@ -109,8 +109,9 @@ package solve
 //	                    o2 LifeIter             E3006
 //	                    o2 LifeStmt             E3009
 //	                    otherwise               E3002
-//	d = In(i,P,kg)    for each <u,T,g> in v, with D' = In(i, P+T, kg or g or
-//	                  cut) (the place of the field T of what d points to):
+//	d = In(i,P,kg)    for each <u,T,g> in v, with D' = off(d, T), GE also
+//	                  when g (the place of the field T of what d points to;
+//	                  a kg key stays as it is):
 //	                    u = Obj (frame)     finding E3002 (E3003 when why is a call)
 //	                    u = In(j,Q,kq)      summary Store pair (u's key, D''s key)
 //	                    u = Heap, CHeap     summary HeapStore D''s key

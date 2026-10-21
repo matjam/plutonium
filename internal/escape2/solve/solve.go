@@ -374,11 +374,7 @@ func (s *solver) storeInto(o uint32, steps []domain.Step, val uint32, why uint64
 	}
 	p, cut := s.pathOf(steps)
 	pn := s.place(o, p, cut)
-	x := xw(xID, 0, false)
-	if cut {
-		x = xw(xGe, 0, false)
-	}
-	s.addEdge(val, pn, x, why)
+	s.addEdge(val, pn, xw(xID, 0, false), why)
 }
 
 // checkStore is the store check of a token arriving in place m by a store
@@ -478,8 +474,12 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			s.addTok(dst, heapTok)
 		}
 	case cReach:
-		if t.kind == tObj {
+		switch t.kind {
+		case tObj:
 			s.subscribe(t.base, t.path, t.ge, n, subReach)
+		case tCHeap:
+			// A load through a counted reference reads heap memory.
+			s.addTok(n, geify(heapTok))
 		}
 	case cStore:
 		val := uint32(a)
@@ -490,11 +490,7 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 				return
 			}
 			pn := s.place(t.base, t.path, t.ge)
-			x := xw(xID, 0, false)
-			if t.ge {
-				x = xw(xGe, 0, false)
-			}
-			s.addEdge(val, pn, x, b)
+			s.addEdge(val, pn, xw(xID, 0, false), b)
 		case tIn:
 			s.addCons(val, cStoreIn, s.intern(asPointer(t)), b)
 		default:
