@@ -145,6 +145,21 @@ func (s *solver) dump(res *summary.Summary) {
 			n += len(r.From)
 		}
 		fmt.Fprintf(&b, "  summary: esc %d, store %d, heapstore %d, res %d\n", len(res.Esc), len(res.Store), len(res.HeapStore), n)
+		ks := func(k domain.Key) string {
+			return fmt.Sprintf("in%d%v%s", k.Input(), s.ps.Steps(k.Path()), map[bool]string{true: "+"}[k.GE()])
+		}
+		for k, p := range res.Store {
+			if k == 16 {
+				break
+			}
+			fmt.Fprintf(&b, "    store %s -> %s\n", ks(p.Src), ks(p.Dst))
+		}
+		for k, e := range res.Esc {
+			if k == 16 {
+				break
+			}
+			fmt.Fprintf(&b, "    esc %s\n", ks(e))
+		}
 	} else {
 		fmt.Fprintf(&b, "  stopped at its limits\n")
 	}

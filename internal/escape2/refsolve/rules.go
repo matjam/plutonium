@@ -277,7 +277,7 @@ func inLoop(l eir.Loop, b eir.BlockID) bool {
 // OpConv: Obj = NoObj: Dst ⊇ X. Otherwise store(Obj(Obj, Root), X, own) and
 // Dst ⊇ <Obj(Obj, Root), Root, false>.
 func (s *solver) ruleConv(in *eir.Instr) {
-	if in.Obj == eir.NoObj {
+	if in.Obj == eir.NoObj || !solve.BoxNeeded(s.env, &s.f.Objects[in.Obj]) {
 		s.def(in.Dst, s.val(in.X))
 		return
 	}

@@ -955,7 +955,7 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		}
 		s.backEdges(b, in, own(0))
 	case eir.OpConv:
-		if in.Obj == eir.NoObj {
+		if in.Obj == eir.NoObj || !BoxNeeded(s.env, &s.f.Objects[in.Obj]) {
 			s.edge(in.X, dst, xw(xID, 0, false))
 			return
 		}
@@ -1038,6 +1038,49 @@ func (s *solver) backEdges(b eir.BlockID, in *eir.Instr, why uint64) {
 			}
 		}
 	}
+}
+
+// BoxNeeded reports whether the box object of a conversion is made: an
+// interface box (eir.ObjBox) whose type is a type parameter is made only for
+// a non-direct instance (the lowerer converts each instance on its own), so
+// when every instance the program makes is direct (pointer-shaped, or a
+// scalar of at most a word) there is no box and the interface holds the
+// value itself (rules.go, OpConv).
+func BoxNeeded(env Env, o *eir.Object) bool {
+	if o.Kind != eir.ObjBox {
+		return true
+	}
+	tp, ok := types2.Unalias(o.Type).(*types2.TypeParam)
+	if !ok {
+		return true
+	}
+	insts, known := env.Instantiated(tp)
+	if !known {
+		return true
+	}
+	for _, T := range insts {
+		if !directValue(T) {
+			return true
+		}
+	}
+	return false
+}
+
+// directValue reports whether an interface holds a value of type T in its
+// data word, unboxed: pointer-shaped, or a scalar of at most a word.
+func directValue(T types2.Type) bool {
+	if types2.PointerShaped(T) {
+		return true
+	}
+	b, ok := T.Underlying().(*types2.Basic)
+	if !ok {
+		return false
+	}
+	switch b.Kind() {
+	case types2.String, types2.Complex64, types2.Complex128, types2.UntypedString, types2.UntypedComplex, types2.UntypedNil, types2.Invalid:
+		return false
+	}
+	return true
 }
 
 // directAssert reports whether an assertion to T yields the interface's data

@@ -194,7 +194,11 @@ package solve
 //	OpCopy       Dst ⊇ X
 //	OpPhi        Dst ⊇ Args[k] for each k; and the back-edge check below
 //	OpConv       Obj = NoObj: Dst ⊇ X. Otherwise store(Obj(Obj, Root), X,
-//	             own) and Dst ⊇ <Obj(Obj, Root), Root, false>.
+//	             own) and Dst ⊇ <Obj(Obj, Root), Root, false>. A box whose
+//	             Type is a type parameter is made only for a non-direct
+//	             instance: when Env.Instantiated knows every instance and each
+//	             is direct (pointer-shaped, or a scalar of at most a word),
+//	             Dst ⊇ X as for NoObj (solve.BoxNeeded).
 //	OpClosure    store(Obj(Obj, [k]), Args[k], own) for each k;
 //	             Dst ⊇ <Obj(Obj, Root), Root, false>
 //	OpMethodVal  store(Obj(Obj, [0]), X, own); Dst ⊇ <Obj(Obj, Root), Root, false>
