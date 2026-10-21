@@ -10,7 +10,25 @@ import (
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/escape2/summary"
+	"github.com/matjam/plutonium/internal/types2"
 )
+
+func TestHeapOnlyLoad(t *testing.T) {
+	// *(&o.f1) is heap-only (the environment says field 1 is), *(&o.f0) is
+	// not: only the first load gives Heap; the second leads to what the
+	// object's place holds, here the input.
+	st := newStructType()
+	b := NewFunc(0, 1, 2)
+	o := b.Obj(eir.ObjVar, eir.LifeFrame, -1, st)
+	b.Store(b.Addr(o, 0), b.In(0))
+	b.Sink(eir.SinkReturn, b.Load(b.Addr(o, 1)), 0)
+	b.Sink(eir.SinkReturn, b.Load(b.Addr(o, 0)), 1)
+	e, _ := env(b.F)
+	e.HeapOnlyFn = func(_ types2.Type, field int) bool { return field == 1 }
+	got, _ := run(t, b.F, e)
+	has(t, got, "0: heap at .", "1: in0. at .")
+	hasNot(t, got, "1: heap")
+}
 
 func widenBuilt() (ok bool) {
 	defer func() {
