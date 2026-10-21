@@ -1,0 +1,222 @@
+package eir
+
+import (
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// Functions that never return, by internal/lower's rule (lower/noreturn.go):
+// a function with a body never returns if it has no return statement and
+// its body ends in a terminating statement, where a call of a function that
+// never returns also terminates; a function without a body never returns
+// if it is marked //pu:noreturn, or is the panic hook. A call of one ends
+// its block: the code after it is unreachable, and the lowerer removes it,
+// so EIR does too (a call there is never made).
+
+const (
+	nrBusy = iota + 1
+	nrReturns
+	nrNever
+)
+
+// isNoReturn reports whether a call of the declared function fn never
+// returns.
+func (b *builder) isNoReturn(fn *types2.Func) bool {
+	fn = fn.Origin()
+	if st, ok := b.noRet[fn]; ok {
+		return st == nrNever
+	}
+	if fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" && countIntrinsic[fn.Name()] {
+		return b.setNoReturn(fn, false)
+	}
+	d := b.decls[fn]
+	if d == nil {
+		return false
+	}
+	if d.decl.Body == nil {
+		return b.setNoReturn(fn, hasLine(docOrEmpty(d.decl.Doc), "//pu:noreturn") || b.isPanicHook(fn))
+	}
+	b.noRet[fn] = nrBusy
+	return b.setNoReturn(fn, !hasReturn(d.decl.Body) && b.terminatesList(d.decl.Body.List, ""))
+}
+
+// countIntrinsic are the count intrinsics of pluto/rt (lower/strops.go),
+// whose bodies say nothing about them.
+var countIntrinsic = map[string]bool{
+	"ReleaseValues": true, "RetainValues": true, "MoveValues": true, "HoldsStrings": true,
+	"ZeroValues": true, "NeedsDrop": true, "CopyValue": true, "MustCopy": true, "InitValue": true, "CopyValues": true, "ViewOf": true,
+}
+
+func docOrEmpty(doc *ast.CommentGroup) *ast.CommentGroup {
+	if doc == nil {
+		return &ast.CommentGroup{}
+	}
+	return doc
+}
+
+func (b *builder) setNoReturn(fn *types2.Func, never bool) bool {
+	b.noRet[fn] = nrReturns
+	if never {
+		b.noRet[fn] = nrNever
+	}
+	return never
+}
+
+// hasReturn reports whether body has a return statement of its own.
+func hasReturn(body *ast.BlockStmt) bool {
+	found := false
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			found = true
+		}
+		return !found
+	})
+	return found
+}
+
+// terminates reports whether s is a terminating statement, counting a call
+// of a function that never returns as one.
+func (b *builder) terminates(s ast.Stmt, label string) bool {
+	switch s := s.(type) {
+	case *ast.LabeledStmt:
+		return b.terminates(s.Stmt, s.Label.Name)
+	case *ast.ExprStmt:
+		call, ok := ast.Unparen(s.X).(*ast.CallExpr)
+		return ok && b.callNeverReturns(call)
+	case *ast.ReturnStmt:
+		return true
+	case *ast.BranchStmt:
+		return s.Tok == token.GOTO || s.Tok == token.FALLTHROUGH
+	case *ast.BlockStmt:
+		return b.terminatesList(s.List, "")
+	case *ast.IfStmt:
+		return s.Else != nil && b.terminates(s.Body, "") && b.terminates(s.Else, "")
+	case *ast.SwitchStmt:
+		return b.terminatesSwitch(s.Body, label)
+	case *ast.TypeSwitchStmt:
+		return b.terminatesSwitch(s.Body, label)
+	case *ast.SelectStmt:
+		for _, c := range s.Body.List {
+			cc := c.(*ast.CommClause)
+			if !b.terminatesList(cc.Body, "") || breaksList(cc.Body, label, true) {
+				return false
+			}
+		}
+		return true
+	case *ast.ForStmt:
+		return s.Cond == nil && !breaks(s.Body, label, true)
+	}
+	return false
+}
+
+func (b *builder) terminatesList(list []ast.Stmt, label string) bool {
+	for i := len(list) - 1; i >= 0; i-- {
+		if _, ok := list[i].(*ast.EmptyStmt); !ok {
+			return b.terminates(list[i], label)
+		}
+	}
+	return false
+}
+
+func (b *builder) terminatesSwitch(body *ast.BlockStmt, label string) bool {
+	hasDefault := false
+	for _, c := range body.List {
+		cc := c.(*ast.CaseClause)
+		if cc.List == nil {
+			hasDefault = true
+		}
+		if !b.terminatesList(cc.Body, "") || breaksList(cc.Body, label, true) {
+			return false
+		}
+	}
+	return hasDefault
+}
+
+// callNeverReturns reports whether call is a call of panic or of a
+// declared function or concrete method that never returns.
+func (b *builder) callNeverReturns(call *ast.CallExpr) bool {
+	if id := identOf(ast.Unparen(call.Fun)); id != nil {
+		if bi, ok := b.uses[id].(*types2.Builtin); ok {
+			return bi.Name() == "panic"
+		}
+	}
+	fn := b.calledFunc(call)
+	return fn != nil && b.isNoReturn(fn)
+}
+
+// calledFunc returns the declared function or concrete method a call
+// names, or nil (lower/closureflow.go calledFunc).
+func (b *builder) calledFunc(call *ast.CallExpr) *types2.Func {
+	fun := ast.Unparen(call.Fun)
+	switch ix := fun.(type) {
+	case *ast.IndexExpr:
+		fun = ix.X
+	case *ast.IndexListExpr:
+		fun = ix.X
+	}
+	if se, ok := fun.(*ast.SelectorExpr); ok {
+		if sel := b.selections[se]; sel != nil {
+			if sel.Kind() != types2.MethodVal || isInterface(sel.Recv()) || len(sel.Index()) != 1 {
+				return nil
+			}
+			if isTypeParam(b.types[se.X].Type) {
+				return nil
+			}
+			fn, _ := sel.Obj().(*types2.Func)
+			return fn
+		}
+	}
+	if id := staticFuncIdent(b, fun); id != nil {
+		fn, _ := b.uses[id].(*types2.Func)
+		return fn
+	}
+	return nil
+}
+
+func breaks(s ast.Stmt, label string, implicit bool) bool {
+	switch s := s.(type) {
+	case *ast.LabeledStmt:
+		return breaks(s.Stmt, label, implicit)
+	case *ast.BranchStmt:
+		return s.Tok == token.BREAK && (s.Label == nil && implicit || s.Label != nil && s.Label.Name == label)
+	case *ast.BlockStmt:
+		return breaksList(s.List, label, implicit)
+	case *ast.OrStmt:
+		return breaks(s.Clause, label, implicit)
+	case *ast.IfStmt:
+		return breaksInit(s.Init, label, implicit) || breaks(s.Body, label, implicit) || s.Else != nil && breaks(s.Else, label, implicit)
+	case *ast.CaseClause:
+		return breaksList(s.Body, label, implicit)
+	case *ast.CommClause:
+		return breaksList(s.Body, label, implicit)
+	case *ast.SwitchStmt:
+		return breaksInit(s.Init, label, implicit) || label != "" && breaks(s.Body, label, false)
+	case *ast.TypeSwitchStmt:
+		return breaksInit(s.Init, label, implicit) || label != "" && breaks(s.Body, label, false)
+	case *ast.SelectStmt:
+		return label != "" && breaks(s.Body, label, false)
+	case *ast.ForStmt:
+		return breaksInit(s.Init, label, implicit) || label != "" && breaks(s.Body, label, false)
+	case *ast.RangeStmt:
+		return label != "" && breaks(s.Body, label, false)
+	}
+	return false
+}
+
+func breaksInit(s ast.Stmt, label string, implicit bool) bool {
+	or, ok := s.(*ast.OrStmt)
+	return ok && breaks(or.Clause, label, implicit)
+}
+
+func breaksList(list []ast.Stmt, label string, implicit bool) bool {
+	for _, s := range list {
+		if breaks(s, label, implicit) {
+			return true
+		}
+	}
+	return false
+}

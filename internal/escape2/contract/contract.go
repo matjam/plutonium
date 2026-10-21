@@ -156,6 +156,10 @@ func init() {
 		"pluto/rt.chanRetain", "pluto/rt.chanRelease", "pluto/rt.weakRelease", "pluto/rt.boxUpgrade")
 	add(Runtime, "boxes (new, free)", none,
 		"pluto/rt.boxNew", "pluto/rt.boxFree", "pluto/rt.chanFree", "pluto/rt.chanDrop")
+	// new and make with an allocator: EIR calls these (their bodies call
+	// the allocator), and the lowerer calls them for the construct.
+	add(Runtime, "new(T, a) and make(chan T, n, a): EIR calls them", none,
+		"pluto/rt.boxNewWith", "pluto/rt.makechanWith")
 	add(Runtime, "checks that panic", none,
 		"pluto/rt.panicAssert", "pluto/rt.panicDivide", "pluto/rt.panicEnum", "pluto/rt.panicIndex",
 		"pluto/rt.panicNil", "pluto/rt.panicRangeState", "pluto/rt.panicShift", "pluto/rt.panicSlice",

@@ -38,6 +38,7 @@ type Options struct {
 func BuildWith(prog *load.Program, opt Options) (*Program, error) {
 	b := newBuilder(prog, opt)
 	b.declare()
+	b.analyzeGoexit()
 	b.run()
 	if len(b.errs) > 0 {
 		sort.SliceStable(b.errs, func(i, j int) bool { return b.errs[i].Pos.Offset < b.errs[j].Pos.Offset })
@@ -72,6 +73,8 @@ type builder struct {
 	litFns    map[*ast.FuncLit]*fnb
 	panicFn   *types2.Func
 	panicDone bool
+	noRet     map[*types2.Func]int // noreturn.go
+	gx        *goexitInfo          // goexit.go
 
 	dropNeeds typeMap[bool] // needsDrop
 	countedT  typeMap[bool] // counted
@@ -101,6 +104,7 @@ func newBuilder(prog *load.Program, opt Options) *builder {
 		moves:      opt.Moves,
 		ctxt:       types2.NewContext(),
 		litFns:     map[*ast.FuncLit]*fnb{},
+		noRet:      map[*types2.Func]int{},
 		scoped:     opt.Scoped,
 	}
 	for _, p := range prog.Packages {
@@ -181,7 +185,13 @@ func (b *builder) declare() {
 		case f.Key.Obj != nil:
 			d := b.decls[f.Key.Obj]
 			if d.decl.Body == nil {
-				b.queue = append(b.queue, func() { b.buildBodyless(f) })
+				b.queue = append(b.queue, func() {
+					if b.hookBody(f, d) {
+						f.Bodyless = false
+						return
+					}
+					b.buildBodyless(f)
+				})
 				continue
 			}
 			b.queue = append(b.queue, func() { b.buildDecl(f, d) })

@@ -168,3 +168,64 @@ func dominators(f *Func) []int {
 	idom[0] = -1
 	return idom
 }
+
+// removeUnreachable removes the blocks that cannot be reached from the
+// entry, as the lowerer does (ssa.Func.RemoveDeadBlocks): code after a
+// return, a branch or a call that never returns never runs. The phis of
+// the blocks that remain lose the operands of removed predecessors.
+func removeUnreachable(f *Func) {
+	n := len(f.Blocks)
+	live := make([]bool, n)
+	stack := []BlockID{0}
+	live[0] = true
+	for len(stack) > 0 {
+		b := f.Blocks[stack[len(stack)-1]]
+		stack = stack[:len(stack)-1]
+		for _, s := range b.Succs {
+			if !live[s] {
+				live[s] = true
+				stack = append(stack, s)
+			}
+		}
+	}
+	newID := make([]BlockID, n)
+	var blocks []*Block
+	for _, b := range f.Blocks {
+		if live[b.ID] {
+			newID[b.ID] = BlockID(len(blocks))
+			blocks = append(blocks, b)
+		}
+	}
+	if len(blocks) == n {
+		return
+	}
+	for _, b := range blocks {
+		var keep []int
+		var preds []BlockID
+		for i, p := range b.Preds {
+			if live[p] {
+				keep = append(keep, i)
+				preds = append(preds, newID[p])
+			}
+		}
+		for i := range b.Instrs {
+			in := &b.Instrs[i]
+			if in.Op != OpPhi || len(in.Args) != len(b.Preds) {
+				continue
+			}
+			args := make([]Reg, len(keep))
+			for j, k := range keep {
+				args[j] = in.Args[k]
+			}
+			in.Args = args
+		}
+		b.Preds = preds
+		succs := b.Succs[:0]
+		for _, s := range b.Succs {
+			succs = append(succs, newID[s])
+		}
+		b.Succs = succs
+		b.ID = newID[b.ID]
+	}
+	f.Blocks = blocks
+}

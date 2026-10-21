@@ -29,7 +29,33 @@ func (fb *fnb) emitCall(c *Call, pos token.Pos) []Reg {
 	}
 	c.Site = fb.newSite()
 	fb.emit(Instr{Op: OpCall, Call: c, Pos: pos})
+	switch c.Implicit {
+	case ImplNone, ImplIndex, ImplSetIndex, ImplIndexOk, ImplOpAssign, ImplLen, ImplAll:
+	default:
+		// The lowerer does not end the block after these.
+		return c.Results
+	}
+	if c.Kind == CallStatic && fb.b.neverReturns(c.Callee) {
+		// The code after the call is unreachable: the lowerer removes it.
+		fb.cur = nil
+		return c.Results
+	}
+	if fb.callMayExit(c) {
+		fb.leaveForExit(pos)
+	}
 	return c.Results
+}
+
+// neverReturns reports whether a call of function id never returns.
+func (b *builder) neverReturns(id FuncID) bool {
+	if id == NoFunc {
+		return false
+	}
+	fn := b.p.Funcs[id].Key.Obj
+	if fn == nil {
+		return false
+	}
+	return b.isNoReturn(fn) || fn == b.panicFn
 }
 
 // resultTypes returns the types of a signature's results.
@@ -954,6 +980,9 @@ func (fb *fnb) contMethod(c *contRef, name string, args []Reg, impl Implicit) ([
 		return fb.emitCall(&Call{Kind: CallIface, Method: fn, Iface: c.T, Target: c.iface, Sig: sig, Args: args, Implicit: impl}, pos), resultTypes(sig)
 	}
 	_, wantPtr := sig.Recv().Type().(*types2.Pointer)
+	if isTypeParam(T) {
+		return fb.emitCall(&Call{Kind: CallTypeParam, Method: fn, Iface: T, Sig: sig, Args: append([]Reg{c.base}, args...), Implicit: impl}, pos), resultTypes(sig)
+	}
 	if isIfaceMethod(fn) {
 		recv := fb.receiverAt(c.base, c.baseT, path, false, fn)
 		I := fb.recvFieldType(c.baseT, path)

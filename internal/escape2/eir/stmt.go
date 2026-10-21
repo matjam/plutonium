@@ -177,6 +177,18 @@ func (fb *fnb) stmt(st ast.Stmt) {
 	defer func() { fb.pos = saved }()
 	if _, isLabel := st.(*ast.LabeledStmt); !isLabel {
 		fb.ensureBlock()
+		// A drop may end with rt.ExitTask: once the statement's drops are
+		// done, the function leaves if one did (lower/stmt.go stmt).
+		// The lowerer checks after any statement that released a counted
+		// reference or dropped an owner, which may have run code that
+		// ended with rt.ExitTask; EIR, which does not follow releases,
+		// checks after every statement (a way out more is only less
+		// precise).
+		defer func() {
+			if fb.b.gx.active && !fb.gxCatch() {
+				fb.leaveForExit(st.Pos())
+			}
+		}()
 		sc := fb.pushScope(st, isScopeStmt(st))
 		defer fb.popScope(sc)
 		savedStmt := fb.curStmt
@@ -1145,6 +1157,13 @@ func (fb *fnb) dropResult(root *fnb, st *ast.ReturnStmt, i int) {
 // emitReturn ends the function: deferred calls, then the drops of every
 // open scope and of the frame, then the results.
 func (fb *fnb) emitReturn(pos token.Pos, known moves.Known) {
+	fb.emitReturnFor(pos, known, false)
+}
+
+// emitReturnFor is emitReturn; exiting says the function leaves because a
+// call ended with rt.ExitTask: its caller never receives the results, so
+// the results that are owners are dropped (lower/func.go finishReturn).
+func (fb *fnb) emitReturnFor(pos token.Pos, known moves.Known, exiting bool) {
 	if fb.cur == nil {
 		fb.ensureBlock()
 	}
@@ -1164,6 +1183,10 @@ func (fb *fnb) emitReturn(pos token.Pos, known moves.Known) {
 		}
 	}
 	for i, v := range fb.results {
+		if exiting && fb.rng == nil && fb.b.needsDrop(v.Type()) {
+			fb.dropAt(fb.varAddr(v), v.Type(), pos)
+			continue
+		}
 		fb.sink(SinkReturn, fb.readLocal(v), i, pos)
 	}
 	fb.cur = nil

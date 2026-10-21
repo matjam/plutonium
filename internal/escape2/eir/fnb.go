@@ -282,6 +282,7 @@ func (fb *fnb) finish() {
 	fb.finishBlocks()
 	entry := fb.f.Blocks[0]
 	entry.Instrs = append(append([]Instr(nil), fb.prologue...), entry.Instrs...)
+	removeUnreachable(fb.f)
 	fb.f.Loops = findLoops(fb.f)
 	for i := range fb.f.Objects {
 		fb.f.Objects[i].Loop = -1
