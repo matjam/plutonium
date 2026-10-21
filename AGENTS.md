@@ -147,6 +147,15 @@ End-to-end tests live in `internal/build`:
   cgroup. Linux only (`/proc`); elsewhere all of this does nothing. The
   measurements behind the estimates are in
   `docs/verification/2026-10-21-test-memory.md`.
+- `tools/go2pu` builds each translated demo once per test binary and keeps
+  the executables in a cache under the user cache directory
+  (`plutonium/go2pu-demos`), keyed by a hash of the test binary (which holds
+  the compiler and the embedded library), every file of `selfhost/`, the
+  `as`, `ld` and C compiler executables, the `PLUTO*` and `CC` environment
+  variables, the demo, the level and the generation checks; a run with the
+  same compiler and translations takes the demos from it.
+  `PLUTO_TEST_CACHE=0` turns it off (`=<dir>` moves it); entries unused for a
+  week are removed.
 
 ## The agent skill
 

@@ -136,6 +136,21 @@ under the same load, inside `go test ./...` beside the other packages, it
 passed the default 10-minute timeout once (TestBuildTest/pluto/path/filepath
 at -O2 took 4 min 20 s there, 36 s alone).
 
+## The demo cache
+
+`tools/go2pu` keeps the demos it builds under the user cache directory,
+keyed by a hash of the test binary (the compiler and the embedded library),
+every file of `selfhost/`, the `as`, `ld` and C compiler executables, the
+`PLUTO*` and `CC` environment variables, the demo, the level and the
+generation checks; anything it cannot read turns the cache off for the run,
+and `PLUTO_TEST_CACHE=0` turns it off. In the 20 GB run above a second
+`go test ./tools/go2pu` with the same tree took 5 min 5 s against 5 min
+54 s: the default demos build in seconds, so the run's time is the tests
+themselves. The cache matters for `GO2PU_SLOW=1`, where typecheck and
+diagdemo take 3 to 5 minutes and 4 GB to build at each level and
+lowerdemo about 15 GB, and for agents that run the suite again on a tree
+whose compiler and translations have not changed.
+
 ## What remains
 
 - The translated back end (`selfhost/demo/ssaback`) holds everything it

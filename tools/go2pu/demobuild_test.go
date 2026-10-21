@@ -91,8 +91,29 @@ func demoBinary(t *testing.T, name string, level int, noGenCheck bool) string {
 	return b.bin
 }
 
-// buildDemo builds the demo of k into demoDir.
+// buildDemo builds the demo of k into demoDir, or takes it from the demo
+// cache (democache_test.go).
 func buildDemo(t *testing.T, k demoKey) (string, error) {
+	cache, base := demoCache()
+	var key string
+	if cache != "" {
+		key = cacheKey(base, k)
+		if bin, ok := cacheGet(cache, key); ok {
+			t.Logf("%s at -O%d: from the demo cache (PLUTO_TEST_CACHE=0 builds it)", k.name, k.level)
+			return bin, nil
+		}
+	}
+	bin, err := compileDemo(t, k)
+	if err == nil && cache != "" {
+		if err := cachePut(cache, key, bin); err != nil {
+			t.Logf("demo cache: %v", err)
+		}
+	}
+	return bin, err
+}
+
+// compileDemo builds the demo of k into demoDir.
+func compileDemo(t *testing.T, k demoKey) (string, error) {
 	if peak, ok := demoPeakMB[k.name]; ok {
 		release := testguard.Reserve(t, peak[min(k.level, 1)])
 		defer release()
