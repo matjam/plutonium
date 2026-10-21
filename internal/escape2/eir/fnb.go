@@ -54,6 +54,11 @@ type fnb struct {
 	dropRecv        bool     // a Drop method, whose receiver its drop glue destroys
 	resultsInMemory bool     // results are frame objects (a range body returns)
 	objBlock        []*Block // the block each object is made in, by ObjID
+
+	// The closures this function builds in its caller's region, and the
+	// variables they capture (regions.go).
+	regionNodes map[ast.Node]bool
+	regionVars  map[*types2.Var]bool
 }
 
 // outerObj names a frame object of another function, for a closure record
@@ -149,7 +154,11 @@ func (fb *fnb) declareVar(v *types2.Var, kind ObjKind, pos token.Pos) {
 		if _, ok := fb.objs[v]; ok {
 			return
 		}
-		fb.objs[v] = fb.newObj(Object{Kind: kind, Type: v.Type(), Var: v, Pos: pos, Name: v.Name(), Life: LifeBlock})
+		life := LifeBlock
+		if fb.regionVars[v] {
+			life = LifeCaller // in the caller's region (section 11.5)
+		}
+		fb.objs[v] = fb.newObj(Object{Kind: kind, Type: v.Type(), Var: v, Pos: pos, Name: v.Name(), Life: life})
 		return
 	}
 	fb.locals[v] = true

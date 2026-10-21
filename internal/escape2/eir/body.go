@@ -42,6 +42,7 @@ func (b *builder) buildBody(fb *fnb, sig *types2.Signature, hasRecord bool, body
 		}
 		fb.resultsInMemory = true
 	}
+	fb.planRegion(sig, body)
 	fb.setupParams(sig, hasRecord)
 	fb.pos = body.Pos()
 	sc := fb.pushScope(body, true)

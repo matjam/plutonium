@@ -243,10 +243,10 @@ func isString(T types2.Type) bool {
 // varValue reads a variable: a local, or a package variable in static
 // memory.
 func (fb *fnb) varValue(v *types2.Var) Reg {
-	if !hasPointers(v.Type()) {
-		return 0
-	}
 	if fb.isGlobal(v) {
+		if !hasPointers(v.Type()) {
+			return 0
+		}
 		return fb.load(fb.heap(HeapStatic), v.Type())
 	}
 	return fb.readLocal(v)
@@ -397,7 +397,11 @@ func (fb *fnb) funcLit(lit *ast.FuncLit) (Reg, FuncID) {
 	obj := NoObj
 	if lf != nil && len(lf.caps) > 0 {
 		args = fb.recordArgs(lf)
-		obj = fb.newObj(Object{Kind: ObjClosure, Type: fb.b.types[lit].Type, Name: "closure", Pos: lit.Pos()})
+		life := LifeFrame
+		if fb.regionNodes[lit] {
+			life = LifeCaller // built in the caller's region (section 11.5)
+		}
+		obj = fb.newObj(Object{Kind: ObjClosure, Type: fb.b.types[lit].Type, Name: "closure", Pos: lit.Pos(), Life: life})
 	}
 	return fb.emitDst(Instr{Op: OpClosure, Callee: id, Obj: obj, Args: args, Pos: lit.Pos()}), id
 }

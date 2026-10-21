@@ -304,7 +304,12 @@ func (fb *fnb) methodValue(e *ast.SelectorExpr, sel *types2.Selection) Reg {
 	}
 	fb.noteMethodInstance(fn, e)
 	full := fn.Type().(*types2.Signature)
-	return fb.boundValue(SynthMethodValue, full.Recv().Type(), fn, recv, full.Recv().Type(), e.Pos())
+	r := fb.boundValue(SynthMethodValue, full.Recv().Type(), fn, recv, full.Recv().Type(), e.Pos())
+	if fb.regionNodes[e] {
+		// Built in the caller's region (section 11.5).
+		fb.f.Objects[len(fb.f.Objects)-1].Life = LifeCaller
+	}
+	return r
 }
 
 // boundValue makes the record of a method value, holding x of type T, and
