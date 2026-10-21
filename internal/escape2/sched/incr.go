@@ -1,0 +1,176 @@
+package sched
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+
+	"github.com/matjam/plutonium/internal/escape2/eir"
+	"github.com/matjam/plutonium/internal/escape2/solve"
+)
+
+// Incremental re-solving inside an SCC. A function of an SCC is solved again
+// each time a summary it reads grows; solving it from scratch every time
+// made the translated compiler's largest SCC (about 2,250 functions, 20,000
+// solves) take most of the analysis. Instead the solver keeps its state for
+// the members of the SCC being solved, and a later solve resumes it: it
+// applies only what the callees' summaries gained (they only grow: each
+// iterate is joined with the previous one) and goes on from there.
+//
+// Memory is bounded: states are kept only while their SCC is solved, only
+// for members of SCCs of more than one function (the others are solved
+// once), and only up to a budget of retained bytes (PLUTO_ESCAPE2_RETAIN_MB,
+// default 2048); past it the largest states are dropped, and their functions
+// are solved from scratch next time. With the D44 cache recording a solve's
+// reads, every solve is from scratch, as before.
+//
+// PLUTO_ESCAPE2_RESUMECHECK=1 solves every resumed function from scratch as
+// well and checks that the two summaries cover each other: an internal
+// compiler error otherwise.
+
+// resumable is a solve whose state is kept to be resumed (solve.State).
+type resumable interface {
+	Resume(env solve.Env) solve.Result
+	Bytes() int
+}
+
+// solveKeepFunc solves f keeping its state in ws, which the driver does not
+// reset while it holds the state. It is nil while the solver has no
+// resumable solve: then every solve is from scratch.
+var solveKeepFunc func(f *eir.Func, env solve.Env, ws *solve.Workspace) (solve.Result, resumable)
+
+// retainBudget is the most the kept states of one SCC may hold, in bytes.
+var retainBudget = envMB("PLUTO_ESCAPE2_RETAIN_MB", 2048)
+
+var resumeCheck = os.Getenv("PLUTO_ESCAPE2_RESUMECHECK") != ""
+
+func envMB(name string, def int) int {
+	if v, err := strconv.Atoi(os.Getenv(name)); err == nil && v >= 0 {
+		return v << 20
+	}
+	return def << 20
+}
+
+type keptSolve struct {
+	ws    *solve.Workspace
+	st    resumable
+	bytes int
+}
+
+// retained are the kept states of the SCC being solved.
+type retained struct {
+	kept  map[eir.FuncID]*keptSolve
+	pool  []*solve.Workspace
+	bytes int // what the kept states hold now
+	peak  int // the most they held, in this SCC
+	// resumes counts the solves that resumed a kept state.
+	resumes int
+}
+
+func newRetained() *retained {
+	return &retained{kept: map[eir.FuncID]*keptSolve{}}
+}
+
+func (r *retained) workspace() *solve.Workspace {
+	if n := len(r.pool); n > 0 {
+		ws := r.pool[n-1]
+		r.pool = r.pool[:n-1]
+		return ws
+	}
+	a := newArena()
+	return &solve.Workspace{Arena: a, Sets: newSets(a)}
+}
+
+// drop frees the kept state of id, its workspace back to the pool.
+func (r *retained) drop(id eir.FuncID) {
+	k := r.kept[id]
+	if k == nil {
+		return
+	}
+	r.bytes -= k.bytes
+	k.ws.Sets.Reset()
+	k.ws.Arena.Reset()
+	r.pool = append(r.pool, k.ws)
+	delete(r.kept, id)
+}
+
+// release frees every kept state: the SCC is final.
+func (r *retained) release() {
+	for id := range r.kept {
+		r.drop(id)
+	}
+	r.peak = 0
+	r.resumes = 0
+}
+
+// solve solves f, resuming its kept state if there is one, else solving it
+// with its state kept. A function past the solver's limits gets the top
+// summary as solveGuarded gives it, and no kept state.
+func (r *retained) solve(f *eir.Func, env solve.Env, scratch *solve.Workspace) (res solve.Result) {
+	id := f.ID
+	defer func() {
+		x := recover()
+		if x == nil {
+			return
+		}
+		if _, ok := x.(*solve.LimitError); !ok {
+			panic(x)
+		}
+		r.drop(id)
+		res = solveGuarded(f, env, scratch)
+	}()
+	if k := r.kept[id]; k != nil {
+		res = k.st.Resume(env)
+		r.resumes++
+		if resumeCheck {
+			r.check(f, env, scratch, res)
+		}
+		r.account(id, k)
+		return res
+	}
+	ws := r.workspace()
+	res, st := solveKeepFunc(f, env, ws)
+	k := &keptSolve{ws: ws, st: st}
+	r.kept[id] = k
+	r.account(id, k)
+	return res
+}
+
+// account updates the bytes of k and keeps the total under the budget,
+// dropping the largest states first (never the one just solved unless it
+// alone is past the budget).
+func (r *retained) account(id eir.FuncID, k *keptSolve) {
+	b := k.st.Bytes()
+	r.bytes += b - k.bytes
+	k.bytes = b
+	for r.bytes > retainBudget && len(r.kept) > 0 {
+		var big eir.FuncID
+		bigBytes := -1
+		for x, kx := range r.kept {
+			if x != id && kx.bytes > bigBytes {
+				big, bigBytes = x, kx.bytes
+			}
+		}
+		if bigBytes < 0 {
+			big = id // it alone is past the budget
+		}
+		r.drop(big)
+		if big == id {
+			break
+		}
+	}
+	if r.bytes > r.peak {
+		r.peak = r.bytes
+	}
+}
+
+// check solves f from scratch and compares with a resumed result.
+func (r *retained) check(f *eir.Func, env solve.Env, scratch *solve.Workspace, resumed solve.Result) {
+	fresh := solveFunc(f, env, scratch)
+	ps := env.Paths()
+	if !leq(ps, fresh.Summary, resumed.Summary) || !leq(ps, resumed.Summary, fresh.Summary) {
+		panic(fmt.Sprintf("internal compiler error: escape2: the resumed solve of %s differs from a solve from scratch", f.Name))
+	}
+	scratch.Sets.Reset()
+	scratch.Arena.Reset()
+}

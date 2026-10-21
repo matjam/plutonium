@@ -135,16 +135,31 @@ func RunWith(p *eir.Program, opts Options) *Result {
 	}
 
 	// iterate solves an SCC from bottom to a post-fixed point.
+	ret := newRetained()
 	iterate := func(comp []eir.FuncID, st *SCCStats) {
 		work := newSCCWork(comp, func(id eir.FuncID) []eir.FuncID { return g.deps[id] })
 		solves := map[eir.FuncID]int{}
+		// Members of an SCC are solved again as their callees grow: keep
+		// their states to resume (incr.go), released when the SCC is final.
+		keep := solveKeepFunc != nil && len(comp) > 1 && opts.Cache == nil
+		defer func() {
+			st.RetainedPeak = ret.peak
+			st.Resumes = ret.resumes
+			ret.release()
+		}()
 		for !work.empty() {
 			id := work.pop()
 			solves[id]++
 			if solves[id] > maxSolvesPerFunc {
 				panic(fmt.Sprintf("internal compiler error: escape2: %s did not converge in its SCC of %d functions", p.Funcs[id].Name, len(comp)))
 			}
-			r, rec := solveOne(id)
+			var r solve.Result
+			var rec Recorder
+			if keep {
+				r = ret.solve(p.Funcs[id], env, ws)
+			} else {
+				r, rec = solveOne(id)
+			}
 			if rec != nil {
 				opts.Cache.Solved(id, rec)
 			}

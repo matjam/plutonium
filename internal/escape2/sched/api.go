@@ -98,4 +98,9 @@ type SCCStats struct {
 	SetBytes   int
 	// Cache is what the D44 cache did for the SCC.
 	Cache CacheOutcome
+	// RetainedPeak is the most the kept solver states of the SCC's members
+	// held at once, in bytes, and Resumes the solves that resumed one
+	// (incremental re-solving, incr.go).
+	RetainedPeak int
+	Resumes      int
 }

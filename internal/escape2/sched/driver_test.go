@@ -204,6 +204,80 @@ func TestDriver(t *testing.T) {
 	}
 }
 
+// fakeKept is a kept solve of the fake solver: resuming solves again.
+type fakeKept struct {
+	f       *eir.Func
+	ws      *solve.Workspace
+	bytes   int
+	resumes *int
+}
+
+func (k *fakeKept) Resume(env solve.Env) solve.Result {
+	*k.resumes++
+	return solveFunc(k.f, env, k.ws)
+}
+
+func (k *fakeKept) Bytes() int { return k.bytes }
+
+// TestDriverResume checks incremental re-solving in the driver: members of
+// an SCC are kept and resumed, the results are those of solving from
+// scratch, the states are released when the SCC is final, and past the
+// budget the largest are dropped.
+func TestDriverResume(t *testing.T) {
+	build := func() (*prog, map[string]*fbuild) {
+		pr := newProg()
+		fs := map[string]*fbuild{}
+		for _, n := range []string{"main", "a", "b", "c"} {
+			fs[n] = pr.fn(n, eir.FuncKey{}, nil)
+		}
+		fs["main"].callStatic(fs["a"])
+		fs["a"].callStatic(fs["b"])
+		fs["b"].callStatic(fs["c"])
+		fs["c"].callStatic(fs["a"])
+		return pr, fs
+	}
+	var order []eir.FuncID
+	withFakes(t, &order)
+	pr, _ := build()
+	want := RunWith(pr.p, Options{})
+
+	for _, budget := range []int{1 << 30, 1} {
+		resumes, keeps := 0, 0
+		saved, savedBudget := solveKeepFunc, retainBudget
+		solveKeepFunc = func(f *eir.Func, env solve.Env, ws *solve.Workspace) (solve.Result, resumable) {
+			keeps++
+			return solveFunc(f, env, ws), &fakeKept{f: f, ws: ws, bytes: 10, resumes: &resumes}
+		}
+		retainBudget = budget
+		var stats []SCCStats
+		pr, fs := build()
+		got := RunWith(pr.p, Options{OnSCC: func(_ []eir.FuncID, st SCCStats) { stats = append(stats, st) }})
+		solveKeepFunc, retainBudget = saved, savedBudget
+
+		for _, n := range []string{"a", "b", "c", "main"} {
+			id := fs[n].f.ID
+			if g, w := got.Summaries[id], want.Summaries[id]; len(g.Esc) != len(w.Esc) {
+				t.Errorf("budget %d: %s: %d keys, want %d as from scratch", budget, n, len(g.Esc), len(w.Esc))
+			}
+		}
+		var cycle SCCStats
+		for _, st := range stats {
+			if st.Funcs == 3 {
+				cycle = st
+			}
+		}
+		if budget > 1 {
+			if keeps != 3 || resumes == 0 || cycle.Resumes != resumes || cycle.RetainedPeak != 30 {
+				t.Errorf("keeps %d resumes %d stats %+v: want 3 kept, resumed, 30 bytes at the peak", keeps, resumes, cycle)
+			}
+		} else if resumes != 0 || cycle.RetainedPeak != 0 {
+			// Every state is past a budget of one byte: dropped at once,
+			// so every solve is a new kept solve and none resumes.
+			t.Errorf("budget 1: resumes %d stats %+v, want none kept", resumes, cycle)
+		}
+	}
+}
+
 // TestSCCWorkOrder checks the SCC worklist: callees first by a postorder of
 // the SCC's own calls, each function queued once, others ignored.
 func TestSCCWorkOrder(t *testing.T) {
