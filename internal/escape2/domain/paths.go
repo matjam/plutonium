@@ -43,6 +43,14 @@ const stepChunk = 4096
 // pathInfo packs the facts of one path that Extend reads.
 type pathInfo uint32
 
+// The fields of pathInfo hold the limits; raising a limit past what its
+// field holds fails to compile here.
+const (
+	_ uint = 15 - MaxSteps    // depth: 4 bits
+	_ uint = 3 - MaxLoads     // loads: 2 bits
+	_ uint = 3 - MaxFieldNest // segment: 2 bits
+)
+
 func (i pathInfo) depth() int   { return int(i & 0xf) }         // number of steps stored
 func (i pathInfo) loads() int   { return int(i >> 4 & 0x3) }    // loads among them
 func (i pathInfo) segment() int { return int(i >> 6 & 0x3) }    // offset steps after the last load
