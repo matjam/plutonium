@@ -150,6 +150,15 @@ func zeroSized(T types2.Type) bool {
 // isScalar reports whether T is a basic type other than a string, which
 // fits a word.
 func isScalar(T types2.Type) bool {
+	if p, ok := T.Underlying().(*types2.Packed); ok {
+		// A packed value of one, two, four or eight bytes is held in the
+		// data word (section 7.9; lower/layout.go scalarType).
+		switch amd64Sizes.Sizeof(p) {
+		case 1, 2, 4, 8:
+			return true
+		}
+		return false
+	}
 	b, ok := T.Underlying().(*types2.Basic)
 	return ok && b.Info()&types2.IsString == 0 && b.Kind() != types2.Complex128
 }

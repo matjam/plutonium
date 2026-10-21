@@ -82,6 +82,10 @@ func isTypeParam(T types2.Type) bool {
 	return ok
 }
 
+// amd64Sizes are the sizes of types for questions whose answer is the same
+// on every target, such as a packed type's size.
+var amd64Sizes = types2.SizesFor("gc", "amd64")
+
 // isUnsafePointer reports whether T is unsafe.Pointer (or a type defined
 // from it).
 func isUnsafePointer(T types2.Type) bool {
