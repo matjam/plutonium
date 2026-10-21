@@ -52,6 +52,10 @@ type Env interface {
 	// HeapOnly reports whether field index field of struct type T holds
 	// only heap pointers (plan invariant I6).
 	HeapOnly(T types2.Type, field int) bool
+	// Instantiated reports the type arguments a type parameter is
+	// instantiated with anywhere in the program, and whether that set is
+	// known; known false means open (any type), never none.
+	Instantiated(tp *types2.TypeParam) (types []types2.Type, known bool)
 }
 
 // Workspace is the memory one solve works in: the SCC arena and its set

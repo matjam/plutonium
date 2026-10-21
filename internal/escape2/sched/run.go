@@ -362,6 +362,11 @@ func (e *env) Contract(name string) (*summary.Summary, bool) {
 
 func (e *env) HeapOnly(T types2.Type, field int) bool { return e.facts.HeapOnly(T, field) }
 
+// Instantiated implements solve.Env: stage B's instantiation sets.
+func (e *env) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
+	return e.facts.Instantiated(tp)
+}
+
 // clone copies a summary into memory of its own, sharing nothing with the
 // solver's workspace.
 func clone(s *summary.Summary) *summary.Summary {

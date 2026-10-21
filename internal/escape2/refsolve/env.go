@@ -134,6 +134,9 @@ type MapEnv struct {
 	Cands      map[eir.FuncID]map[eir.SiteID][]eir.FuncID // by caller and site
 	Contracts  map[string]*summary.Summary
 	HeapOnlyFn func(t types2.Type, field int) bool
+	// InstantiatedFn answers Instantiated; nil means every type parameter
+	// is open.
+	InstantiatedFn func(tp *types2.TypeParam) ([]types2.Type, bool)
 }
 
 // Program implements solve.Env.
@@ -157,6 +160,14 @@ func (e *MapEnv) Contract(name string) (*summary.Summary, bool) {
 // HeapOnly implements solve.Env.
 func (e *MapEnv) HeapOnly(t types2.Type, field int) bool {
 	return e.HeapOnlyFn != nil && e.HeapOnlyFn(t, field)
+}
+
+// Instantiated implements solve.Env: InstantiatedFn, or open (any type).
+func (e *MapEnv) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
+	if e.InstantiatedFn == nil {
+		return nil, false
+	}
+	return e.InstantiatedFn(tp)
 }
 
 var _ solve.Env = (*MapEnv)(nil)

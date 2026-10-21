@@ -45,6 +45,7 @@ func (e *testEnv) Contract(name string) (*summary.Summary, bool) {
 	s, ok := e.contracts[name]
 	return s, ok
 }
+func (e *testEnv) Instantiated(*types2.TypeParam) ([]types2.Type, bool) { return nil, false }
 func (e *testEnv) HeapOnly(T types2.Type, field int) bool {
 	return e.heapOnly[fmt.Sprintf("%s.%d", T, field)]
 }
