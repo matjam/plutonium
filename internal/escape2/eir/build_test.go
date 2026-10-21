@@ -54,6 +54,18 @@ func dumpMain(t *testing.T, src string) string {
 	return b.String()
 }
 
+func TestBuildDump(t *testing.T) {
+	f := os.Getenv("EIR_DUMP")
+	if f == "" {
+		t.Skip("EIR_DUMP=file dumps the EIR of a program")
+	}
+	src, err := os.ReadFile(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Log(dumpMain(t, string(src)))
+}
+
 func TestBuildSmoke(t *testing.T) {
 	out := dumpMain(t, `package main
 
