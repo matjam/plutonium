@@ -38,7 +38,7 @@ func GenTagHeap(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer {
 			page = genPage(b>>16, false)
 		}
 		page.history[(b&65535)>>4] = next
-		store16(genEntry(r, b), next)
+		vstore16(genEntry(r, b), next)
 	}
 	genWriter.Unlock()
 	return unsafe.Pointer(a | uintptr(next)<<48)
@@ -49,7 +49,7 @@ func GenSetEpoch(token uintptr, p unsafe.Pointer, size uintptr, epoch uint16) {
 	r := (*genRecord)(unsafe.Pointer(token))
 	a, end := uintptr(p), uintptr(p)+size
 	for b := a &^ 15; b < end; b += 16 {
-		store16(genEntry(r, b), epoch)
+		vstore16(genEntry(r, b), epoch)
 	}
 }
 
@@ -61,7 +61,7 @@ func GenInvalidate(token uintptr, from, to uintptr) {
 		panic("invalid generation invalidation extent")
 	}
 	for b := (from + 15) &^ 15; b < to; b += 16 {
-		store16(genEntry(r, b), 0)
+		vstore16(genEntry(r, b), 0)
 	}
 }
 
@@ -74,9 +74,9 @@ func genPointerRecord(p unsafe.Pointer) *genRecord {
 		return nil
 	}
 	var best *genRecord
-	for l := uintptr(load64(&page.head)); l != 0; {
+	for l := uintptr(vload64(&page.head)); l != 0; {
 		link := (*genLink)(unsafe.Pointer(l))
-		if rp := uintptr(load64(&link.reg)); rp != 0 {
+		if rp := uintptr(vload64(&link.reg)); rp != 0 {
 			r := (*genRecord)(unsafe.Pointer(rp))
 			if actual := genReadTag(r, a); actual != 0 && (best == nil || r.depth > best.depth) {
 				if actual != 0 && (tag == 0 || actual == tag) && genLive(r, a, a+1, actual) {
@@ -100,7 +100,7 @@ func GenFreeHeap(token uintptr, p unsafe.Pointer, size uintptr) bool {
 			panic("alloc: Free of memory that was already freed")
 		}
 		if r == want {
-			tag := load16(genEntry(r, uintptr(p)))
+			tag := vload16(genEntry(r, uintptr(p)))
 			GenInvalidate(token, uintptr(p), uintptr(p)+size)
 			return tag != 0x7fff
 		}
@@ -211,7 +211,7 @@ func GenAfterCustomFree(p unsafe.Pointer, size uintptr) {
 			GenUnregister(uintptr(unsafe.Pointer(r)))
 		} else {
 			for b := uintptr(p) &^ 15; b < uintptr(p)+max(size, uintptr(1)); b += 16 {
-				store16(genEntry(r, b), 0)
+				vstore16(genEntry(r, b), 0)
 			}
 		}
 	}

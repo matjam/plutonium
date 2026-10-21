@@ -150,17 +150,25 @@ func genPage(i uintptr, create bool) *genInterval {
 	return r
 }
 
-// vload64 and vload16 read metadata that writers change concurrently. On
-// x86-64 a naturally aligned volatile load is one MOV, which has acquire
-// semantics under total store order, and the compiler moves no other
-// memory access across it (memory-model sections 5.2 and 5.3): the same
-// guarantees as load64 and load16, without a call.
+// vload64 and vload16 read metadata that writers change concurrently, and
+// vstore16 writes a granule's tag. A naturally aligned volatile access is
+// one indivisible MOV of its width, and the compiler moves no other memory
+// access across it (memory-model sections 4.4 and 5.2). On x86-64, under
+// total store order, such a load has acquire and such a store release
+// semantics (section 5.3), which is all the metadata protocol needs:
+// readers only load, and each writer's stores (under genWriter) become
+// visible in order, so a reader that sees a publication or a version also
+// sees what was stored before it. Seqlock versions and directory
+// publication keep store64, a sequentially consistent exchange.
 //
 //pu:inline
 func vload64(p *uint64) uint64 { return *(*volatile[uint64])(unsafe.Pointer(p)) }
 
 //pu:inline
 func vload16(p *uint16) uint16 { return *(*volatile[uint16])(unsafe.Pointer(p)) }
+
+//pu:inline
+func vstore16(p *uint16, v uint16) { *(*volatile[uint16])(unsafe.Pointer(p)) = v }
 
 func genEntry(r *genRecord, a uintptr) *uint16 {
 	return (*uint16)(unsafe.Add(unsafe.Pointer(r.table), (a-r.origin)>>4*2))
@@ -186,25 +194,12 @@ func genLive(r *genRecord, a, end uintptr, tag uint16) bool {
 		if v != vload64(&r.version) {
 			continue
 		}
-		// lo <= a < end <= hi, and origin <= lo, so the extent's granules
-		// all lie in the table when the last one does.
-		ok := active && a >= lo && end <= hi && a >= origin && (end-1-origin)>>4 < capacity
+		ok := genCovers(active, lo, hi, origin, capacity, a, end)
 		if ok && parent != nil {
 			ok = vload64(&parent.incarnation) == id && genLive(parent, a, end, pt) && vload64(&parent.incarnation) == id
 		}
 		if ok {
-			e := unsafe.Add(unsafe.Pointer(table), (a-origin)>>4*2)
-			last := unsafe.Add(unsafe.Pointer(table), (end-1-origin)>>4*2)
-			for {
-				if vload16((*uint16)(e)) != tag {
-					ok = false
-					break
-				}
-				if e == last {
-					break
-				}
-				e = unsafe.Add(e, 2)
-			}
+			ok = genTableMatch(table, origin, a, end, tag)
 		}
 		if v == vload64(&r.version) {
 			return ok
@@ -212,25 +207,65 @@ func genLive(r *genRecord, a, end uintptr, tag uint16) bool {
 	}
 }
 
+// genCovers reports whether a snapshot's registration covers [a, end):
+// lo <= a < end <= hi, and origin <= lo, so the extent's granules all lie
+// in the table when the last one does.
+//
+//pu:inline
+func genCovers(active bool, lo, hi, origin, capacity, a, end uintptr) bool {
+	return active && a >= lo && end <= hi && a >= origin && (end-1-origin)>>4 < capacity
+}
+
+// genTableMatch reports whether every table entry of the granules of
+// [a, end) holds tag. Aligned runs of four entries are compared with one
+// 8-byte load each; every entry is still read by a single aligned load, so
+// each value read is one that a writer stored whole.
+//
+//pu:inline
+func genTableMatch(table *uint16, origin, a, end uintptr, tag uint16) bool {
+	e := uintptr(unsafe.Pointer(table)) + (a-origin)>>4*2
+	last := uintptr(unsafe.Pointer(table)) + (end-1-origin)>>4*2
+	for e&7 != 0 && e <= last {
+		if vload16((*uint16)(unsafe.Pointer(e))) != tag {
+			return false
+		}
+		e += 2
+	}
+	four := uint64(tag) * 0x0001000100010001
+	for e+6 <= last {
+		if vload64((*uint64)(unsafe.Pointer(e))) != four {
+			return false
+		}
+		e += 8
+	}
+	for e <= last {
+		if vload16((*uint16)(unsafe.Pointer(e))) != tag {
+			return false
+		}
+		e += 2
+	}
+	return true
+}
+
 // genReadTag captures bounds and table coherently before computing an
 // address. A final version check cannot repair an invalid dereference.
 func genReadTag(r *genRecord, a uintptr) uint16 {
 	for {
-		v := load64(&r.version)
+		v := vload64(&r.version)
 		if v&1 != 0 {
 			pause()
 			continue
 		}
-		active, lo, hi := r.active, r.lo, uintptr(load64((*uint64)(unsafe.Pointer(&r.hi))))
+		active, lo, hi := r.active, r.lo, uintptr(vload64((*uint64)(unsafe.Pointer(&r.hi))))
 		table, origin, capacity := r.table, r.origin, r.capacity
-		if v != load64(&r.version) {
+		if v != vload64(&r.version) {
 			continue
 		}
-		if !active || a < lo || a >= hi || a < origin || (a-origin)>>4 >= capacity {
+		if !genCovers(active, lo, hi, origin, capacity, a, a+1) {
 			return 0
 		}
-		tag := load16((*uint16)(unsafe.Add(unsafe.Pointer(table), (a-origin)>>4*2)))
-		if v == load64(&r.version) {
+		tag := vload16((*uint16)(unsafe.Add(unsafe.Pointer(table), (a-origin)>>4*2)))
+		if v == vload64(&r.version) {
 			return tag
 		}
 	}
@@ -264,8 +299,35 @@ func genReadLive(a, end uintptr, tag uint16) bool {
 	}
 	for l := uintptr(vload64(&(*genInterval)(unsafe.Pointer(page)).head)); l != 0; {
 		link := (*genLink)(unsafe.Pointer(l))
-		if rp := uintptr(vload64(&link.reg)); rp != 0 && genLive((*genRecord)(unsafe.Pointer(rp)), a, end, tag) {
-			return true
+		if rp := uintptr(vload64(&link.reg)); rp != 0 {
+			// genLive, with a registration that has no backing allocation
+			// (the default heap's) validated here without a call.
+			r := (*genRecord)(unsafe.Pointer(rp))
+			for {
+				v := vload64(&r.version)
+				if v&1 != 0 {
+					pause()
+					continue
+				}
+				active, lo, hi := r.active, r.lo, uintptr(vload64((*uint64)(unsafe.Pointer(&r.hi))))
+				parent, table, origin, capacity := r.parent, r.table, r.origin, r.capacity
+				if v != vload64(&r.version) {
+					continue
+				}
+				if parent != nil {
+					if genLive(r, a, end, tag) {
+						return true
+					}
+					break
+				}
+				ok := genCovers(active, lo, hi, origin, capacity, a, end) && genTableMatch(table, origin, a, end, tag)
+				if v == vload64(&r.version) {
+					if ok {
+						return true
+					}
+					break
+				}
+			}
 		}
 		l = link.next
 	}
@@ -317,7 +379,7 @@ func GenSlabOwner(token, owner uintptr) {
 	genWriter.Lock()
 	r := (*genRecord)(unsafe.Pointer(token))
 	o := (*genSlabOwner)(unsafe.Pointer(owner))
-	v := load64(&r.version)
+	v := vload64(&r.version)
 	store64(&r.version, v+1)
 	r.owner, r.ownerNext = owner, o.chunks
 	o.chunks = r
@@ -352,7 +414,7 @@ func genRecordDead(r *genRecord) bool {
 	if r.parent == nil {
 		return false
 	}
-	if load64(&r.parent.incarnation) != r.parentID {
+	if vload64(&r.parent.incarnation) != r.parentID {
 		return true
 	}
 	for b := r.lo; b < r.hi; b = min(r.hi, (b&^15)+16) {
@@ -370,9 +432,9 @@ func genPrune(i uintptr) {
 	if page == nil {
 		return
 	}
-	for l := uintptr(load64(&page.head)); l != 0; {
+	for l := uintptr(vload64(&page.head)); l != 0; {
 		link := (*genLink)(unsafe.Pointer(l))
-		if rp := uintptr(load64(&link.reg)); rp != 0 {
+		if rp := uintptr(vload64(&link.reg)); rp != 0 {
 			r := (*genRecord)(unsafe.Pointer(rp))
 			if r.active && genRecordDead(r) {
 				if r.owner != 0 {
@@ -396,27 +458,27 @@ func GenSlabBackingLive(p unsafe.Pointer, owner uintptr) bool {
 		return false
 	}
 	found := false
-	for l := uintptr(load64(&page.head)); l != 0; {
+	for l := uintptr(vload64(&page.head)); l != 0; {
 		link := (*genLink)(unsafe.Pointer(l))
-		if rp := uintptr(load64(&link.reg)); rp != 0 {
+		if rp := uintptr(vload64(&link.reg)); rp != 0 {
 			r := (*genRecord)(unsafe.Pointer(rp))
 			for {
-				v := load64(&r.version)
+				v := vload64(&r.version)
 				if v&1 != 0 {
 					pause()
 					continue
 				}
-				active, lo, hi, ro := r.active, r.lo, uintptr(load64((*uint64)(unsafe.Pointer(&r.hi)))), r.owner
+				active, lo, hi, ro := r.active, r.lo, uintptr(vload64((*uint64)(unsafe.Pointer(&r.hi)))), r.owner
 				parent, id, tag := r.parent, r.parentID, r.parentTag
-				if v != load64(&r.version) {
+				if v != vload64(&r.version) {
 					continue
 				}
 				match := active && ro == owner && a >= lo && a < hi
 				live := true
 				if match && parent != nil {
-					live = load64(&parent.incarnation) == id && genLive(parent, a, a+1, tag) && load64(&parent.incarnation) == id
+					live = vload64(&parent.incarnation) == id && genLive(parent, a, a+1, tag) && vload64(&parent.incarnation) == id
 				}
-				if v != load64(&r.version) {
+				if v != vload64(&r.version) {
 					continue
 				}
 				if match {
@@ -450,12 +512,12 @@ func genBacking(p unsafe.Pointer, size uintptr) *genRecord {
 		return nil
 	}
 	var best *genRecord
-	for l := uintptr(load64(&page.head)); l != 0; {
+	for l := uintptr(vload64(&page.head)); l != 0; {
 		link := (*genLink)(unsafe.Pointer(l))
-		if rp := uintptr(load64(&link.reg)); rp != 0 {
+		if rp := uintptr(vload64(&link.reg)); rp != 0 {
 			r := (*genRecord)(unsafe.Pointer(rp))
 			if r.active && a >= r.lo && a < r.hi && size <= r.hi-a {
-				tag := load16(genEntry(r, a))
+				tag := vload16(genEntry(r, a))
 				if tag != 0 && (want == 0 || want == tag) && (best == nil || r.depth > best.depth) {
 					if size == 0 || genLive(r, a, a+size, tag) {
 						best = r
@@ -475,9 +537,9 @@ func genPublish(r *genRecord, add bool) {
 	for i := r.lo >> 16; i <= (r.hi-1)>>16; i++ {
 		page := genPage(i, add)
 		var empty *genLink
-		for l := uintptr(load64(&page.head)); l != 0; {
+		for l := uintptr(vload64(&page.head)); l != 0; {
 			link := (*genLink)(unsafe.Pointer(l))
-			p := uintptr(load64(&link.reg))
+			p := uintptr(vload64(&link.reg))
 			if !add && p == uintptr(unsafe.Pointer(r)) {
 				store64(&link.reg, 0)
 			}
@@ -491,7 +553,7 @@ func genPublish(r *genRecord, add bool) {
 		}
 		if empty == nil {
 			empty = (*genLink)(genMetadata(unsafe.Sizeof(genLink{})))
-			empty.next = uintptr(load64(&page.head))
+			empty.next = uintptr(vload64(&page.head))
 			store64(&page.head, uint64(uintptr(unsafe.Pointer(empty))))
 		}
 		store64(&empty.reg, uint64(uintptr(unsafe.Pointer(r))))
@@ -563,20 +625,28 @@ func GenRegister(p unsafe.Pointer, size uintptr, backing unsafe.Pointer, key uin
 		r.table = (*uint16)(genMetadata(capacity * 2))
 		r.nextClass, genRecords[class] = genRecords[class], uintptr(unsafe.Pointer(r))
 	}
-	v := load64(&r.version)
+	v := vload64(&r.version)
 	store64(&r.version, v+1)
-	store64(&r.incarnation, load64(&r.incarnation)+1)
+	store64(&r.incarnation, vload64(&r.incarnation)+1)
 	r.lo, r.origin = uintptr(p), origin
 	store64((*uint64)(unsafe.Pointer(&r.hi)), uint64(uintptr(p)+size))
 	r.parent, r.parentID, r.parentTag, r.depth = parent, 0, 0, 0
 	if parent != nil {
-		r.parentID = load64(&parent.incarnation)
-		r.parentTag = load16(genEntry(parent, uintptr(p)))
+		r.parentID = vload64(&parent.incarnation)
+		r.parentTag = vload16(genEntry(parent, uintptr(p)))
 		r.depth = parent.depth + 1
 	}
 	r.original, r.key, r.owner, r.active = backing, key, 0, true
-	for i := uintptr(0); i < r.capacity; i++ {
-		store16((*uint16)(unsafe.Add(unsafe.Pointer(r.table), i*2)), 0)
+	// Tables are 16-byte aligned and a capacity of 4 or more fills whole
+	// 8-byte words, each store clearing four entries at once.
+	if r.capacity >= 4 {
+		for i := uintptr(0); i < r.capacity; i += 4 {
+			*(*volatile[uint64])(unsafe.Add(unsafe.Pointer(r.table), i*2)) = 0
+		}
+	} else {
+		for i := uintptr(0); i < r.capacity; i++ {
+			vstore16((*uint16)(unsafe.Add(unsafe.Pointer(r.table), i*2)), 0)
+		}
 	}
 	store64(&r.version, v+2)
 	genPublish(r, true)
@@ -598,7 +668,7 @@ func genUnregisterLocked(r *genRecord) {
 	if !r.active {
 		return
 	}
-	v := load64(&r.version)
+	v := vload64(&r.version)
 	store64(&r.version, v+1)
 	if r.owner != 0 {
 		o := (*genSlabOwner)(unsafe.Pointer(r.owner))
@@ -626,12 +696,3 @@ func genUnregisterLocked(r *genRecord) {
 	r.nextFree = genFreeRecords[class]
 	genFreeRecords[class] = uintptr(unsafe.Pointer(r))
 }
-
-// Explicit 16-bit atomic accesses keep tag stores and reads indivisible,
-// and prevent the optimiser from caching a mutable metadata entry.
-//
-//pu:noescape
-func load16(p *uint16) uint16
-
-//pu:noescape
-func store16(p *uint16, value uint16)

@@ -130,18 +130,6 @@
 	ret
 
 # load64(p *uint64) uint64
-	.globl "pluto/rt.load16"
-	.type "pluto/rt.load16", @function
-"pluto/rt.load16":
-	movzwq	(%rdi), %rax
-	ret
-
-	.globl "pluto/rt.store16"
-	.type "pluto/rt.store16", @function
-"pluto/rt.store16":
-	xchgw	%si, (%rdi)
-	ret
-
 	.globl "pluto/rt.load64"
 	.type "pluto/rt.load64", @function
 "pluto/rt.load64":

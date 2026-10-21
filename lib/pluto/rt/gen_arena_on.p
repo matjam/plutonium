@@ -21,7 +21,7 @@ func arenaRecordEnded(lo, hi uintptr, tag uint16, pc uintptr, freed bool) {
 	if freed {
 		e.site |= uintptr(1) << 63
 	}
-	e.next = (*arenaEnded)(unsafe.Pointer(uintptr(load64(&arenaEndedHead))))
+	e.next = (*arenaEnded)(unsafe.Pointer(uintptr(vload64(&arenaEndedHead))))
 	store64(&arenaEndedHead, uint64(uintptr(unsafe.Pointer(e))))
 }
 
@@ -67,7 +67,7 @@ func GenTagArena(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer {
 			page = genPage(b>>16, false)
 		}
 		page.history[(b&65535)>>4] = next
-		store16(genEntry(r, b), tag)
+		vstore16(genEntry(r, b), tag)
 	}
 	genWriter.Unlock()
 	return unsafe.Pointer(a | uintptr(tag)<<48)
@@ -81,7 +81,7 @@ func GenEndArena(token uintptr, pc uintptr, freed bool) {
 	genWriter.Lock()
 	r := (*genRecord)(unsafe.Pointer(token))
 	if r.active {
-		tag := load16(genEntry(r, r.lo))
+		tag := vload16(genEntry(r, r.lo))
 		if tag >= 0x8000 {
 			arenaRecordEnded(r.lo, r.hi, tag, pc, freed)
 		}
@@ -99,8 +99,8 @@ func GenTrimArena(token uintptr, from, pc uintptr) {
 		panic("invalid generation trim extent")
 	}
 	oldHi := r.hi
-	arenaRecordEnded(from, oldHi, load16(genEntry(r, r.lo)), pc, true)
-	v := load64(&r.version)
+	arenaRecordEnded(from, oldHi, vload16(genEntry(r, r.lo)), pc, true)
+	v := vload64(&r.version)
 	store64(&r.version, v+1)
 	store64((*uint64)(unsafe.Pointer(&r.hi)), uint64(from))
 	store64(&r.version, v+2)
@@ -108,9 +108,9 @@ func GenTrimArena(token uintptr, from, pc uintptr) {
 	// removed by the ordinary unregister of the remaining prefix.
 	for i := (from + 65535) >> 16; i <= (oldHi-1)>>16; i++ {
 		page := genPage(i, false)
-		for l := uintptr(load64(&page.head)); l != 0; {
+		for l := uintptr(vload64(&page.head)); l != 0; {
 			link := (*genLink)(unsafe.Pointer(l))
-			if uintptr(load64(&link.reg)) == token {
+			if uintptr(vload64(&link.reg)) == token {
 				store64(&link.reg, 0)
 			}
 			l = link.next
@@ -122,7 +122,7 @@ func GenTrimArena(token uintptr, from, pc uintptr) {
 func arenaEndedSite(p unsafe.Pointer) uintptr {
 	a := uintptr(p)
 	tag := uint16(*(*uintptr)(unsafe.Pointer(&p)) >> 48)
-	for e := (*arenaEnded)(unsafe.Pointer(uintptr(load64(&arenaEndedHead)))); e != nil; e = e.next {
+	for e := (*arenaEnded)(unsafe.Pointer(uintptr(vload64(&arenaEndedHead)))); e != nil; e = e.next {
 		if a >= e.lo && a < e.hi && tag == e.tag {
 			return e.site
 		}
