@@ -1074,9 +1074,11 @@ func BoxNeeded(env Env, o *eir.Object) bool {
 }
 
 // directValue reports whether an interface holds a value of type T in its
-// data word, unboxed: pointer-shaped, or a scalar of at most a word.
+// data word, unboxed: pointer-shaped, or a scalar of at most a word; or
+// whether T has no bytes, so its box holds no memory to outlive anything (a
+// zero-sized value).
 func directValue(T types2.Type) bool {
-	if types2.PointerShaped(T) {
+	if types2.PointerShaped(T) || zeroSized(T) {
 		return true
 	}
 	b, ok := T.Underlying().(*types2.Basic)
@@ -1088,6 +1090,23 @@ func directValue(T types2.Type) bool {
 		return false
 	}
 	return true
+}
+
+// zeroSized reports whether a value of T has no bytes: an empty struct, an
+// array of none, or of zero-sized elements.
+func zeroSized(T types2.Type) bool {
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if !zeroSized(u.Field(i).Type()) {
+				return false
+			}
+		}
+		return true
+	case *types2.Array:
+		return u.Len() == 0 || zeroSized(u.Elem())
+	}
+	return false
 }
 
 // directAssert reports whether an assertion to T yields the interface's data

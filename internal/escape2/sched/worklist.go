@@ -2,6 +2,7 @@ package sched
 
 import (
 	"container/heap"
+	"os"
 
 	"github.com/matjam/plutonium/internal/escape2/eir"
 )
@@ -15,6 +16,11 @@ import (
 // SCC) this order took 4 min 13 s against 4 min 39 s first in, first out,
 // with less memory; it solves more often, but cheaper solves.
 // Every function is in the list once at most.
+// sccOrderReversed, set by ESCAPE2_SCC_ORDER=reverse, solves callers first:
+// for checking that the result does not depend on the order (a debugging
+// knob, never for the compiler).
+var sccOrderReversed = os.Getenv("ESCAPE2_SCC_ORDER") == "reverse"
+
 type sccWork struct {
 	rank   map[eir.FuncID]int
 	byRank []eir.FuncID
@@ -59,6 +65,14 @@ func newSCCWork(comp []eir.FuncID, deps func(eir.FuncID) []eir.FuncID) *sccWork 
 			w.rank[top.id] = len(w.byRank)
 			w.byRank = append(w.byRank, top.id)
 			stack = stack[:len(stack)-1]
+		}
+	}
+	if sccOrderReversed {
+		for i, j := 0, len(w.byRank)-1; i < j; i, j = i+1, j-1 {
+			w.byRank[i], w.byRank[j] = w.byRank[j], w.byRank[i]
+		}
+		for r, id := range w.byRank {
+			w.rank[id] = r
 		}
 	}
 	w.queued = make([]bool, len(w.byRank))

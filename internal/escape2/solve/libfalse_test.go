@@ -142,6 +142,23 @@ func main() {
 `, "main.p:", "",
 	},
 	{
+		// A type parameter whose instances are all zero-sized is boxed
+		// into no memory: returning it as an interface keeps nothing
+		// (testdata/run/tp_issue50264.p).
+		"typeparam_zero_size_box", `package main
+
+type hello struct{}
+type none struct{}
+
+func some[T any](v T) any { return v }
+
+func main() {
+	_ = some(hello{})
+	_ = some(none{})
+}
+`, "main.p:", "",
+	},
+	{
 		// An assertion to an interface fails on a box whose dynamic type
 		// does not implement it: the string's frame box is not kept.
 		"assert_iface_box", `package main
