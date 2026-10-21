@@ -214,6 +214,7 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []tset {
 					out[i] = w.conv(v, types[i], params.At(i).Type(), e.Args[0])
 				}
 			}
+			w.defaultArgs(e, params, len(vals), out)
 			return out
 		}
 	}
@@ -253,7 +254,58 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []tset {
 		l := w.tmp(e, lkVarargs)
 		out[n-1] = tset{frameTok(l)}
 	}
+	w.defaultArgs(e, params, len(e.Args), out)
 	return out
+}
+
+// defaultArgs evaluates the defaults of the parameters a call leaves out
+// (language spec section 10.13), given values for the first given ones, into
+// out. A default is evaluated at each call as if written there: its
+// temporaries, such as the array of a slice literal, live in the caller's
+// frame, so what the callee does with the parameter is checked against them.
+func (w *walker) defaultArgs(e *ast.CallExpr, params *types2.Tuple, given int, out []tset) {
+	defs := w.calleeDefaults(e)
+	if len(defs) == 0 {
+		return
+	}
+	n := params.Len()
+	first := n - len(defs)
+	for i := max(given, first); i < n; i++ {
+		d := defs[i-first]
+		v := w.argumentHolders(w.value(d), d, w.typeOf(d), "")
+		out[i] = w.conv(v, w.typeOf(d), params.At(i).Type(), d)
+	}
+}
+
+// calleeDefaults returns the default values of the declared function or
+// method a call names directly (f(x), pkg.F(x), F[T](x), v.M(x)), or nil.
+// Calls through func values, method values, method expressions and
+// interfaces have none (section 10.13, Which calls).
+func (w *walker) calleeDefaults(e *ast.CallExpr) []ast.Expr {
+	fun := ast.Unparen(e.Fun)
+	switch ix := fun.(type) {
+	case *ast.IndexExpr:
+		fun = ast.Unparen(ix.X)
+	case *ast.IndexListExpr:
+		fun = ast.Unparen(ix.X)
+	}
+	var fn *types2.Func
+	switch f := fun.(type) {
+	case *ast.Ident:
+		fn, _ = w.objOf(f).(*types2.Func)
+	case *ast.SelectorExpr:
+		if sel := w.a.selections[f]; sel != nil {
+			if sel.Kind() == types2.MethodVal {
+				fn, _ = sel.Obj().(*types2.Func)
+			}
+		} else {
+			fn, _ = w.objOf(f.Sel).(*types2.Func)
+		}
+	}
+	if fn == nil {
+		return nil
+	}
+	return fn.Defaults()
 }
 
 // An argEval says what a key of a callee's summary leads to from the pointers

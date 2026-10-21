@@ -787,6 +787,15 @@ func f() {
 }
 func main() { f() }`, []string{"cannot pass o to fmt.Println, which keeps it", "may call main.(*S).FmtList", "stores s in package variable kept"}},
 
+	// Found by the lowering oracle: a default parameter value is evaluated
+	// at the call, its temporaries in the caller's frame (section 10.13).
+	{"default value with a slice literal kept by the callee", `
+var kept []int
+func seven() int { return 7 }
+func keep(s []int = []int{seven(), seven()}) { kept = s }
+func f() { keep() }
+func main() { f() }`, []string{"cannot pass []int{...} to keep, which keeps it", "slice literal (at main.p:5) keeps its elements in an array in f's frame"}},
+
 	{"builder over a local arena returned", `
 import (
 	"pluto/arena"
