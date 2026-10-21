@@ -42,9 +42,14 @@ const Root PathID = 0
 // (the program arena); paths are bounded by the program's types and the
 // limits, so it does not grow with the number of SCCs or iterations.
 type Paths interface {
-	// Extend returns p followed by s, cut to the limits. cut reports that
-	// the result stands for p+s and every extension (the key's GE bit
-	// must be set).
+	// Extend returns p followed by s, cut to the limits. A path that would
+	// pass MaxLoads or MaxSteps is cut back to its prefix through the
+	// second load (the fields between the two loads are kept, so that the
+	// cut covers the path), and cut reports that the result stands for p+s
+	// and every extension (the key's GE bit must be set). An offset step
+	// past MaxFieldNest in a segment is absorbed without a cut (the
+	// segment already stands for its further offsets). Extend ignores GE:
+	// extend a key with ExtendKey.
 	Extend(p PathID, s Step) (q PathID, cut bool)
 	// Steps returns the steps of p, in order. The slice is shared: do not
 	// change it.
@@ -53,8 +58,9 @@ type Paths interface {
 	Loads(p PathID) int
 	// HasPrefix reports whether prefix is a prefix of p (p itself included).
 	HasPrefix(p, prefix PathID) bool
-	// Cut returns p cut back to its first load plus one load, the widening
-	// a summary cap applies (plan section (a), "Caps and widening").
+	// Cut returns the prefix of p through its first load, or p itself when
+	// it has no load: the widening a summary cap applies, with GE (plan
+	// section (a), "Caps and widening").
 	Cut(p PathID) PathID
 	// Len is the number of interned paths.
 	Len() int
@@ -87,8 +93,13 @@ type KeyFlags struct {
 	GE, Borrowed, Counts, DirectCount bool
 }
 
-// MakeKey packs a key. input must be below MaxInputs.
+// MakeKey packs a key. input must be in [0, MaxInputs): a larger one would
+// name another input, so it is an internal compiler error (a function with
+// more inputs is widened by its builder before keys are made for it).
 func MakeKey(input int, path PathID, f KeyFlags) Key {
+	if input < 0 || input >= MaxInputs {
+		panic("internal compiler error: escape2/domain: key input out of range")
+	}
 	k := Key(path) | Key(uint8(input))<<32
 	if f.GE {
 		k |= keyGE
@@ -142,6 +153,14 @@ func Covers(ps Paths, a, b Key) bool {
 	}
 	return a.GE() && ps.HasPrefix(b.Path(), a.Path())
 }
+
+// The helpers of keys and paths that the solver and the reference solver use
+// are part of this interface too, defined beside their implementation:
+// ExtendKey and AppendKey (paths.go) extend a key, keeping GE; PathMatches
+// (paths.go) is the definition of what a path stands for, executable;
+// PathBytes (paths.go) measures the interner; CoveredBy, SortKeys, Antichain,
+// JoinKeys and CoversAll (antichain.go) keep sets of keys as antichains under
+// Covers; NewCheckedArena (arena.go) poisons memory on Reset, for tests.
 
 // SetID names a hash-consed set of uint64 elements (tokens or keys) in a
 // Sets table. Empty (0) is the empty set.
