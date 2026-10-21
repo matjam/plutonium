@@ -1,0 +1,26 @@
+// Package escape2 is the escape analysis being rebuilt beside internal/escape,
+// by the plan of docs/plans/2026-10-20-escape-redesign.md. It checks the same
+// rules (language spec sections 18.3, 18.4 and 11.5): no pointer into a stack
+// frame outlives the frame.
+//
+// It is off by default. Nothing in the compiler runs it until the owner
+// switches it on (PLUTO_ESCAPE=new|both, plan section (g)).
+//
+// The packages under it, and who builds on what:
+//
+//	eir       the explicit IR the analysis runs on, and the one desugaring of
+//	          the typed AST into it (plan section 3.1)
+//	domain    interned access paths, packed keys, hash-consed token sets and
+//	          the arenas that hold them (plan section (a))
+//	summary   what a function does with the pointers its caller passes: the
+//	          format every other package reads (plan section (a))
+//	solve     the per-function inclusion solver and the store check (plan
+//	          sections (a) and (d))
+//	sched     the whole-program facts fixed before any summary (stage B), the
+//	          call graph, its SCCs and the per-SCC driver (plan section (b))
+//	refsolve  the naive reference solver that checks solve (plan section (g))
+//
+// The interfaces between them are the exported declarations of eir/types.go,
+// domain/api.go, summary/summary.go, solve/api.go and sched/api.go; a change
+// to them is agreed before it is made, since several builders depend on them.
+package escape2
