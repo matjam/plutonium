@@ -321,6 +321,12 @@ const (
 	// without an allocator argument, and the runtime's implicit
 	// allocations (string building, conversions).
 	HeapCurrent
+	// HeapCountedCurrent is a counted reference to a fresh allocation from
+	// the current allocator: a string built by concatenation or
+	// formatting, a map or channel made without an allocator argument, a
+	// map literal's table. HeapCounted stays for counted values that are
+	// not fresh allocations from the current allocator.
+	HeapCountedCurrent
 )
 
 // SinkKind says where a value goes that outlives the frame or leaves it.
