@@ -94,12 +94,26 @@ func genLarge(pages PageProvider, size, align uintptr) unsafe.Pointer {
 	if size > ^uintptr(0)/4 || align > ^uintptr(0)/4 {
 		return nil
 	}
+	// An address range whose history is exhausted is retired with its
+	// mapping (genLargeOnce), so another try maps other memory.
+	for try := 0; try < 64; try++ {
+		p, retired := genLargeOnce(pages, size, align)
+		if !retired {
+			return p
+		}
+	}
+	return nil
+}
+
+// genLargeOnce is one try of genLarge; retired reports a mapping kept out
+// of use because its address history is exhausted.
+func genLargeOnce(pages PageProvider, size, align uintptr) (unsafe.Pointer, bool) {
 	table := (size + 15) / 16 * 2
 	off := (64 + table + unsafe.Sizeof(genLargeHeader{}) + align - 1) &^ (align - 1)
 	n := off + size
 	base, raw, pageCount := genPages(pages, n, max(align, uintptr(genChunkSize)))
 	if base == nil {
-		return nil
+		return nil, false
 	}
 	p := unsafe.Add(base, off)
 	h := (*genLargeHeader)(unsafe.Add(p, -int(unsafe.Sizeof(genLargeHeader{}))))
@@ -107,21 +121,21 @@ func genLarge(pages PageProvider, size, align uintptr) unsafe.Pointer {
 	h.token = rt.GenRegister(p, size, raw, 0)
 	if h.token == 0 {
 		pages.FreePages(raw, pageCount)
-		return nil
+		return nil, false
 	}
 	tagged := rt.GenTagHeap(h.token, p, size)
 	if tagged == nil {
 		// Exhausted address history: retain the complete mapping rather than
 		// returning its prefix or payload to the provider.
 		rt.GenQuarantine(h.token)
-		return nil
+		return nil, true
 	}
 	bits := *(*uintptr)(unsafe.Pointer(&tagged))
 	t := unsafe.Slice((*uint16)(unsafe.Add(base, 64)), (size+15)/16)
 	for i := range t {
 		t[i] = uint16(bits >> 48)
 	}
-	return tagged
+	return tagged, false
 }
 
 func genFreeLarge(pages PageProvider, p unsafe.Pointer, size uintptr) {

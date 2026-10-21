@@ -163,6 +163,7 @@ func ExitSyscall()
 func ExitTask()
 func FloatHash(bits uint64, size uintptr, seed uint64) uint64
 func GenAfterCustomFree(p unsafe.Pointer, size uintptr)
+func GenArenaExhausted(p unsafe.Pointer, size uintptr) uintptr
 func GenCheckArenaFree(p unsafe.Pointer, size uintptr)
 func GenCustomAlloc(p unsafe.Pointer, size, key uintptr) unsafe.Pointer
 func GenCustomFree(p unsafe.Pointer, size, key uintptr) unsafe.Pointer
@@ -174,7 +175,6 @@ func GenQuarantine(token uintptr)
 func GenRegister(p unsafe.Pointer, size uintptr, backing unsafe.Pointer, key uintptr) uintptr
 func GenRegisteredLive(p unsafe.Pointer) bool
 func GenRegisteredRangeLive(p unsafe.Pointer, n uintptr) bool
-func GenSetEpoch(token uintptr, p unsafe.Pointer, size uintptr, epoch uint16)
 func GenSlabBackingLive(p unsafe.Pointer, owner uintptr) bool
 func GenSlabOwner(token, owner uintptr)
 func GenTagArena(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer

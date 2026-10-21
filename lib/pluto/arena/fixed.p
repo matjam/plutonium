@@ -59,6 +59,13 @@ func (a *Fixed) Alloc(size, align uintptr) unsafe.Pointer {
 	p := unsafe.Add(a.base, a.off+pad)
 	p = a.life.allocate(p, size)
 	if p == nil {
+		if r := a.life.retired; r != 0 {
+			// Granules whose address history is exhausted are retired:
+			// allocate after them. A Fixed has no other storage, so once
+			// every granule is retired its allocations fail.
+			a.off = min(r-uintptr(a.base), a.size)
+			return a.Alloc(size, align)
+		}
 		return nil
 	}
 	a.off += pad + size

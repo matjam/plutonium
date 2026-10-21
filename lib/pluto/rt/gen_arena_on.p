@@ -73,6 +73,28 @@ func GenTagArena(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer {
 	return unsafe.Pointer(a | uintptr(tag)<<48)
 }
 
+// GenArenaExhausted returns, for an extent whose GenTagArena failed, the
+// address just past the last of its granules whose address history is
+// exhausted (no further tag is available there), or 0 if none is. An
+// arena retires that storage by never allocating it again: it allocates
+// after it, or in other storage (abi.md section 1.3, Arena epochs).
+func GenArenaExhausted(p unsafe.Pointer, size uintptr) uintptr {
+	a, end := uintptr(p), uintptr(p)+max(size, uintptr(1))
+	retired := uintptr(0)
+	genWriter.Lock()
+	var page *genInterval
+	for b := a &^ 15; b < end; b += 16 {
+		if page == nil || page.interval != b>>16 {
+			page = genPage(b>>16, false)
+		}
+		if page != nil && page.history[(b&65535)>>4] >= 0x7fff {
+			retired = b + 16
+		}
+	}
+	genWriter.Unlock()
+	return retired
+}
+
 // GenEndArena ends exactly one allocation before reuse or backing free.
 func GenEndArena(token uintptr, pc uintptr, freed bool) {
 	if token == 0 {

@@ -23,6 +23,11 @@ type lifetime struct {
 	identity uint64
 	reset    uint64
 	next     uint64
+	// retired is set by an allocate that failed because the address
+	// history of the extent's granules is exhausted: the address just past
+	// the last such granule. The caller retires that storage by allocating
+	// after it (abi.md section 1.3, Arena epochs).
+	retired uintptr
 }
 
 func newLifetime(parent alloc.Allocator) lifetime {
@@ -33,6 +38,7 @@ func (l *lifetime) allocate(p unsafe.Pointer, size uintptr) unsafe.Pointer {
 	if l.next == ^uint64(0) {
 		panic("arena: allocation identity exhausted")
 	}
+	l.retired = 0
 	raw := l.parent.Alloc(unsafe.Sizeof(allocation{}), unsafe.Alignof(allocation{}))
 	if raw == nil {
 		return nil
@@ -43,6 +49,9 @@ func (l *lifetime) allocate(p unsafe.Pointer, size uintptr) unsafe.Pointer {
 		token = rt.GenRegister(unsafe.Pointer(uintptr(p)), size, p, 0)
 		result = rt.GenTagArena(token, p, size)
 		if result == nil {
+			if token != 0 {
+				l.retired = rt.GenArenaExhausted(p, size)
+			}
 			rt.GenUnregister(token)
 			l.parent.Free(raw, unsafe.Sizeof(allocation{}), unsafe.Alignof(allocation{}))
 			return nil

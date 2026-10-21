@@ -130,6 +130,12 @@ func (a *Chunked) bump(size, align uintptr) unsafe.Pointer {
 	p := unsafe.Add(c.data(), a.off+pad)
 	p = a.life.allocate(p, size)
 	if p == nil {
+		if r := a.life.retired; r != 0 {
+			// Granules whose address history is exhausted are retired:
+			// allocate after them, in this chunk or the next.
+			a.off = min(r-uintptr(c.data()), c.size)
+			return a.bump(size, align)
+		}
 		return nil
 	}
 	a.off += pad + size
