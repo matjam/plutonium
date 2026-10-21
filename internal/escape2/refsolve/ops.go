@@ -119,6 +119,10 @@ func (s *solver) load(v value) value {
 	for x := range v {
 		switch x.t.kind {
 		case kObj:
+			if s.objs[x.t.id].kind == eir.ObjBoxView {
+				out.add(ptr(tok{kind: kHeap})) // heap memory for loads
+				continue
+			}
 			s.loadObj(out, x.t)
 		case kIn:
 			if x.t.ge {

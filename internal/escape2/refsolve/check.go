@@ -35,15 +35,15 @@ func (s *solver) outlives(o2, o int) bool {
 		return true
 	}
 	a, b := s.objs[o2], s.objs[o]
-	if a.isReg && a.life == eir.LifeFrame && b.life == eir.LifeCaller {
+	if a.isReg && a.life == eir.LifeFrame && b.destLife == eir.LifeCaller {
 		return true // section 11.5: the caller's region holds the call's
 	}
 	switch {
-	case a.life == eir.LifeIter && b.life == eir.LifeIter:
-		return s.nestedIn(b.loop, a.loop)
-	case a.life > b.life:
+	case a.life == eir.LifeIter && b.destLife == eir.LifeIter:
+		return s.nestedIn(b.destLoop, a.loop)
+	case a.life > b.destLife:
 		return true
-	case a.life == b.life:
+	case a.life == b.destLife:
 		return true
 	}
 	return false
@@ -69,6 +69,11 @@ func (s *solver) store(d, v value, pos token.Pos, c callCtx) {
 	for dx := range d {
 		switch dt := dx.t; dt.kind {
 		case kObj:
+			if s.objs[dt.id].kind == eir.ObjBoxView {
+				// A box view is heap memory as a store destination.
+				s.store(single(ptr(tok{kind: kHeap})), v, pos, c)
+				continue
+			}
 			s.putPlace(place{dt.id, dt.path, dt.ge}, v)
 			for x := range v {
 				if x.t.kind == kObj && !s.outlives(x.t.id, dt.id) {

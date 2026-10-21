@@ -128,9 +128,13 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		}
 		return s.valNode(uint32(bind[i]), k.Path(), k.GE()), true
 	}
+	escCode := uint64(cE3003)
+	if c.Implicit == eir.ImplTask {
+		escCode = cTask
+	}
 	for e, k := range sum.Esc {
 		if v, ok := val(k); ok {
-			s.addCons(v, cSink, cE3003, why(e))
+			s.addCons(v, cSink, escCode, why(e))
 		}
 	}
 	for j, p := range sum.Store {

@@ -13,10 +13,13 @@ import (
 // the function, then Reg(s) for each call site s (rules.go, "Abstract
 // values").
 type objInfo struct {
-	life  eir.Lifetime
-	loop  int  // the loop of a LifeIter object, or -1
-	isReg bool // Reg(s)
-	kind  eir.ObjKind
+	life     eir.Lifetime
+	loop     int // the loop of a LifeIter object, or -1
+	destLife eir.Lifetime
+	destLoop int  // life and loop as a store destination (rules.go, outlives)
+	isReg    bool // Reg(s)
+	kind     eir.ObjKind
+	wg       bool // a sync.WaitGroup
 }
 
 type findingKey struct {
@@ -88,7 +91,18 @@ func newSolver(f *eir.Func, env solve.Env) *solver {
 		if life == eir.LifeBlock {
 			life = eir.LifeFrame // rules.go, outlives: a block's variables live in the frame
 		}
-		s.objs = append(s.objs, objInfo{life: life, loop: o.Loop, kind: o.Kind})
+		dl, dlp := life, o.Loop
+		if life == eir.LifeHeader {
+			// One iteration as a source; across the loop's iterations as a
+			// destination.
+			life = eir.LifeIter
+			dl, dlp = eir.LifeFrame, -1
+			if o.Loop >= 0 && f.Loops[o.Loop].Parent >= 0 {
+				dl, dlp = eir.LifeIter, f.Loops[o.Loop].Parent
+			}
+		}
+		wg := o.Type != nil && solve.IsWaitGroupType(o.Type)
+		s.objs = append(s.objs, objInfo{life: life, loop: o.Loop, destLife: dl, destLoop: dlp, kind: o.Kind, wg: wg})
 	}
 	// Reg(s) for every call site: the lifetime of its call.
 	regs := make([]objInfo, f.NumSites)
@@ -110,6 +124,7 @@ func newSolver(f *eir.Func, env solve.Env) *solver {
 				if b.Loop >= 0 {
 					ri.life, ri.loop = eir.LifeIter, b.Loop
 				}
+				ri.destLife, ri.destLoop = ri.life, ri.loop
 				regs[in.Call.Site] = ri
 			}
 		}

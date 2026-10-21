@@ -259,3 +259,60 @@ func TestReasons(t *testing.T) {
 		t.Fatalf("call reason: %+v", rs)
 	}
 }
+
+// A box view (section 18.7) bounds a pointer by its box variable: returning
+// it is E3001; storing a frame pointer through it is a store into heap
+// memory (E3002); a load through it is heap memory.
+func TestBoxView(t *testing.T) {
+	e := newEnv()
+	b := e.fn("f", 0, 2)
+	view := b.obj("b", eir.LifeFrame, -1)
+	b.f.Objects[view].Kind = eir.ObjBoxView
+	x := b.obj("x", eir.LifeFrame, -1)
+	b.at(1).ret(0, b.addr(view, 0))
+	b.at(2).store(b.addr(view, 1), b.addr(x))
+	b.at(3).ret(1, b.load(b.addr(view, 1)))
+	r := e.solve(t, b.f)
+	wantFindings(t, r, "E3001@1 E3002@2")
+	e.wantSummary(t, r, "res1 heap")
+}
+
+// A loop's header variable (section 18.4): a view of the loop's body kept
+// in it is E3006, a view of an enclosing loop's iteration is not, and a view
+// of the header variable itself is good for one iteration.
+func TestLoopHeader(t *testing.T) {
+	e := newEnv()
+	b := e.fn("f", 0, 0)
+	b.f.Loops = []eir.Loop{{Parent: -1}, {Parent: 0}}
+	outer := b.obj("outer", eir.LifeIter, 0)
+	head := b.obj("i", eir.LifeHeader, 1)
+	body := b.obj("v", eir.LifeIter, 1)
+	keep := b.obj("keep", eir.LifeFrame, -1)
+	b.at(1).store(b.addr(head), b.addr(body))
+	b.at(2).store(b.addr(head), b.addr(outer))
+	b.at(3).store(b.addr(keep), b.addr(head))
+	b.at(4).store(b.addr(body), b.addr(head))
+	r := e.solve(t, b.f)
+	wantFindings(t, r, "E3006@1 E3006@3")
+}
+
+// A local sync.WaitGroup passed to a function that starts a task with it is
+// E3004 (section 12.12); another frame view so passed is E3003.
+func TestTaskStarter(t *testing.T) {
+	e := newEnv()
+	pkg := types2.NewPackage("pluto/sync", "sync")
+	wgT := types2.NewNamed(types2.NewTypeName(0, pkg, "WaitGroup", nil), types2.NewStruct(nil, nil), nil)
+	e.contracts["task"] = &summary.Summary{Inputs: 2, Esc: []domain.Key{e.key(0, false), e.key(1, false)}}
+	b := e.fn("f", 0, 0)
+	wg := b.typedObj("wg", wgT)
+	x := b.obj("x", eir.LifeFrame, -1)
+	b.at(5).call(&eir.Call{Kind: eir.CallContract, Contract: "task", Implicit: eir.ImplTask, Args: []eir.Reg{b.addr(wg), b.addr(x)}})
+	r := e.solve(t, b.f)
+	got := map[eir.ObjID]string{}
+	for _, f := range r.Findings {
+		got[f.Obj] = string(f.Code)
+	}
+	if got[wg] != "E3004" || got[x] != "E3003" {
+		t.Errorf("findings %v", got)
+	}
+}

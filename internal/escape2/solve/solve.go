@@ -169,15 +169,38 @@ const (
 	cE3006
 	cE3009
 	cE3101
+	cTask // at a task starter (ImplTask): E3004 for a local sync.WaitGroup, else E3003
 )
+
+// isWaitGroup reports whether frame object o is a sync.WaitGroup: passing
+// its address to a function that starts a task with it is E3004 (section
+// 12.12).
+func (s *solver) isWaitGroup(o uint32) bool {
+	if int(o) >= len(s.f.Objects) || s.f.Objects[o].Type == nil {
+		return false
+	}
+	return isWaitGroupType(s.f.Objects[o].Type)
+}
+
+// isWaitGroupType reports whether T is pluto/sync.WaitGroup.
+func isWaitGroupType(T types2.Type) bool {
+	n, ok := types2.Unalias(T).(*types2.Named)
+	return ok && n.Obj().Name() == "WaitGroup" && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "pluto/sync"
+}
+
+// IsWaitGroupType is isWaitGroupType, for the reference solver.
+func IsWaitGroupType(T types2.Type) bool { return isWaitGroupType(T) }
 
 // life returns the lifetime and loop of object o (rules.go: a region of
 // call site s is object len(Objects)+s).
 func (s *solver) life(o uint32) (eir.Lifetime, int) {
 	if int(o) < len(s.f.Objects) {
 		ob := &s.f.Objects[o]
-		if ob.Life == eir.LifeBlock {
+		switch ob.Life {
+		case eir.LifeBlock:
 			return eir.LifeFrame, ob.Loop // rules.go, outlives
+		case eir.LifeHeader:
+			return eir.LifeIter, ob.Loop // as a source: one iteration
 		}
 		return ob.Life, ob.Loop
 	}
@@ -193,6 +216,28 @@ func (s *solver) life(o uint32) (eir.Lifetime, int) {
 }
 
 func (s *solver) isRegion(o uint32) bool { return int(o) >= len(s.f.Objects) }
+
+// destLife is the lifetime of object o as the place a pointer is stored in:
+// its life, except that a loop's header variable lives across the loop's
+// iterations, within an iteration of the enclosing loop (rules.go,
+// outlives; section 18.4).
+func (s *solver) destLife(o uint32) (eir.Lifetime, int) {
+	if int(o) < len(s.f.Objects) {
+		if ob := &s.f.Objects[o]; ob.Life == eir.LifeHeader {
+			if ob.Loop >= 0 && s.f.Loops[ob.Loop].Parent >= 0 {
+				return eir.LifeIter, s.f.Loops[ob.Loop].Parent
+			}
+			return eir.LifeFrame, -1
+		}
+	}
+	return s.life(o)
+}
+
+// isBoxView reports whether o is a box view (eir.ObjBoxView): a frame
+// pointer as a source, heap memory as a store destination and for loads.
+func (s *solver) isBoxView(o uint32) bool {
+	return int(o) < len(s.f.Objects) && s.f.Objects[o].Kind == eir.ObjBoxView
+}
 
 // nested reports whether loop l is loop outer or nested in it.
 func (s *solver) nested(l, outer int) bool {
@@ -212,7 +257,7 @@ func (s *solver) outlives(o2, o uint32) bool {
 		return true
 	}
 	l2, lp2 := s.life(o2)
-	l, lp := s.life(o)
+	l, lp := s.destLife(o)
 	switch {
 	case l2 > l:
 		return true
@@ -233,7 +278,7 @@ func (s *solver) regionOutlives(o2, o uint32) bool {
 		return false
 	}
 	l2, _ := s.life(o2)
-	l, _ := s.life(o)
+	l, _ := s.destLife(o)
 	return l2 == eir.LifeFrame && l == eir.LifeCaller
 }
 
@@ -507,6 +552,10 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		}
 		switch t.kind {
 		case tObj:
+			if s.isBoxView(t.base) {
+				s.addTok(dst, heapTok) // heap memory for loads
+				return
+			}
 			s.subscribe(t.base, t.path, t.ge, dst, subLoad)
 		case tIn:
 			u := asPointer(t)
@@ -520,6 +569,10 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 	case cReach:
 		switch t.kind {
 		case tObj:
+			if s.isBoxView(t.base) {
+				s.addTok(n, geify(heapTok))
+				return
+			}
 			s.subscribe(t.base, t.path, t.ge, n, subReach)
 		case tCHeap:
 			// A load through a counted reference reads heap memory.
@@ -529,7 +582,8 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		val := uint32(a)
 		switch t.kind {
 		case tObj:
-			if l, _ := s.life(t.base); l == eir.LifeHeap {
+			if l, _ := s.life(t.base); l == eir.LifeHeap || s.isBoxView(t.base) {
+				// Heap memory as a store destination (a box view too).
 				s.addCons(val, cSink, uint64(s.storeCode(b)), b)
 				return
 			}
@@ -561,7 +615,14 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 	case cSink:
 		switch t.kind {
 		case tObj:
-			s.report(int(a), t.base, b)
+			code := int(a)
+			if code == cTask {
+				code = cE3003
+				if s.isWaitGroup(t.base) {
+					code = cE3004 // section 12.12
+				}
+			}
+			s.report(code, t.base, b)
 		case tIn:
 			s.addEsc(key(asPointer(t)), b)
 		}

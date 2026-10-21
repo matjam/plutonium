@@ -35,6 +35,15 @@ package solve
 // of the call's Args and Target are kept there: sink(reach(v), E3002) at
 // the call.
 //
+// A box view (eir.ObjBoxView: the heap object of a box held in a local
+// variable, seen through it; section 18.7) is a frame object as a source,
+// with the box variable's lifetime, but as a store destination it is Heap
+// (store, the case d = Heap), and a load or reach through it reads
+// <Heap, Root, false>. A loop's header variable (eir.LifeHeader) is LifeIter
+// of its loop as a source; as a destination it lives across its loop's
+// iterations: LifeIter of the enclosing loop, or LifeFrame outside loops
+// (outlives).
+//
 // An object o with Objects[o].Life == LifeHeap is Heap: every rule that
 // would make a token Obj(o, ...) of it (OpAddr, OpConv, OpClosure,
 // OpMethodVal) makes Heap instead, and every rule that would store into a
@@ -222,7 +231,10 @@ package solve
 //	             bodyless function, whose default keeps every input:
 //	             Esc (i, Root, GE) and Res (i, Root, GE) for every input i,
 //	             and Heap in every result) and β its input binding:
-//	               Esc k              sink(val(k, β), E3003)
+//	               Esc k              sink(val(k, β), E3003); at a call
+//	                                  that starts a task (Implicit ImplTask),
+//	                                  a frame token of a sync.WaitGroup
+//	                                  object is E3004 (section 12.12)
 //	               Store (a, b)       store(val(b, β), val(a, β), call)
 //	               HeapStore k        store(val(k, β), <Heap>, call)
 //	               Res[r].From (k,F,G) Results[r] ⊇ pre(val(k, β), F), tags

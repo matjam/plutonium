@@ -134,7 +134,21 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 	}
 	entry := 0
 	for _, k := range sm.Esc { // Esc k: sink(val(k, β), E3003)
-		s.sink(s.valueOfKey(k, bind), diag.PassFrameView, 0, in.Pos, ctx(entry))
+		v := s.valueOfKey(k, bind)
+		if c.Implicit == eir.ImplTask {
+			// A task starter: a local sync.WaitGroup is E3004 (12.12).
+			wg, other := value{}, value{}
+			for x := range v {
+				if x.t.kind == kObj && s.objs[x.t.id].wg {
+					wg.add(x)
+				} else {
+					other.add(x)
+				}
+			}
+			s.sink(wg, diag.GoFrameView, 0, in.Pos, ctx(entry))
+			v = other
+		}
+		s.sink(v, diag.PassFrameView, 0, in.Pos, ctx(entry))
 		entry++
 	}
 	for _, p := range sm.Store { // Store (a, b): store(val(b, β), val(a, β), call)
