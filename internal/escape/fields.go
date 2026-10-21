@@ -330,3 +330,43 @@ func (w *walker) enclosingFields(lhs ast.Expr) []*types2.Var {
 		}
 	}
 }
+
+// structField returns the field of s that element i of a composite literal
+// of s sets: the one key names, or field i if there are no keys. It returns
+// nil if s is nil or there is no such field.
+func structField(s *types2.Struct, key *ast.Ident, i int) *types2.Var {
+	if s == nil {
+		return nil
+	}
+	if key != nil {
+		for j := 0; j < s.NumFields(); j++ {
+			if s.Field(j).Name() == key.Name {
+				return s.Field(j)
+			}
+		}
+		return nil
+	}
+	if i < s.NumFields() {
+		return s.Field(i)
+	}
+	return nil
+}
+
+// storeConvFields records the stores a conversion to a struct type T makes
+// into T's fields: each holds what the same field of the value converted
+// does (v, told apart by field), and so do the fields of its fields.
+func (a *analyzer) storeConvFields(T types2.Type, v tset, depth int) {
+	s, ok := underlying(T).(*types2.Struct)
+	if !ok || depth > maxFieldNest {
+		return
+	}
+	for i := 0; i < s.NumFields(); i++ {
+		f := s.Field(i)
+		if !hasPointers(f.Type()) {
+			continue
+		}
+		fv := selectField(v, i)
+		a.storeField(f, fv, nil)
+		a.storeConvFields(f.Type(), fv, depth+1)
+	}
+}

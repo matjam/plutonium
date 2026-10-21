@@ -1052,6 +1052,11 @@ func (w *walker) explicitConv1(e *ast.CallExpr, to types2.Type) tset {
 			}
 			return intoSet(v, shapeOffset)
 		}
+		if _, ok := underlying(from).(*types2.Struct); ok {
+			// T(x) for struct types with the same fields: T's fields hold
+			// what x's do.
+			w.a.storeConvFields(to, v, 0)
+		}
 	}
 	return w.conv(v, from, to, x)
 }
@@ -1097,13 +1102,26 @@ func (w *walker) compLit(e *ast.CompositeLit) tset {
 		val = w.elems(e.Elts, u.Elem())
 	case *types2.TaggedUnion:
 		// U.V{...}: a variant with a struct payload. The union holds what
-		// the payload's fields do.
-		for _, el := range e.Elts {
+		// the payload's fields do, and the payload's fields are written as
+		// a struct literal's are (heap-only fields, fields.go).
+		var payload *types2.Struct
+		if se, ok := ast.Unparen(e.Type).(*ast.SelectorExpr); ok {
+			if v, ok := w.a.uses[se.Sel].(*types2.Variant); ok && v.HasPayload() {
+				payload, _ = underlying(v.Payload()).(*types2.Struct)
+			}
+		}
+		for i, el := range e.Elts {
 			x := el
+			var key *ast.Ident
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
 				x = kv.Value
+				key, _ = kv.Key.(*ast.Ident)
 			}
-			val.addAll(w.elem(x, w.typeOf(x)))
+			ev := w.elem(x, w.typeOf(x))
+			if f := structField(payload, key, i); f != nil {
+				w.a.storeField(f, ev, nil)
+			}
+			val.addAll(ev)
 		}
 	case *types2.Map:
 		// The keys and elements are stored in the map's table, heap
@@ -1571,7 +1589,7 @@ func (w *walker) escapeParam(t tok, why goFn1) {
 	w.a.grew = true
 }
 
-// goClosure_store_1 is the function literal at expr.go:1427, converted to a struct
+// goClosure_store_1 is the function literal at expr.go:1445, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_1 struct {
 	d   dest
@@ -1584,7 +1602,7 @@ func (goSelf *goClosure_store_1) Call() string {
 	return goSelf.d.why(goSelf.v.sc.fn.paramDesc(keyOf(goSelf.v)), goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_store_2 is the function literal at expr.go:1496, converted to a struct
+// goClosure_store_2 is the function literal at expr.go:1514, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_2 struct {
 	d   dest
@@ -1596,7 +1614,7 @@ func (goSelf *goClosure_store_2) Call() string {
 	return goSelf.d.why("it", goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_sink_1 is the function literal at expr.go:1529, converted to a struct
+// goClosure_sink_1 is the function literal at expr.go:1547, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sink_1 struct {
 	tail string
@@ -1610,7 +1628,7 @@ type goFn1 interface {
 	Call() string
 }
 
-// goClosure_sinkTail_1 is the function literal at expr.go:1544, converted to a struct
+// goClosure_sinkTail_1 is the function literal at expr.go:1562, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sinkTail_1 struct {
 	act  string

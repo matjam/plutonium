@@ -1,0 +1,2 @@
+$DIR/main.p:32:2: cannot pass &b to keepNext, which keeps it after returning
+$DIR/main.p:40:3: cannot pass &b to keepNext, which keeps it after returning

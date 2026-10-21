@@ -256,6 +256,44 @@ func f() {
 	keep = g[0]
 }
 func main() { f() }`, "cannot store g[0] in package variable keep"},
+	// The third adversarial review: the ways of writing a field that keep it
+	// from being heap-only (section 18.3).
+	{"a field written by a conversion between struct types", `
+type Node struct {
+	v    int
+	next *Node
+}
+type Raw struct {
+	v    int
+	next *Node
+}
+var keep *Node
+func keepNext(n *Node) { keep = n.next }
+func f() {
+	a := Node{42, nil}
+	b := Node(Raw{1, &a})
+	keepNext(&b)
+}
+func main() { f() }`, "cannot pass &b to keepNext"},
+	{"a field written by a union variant literal", `
+type Node struct {
+	v    int
+	next *Node
+}
+type U union {
+	None
+	N Node
+}
+var keep *Node
+func keepNext(n *Node) { keep = n.next }
+func f() {
+	a := Node{42, nil}
+	u := U.N{v: 1, next: &a}
+	if b, ok := u.(U.N); ok {
+		keepNext(&b)
+	}
+}
+func main() { f() }`, "cannot pass &b to keepNext"},
 	{"element of an array as a pointer in an interface", `
 type S struct{ n int }
 var keepS *S

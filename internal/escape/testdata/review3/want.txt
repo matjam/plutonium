@@ -174,9 +174,11 @@ r04_method_expr_in_pkg_var: main.p:17:2: cannot pass &x to hook (which may call 
 r05_generic_instance_func_value: main.p:18:2: cannot pass &x to hook (which may call put), which keeps it after returning
 r06_generic_variant_func_value: main.p:18:9: cannot return mk(&x), which points into x, a local variable of g
 r08_list_walk_keep: main.p:28:2: cannot pass &a to find, which keeps it after returning
+r09_heaponly_via_converted_struct: main.p:25:2: cannot pass &b to keepNext, which keeps it after returning
 r10_heaponly_param_via_func_value: main.p:26:2: cannot pass &b to keepNext, which keeps it after returning
 r11_heaponly_struct_copy: main.p:26:2: cannot pass &b to keepNext, which keeps it after returning
 r12_heaponly_via_generic_setter: main.p:24:2: cannot pass &b to keepNext, which keeps it after returning
+r13_heaponly_via_union_payload: main.p:26:3: cannot pass &b to keepNext, which keeps it after returning
 r14_heaponly_via_chan_recv: main.p:21:4: cannot send Node{...} on c: the receiver may outlive a
 r15_heaponly_via_array_literal: main.p:21:2: cannot pass &arr[0] to keepNext, which keeps it after returning
 r16_heaponly_via_iface_assert_value: main.p:22:2: cannot pass &b to keepNext, which keeps it after returning

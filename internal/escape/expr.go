@@ -1050,6 +1050,11 @@ func (w *walker) explicitConv1(e *ast.CallExpr, to types2.Type) tset {
 			}
 			return intoSet(v, shapeOffset)
 		}
+		if _, ok := underlying(from).(*types2.Struct); ok {
+			// T(x) for struct types with the same fields: T's fields hold
+			// what x's do.
+			w.a.storeConvFields(to, v, 0)
+		}
 	}
 	return w.conv(v, from, to, x)
 }
@@ -1095,13 +1100,26 @@ func (w *walker) compLit(e *ast.CompositeLit) tset {
 		val = w.elems(e.Elts, u.Elem())
 	case *types2.TaggedUnion:
 		// U.V{...}: a variant with a struct payload. The union holds what
-		// the payload's fields do.
-		for _, el := range e.Elts {
+		// the payload's fields do, and the payload's fields are written as
+		// a struct literal's are (heap-only fields, fields.go).
+		var payload *types2.Struct
+		if se, ok := ast.Unparen(e.Type).(*ast.SelectorExpr); ok {
+			if v, ok := w.a.uses[se.Sel].(*types2.Variant); ok && v.HasPayload() {
+				payload, _ = underlying(v.Payload()).(*types2.Struct)
+			}
+		}
+		for i, el := range e.Elts {
 			x := el
+			var key *ast.Ident
 			if kv, ok := el.(*ast.KeyValueExpr); ok {
 				x = kv.Value
+				key, _ = kv.Key.(*ast.Ident)
 			}
-			val.addAll(w.elem(x, w.typeOf(x)))
+			ev := w.elem(x, w.typeOf(x))
+			if f := structField(payload, key, i); f != nil {
+				w.a.storeField(f, ev, nil)
+			}
+			val.addAll(ev)
 		}
 	case *types2.Map:
 		// The keys and elements are stored in the map's table, heap
