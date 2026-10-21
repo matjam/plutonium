@@ -146,6 +146,33 @@ func TestHeapOnlyFieldWrites(t *testing.T) {
 	}
 }
 
+// TestHeapOnlyPhiRing checks origins and register types through a ring of
+// phis (loops make them): every register on the ring has the same sources,
+// found once, not by walking every path around the ring.
+func TestHeapOnlyPhiRing(t *testing.T) {
+	for _, frame := range []bool{false, true} {
+		x := newHoFixture(t)
+		m := x.main
+		const n = 60
+		regs := make([]eir.Reg, n)
+		for i := range regs {
+			regs[i] = m.reg()
+		}
+		for i := range regs {
+			src := m.heap()
+			if frame && i == n/2 {
+				src = m.addr(x.localInt)
+			}
+			// regs[i] = phi(regs[i-1], regs[i+1], src)
+			m.add(eir.Instr{Op: eir.OpPhi, Dst: regs[i], Args: []eir.Reg{regs[(i+n-1)%n], regs[(i+1)%n], src}}, false)
+		}
+		m.store(m.field(m.addr(x.nodeObj), 1), regs[0], x.intPtr)
+		if got := x.heapOnly(x.node, 1); got == frame {
+			t.Errorf("frame address on the ring %v: Node.next heap-only %v", frame, got)
+		}
+	}
+}
+
 // TestHeapOnlyGeneric checks that a generic struct's writes reach its
 // instances.
 func TestHeapOnlyGeneric(t *testing.T) {

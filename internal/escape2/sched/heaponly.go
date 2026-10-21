@@ -97,6 +97,8 @@ type heapOnly struct {
 
 	structGroup map[typeID]int32 // struct typeID to group (union-find root)
 	memo        map[hoKey]bool   // classHolds answers
+	rtypes      map[regKey]types2.Type
+	rbusy       map[regKey]bool
 	uf          []int32
 }
 
@@ -125,6 +127,8 @@ func newHeapOnly(p *eir.Program, tt *typeTable, inst *instClosure, c *cands) *he
 		lAll:        map[typeID]bool{},
 		structGroup: map[typeID]int32{},
 		memo:        map[hoKey]bool{},
+		rtypes:      map[regKey]types2.Type{},
+		rbusy:       map[regKey]bool{},
 	}
 	h.prepare()
 	h.collectWrites()
@@ -203,11 +207,36 @@ func (h *heapOnly) classKey(s *types2.Struct, i int) hoKey {
 
 // --- register types -------------------------------------------------------
 
-// regType infers the type of register r of f, or nil.
+// regType infers the type of register r of f, or nil. Answers are
+// memoized; a register asked for again while its own answer is being found
+// (a cycle through phis) has no answer on that path, and the phi takes the
+// type of another argument.
 func (h *heapOnly) regType(f *eir.Func, r eir.Reg, depth int) types2.Type {
 	if r == 0 || int(r) >= len(h.defs[f.ID]) || depth > 32 {
 		return nil
 	}
+	k := regKey{f.ID, r}
+	if t, ok := h.rtypes[k]; ok {
+		return t
+	}
+	if h.rbusy[k] {
+		return nil
+	}
+	h.rbusy[k] = true
+	t := h.regType1(f, r, depth)
+	delete(h.rbusy, k)
+	if t != nil || depth == 0 {
+		h.rtypes[k] = t
+	}
+	return t
+}
+
+type regKey struct {
+	f eir.FuncID
+	r eir.Reg
+}
+
+func (h *heapOnly) regType1(f *eir.Func, r eir.Reg, depth int) types2.Type {
 	d := h.defs[f.ID][r]
 	in := d.in
 	if in == nil {
@@ -430,11 +459,24 @@ type originKey struct {
 	path string
 }
 
+// originState is the per-function state of origin: memoized answers, and
+// Tarjan's stack over the (register, path) pairs being computed. Registers
+// depend on one another in cycles through phis; the pairs of one cycle have
+// the same origin, so when the head of a cycle is done every pair of it is
+// memoized with the head's answer, and nothing is computed twice.
 type originState struct {
-	f       *eir.Func
-	memo    map[originKey][]hoAtom
-	onStack map[originKey]bool
+	f     *eir.Func
+	memo  map[originKey][]hoAtom
+	pos   map[originKey]int // position on stack, for the pairs on it
+	stack []originKey
+	low   int // the lowest stack position a pending cycle reaches
 }
+
+func newOriginState(f *eir.Func) *originState {
+	return &originState{f: f, memo: map[originKey][]hoAtom{}, pos: map[originKey]int{}, low: maxLow}
+}
+
+const maxLow = int(^uint(0) >> 1)
 
 func encPath(path []int) string {
 	b := make([]byte, 0, len(path)*2)
@@ -453,8 +495,9 @@ func decPath(s string) []int {
 }
 
 // origin returns the atoms the pointers within register r's value at path
-// come from. complete is false when a cycle cut the answer short (it must
-// not be memoized then).
+// come from. complete is false for a pair inside a cycle whose head is still
+// being computed: its answer is then part of the head's, which the head
+// memoizes for every pair of the cycle.
 func (h *heapOnly) origin(st *originState, r eir.Reg, path []int) (atoms []hoAtom, complete bool) {
 	f := st.f
 	if r == 0 || int(r) >= len(h.defs[f.ID]) {
@@ -464,16 +507,50 @@ func (h *heapOnly) origin(st *originState, r eir.Reg, path []int) (atoms []hoAto
 	if a, ok := st.memo[k]; ok {
 		return a, true
 	}
-	if st.onStack[k] {
+	if p, ok := st.pos[k]; ok {
+		if p < st.low {
+			st.low = p
+		}
 		return nil, false
 	}
-	st.onStack[k] = true
-	atoms, complete = h.origin1(st, r, path)
-	delete(st.onStack, k)
-	if complete {
-		st.memo[k] = atoms
+	d := len(st.stack)
+	st.stack = append(st.stack, k)
+	st.pos[k] = d
+	outer := st.low
+	st.low = maxLow
+	atoms, _ = h.origin1(st, r, path)
+	atoms = dedupAtoms(atoms)
+	low := st.low
+	if low >= d {
+		// k heads its cycle (or has none): its answer is every pair's.
+		for _, m := range st.stack[d:] {
+			st.memo[m] = atoms
+			delete(st.pos, m)
+		}
+		st.stack = st.stack[:d]
+		st.low = outer
+		return atoms, true
 	}
-	return atoms, complete
+	if low < outer {
+		outer = low
+	}
+	st.low = outer
+	return atoms, false
+}
+
+func dedupAtoms(a []hoAtom) []hoAtom {
+	if len(a) < 2 {
+		return a
+	}
+	seen := make(map[hoAtom]bool, len(a))
+	out := a[:0:0]
+	for _, x := range a {
+		if !seen[x] {
+			seen[x] = true
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 func (h *heapOnly) origin1(st *originState, r eir.Reg, path []int) ([]hoAtom, bool) {
@@ -635,7 +712,7 @@ func (h *heapOnly) resultOrigin(f *eir.Func, c *eir.Call, j int, path []int) []h
 // collectWrites records the requirements of every write in the program.
 func (h *heapOnly) collectWrites() {
 	for _, f := range h.p.Funcs {
-		st := &originState{f: f, memo: map[originKey][]hoAtom{}, onStack: map[originKey]bool{}}
+		st := newOriginState(f)
 		uses := h.addrUses(f)
 		for _, b := range f.Blocks {
 			for i := range b.Instrs {
@@ -921,7 +998,7 @@ func (h *heapOnly) expandNodes() {
 	state := func(f *eir.Func) *originState {
 		st := sts[f.ID]
 		if st == nil {
-			st = &originState{f: f, memo: map[originKey][]hoAtom{}, onStack: map[originKey]bool{}}
+			st = newOriginState(f)
 			sts[f.ID] = st
 		}
 		return st
