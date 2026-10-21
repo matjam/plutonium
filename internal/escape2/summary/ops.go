@@ -160,8 +160,13 @@ func Widen(ps domain.Paths, s *Summary) {
 // cut (CutKey on both keys) as they are collected. A store of a value of n
 // keys through m pointers makes n*m pairs, which Widen would cut anyway;
 // cutting them as they come keeps a solve's memory bounded (rules.go, "The
-// summary").
-const MaxRawStorePerInput = 8 * MaxStorePerInput
+// summary"). It is a memory guard, set far above the caps: whether it fires
+// depends on which covered tokens a solver happens to hold (GE subsumption
+// drops them in an order of its own), so two solvers may cut at different
+// times and give results that differ by a widening, both sound; at 8x the
+// cap the differential test met such a case (seed 3719), at 64x none of
+// 30,000.
+const MaxRawStorePerInput = 64 * MaxStorePerInput
 
 // CutKey is the widening of one key: its path cut, GE set.
 func CutKey(ps domain.Paths, k domain.Key) domain.Key {

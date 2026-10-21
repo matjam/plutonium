@@ -6,6 +6,7 @@ import (
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/summary"
 	"github.com/matjam/plutonium/internal/types2"
+	"slices"
 )
 
 // One function per line of the table "One rule per instruction" in
@@ -165,6 +166,31 @@ func (s *solver) offsetAll(in *eir.Instr, q domain.PathID, qcut bool) {
 
 // OpField: Dst ⊇ off(t, Path) for each token t of X.
 func (s *solver) ruleField(in *eir.Instr) {
+	if slices.Contains(in.Path, eir.AnyStep) {
+		// An unknown offset: anywhere in the object.
+		out := value{}
+		for x := range s.val(in.X) {
+			t := x.t
+			switch t.kind {
+			case kObj:
+				t.path, t.ge = domain.Root, true
+			case kIn:
+				steps := s.ps.Steps(t.path)
+				i := len(steps)
+				for i > 0 && steps[i-1] != domain.StepLoad {
+					i--
+				}
+				p := domain.Root
+				for _, st := range steps[:i] {
+					p, _ = s.ps.Extend(p, st)
+				}
+				t.path, t.ge = p, true
+			}
+			out.add(ptr(t))
+		}
+		s.def(in.Dst, out)
+		return
+	}
 	q, c := s.pathOf(in.Path)
 	s.offsetAll(in, q, c)
 }

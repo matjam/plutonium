@@ -273,7 +273,11 @@ func (g *gen) instr() {
 	case 8, 9:
 		b.Store(g.pick(), g.pick())
 	case 10:
-		g.add(b.Emit(eir.Instr{Op: eir.OpField, X: g.pick(), Path: g.path(), Type: g.st}, true))
+		path := g.path()
+		if g.rng.Intn(8) == 0 {
+			path = append(path, eir.AnyStep) // an unknown offset (unsafe.Add)
+		}
+		g.add(b.Emit(eir.Instr{Op: eir.OpField, X: g.pick(), Path: path, Type: g.st}, true))
 	case 11:
 		g.add(b.Elem(g.pick()))
 	case 12:

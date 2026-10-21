@@ -1,6 +1,8 @@
 package solve
 
 import (
+	"slices"
+
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
@@ -911,6 +913,12 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		}
 		s.addCons(uint32(in.X), cStore, uint64(in.Y), own(0))
 	case eir.OpField:
+		if slices.Contains(in.Path, eir.AnyStep) {
+			// An offset that is not known (unsafe.Add, a reinterpreted
+			// pointer): anywhere in the object (rules.go, OpField).
+			s.edge(in.X, dst, xw(xAny, 0, false))
+			return
+		}
 		p, cut := s.pathOf(s.steps(in.Path))
 		s.edge(in.X, dst, xw(xOff, p, cut))
 	case eir.OpElem:

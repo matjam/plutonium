@@ -173,6 +173,11 @@ package solve
 //	OpStore      store(X, Y, own)
 //	OpField      Dst ⊇ <off(t, Path), Root, false> for each token t of X
 //	             (whatever t's tag: the result is a pointer)
+//	             A Path holding eir.AnyStep (an offset that is not known:
+//	             unsafe.Add, a reinterpreted pointer) makes, for each token:
+//	             Obj(o, Root, true); for In(i, P, kg), In(i, P', true) with
+//	             P' the prefix of P through its last load (the start of the
+//	             object P points into); Heap stays Heap.
 //	OpElem       Dst ⊇ <off(t, [ElemStep]), Root, false> likewise
 //	OpSelect     Dst ⊇ sel(X, Path)
 //	OpCompose    Dst ⊇ pre(Args[i], Fields[i]) for each i

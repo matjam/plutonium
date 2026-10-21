@@ -44,6 +44,7 @@ const (
 	xPreLoad        // a load link: pre(path), GE when flag
 	xSelLoad        // a load link: sel(path), tags GE when flag
 	xSelGe          // a reach link: sel(path), then geify
+	xAny            // offset to anywhere in the object (eir.AnyStep)
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -319,6 +320,8 @@ func (s *solver) transform(x uint64, t tok) {
 			}
 			s.buf.push(s.a, s.intern(u))
 		}
+	case xAny:
+		s.buf.push(s.a, s.intern(s.anyOffset(t)))
 	case xSelGe:
 		if u, ok := s.sel(t, path); ok {
 			s.buf.push(s.a, s.intern(geify(u)))

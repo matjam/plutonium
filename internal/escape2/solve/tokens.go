@@ -135,6 +135,26 @@ func (s *solver) off(t tok, steps []domain.Step) tok {
 	return t
 }
 
+// anyOffset is pointer t offset by an unknown amount within its object
+// (eir.AnyStep): Obj(o, Root, true); for an In token, the path back to its
+// last load (the start of the object it points into), GE; Heap stays.
+func (s *solver) anyOffset(t tok) tok {
+	t = asPointer(t)
+	switch t.kind {
+	case tObj:
+		t.path, t.ge = domain.Root, true
+	case tIn:
+		steps := s.ps.Steps(t.path)
+		i := len(steps)
+		for i > 0 && steps[i-1] != domain.StepLoad {
+			i--
+		}
+		t.path, _ = s.pathOf(steps[:i])
+		t.ge = true
+	}
+	return t
+}
+
 // sel selects field steps Q of the value holding t (rules.go, sel). ok is
 // false when t is in another field.
 func (s *solver) sel(t tok, q domain.PathID) (tok, bool) {
