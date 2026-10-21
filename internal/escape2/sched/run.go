@@ -202,6 +202,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		}
 		return a.Code < b.Code
 	})
+	res.Env = env
 	return res
 }
 

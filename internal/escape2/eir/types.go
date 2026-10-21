@@ -18,6 +18,54 @@
 // and of temporaries; every other variable is a frame object, reached through
 // OpAddr, OpLoad and OpStore.
 //
+// Conventions of the builder:
+//
+//   - Registers. An expression whose type holds no pointers has register 0,
+//     the empty value; so may an argument in Call.Args and an operand of
+//     OpStore, OpCompose and OpPhi.
+//   - Slices. A slice value is the pointer to its backing array: OpElem's X
+//     may be a slice value as well as a pointer to an array, and a slice
+//     literal's value is OpAddr of its ObjSliceLit.
+//   - Closure records. OpClosure and OpMethodVal with Obj NoObj make a static
+//     record (a declared function or method expression used as a value, a
+//     literal that captures nothing, any record in a package initializer):
+//     heap memory. A literal's record holds at path [i] the address of the
+//     i'th location it captures (a variable of any type, or a frame object
+//     of the enclosing function: a deferred argument, a result); the
+//     literal's last input is the record. A method value's record holds the
+//     receiver X at path [0]; OpMethodVal.Callee is the synthesized wrapper
+//     the value calls (SynthMethodValue or SynthIfaceMethodValue), or NoFunc
+//     for a method of a type parameter, which each instance resolves.
+//   - Calls of literals. A CallStatic of a literal or range body (a scoped
+//     task, a range over a static iterator) passes its closure record as the
+//     last argument, as its inputs list it.
+//   - CallTypeParam. The receiver is Args[0] (Target is 0): the operand's
+//     address when it has one, its value otherwise.
+//   - Drops of dynamic values. CallIface with Method nil is the drop of an
+//     owning interface's dynamic value (lower/owniface.go): its candidates are
+//     the drop glue of every type converted to an owning interface.
+//     CallTypeParam with Method nil is the drop of a value of type parameter
+//     type: each instance's drop glue.
+//   - CallContract names an entry of internal/escape2/contract: Inline (the
+//     lowerer makes no call), Trusted (the lowerer calls the function; its
+//     effects are the entry's), Special (ring methods).
+//   - SynthVariant's variant is Path[0], its index in the union; SynthDropGlue
+//     of a type parameter has no body (each instance's glue).
+//   - Bodies. A function without a body has no blocks (Bodyless), except the
+//     ones the lowerer gives a body (the scheduler hooks, rt.Sleep and
+//     rt.mainWait, pluto.main as rt.programMain), which EIR builds the same.
+//     Blocks unreachable from the entry are removed, as the lowerer removes
+//     them; a call of a function that never returns ends its block.
+//   - Exits. After a call that may end with rt.ExitTask, and after a
+//     statement that may release a counted reference or drop an owner, a
+//     function that names rt.ExitTask may leave through its return path:
+//     deferred calls, drops of its scopes and parameters, and drops of its
+//     owner results (lower/goexit.go).
+//   - Releases. The release of a counted reference (a shared, synced or weak
+//     box, a channel, a counted error, a closure region) is not an EIR call:
+//     what it passes is the counted object, heap memory, so nothing the
+//     release calls (the object's Drop) can keep frame memory.
+//
 // This file is the interface other packages build against: change it only by
 // agreement (internal/escape2 package comment).
 package eir
@@ -163,6 +211,15 @@ const (
 	ObjStmtTemp                       // an owner temporary that lives until its statement ends (E3009)
 	ObjRegion                         // a region the caller provides for a closure (section 11.5)
 	ObjArenaWindow                    // a window of a local arena
+	// ObjBoxView is the heap object a box (owned[T], shared[T], synced[T])
+	// held in local variable or parameter Var points to, seen through that
+	// variable (section 18.7, rule 5): a pointer into it is bounded by the
+	// variable (a frame pointer for every check of where it goes), but it is
+	// heap memory as a store destination and for loads. EIR emits OpAddr of
+	// such an object (Type T, Var the box variable, Life and Loop the
+	// variable's) where a field, &*p or a pointer method is reached through
+	// a box held in a local.
+	ObjBoxView
 )
 
 // Lifetime orders where an object lives, shortest first. A pointer to an
@@ -171,12 +228,21 @@ const (
 type Lifetime uint8
 
 const (
-	LifeStmt   Lifetime = iota + 1 // until the statement ends
-	LifeIter                       // until the iteration of its loop ends (section 18.4)
-	LifeBlock                      // until its block ends: reserved for objects the lowerer ends at a block exit (none yet)
-	LifeFrame                      // until the function returns: every plain local (section 18.2), whatever block declares it
-	LifeCaller                     // memory the caller provides
-	LifeHeap                       // heap or static memory
+	LifeStmt Lifetime = iota + 1 // until the statement ends
+	LifeIter                     // until the iteration of its loop ends (section 18.4): an object made in a loop, Loop set
+	// LifeHeader is a variable a loop's header declares (for i := ..., for
+	// k, v := range): valid for one iteration as a source (as LifeIter of
+	// its loop), but it lives across the loop's iterations, so a LifeIter
+	// pointer of the same or a nested loop stored into it is E3006 (section
+	// 18.4). Loop is set to its loop. The solver treats it explicitly.
+	LifeHeader
+	// LifeBlock is a local variable's: until its block ends. The variable
+	// lives in its function's frame (section 18.2), so the store check may
+	// take it as LifeFrame.
+	LifeBlock
+	LifeFrame  // until the function returns
+	LifeCaller // memory the caller provides: in the caller's region (section 11.5), a record a return statement returns directly and what such a closure captures
+	LifeHeap   // heap or static memory; every object of a package initializer
 )
 
 // Object is a frame object: memory in the function's frame.

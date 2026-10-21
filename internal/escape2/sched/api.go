@@ -60,6 +60,9 @@ type Result struct {
 	Summaries []*summary.Summary // by eir.FuncID
 	Findings  []solve.Finding    // sorted by position
 	Stats     Stats
+	// Env is the final environment of the run: every summary final, its
+	// Paths, the virtual per-signature functions.
+	Env solve.Env
 }
 
 // Options configure Run.
