@@ -127,6 +127,11 @@ func (r *retained) solve(f *eir.Func, env solve.Env, scratch *solve.Workspace) (
 	if k := r.kept[id]; k != nil {
 		res = k.st.Resume(env)
 		r.resumes++
+		if res.Limit != nil {
+			// Past the limits in this resume: solve from scratch.
+			r.drop(id)
+			return solveGuarded(f, env, scratch)
+		}
 		if resumeCheck {
 			r.check(f, env, scratch, res)
 		}
@@ -137,6 +142,10 @@ func (r *retained) solve(f *eir.Func, env solve.Env, scratch *solve.Workspace) (
 	res, st := solveKeepFunc(f, env, ws)
 	k := &keptSolve{ws: ws, st: st}
 	r.kept[id] = k
+	if res.Limit != nil {
+		r.drop(id)
+		return limitResult(f, env)
+	}
 	r.account(id, k)
 	return res
 }

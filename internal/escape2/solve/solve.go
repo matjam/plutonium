@@ -35,6 +35,9 @@ func SolveKeep(f *eir.Func, env Env, ws *Workspace) (Result, *State) {
 // finish runs the solve to its fixed point and returns its result.
 func (s *solver) finish() Result {
 	s.run()
+	if s.limit != nil {
+		return Result{Limit: s.limit}
+	}
 	s.checkDrops()
 	s.measure()
 	sum := s.summary()
@@ -118,6 +121,7 @@ type solver struct {
 	tjCounter               uint64
 	stepBuf                 []domain.Step
 	applied                 []application // the summaries the calls applied (State.Resume)
+	limit                   *LimitError   // the solve went past the limits (Result.Limit)
 	whyIdx                  table         // whys by content, so that a constraint is made once
 }
 

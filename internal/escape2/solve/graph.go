@@ -349,7 +349,9 @@ func (s *solver) run() {
 		for s.head < len(s.work.s) {
 			n := uint32(s.work.s[s.head])
 			s.head++
-			s.checkLimit()
+			if s.checkLimit() {
+				return // past the limits: Result.Limit
+			}
 			s.inWork.s[n] = 0
 			if s.find(n) != n {
 				continue

@@ -25,18 +25,17 @@ func TestLimitError(t *testing.T) {
 		}
 		b.store(b.addr(x), v)
 		b.ret(0, b.load(b.addr(x)))
-		func() {
-			defer func() {
-				maxFuncArena, maxFuncSteps = saved[0], saved[1]
-				le, ok := recover().(*LimitError)
-				if !ok {
-					t.Fatalf("no LimitError")
-				}
-				if le.Func != "big" || !strings.Contains(le.Error(), "the escape analysis of big reached its") {
-					t.Errorf("error: %s", le.Error())
-				}
-			}()
-			e.solve(t, b.f)
-		}()
+		r := e.solve(t, b.f)
+		maxFuncArena, maxFuncSteps = saved[0], saved[1]
+		le := r.Limit
+		if le == nil {
+			t.Fatalf("no LimitError")
+		}
+		if r.Summary != nil || r.Findings != nil {
+			t.Errorf("a solve past its limits gave a result: %+v", r)
+		}
+		if le.Func != "big" || !strings.Contains(le.Error(), "the escape analysis of big reached its") {
+			t.Errorf("error: %s", le.Error())
+		}
 	}
 }

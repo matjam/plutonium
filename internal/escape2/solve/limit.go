@@ -9,7 +9,7 @@ import (
 // MaxFuncArena is the memory one solve may use: an implementation limit,
 // not a precision limit. The analysis never widens inside the limits of
 // section 18.3 to stay under it; a function that needs more makes Solve
-// panic with a LimitError, which the driver reports as an error naming the
+// return a LimitError (Result.Limit), which the driver reports as an error naming the
 // function (never as acceptance). Measured (TestMeasure, 2026-10-21, over
 // the corpus and the three review suites, 813,235 solves): the largest is
 // main.main of testdata/lib/chunked.p at 67 MB and 17 million steps (26,589
@@ -28,8 +28,8 @@ var (
 	maxFuncSteps = MaxFuncSteps
 )
 
-// LimitError is the panic value of a solve past MaxFuncArena or
-// MaxFuncSteps.
+// LimitError is the error of a solve past MaxFuncArena or MaxFuncSteps
+// (Result.Limit).
 type LimitError struct {
 	Func  string
 	Bytes int
@@ -44,14 +44,21 @@ func (e *LimitError) Error() string {
 	return fmt.Sprintf("the escape analysis of %s reached its %s: the function holds more distinct pointers than the analysis can follow; split it into smaller functions", e.Func, what)
 }
 
-// checkLimit panics with a LimitError when the solve has used more than
-// MaxFuncArena or MaxFuncSteps.
-func (s *solver) checkLimit() {
+// checkLimit stops the solve with a LimitError (s.limit) when it has used
+// more than MaxFuncArena or MaxFuncSteps, and reports whether it stopped.
+// It is an error value, not a panic, so that the analysis translated to
+// Plutonium, whose panics do not unwind, stops the same way.
+func (s *solver) checkLimit() bool {
+	if s.limit != nil {
+		return true
+	}
 	if b := s.a.Bytes() - s.base; b > maxFuncArena || s.nsteps > maxFuncSteps {
 		s.dump(nil)
 		s.measureLimited(true)
-		panic(&LimitError{Func: s.f.Name, Bytes: b, Steps: s.nsteps})
+		s.limit = &LimitError{Func: s.f.Name, Bytes: b, Steps: s.nsteps}
+		return true
 	}
+	return false
 }
 
 // Measurement is what one solve used, for the measurements of the plan

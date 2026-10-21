@@ -31,19 +31,29 @@ func solveGuarded(f *eir.Func, env solve.Env, ws *solve.Workspace) (r solve.Resu
 		if _, ok := x.(*solve.LimitError); !ok {
 			panic(x)
 		}
-		r = solve.Result{
-			Summary: topSummary(env.Paths(), f),
-			Findings: []solve.Finding{{
-				Code:   codeEscapeLimit,
-				Pos:    f.Pos,
-				Func:   f.ID,
-				Obj:    eir.NoObj,
-				Callee: eir.NoFunc,
-				Entry:  -1,
-			}},
-		}
+		r = limitResult(f, env)
 	}()
-	return solveFunc(f, env, ws)
+	r = solveFunc(f, env, ws)
+	if r.Limit != nil {
+		r = limitResult(f, env)
+	}
+	return r
+}
+
+// limitResult is the result of a function past the solver's limits: the
+// top summary and E3010 at the function.
+func limitResult(f *eir.Func, env solve.Env) solve.Result {
+	return solve.Result{
+		Summary: topSummary(env.Paths(), f),
+		Findings: []solve.Finding{{
+			Code:   codeEscapeLimit,
+			Pos:    f.Pos,
+			Func:   f.ID,
+			Obj:    eir.NoObj,
+			Callee: eir.NoFunc,
+			Entry:  -1,
+		}},
+	}
 }
 
 // topSummary is the summary of a function that may do anything with what

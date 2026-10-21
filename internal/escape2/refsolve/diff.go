@@ -45,7 +45,11 @@ func Compare(c *Case) string {
 	a := domain.NewArena()
 	ws := &solve.Workspace{Arena: a, Sets: domain.NewSets(a)}
 	compared.Add(1)
-	got := Canon(c.Env.P, solve.Solve(c.F, c.Env, ws))
+	r := solve.Solve(c.F, c.Env, ws)
+	if r.Limit != nil {
+		panic(r.Limit) // the case is past the solver's limits (compareBounded)
+	}
+	got := Canon(c.Env.P, r)
 	ws.Sets.Reset()
 	a.Reset()
 	want := Canon(c.Env.P, Solve(c.F, c.Env))

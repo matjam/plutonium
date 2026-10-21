@@ -85,4 +85,8 @@ type Finding struct {
 type Result struct {
 	Summary  *summary.Summary
 	Findings []Finding
+	// Limit is set, and Summary and Findings are not, when the solve went
+	// past the solver's limits (MaxFuncArena, MaxFuncSteps): the caller
+	// gives the function the top summary and E3010 (sched, solveGuarded).
+	Limit *LimitError
 }
