@@ -140,4 +140,9 @@ func TestScaleTranslated(t *testing.T) {
 		return
 	}
 	t.Logf("summaries %d MB; findings: %d", res.Stats.SummaryBytes>>20, len(res.Findings))
+	for _, fd := range res.Findings {
+		if fd.Code == "E3010" {
+			t.Logf("  past the solver's limits (E3010): %s", p.Funcs[fd.Func].Name)
+		}
+	}
 }
