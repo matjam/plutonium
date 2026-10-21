@@ -376,7 +376,7 @@ func (fb *fnb) methodReceiver(x ast.Expr, fn *types2.Func, path []int) Reg {
 	_, wantPtr := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
 	xt := fb.typeOf(x)
 	if el := pointerElem(xt); el != nil {
-		return fb.receiverAt(fb.expr(x), el, path, wantPtr, fn)
+		return fb.receiverAt(fb.pointee(x), el, path, wantPtr, fn)
 	}
 	if len(path) == 1 && !wantPtr {
 		return fb.expr(x)
@@ -996,7 +996,7 @@ func (fb *fnb) container(x ast.Expr, at ast.Expr) *contRef {
 		c.iface = fb.expr(x)
 		c.isIfc = true
 	case pointerElem(T) != nil:
-		c.base = fb.expr(x)
+		c.base = fb.pointee(x)
 		c.baseT = pointerElem(T)
 	default:
 		if a, ok := fb.addrIfPlace(x); ok {

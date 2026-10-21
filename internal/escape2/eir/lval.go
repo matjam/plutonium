@@ -135,7 +135,7 @@ func (fb *fnb) lvalue(e ast.Expr) lval {
 		case *types2.Wrapper:
 			// owned, shared and synced index like a pointer to their
 			// object.
-			x := fb.expr(e.X)
+			x := fb.pointee(e.X)
 			fb.expr(e.Index)
 			if arr, ok := unwrap(u.Elem()).Underlying().(*types2.Array); ok {
 				return lval{kind: lvMem, addr: fb.elem(x), T: arr.Elem()}
@@ -147,7 +147,7 @@ func (fb *fnb) lvalue(e ast.Expr) lval {
 		fb.b.errorf(e.Pos(), "cannot index %s", xt)
 		return lval{kind: lvBlank}
 	case *ast.StarExpr:
-		x := fb.expr(e.X)
+		x := fb.pointee(e.X)
 		return lval{kind: lvMem, addr: x, T: pointerElem(fb.typeOf(e.X))}
 	case *ast.CompositeLit:
 		v := fb.compositeLit(e, fb.typeOf(e))
@@ -269,7 +269,7 @@ func (fb *fnb) fieldBaseCheck(x ast.Expr) (Reg, types2.Type, bool) {
 func (fb *fnb) fieldBase(x ast.Expr) (Reg, types2.Type, bool) {
 	xt := fb.typeOf(x)
 	if el := pointerElem(xt); el != nil {
-		return fb.expr(x), el, true
+		return fb.pointee(x), el, true
 	}
 	if _, _, ok := fb.fieldBaseCheck(x); !ok {
 		return 0, xt, false

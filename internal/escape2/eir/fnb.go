@@ -61,6 +61,9 @@ type fnb struct {
 	iterHead   map[ObjID]*Block
 	headerMark int
 
+	boxViews map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
+	varBlock map[*types2.Var]*Block // the block that declares each local
+
 	// The closures this function builds in its caller's region, and the
 	// variables they capture (regions.go).
 	regionNodes map[ast.Node]bool
@@ -159,6 +162,10 @@ func (fb *fnb) setupParams(sig *types2.Signature, hasRecord bool) {
 // function: a frame object if it is addressed, otherwise a register
 // variable, which holds nothing until it is assigned.
 func (fb *fnb) declareVar(v *types2.Var, kind ObjKind, pos token.Pos) {
+	if fb.varBlock == nil {
+		fb.varBlock = map[*types2.Var]*Block{}
+	}
+	fb.varBlock[v] = fb.ensureBlock().b
 	if fb.addressed[v] {
 		if _, ok := fb.objs[v]; ok {
 			return
@@ -336,6 +343,11 @@ func (fb *fnb) finish() {
 		switch o.Life {
 		case LifeBlock, LifeFrame:
 			o.Life = LifeIter
+			if fb.iterHead[ObjID(i)] != nil {
+				// Valid for one iteration as a source, but kept across
+				// them as a destination (section 18.4).
+				o.Life = LifeHeader
+			}
 		}
 	}
 }
