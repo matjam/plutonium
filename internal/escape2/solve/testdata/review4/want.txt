@@ -13,3 +13,5 @@ s23_builder_string_kept: accepted
 # lv01: closures of variables outside the loop, or of the header's when the
 # loop is left at once, may be kept (section 18.4).
 lv01_closure_of_outer_vars_kept: accepted
+# tk01: task p.Serve() takes the owned box itself (section 12.12).
+tk01_task_box_method_control: accepted

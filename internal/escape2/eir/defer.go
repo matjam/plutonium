@@ -259,6 +259,14 @@ func (fb *fnb) taskStmt(st *ast.TaskStmt) {
 	if c.Kind == CallFunc || c.Kind == CallIface {
 		fb.sink(SinkTask, c.Target, 0, call.Pos())
 	}
+	if se, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr); ok && c.Kind == CallStatic && len(args) > 0 {
+		if sel := fb.b.selections[se]; sel != nil && sel.Kind() == types2.MethodVal && len(sel.Index()) == 1 && isBox(fb.typeOf(se.X)) {
+			// task p.Serve() of an owned, shared or synced p: the task
+			// takes the box itself (moved, or a reference of its own), not
+			// a view of it bounded by p (section 12.12).
+			args[0] = fb.expr(se.X)
+		}
+	}
 	if c.RecvAddr != 0 {
 		// The receiver's address, for an instance whose method takes it.
 		fb.sink(SinkTask, c.RecvAddr, 0, call.Pos())
