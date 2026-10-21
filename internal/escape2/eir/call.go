@@ -631,7 +631,7 @@ func (fb *fnb) conversion(e *ast.CallExpr) Reg {
 	v := fb.expr(arg)
 	if isString(to) && !isString(from) {
 		// string(runes) and string(r) copy into a new counted string.
-		return fb.heap(HeapCounted)
+		return fb.heap(HeapCountedCurrent)
 	}
 	if !hasPointers(to) {
 		return 0
@@ -951,6 +951,10 @@ func (fb *fnb) mapCall(name string, m *types2.Map, args []Reg, pos token.Pos, im
 	if name == "mapMake" || name == "mapMakeWith" {
 		// A new table, made from the allocator's memory through unsafe
 		// pointers: a counted reference to heap memory.
+		if name == "mapMake" {
+			// No allocator argument: the current allocator's memory.
+			return []Reg{fb.heap(HeapCountedCurrent)}
+		}
 		return []Reg{fb.heap(HeapCounted)}
 	}
 	return res

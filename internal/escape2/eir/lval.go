@@ -373,7 +373,7 @@ func (fb *fnb) opAssign(lv lval, y Reg, pos token.Pos) {
 			p = res[0]
 		}
 		if isString(lv.T) {
-			fb.store(p, fb.heap(HeapCounted), lv.T)
+			fb.store(p, fb.heap(HeapCountedCurrent), lv.T)
 		}
 		return
 	case lvContainer:
@@ -384,14 +384,14 @@ func (fb *fnb) opAssign(lv lval, y Reg, pos token.Pos) {
 		}
 		nv := old
 		if isString(lv.T) {
-			nv = fb.heap(HeapCounted)
+			nv = fb.heap(HeapCountedCurrent)
 		}
 		fb.contMethod(lv.c, types2.SetIndexMethodName, []Reg{lv.c.key, nv}, ImplOpAssign)
 		return
 	}
 	if isString(lv.T) {
 		fb.loadLV(lv)
-		fb.storeLV(lv, fb.heap(HeapCounted))
+		fb.storeLV(lv, fb.heap(HeapCountedCurrent))
 		return
 	}
 	_ = y

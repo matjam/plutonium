@@ -346,7 +346,7 @@ func (fb *fnb) binary(e *ast.BinaryExpr, T types2.Type) Reg {
 		// A concatenation: a new counted string, unless an operand is
 		// empty and the other is the result.
 		_, _ = x, y
-		return fb.heap(HeapCounted)
+		return fb.heap(HeapCountedCurrent)
 	}
 	return 0
 }
