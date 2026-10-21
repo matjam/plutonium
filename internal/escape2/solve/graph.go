@@ -47,6 +47,7 @@ const (
 	xSelGe          // a reach link: sel(path), then geify
 	xAny            // offset to anywhere in the object (eir.AnyStep)
 	xNoBox          // identity, without pointers to interface boxes (OpAssert to a direct type)
+	xImpl           // identity, without pointers to boxes whose type does not implement assertT[path] (OpAssert to an interface)
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -324,6 +325,11 @@ func (s *solver) transform(x uint64, t tok) {
 		}
 	case xNoBox:
 		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].Kind == eir.ObjBox {
+			return
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xImpl:
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && !BoxAsserts(&s.f.Objects[t.base], s.assertT[path]) {
 			return
 		}
 		s.buf.push(s.a, s.intern(t))

@@ -47,6 +47,16 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 				w.add(x)
 			}
 			v = w
+		} else {
+			// To an interface: only the boxes whose type implements it.
+			w := value{}
+			for x := range v {
+				if x.t.kind == kObj && x.t.id < len(s.f.Objects) && !solve.BoxAsserts(&s.f.Objects[x.t.id], in.Type) {
+					continue
+				}
+				w.add(x)
+			}
+			v = w
 		}
 		s.def(in.Dst, v)
 	case eir.OpPhi:

@@ -75,7 +75,8 @@ type solver struct {
 	heapNode                uint32
 	buf                     vec
 	merged                  int
-	noCollapse              bool // tests: solve without cycle collapse
+	noCollapse              bool          // tests: solve without cycle collapse
+	assertT                 []types2.Type // the interface types of xImpl edges, by index
 	storeRaw                [domain.MaxInputs]int
 	storeCut                [domain.MaxInputs]bool
 	tjIndex, tjLow, tjStack vec
@@ -947,6 +948,11 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		if directAssert(in.Type) {
 			// The value is a direct one: never a box (rules.go, OpAssert).
 			s.edge(in.X, dst, xw(xNoBox, 0, false))
+		} else if assertIface(in.Type) != nil {
+			// Only a box whose type implements the interface (rules.go,
+			// OpAssert).
+			s.assertT = append(s.assertT, in.Type)
+			s.edge(in.X, dst, xw(xImpl, domain.PathID(len(s.assertT)-1), false))
 		} else {
 			s.edge(in.X, dst, xw(xID, 0, false))
 		}
@@ -1099,6 +1105,86 @@ func directAssert(T types2.Type) bool {
 
 // DirectAssert is directAssert, for the reference solver.
 func DirectAssert(T types2.Type) bool { return directAssert(T) }
+
+// assertIface returns the interface an assertion to T asserts, or nil when
+// T is not an interface or mentions a type parameter.
+func assertIface(T types2.Type) *types2.Interface {
+	if T == nil || mentionsTypeParam(T, nil) {
+		return nil
+	}
+	i, _ := T.Underlying().(*types2.Interface)
+	return i
+}
+
+// BoxAsserts reports whether the box o can be the operand of an assertion
+// to the interface type T that succeeds: o is not an interface box
+// (eir.ObjBox), or its dynamic type, the box's Type, implements T, or that
+// type is not known exactly (it mentions a type parameter). An assertion to
+// an interface leaves out the boxes it cannot yield (rules.go, OpAssert).
+func BoxAsserts(o *eir.Object, T types2.Type) bool {
+	if o.Kind != eir.ObjBox || o.Type == nil {
+		return true
+	}
+	i := assertIface(T)
+	if i == nil || mentionsTypeParam(o.Type, nil) {
+		return true
+	}
+	return types2.Implements(o.Type, i)
+}
+
+// mentionsTypeParam reports whether T mentions a type parameter.
+func mentionsTypeParam(T types2.Type, seen map[*types2.Named]bool) bool {
+	switch t := types2.Unalias(T).(type) {
+	case *types2.TypeParam:
+		return true
+	case *types2.Basic, nil:
+		return false
+	case *types2.Pointer:
+		return mentionsTypeParam(t.Elem(), seen)
+	case *types2.Slice:
+		return mentionsTypeParam(t.Elem(), seen)
+	case *types2.Array:
+		return mentionsTypeParam(t.Elem(), seen)
+	case *types2.Chan:
+		return mentionsTypeParam(t.Elem(), seen)
+	case *types2.Map:
+		return mentionsTypeParam(t.Key(), seen) || mentionsTypeParam(t.Elem(), seen)
+	case *types2.Struct:
+		for i := 0; i < t.NumFields(); i++ {
+			if mentionsTypeParam(t.Field(i).Type(), seen) {
+				return true
+			}
+		}
+		return false
+	case *types2.Tuple:
+		for i := 0; i < t.Len(); i++ {
+			if mentionsTypeParam(t.At(i).Type(), seen) {
+				return true
+			}
+		}
+		return false
+	case *types2.Signature:
+		return mentionsTypeParam(t.Params(), seen) || mentionsTypeParam(t.Results(), seen)
+	case *types2.Named:
+		if t.TypeParams().Len() > 0 && t.TypeArgs().Len() == 0 {
+			return true
+		}
+		for i := 0; i < t.TypeArgs().Len(); i++ {
+			if mentionsTypeParam(t.TypeArgs().At(i), seen) {
+				return true
+			}
+		}
+		return false
+	case *types2.Interface:
+		for i := 0; i < t.NumMethods(); i++ {
+			if mentionsTypeParam(t.Method(i).Type(), seen) {
+				return true
+			}
+		}
+		return false
+	}
+	return true // a type this does not know: as if it did
+}
 
 // heapOnlyLoad reports whether a load through x reads a heap-only field
 // (rules.go, OpLoad): x is the address of a field of a struct, by OpAddr or

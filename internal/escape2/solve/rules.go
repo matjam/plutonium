@@ -206,7 +206,11 @@ package solve
 //	             unboxes a non-direct value emits the OpLoad after it). To a
 //	             concrete pointer-shaped Type the result is the data word of
 //	             a direct value, never a box: Obj tokens of eir.ObjBox
-//	             objects are left out.
+//	             objects are left out. To an interface Type (one that
+//	             mentions no type parameter), Obj tokens of eir.ObjBox
+//	             objects whose Type (the dynamic type of the boxed value)
+//	             mentions no type parameter and does not implement it are
+//	             left out: the assertion fails on them (solve.BoxAsserts).
 //	OpSink       SinkReturn: for each <u,T,g> in X:
 //	                 u = Obj frame, LifeFrame or shorter  finding E3001
 //	                 u = Obj LifeCaller (a region)        Region.Builds,

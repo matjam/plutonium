@@ -141,6 +141,23 @@ func main() {
 }
 `, "main.p:", "",
 	},
+	{
+		// An assertion to an interface fails on a box whose dynamic type
+		// does not implement it: the string's frame box is not kept.
+		"assert_iface_box", `package main
+
+var keep error
+
+func f(s string) {
+	var a any = s
+	if e, ok := a.(error); ok {
+		keep = e
+	}
+}
+
+func main() { f("x") }
+`, "main.p:", "",
+	},
 }
 
 func TestLibraryControls(t *testing.T) {
