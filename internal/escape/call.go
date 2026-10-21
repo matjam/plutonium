@@ -317,6 +317,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		return &viewErr{sink: sinkCall, pos: pos, expr: cs.expr(i), fn: w.scopeName(w.sc), callee: label, calleeWhy: why}
 	}
 	w.a.noteCall(f, cs, mode)
+	w.noteOracle(f, cs, "")
 	w.a.dep(f)
 	if f == nil {
 		// Not a function the analysis has seen: assume the worst.
@@ -421,6 +422,14 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		res[i] = out.done()
 	}
 	return res
+}
+
+// noteOracle tells the lowering oracle, if one listens, that the reporting
+// pass applied f at the call cs, or (skipped not empty) left it out.
+func (w *walker) noteOracle(f *function, cs *callSite, skipped string) {
+	if w.a.report && w.a.oracle != nil {
+		w.a.oracle(f, cs.pos, skipped)
+	}
 }
 
 // genericIdentity recognizes a transfer of the selected generic value itself.
@@ -550,6 +559,7 @@ func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []t
 	for _, c := range w.a.ifaceCandidates(t.method, t.byName, t.sig) {
 		f := c.f
 		if len(f.params) != len(args) {
+			w.noteOracle(f, cs, "its parameters do not match the call's arguments")
 			continue
 		}
 		cargs := args
@@ -557,6 +567,7 @@ func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []t
 			// Drop receivers whose dynamic type is known not to have f.
 			recv := filterRecv(args[0], f)
 			if len(recv) == 0 {
+				w.noteOracle(f, cs, "no receiver of the interface has its type")
 				continue
 			}
 			if c.recv != recvReach {
@@ -725,6 +736,7 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 	for _, fv := range w.a.funcCandidates(t.sig) {
 		f := fv.f
 		if only != nil && !only[f.lit] {
+			w.noteOracle(f, cs, "the func value holds only other literals")
 			continue
 		}
 		if f.loopBody {
@@ -737,6 +749,7 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 				}
 			}
 			if body == 0 {
+				w.noteOracle(f, cs, "the func value cannot carry the loop body's closure")
 				continue
 			}
 		}

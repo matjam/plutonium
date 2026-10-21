@@ -1550,7 +1550,7 @@ func (w *walker) sink(v tset, e *viewErr, act, tail string) {
 }
 
 // sinkTail is sink with a tail that is made only when the text is.
-func (w *walker) sinkTail(v tset, e *viewErr, act string, tail goFn1) {
+func (w *walker) sinkTail(v tset, e *viewErr, act string, tail goFn2) {
 	for _, t := range v {
 		switch t.kind {
 		case tFrame:
@@ -1576,7 +1576,7 @@ func (w *walker) escapeKnown(t tok) bool {
 
 // escapeParam records that a parameter-derived pointer escapes from the
 // function that owns the parameter. why is called only when that is new.
-func (w *walker) escapeParam(t tok, why goFn1) {
+func (w *walker) escapeParam(t tok, why goFn2) {
 	if t.sc.level == 0 && t.sc.fn.resultHolds[t.idx] {
 		// Kept only while the result, which holds it, lives.
 		return
@@ -1622,9 +1622,9 @@ type goClosure_sink_1 struct {
 
 func (goSelf *goClosure_sink_1) Call() string { return goSelf.tail }
 
-// goFn1 stands for func() string, which a closure that outlives its frame cannot be
+// goFn2 stands for func() string, which a closure that outlives its frame cannot be
 // (go2pu closure conversion): the closure is a struct with this method.
-type goFn1 interface {
+type goFn2 interface {
 	Call() string
 }
 
@@ -1635,7 +1635,7 @@ type goClosure_sinkTail_1 struct {
 	t    tok
 	w    *walker
 	e    *viewErr
-	tail goFn1
+	tail goFn2
 }
 
 func (goSelf *goClosure_sinkTail_1) Call() string {

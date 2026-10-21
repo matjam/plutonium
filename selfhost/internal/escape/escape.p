@@ -152,6 +152,11 @@ type analyzer struct {
 	// arguments (facts.go), when the move checker asks for it.
 	calls *Calls
 
+	// oracle, if set, is told in the reporting pass of every function
+	// applied at a call, and of every candidate of a dynamic call left out
+	// (skipped says why), for the lowering oracle (oracle.go).
+	oracle goFn1
+
 	grew   bool // a summary or candidate set grew during this pass
 	report bool // the final pass: report errors
 
@@ -379,7 +384,7 @@ func (a *analyzer) run() {
 		if !f.bodyless {
 			a.analyze(f)
 		}
-		if len(a.errs) >= maxErrors {
+		if len(a.errs) >= maxErrors && a.oracle == nil {
 			return
 		}
 	}
@@ -1473,4 +1478,10 @@ func pointerElem(T types2.Type) types2.Type {
 		}
 	}
 	return nil
+}
+
+// goFn1 stands for func(*function, token.Pos, string), which a closure that outlives its frame cannot be
+// (go2pu closure conversion): the closure is a struct with this method.
+type goFn1 interface {
+	Call(*function, token.Pos, string)
 }

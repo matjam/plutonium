@@ -896,7 +896,7 @@ func (s *summary) addResultHeap(i int, tag string, counted bool) bool {
 // parameter of every function, whether or not any error is reported.
 type reason struct {
 	text  string // "stores p in package variable G (a.p:12)"
-	build goFn1  // makes text, once
+	build goFn2  // makes text, once
 
 	// A reason made by callReason: "<act> (pos), which <parent>", about the
 	// key of ent (of the summary of fn).

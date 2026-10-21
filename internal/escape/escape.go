@@ -151,6 +151,11 @@ type analyzer struct {
 	// arguments (facts.go), when the move checker asks for it.
 	calls *Calls
 
+	// oracle, if set, is told in the reporting pass of every function
+	// applied at a call, and of every candidate of a dynamic call left out
+	// (skipped says why), for the lowering oracle (oracle.go).
+	oracle func(f *function, pos token.Pos, skipped string)
+
 	grew   bool // a summary or candidate set grew during this pass
 	report bool // the final pass: report errors
 
@@ -378,7 +383,7 @@ func (a *analyzer) run() {
 		if !f.bodyless {
 			a.analyze(f)
 		}
-		if len(a.errs) >= maxErrors {
+		if len(a.errs) >= maxErrors && a.oracle == nil {
 			return
 		}
 	}
