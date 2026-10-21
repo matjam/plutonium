@@ -31,6 +31,7 @@ type CallFacts struct {
 	ranges map[token.Pos]*ast.RangeStmt
 	decls  map[*ast.BlockStmt]*ast.FuncDecl
 	expand map[*ssa.Sym][]*ssa.Sym
+	reach  map[*ssa.Sym]bool // reachableDescs
 }
 
 // LowerFacts lowers prog as Lower does and returns the oracle's view of the
@@ -169,6 +170,12 @@ type Call struct {
 	Method   int
 	FSig     *types2.Signature
 	Targets  []*ssa.Sym // every function the call may reach, as lowered
+	// Unconverted are the targets of a call through an itab whose dynamic
+	// type the generated code never puts into an interface, directly or by
+	// walking a type descriptor (pluto/fmt): lowering emits itabs for every
+	// type with a descriptor and every interface asserted, so these are
+	// methods no run of the program can reach there.
+	Unconverted map[*ssa.Sym]bool
 }
 
 // Calls returns the calls f makes, in block order.
@@ -210,6 +217,9 @@ func (cf *CallFacts) Calls(f *ssa.Func) []Call {
 				}
 				if site != nil {
 					c.Targets = cf.g.targets(site)
+				}
+				if site != nil && site.iface != nil {
+					c.Unconverted = cf.unconverted(site)
 				}
 			}
 			out = append(out, c)
@@ -268,3 +278,84 @@ func (cf *CallFacts) sourceTargets(sym *ssa.Sym, active map[*ssa.Sym]bool) []*ss
 
 // Position returns the source position of pos.
 func (cf *CallFacts) Position(pos token.Pos) token.Position { return cf.l.fset.Position(pos) }
+
+// unconverted returns the targets of the interface call site whose itab's
+// dynamic type is not reachable (reachableDescs).
+func (cf *CallFacts) unconverted(site *callSite) map[*ssa.Sym]bool {
+	reach := cf.reachableDescs()
+	var out map[*ssa.Sym]bool
+	for _, it := range cf.l.types.itabs {
+		if !types2.Identical(it.I, site.iface) || site.method >= len(it.methods) {
+			continue
+		}
+		d := cf.l.types.descs[typeString(it.T)]
+		if d != nil && reach[d.sym] {
+			continue
+		}
+		if out == nil {
+			out = map[*ssa.Sym]bool{}
+		}
+		out[it.methods[site.method]] = true
+	}
+	return out
+}
+
+// reachableDescs returns the type descriptors of the types the generated
+// code may put into an interface: those whose descriptor or itab address it
+// uses other than in a comparison (an assertion compares, a conversion
+// stores), and every type reachable from those through descriptors (element,
+// field and pointer-to descriptors), which a descriptor walk such as
+// pluto/fmt's may make interfaces of.
+func (cf *CallFacts) reachableDescs() map[*ssa.Sym]bool {
+	if cf.reach != nil {
+		return cf.reach
+	}
+	tt := cf.l.types
+	descOf := map[*ssa.Sym]*descInfo{}
+	for _, d := range tt.descs {
+		descOf[d.sym] = d
+	}
+	itabOf := map[*ssa.Sym]*itabInfo{}
+	for _, it := range tt.itabs {
+		itabOf[it.sym] = it
+	}
+	reach := map[*ssa.Sym]bool{}
+	var work []*descInfo
+	mark := func(d *descInfo) {
+		if d != nil && !reach[d.sym] {
+			reach[d.sym] = true
+			work = append(work, d)
+		}
+	}
+	for _, f := range cf.l.out.Funcs {
+		for _, b := range f.Blocks {
+			for _, v := range b.Values {
+				if v.Op == ssa.OpEq || v.Op == ssa.OpNe {
+					continue
+				}
+				for _, a := range v.Args {
+					if a.Op != ssa.OpSymAddr {
+						continue
+					}
+					sym, _ := a.Aux.(*ssa.Sym)
+					if d := descOf[sym]; d != nil {
+						mark(d)
+					} else if it := itabOf[sym]; it != nil {
+						mark(tt.descs[typeString(it.T)])
+					}
+				}
+			}
+		}
+	}
+	for len(work) > 0 {
+		d := work[len(work)-1]
+		work = work[:len(work)-1]
+		mark(descOf[d.elem])
+		mark(descOf[d.ptrTo])
+		for _, fd := range d.fields {
+			mark(descOf[fd.typ])
+		}
+	}
+	cf.reach = reach
+	return reach
+}

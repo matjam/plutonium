@@ -50,6 +50,10 @@ const (
 	// declaration of the blank identifier (var _ I = (*T)(nil)), whose value
 	// is discarded. The lowerer emits the itab; no interface ever holds it.
 	BlankItab Kind = "blank-itab"
+	// Unconverted: a method of a type the generated code never puts into an
+	// interface (lowering emits its itab for the runtime's assertions to
+	// interfaces), even through a descriptor walk.
+	Unconverted Kind = "unconverted"
 	// Unrecorded: an indirect call lowering recorded no targets for.
 	Unrecorded Kind = "unrecorded"
 	// NotWalked: a source function lowering emitted whose body the analysis
@@ -191,6 +195,8 @@ func compare(name string, in *build.OracleInputs) *Report {
 						fd.Kind = BoxRelease
 					case c.Kind == lower.CallIface && so.Obj != nil && blankOnly(blank, so.Obj):
 						fd.Kind = BlankItab
+					case c.Unconverted[t]:
+						fd.Kind = Unconverted
 					case so.Range != nil && t != s && so.Range.Pos() != c.Pos:
 						// A loop body reached, by its signature, through
 						// a function the lowerer made: the iterator calls
