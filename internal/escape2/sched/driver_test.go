@@ -148,8 +148,8 @@ func TestDriver(t *testing.T) {
 	if res.Stats.SCCs != 4 || res.Stats.LargestSCC != 3 || len(sccs) != 4 {
 		t.Fatalf("stats %+v, sccs %v", res.Stats, sccs)
 	}
-	if arena.resets != 4 {
-		t.Errorf("arena reset %d times, want once per SCC (4)", arena.resets)
+	if arena.resets != res.Stats.Iterations {
+		t.Errorf("arena reset %d times, want once per solve (%d)", arena.resets, res.Stats.Iterations)
 	}
 	// Every function's final summary holds its own key and its callees'.
 	want := map[string][]string{

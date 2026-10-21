@@ -84,10 +84,14 @@ type Options struct {
 
 // SCCStats are the measurements of one SCC.
 type SCCStats struct {
-	Funcs      int
-	Solves     int
-	ArenaBytes int // the most the arena held while the SCC was solved
-	SetBytes   int // the most the set table held
+	Funcs  int
+	Solves int
+	// ArenaBytes and SetBytes are the memory the arena and the set table
+	// held after the SCC's solves. The workspace is reset after every
+	// solve and keeps its chunks, so these grow only when a solve needs
+	// more than every solve before it: the largest is the peak.
+	ArenaBytes int
+	SetBytes   int
 }
 
 // Run analyses p: stage B, then the SCCs callees first.
@@ -169,7 +173,10 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			st.Solves++
 			findings[id] = r.Findings
 			prev := env.sums[id]
-			env.sums[id] = r.Summary
+			// Nothing a solve builds outlives it but its result: copy the
+			// summary out and reset the workspace, so that memory is that
+			// of the largest solve, not the sum of an SCC's iterations.
+			env.sums[id] = clone(r.Summary)
 			env.virt.changed()
 			if b := arena.Bytes(); b > st.ArenaBytes {
 				st.ArenaBytes = b
@@ -177,6 +184,8 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			if b := ws.Sets.Bytes(); b > st.SetBytes {
 				st.SetBytes = b
 			}
+			ws.Sets.Reset()
+			arena.Reset()
 			if prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev) {
 				continue
 			}
@@ -188,10 +197,8 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			}
 		}
 
-		// The SCC is final: copy its summaries out of anything the arena
-		// may share, report its findings, then reset the arena.
+		// The SCC is final: report its findings.
 		for _, id := range comp {
-			env.sums[id] = clone(env.sums[id])
 			res.Findings = append(res.Findings, findings[id]...)
 			findings[id] = nil
 			readers[id] = nil
@@ -204,8 +211,6 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		if opts.OnSCC != nil {
 			opts.OnSCC(comp, st)
 		}
-		ws.Sets.Reset()
-		arena.Reset()
 	}
 	sort.SliceStable(res.Findings, func(i, j int) bool {
 		a, b := res.Findings[i], res.Findings[j]
