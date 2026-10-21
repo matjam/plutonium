@@ -284,6 +284,12 @@ func (fb *fnb) methodCallee(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.S
 		// The methods of ring[T, N] have pointer receivers: the contract
 		// takes the ring's address (its place, as the lowerer does).
 		x := fb.methodReceiver(se.X, fn, sel.Index())
+		if fn.Name() == "Reset" {
+			// Reset drops the elements the ring holds (section 7.17).
+			if el := fb.ringElem(fn); el != nil && fb.b.needsDrop(el) {
+				fb.dropAt(x, el, e.Pos())
+			}
+		}
 		args, types := fb.args(e, sig, nil)
 		return &Call{Kind: CallContract, Contract: contract.RingMethod, Sig: sig}, append([]Reg{x}, args...), append([]types2.Type{fn.Type().(*types2.Signature).Recv().Type()}, types...), true
 	}
@@ -758,6 +764,18 @@ func (fb *fnb) builtin(e *ast.CallExpr) ([]Reg, []types2.Type) {
 	}
 	fb.b.errorf(e.Pos(), "built-in %s", bi.Name())
 	return nil, nil
+}
+
+// ringElem returns the element type of the ring whose method fn is.
+func (fb *fnb) ringElem(fn *types2.Func) types2.Type {
+	T := fn.Type().(*types2.Signature).Recv().Type()
+	if p := pointerElem(T); p != nil {
+		T = p
+	}
+	if w, ok := unwrap(T).Underlying().(*types2.Wrapper); ok && w.Kind() == types2.WrapRing {
+		return w.Elem()
+	}
+	return nil
 }
 
 // isRingType reports whether T, or what it points to, is a ring.

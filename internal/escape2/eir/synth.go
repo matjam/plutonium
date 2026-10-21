@@ -167,6 +167,11 @@ func (fb *fnb) dropFields(p Reg, T types2.Type) {
 			obj := fb.load(p, T)
 			fb.destroyAt(obj, u.Elem())
 		}
+		if u.Kind() == types2.WrapRing {
+			// A ring drops its live elements (section 7.17), which are in
+			// its own memory.
+			fb.destroyAt(p, u.Elem())
+		}
 	case *types2.Interface:
 		// An owning interface drops its dynamic value: a call of the drop
 		// adapter its itab or type descriptor holds (lower/owniface.go).
