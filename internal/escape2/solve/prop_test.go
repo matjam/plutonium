@@ -173,6 +173,13 @@ func TestPropCollapse(t *testing.T) {
 		if e.describe(r1.Summary) != e.describe(r3.Summary) || findings(r1) != findings(r3) {
 			t.Fatalf("seed %d: not deterministic", seed)
 		}
+		for _, fd := range r1.Findings {
+			ws := &Workspace{Arena: &summarytest.Arena{}, Sets: summarytest.NewSets()}
+			w := Explain(b.f, e, ws, fd)
+			if fd.Pos.IsValid() && (len(w) == 0 || w[len(w)-1] != fd.Pos) {
+				t.Fatalf("seed %d: witness %v of a finding at %d", seed, w, fd.Pos)
+			}
+		}
 	}
 }
 

@@ -1,11 +1,14 @@
 package solve
 
 import (
+	"fmt"
+
 	"testing"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/summary"
+	"github.com/matjam/plutonium/internal/escape2/summary/summarytest"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -174,6 +177,27 @@ func TestBottomCallee(t *testing.T) {
 	// Once g keeps its input, f's solve reports the call.
 	e.sums[g.f.ID] = &summary.Summary{Inputs: 1, Esc: []domain.Key{e.key(0, false)}}
 	wantFindings(t, e.solve(t, b.f), "E3003@0")
+}
+
+// The witness of a finding: where the pointer is made, the store into a
+// frame variable, the load back, and the return.
+func TestExplain(t *testing.T) {
+	e := newEnv()
+	b := e.fn("f", 0, 1)
+	x := b.obj("x", eir.LifeFrame, -1)
+	s := b.obj("s", eir.LifeFrame, -1)
+	px := b.at(1).addr(x)
+	ps := b.at(2).addr(s)
+	b.store(ps, px)
+	v := b.at(3).load(b.addr(s))
+	b.at(4).ret(0, v)
+	r := e.solve(t, b.f)
+	wantFindings(t, r, "E3001@4")
+	ws := &Workspace{Arena: &summarytest.Arena{}, Sets: summarytest.NewSets()}
+	got := Explain(b.f, e, ws, r.Findings[0])
+	if fmt.Sprint(got) != "[1 2 3 4]" {
+		t.Errorf("witness %v", got)
+	}
 }
 
 // A function that returns its own closure holding the closure of a call
