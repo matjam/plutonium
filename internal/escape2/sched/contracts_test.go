@@ -13,8 +13,9 @@ import (
 func TestJoin(t *testing.T) {
 	ps := domain.NewPaths()
 	k := func(in int) domain.Key { return domain.MakeKey(in, domain.Root, domain.KeyFlags{}) }
+	k0 := k(0)
 	sums := map[eir.FuncID]*summary.Summary{
-		1: {Inputs: 1, Esc: []domain.Key{k(0)}},
+		1: {Inputs: 1, Esc: []domain.Key{k(0)}, Reasons: []summary.Reason{{Site: ^uint32(0), Callee: ^uint32(0), Pos: 77, Sink: uint8(eir.SinkGlobal)}}},
 		2: {Inputs: 3, Esc: []domain.Key{k(0), k(2)}, Store: []summary.StorePair{{Src: k(1), Dst: k(0)}},
 			Res: []summary.Result{{Heap: []domain.PathID{domain.Root}}}},
 	}
@@ -24,6 +25,15 @@ func TestJoin(t *testing.T) {
 	}
 	if len(s.Reasons) != len(s.Esc)+len(s.Store) {
 		t.Errorf("reasons %v do not follow the entries", s.Reasons)
+	}
+	// The reason of in0's key names member 1 and carries its position and
+	// sink kind.
+	for e, k := range s.Esc {
+		if k == k0 {
+			if r := s.Reasons[e]; r.Callee != 1 || r.Pos != 77 || r.Sink != uint8(eir.SinkGlobal) {
+				t.Errorf("reason of in0's key: %+v, want member 1 with Pos 77 and Sink global", r)
+			}
+		}
 	}
 	if !summary.Leq(ps, sums[1], s) || !summary.Leq(ps, sums[2], s) {
 		t.Errorf("the join does not cover its members")

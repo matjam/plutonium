@@ -102,13 +102,23 @@ func join(ps domain.Paths, ids []eir.FuncID, sum func(eir.FuncID) *summary.Summa
 		if s.Inputs > out.Inputs {
 			out.Inputs = s.Inputs
 		}
+		// The reason of an entry names the member and the entry there, and
+		// carries the member's position and sink kind for it, so a message
+		// can name the line without following the member.
+		why := func(e int) summary.Reason {
+			r := summary.Reason{Site: ^uint32(0), Callee: uint32(id), Entry: uint32(e)}
+			if len(s.Reasons) == len(s.Esc)+len(s.Store) && e < len(s.Reasons) {
+				r.Pos, r.Sink = s.Reasons[e].Pos, s.Reasons[e].Sink
+			}
+			return r
+		}
 		for e, k := range s.Esc {
 			out.Esc = append(out.Esc, k)
-			escWhy = append(escWhy, summary.Reason{Site: ^uint32(0), Callee: uint32(id), Entry: uint32(e)})
+			escWhy = append(escWhy, why(e))
 		}
 		for j, p := range s.Store {
 			out.Store = append(out.Store, p)
-			storeWhy = append(storeWhy, summary.Reason{Site: ^uint32(0), Callee: uint32(id), Entry: uint32(len(s.Esc) + j)})
+			storeWhy = append(storeWhy, why(len(s.Esc)+j))
 		}
 		out.HeapStore = append(out.HeapStore, s.HeapStore...)
 		for len(out.Res) < len(s.Res) {
