@@ -18,8 +18,11 @@ func GenTagHeap(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer {
 		panic("invalid generation registration extent")
 	}
 	next := uint16(1)
+	var page *genInterval
 	for b := a &^ 15; b < end; b += 16 {
-		page := genPage(b>>16, true)
+		if page == nil || page.interval != b>>16 {
+			page = genPage(b>>16, true)
+		}
 		h := page.history[(b&65535)>>4]
 		if h >= next {
 			next = h + 1
@@ -29,8 +32,11 @@ func GenTagHeap(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer {
 		genWriter.Unlock()
 		return nil
 	}
+	page = nil
 	for b := a &^ 15; b < end; b += 16 {
-		page := genPage(b>>16, false)
+		if page == nil || page.interval != b>>16 {
+			page = genPage(b>>16, false)
+		}
 		page.history[(b&65535)>>4] = next
 		store16(genEntry(r, b), next)
 	}
@@ -73,7 +79,7 @@ func genPointerRecord(p unsafe.Pointer) *genRecord {
 		if rp := uintptr(load64(&link.reg)); rp != 0 {
 			r := (*genRecord)(unsafe.Pointer(rp))
 			if actual := genReadTag(r, a); actual != 0 && (best == nil || r.depth > best.depth) {
-				if actual != 0 && (tag == 0 || actual == tag) && genLive(r, a, actual) {
+				if actual != 0 && (tag == 0 || actual == tag) && genLive(r, a, a+1, actual) {
 					best = r
 				}
 			}

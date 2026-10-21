@@ -11,7 +11,6 @@ import "unsafe"
 // reference also saves the record's incarnation.
 type genInterval struct {
 	interval uintptr
-	next     uintptr
 	head     uint64
 	history  *[4096]uint16
 }
@@ -41,7 +40,15 @@ type genRecord struct {
 	nextClass   uintptr
 }
 
-var genIndex [4096]uint64
+// genTop is the directory's first level, indexed by bits 47..32 of an
+// untagged address. Each entry is 0 or a leaf of genLeafSize interval
+// pointers indexed by bits 31..16. Leaves and intervals are published
+// once, fully initialized, and never freed or replaced, so a lookup is two
+// dependent loads whatever the size of the heap.
+var genTop [genLeafSize]uint64
+
+const genLeafSize = 1 << 16
+
 var genWriter Lock
 var genPool, genPoolEnd uintptr
 var genFreeRecords [32]uintptr
@@ -106,58 +113,100 @@ func genMetadata(n uintptr) unsafe.Pointer {
 	return unsafe.Pointer(p)
 }
 
-func genBucket(i uintptr) uintptr { return (i ^ i>>12) & 4095 }
-
-func genPage(i uintptr, create bool) *genInterval {
-	b := &genIndex[genBucket(i)]
-	for p := uintptr(load64(b)); p != 0; {
-		r := (*genInterval)(unsafe.Pointer(p))
-		if r.interval == i {
-			return r
-		}
-		p = r.next
-	}
-	if !create {
+// genBucket returns the leaf slot of interval i, or nil when no leaf
+// covers it. Creating a leaf needs the writer lock.
+func genBucket(i uintptr, create bool) *uint64 {
+	if i>>16 >= genLeafSize {
 		return nil
+	}
+	top := &genTop[i>>16]
+	leaf := uintptr(vload64(top))
+	if leaf == 0 {
+		if !create {
+			return nil
+		}
+		// Mmap memory is zero: every slot of a new leaf is empty before
+		// the leaf is published.
+		leaf = uintptr(genMetadata(genLeafSize * 8))
+		store64(top, uint64(leaf))
+	}
+	return (*uint64)(unsafe.Pointer(leaf + (i&(genLeafSize-1))*8))
+}
+
+// genPage returns the interval i's node. Creating one needs the writer
+// lock; readers see a node only after its fields are initialized.
+func genPage(i uintptr, create bool) *genInterval {
+	slot := genBucket(i, create)
+	if slot == nil {
+		return nil
+	}
+	if p := uintptr(vload64(slot)); p != 0 || !create {
+		return (*genInterval)(unsafe.Pointer(p))
 	}
 	r := (*genInterval)(genMetadata(unsafe.Sizeof(genInterval{})))
 	r.interval = i
 	r.history = (*[4096]uint16)(genMetadata(8192))
-	r.next = uintptr(load64(b))
-	store64(b, uint64(uintptr(unsafe.Pointer(r))))
+	store64(slot, uint64(uintptr(unsafe.Pointer(r))))
 	return r
 }
+
+// vload64 and vload16 read metadata that writers change concurrently. On
+// x86-64 a naturally aligned volatile load is one MOV, which has acquire
+// semantics under total store order, and the compiler moves no other
+// memory access across it (memory-model sections 5.2 and 5.3): the same
+// guarantees as load64 and load16, without a call.
+//
+//pu:inline
+func vload64(p *uint64) uint64 { return *(*volatile[uint64])(unsafe.Pointer(p)) }
+
+//pu:inline
+func vload16(p *uint16) uint16 { return *(*volatile[uint16])(unsafe.Pointer(p)) }
 
 func genEntry(r *genRecord, a uintptr) *uint16 {
 	return (*uint16)(unsafe.Add(unsafe.Pointer(r.table), (a-r.origin)>>4*2))
 }
 
-// genLive validates the entire ancestor chain before consulting this
-// record's stable table. Reuse can change its snapshot while we read, in
-// which case we retry. Granule invalidation is independently atomic.
-func genLive(r *genRecord, a uintptr, tag uint16) bool {
+// genLive reports whether r is live at every byte of [a, end) under tag:
+// one coherent snapshot of r's bounds, ancestry and table covers the whole
+// extent, so each byte meets the single-address definition (ABI section
+// 1.3) by the same registration. It validates the entire ancestor chain
+// over the extent before consulting this record's stable table. Reuse can
+// change its snapshot while we read, in which case we retry. Granule
+// invalidation is independently atomic. The caller ensures a < end.
+func genLive(r *genRecord, a, end uintptr, tag uint16) bool {
 	for {
-		v := load64(&r.version)
+		v := vload64(&r.version)
 		if v&1 != 0 {
 			pause()
 			continue
 		}
-		active, lo, hi := r.active, r.lo, uintptr(load64((*uint64)(unsafe.Pointer(&r.hi))))
+		active, lo, hi := r.active, r.lo, uintptr(vload64((*uint64)(unsafe.Pointer(&r.hi))))
 		parent, id, pt := r.parent, r.parentID, r.parentTag
 		table, origin, capacity := r.table, r.origin, r.capacity
-		if v != load64(&r.version) {
+		if v != vload64(&r.version) {
 			continue
 		}
-		ok := active && a >= lo && a < hi
+		// lo <= a < end <= hi, and origin <= lo, so the extent's granules
+		// all lie in the table when the last one does.
+		ok := active && a >= lo && end <= hi && a >= origin && (end-1-origin)>>4 < capacity
 		if ok && parent != nil {
-			ok = load64(&parent.incarnation) == id && genLive(parent, a, pt) && load64(&parent.incarnation) == id
+			ok = vload64(&parent.incarnation) == id && genLive(parent, a, end, pt) && vload64(&parent.incarnation) == id
 		}
-		if ok && a >= origin && (a-origin)>>4 < capacity {
-			ok = load16((*uint16)(unsafe.Add(unsafe.Pointer(table), (a-origin)>>4*2))) == tag
-		} else {
-			ok = false
+		if ok {
+			e := unsafe.Add(unsafe.Pointer(table), (a-origin)>>4*2)
+			last := unsafe.Add(unsafe.Pointer(table), (end-1-origin)>>4*2)
+			for {
+				if vload16((*uint16)(e)) != tag {
+					ok = false
+					break
+				}
+				if e == last {
+					break
+				}
+				e = unsafe.Add(e, 2)
+			}
 		}
-		if v == load64(&r.version) {
+		if v == vload64(&r.version) {
 			return ok
 		}
 	}
@@ -196,13 +245,26 @@ func GenRegisteredLive(p unsafe.Pointer) bool {
 		return true
 	}
 	a := uintptr(p)
-	page := genPage(a>>16, false)
-	if page == nil {
+	return genReadLive(a, a+1, tag)
+}
+
+// genReadLive reports whether one registration reached from the directory
+// entry of a is live at every byte of [a, end) under tag. A registration
+// covering the extent covers a, so the interval of a reaches it.
+//
+//pu:inline
+func genReadLive(a, end uintptr, tag uint16) bool {
+	slot := genBucket(a>>16, false)
+	if slot == nil {
 		return false
 	}
-	for l := uintptr(load64(&page.head)); l != 0; {
+	page := uintptr(vload64(slot))
+	if page == 0 {
+		return false
+	}
+	for l := uintptr(vload64(&(*genInterval)(unsafe.Pointer(page)).head)); l != 0; {
 		link := (*genLink)(unsafe.Pointer(l))
-		if rp := uintptr(load64(&link.reg)); rp != 0 && genLive((*genRecord)(unsafe.Pointer(rp)), a, tag) {
+		if rp := uintptr(vload64(&link.reg)); rp != 0 && genLive((*genRecord)(unsafe.Pointer(rp)), a, end, tag) {
 			return true
 		}
 		l = link.next
@@ -210,6 +272,11 @@ func GenRegisteredLive(p unsafe.Pointer) bool {
 	return false
 }
 
+// GenRegisteredRangeLive reports whether every byte of [p, p+n) is live
+// under p's tag. One registration covering the extent in one snapshot is
+// the common case. Otherwise each granule and the last byte are checked
+// on their own, which is the definition (ABI section 1.3): the result is
+// the same, and the fast path only avoids repeating the lookup.
 func GenRegisteredRangeLive(p unsafe.Pointer, n uintptr) bool {
 	bits := *(*uintptr)(unsafe.Pointer(&p))
 	if n == 0 || bits>>48 == 0 {
@@ -220,12 +287,16 @@ func GenRegisteredRangeLive(p unsafe.Pointer, n uintptr) bool {
 	if end < a || end > uintptr(1)<<48 {
 		return false
 	}
+	tag := uint16(bits >> 48)
+	if genReadLive(a, end, tag) {
+		return true
+	}
 	for b := a; b < end; b = min(end, (b&^15)+16) {
-		if !GenRegisteredLive(unsafe.Pointer(b | bits>>48<<48)) {
+		if !genReadLive(b, b+1, tag) {
 			return false
 		}
 	}
-	return GenRegisteredLive(unsafe.Pointer((end - 1) | bits>>48<<48))
+	return genReadLive(end-1, end, tag)
 }
 
 type genSlabOwner struct {
@@ -285,7 +356,7 @@ func genRecordDead(r *genRecord) bool {
 		return true
 	}
 	for b := r.lo; b < r.hi; b = min(r.hi, (b&^15)+16) {
-		if genLive(r.parent, b, r.parentTag) {
+		if genLive(r.parent, b, b+1, r.parentTag) {
 			return false
 		}
 	}
@@ -343,7 +414,7 @@ func GenSlabBackingLive(p unsafe.Pointer, owner uintptr) bool {
 				match := active && ro == owner && a >= lo && a < hi
 				live := true
 				if match && parent != nil {
-					live = load64(&parent.incarnation) == id && genLive(parent, a, tag) && load64(&parent.incarnation) == id
+					live = load64(&parent.incarnation) == id && genLive(parent, a, a+1, tag) && load64(&parent.incarnation) == id
 				}
 				if v != load64(&r.version) {
 					continue
@@ -386,15 +457,7 @@ func genBacking(p unsafe.Pointer, size uintptr) *genRecord {
 			if r.active && a >= r.lo && a < r.hi && size <= r.hi-a {
 				tag := load16(genEntry(r, a))
 				if tag != 0 && (want == 0 || want == tag) && (best == nil || r.depth > best.depth) {
-					ok := true
-					for b := a; b < a+size; {
-						if !genLive(r, b, tag) {
-							ok = false
-							break
-						}
-						b = min(a+size, (b&^15)+16)
-					}
-					if ok {
+					if size == 0 || genLive(r, a, a+size, tag) {
 						best = r
 					}
 				}
