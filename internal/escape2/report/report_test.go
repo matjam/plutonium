@@ -3,6 +3,12 @@ package report_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/matjam/plutonium/internal/escape2"
+	"github.com/matjam/plutonium/internal/escape2/eir"
+	"github.com/matjam/plutonium/internal/escape2/report"
+	"github.com/matjam/plutonium/internal/escape2/sched"
+	"github.com/matjam/plutonium/internal/escape2/solve"
 )
 
 // sameAsOld are programs on whose errors both analyses agree: the new
@@ -274,6 +280,36 @@ func main() {
 	wantMessage(t, msgs,
 		"main.p:13:10: cannot keep the closure counterFrom(n) returns past this iteration of the loop: it is stored in last, declared outside the loop (main.p:11)",
 		"The region of a call in a loop is part of this frame")
+}
+
+// TestLimit checks the message of a function past the analysis's limits
+// (E3010), a finding at the function's declaration with no object.
+func TestLimit(t *testing.T) {
+	prog := loadSrc(t, "package main\n\nfunc big() int { return 1 }\n\nfunc main() { _ = big() }\n")
+	p, res, err := escape2.Run(prog, sched.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fn *eir.Func
+	for _, f := range p.Funcs {
+		if f.Key.Obj != nil && f.Key.Obj.Name() == "big" {
+			fn = f
+		}
+	}
+	if fn == nil {
+		t.Fatal("no function big")
+	}
+	res.Findings = append(res.Findings, solve.Finding{Code: "E3010", Pos: fn.Pos, Func: fn.ID, Obj: eir.NoObj, Callee: eir.NoFunc, Entry: -1})
+	var msgs []string
+	for _, d := range report.Diagnostics(prog, p, res) {
+		msgs = append(msgs, render(d))
+	}
+	m := wantMessage(t, msgs,
+		"main.p:3:1: the escape analysis of big reached its limit: the function holds more distinct pointers than the analysis can follow",
+		"Split big into smaller functions")
+	if w := internalTerm(m); w != "" {
+		t.Errorf("message names %q:\n%s", w, m)
+	}
 }
 
 // TestNoInternalTerms checks the check the golden comparison applies.

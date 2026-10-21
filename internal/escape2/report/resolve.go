@@ -23,6 +23,9 @@ type finding struct {
 
 // diagnostic writes the message of one finding.
 func (r *reporter) diagnostic(fd solve.Finding) *diag.Diagnostic {
+	if fd.Code == codeEscapeLimit {
+		return r.limitDiag(fd)
+	}
 	f := r.finding(fd)
 	e := &viewErr{pos: fd.Pos, fn: r.frameName(f.fn), qual: f.fn.Pkg, l: f.l}
 	call := r.keepingCall(f)
@@ -84,6 +87,29 @@ func (r *reporter) diagnostic(fd solve.Finding) *diag.Diagnostic {
 		}
 	}
 	return d
+}
+
+// codeEscapeLimit is the code of a function past the analysis's limits.
+// TODO(A): diag.EscapeLimit, with its catalog entry, once it is in
+// internal/diag.
+const codeEscapeLimit diag.Code = "E3010"
+
+// limitDiag writes the message of a function the analysis gave up on: it
+// holds more distinct pointers than the analysis follows, so it is
+// rejected rather than accepted unchecked.
+func (r *reporter) limitDiag(fd solve.Finding) *diag.Diagnostic {
+	fn := r.p.Funcs[fd.Func]
+	name := r.frameName(fn)
+	if fn.Key.Lit != nil {
+		name = "the function literal at " + r.basePos(fn.Key.Lit.Pos())
+	}
+	return &diag.Diagnostic{
+		Pos:  r.fset.Position(fd.Pos),
+		Code: fd.Code,
+		Msg:  "the escape analysis of " + name + " reached its limit: the function holds more distinct pointers than the analysis can follow",
+		Text: "The compiler checks that no pointer into a function's frame outlives the frame by following every pointer the function makes, stores and passes on. " + upperFirst(name) + " makes or passes on more distinct pointers, through more fields and calls, than that check can follow, so the compiler cannot show that it is safe, and rejects it rather than compile it unchecked.",
+		Fix:  &diag.Fix{Intro: "Split " + name + " into smaller functions, each with fewer pointers, fields and calls to follow."},
+	}
 }
 
 // finding gathers what the message of fd is written from.
