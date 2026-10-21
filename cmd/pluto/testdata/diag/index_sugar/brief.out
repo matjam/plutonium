@@ -1,0 +1,2 @@
+$DIR/main.p:14:2: cannot pass &x to vec.(*Vec).SetIndex, which keeps it after returning
+$DIR/main.p:29:2: cannot pass &y to (*Log).SetIndex, which keeps it after returning

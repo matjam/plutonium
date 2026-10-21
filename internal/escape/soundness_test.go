@@ -221,6 +221,41 @@ func (o *O) Drop() { keep = o }
 func mk() O { return O{n: 1} }
 func f() int { return mk().n }
 func main() { println(f()) }`, "cannot pass &mk() to (*O).Drop (called when mk() is dropped)"},
+	// The third adversarial review: v[i] = x is v.SetIndex(i, x) and v[i] is
+	// v.Index(i) (section 11.11).
+	{"index assignment on a container that keeps the value", `
+type G struct{ n int }
+var keep *int
+func (g *G) SetIndex(i int, p *int) { keep = p }
+func (g *G) Index(i int) *int       { return nil }
+var gg G
+func f() {
+	x := 42
+	gg[0] = &x
+}
+func main() { f() }`, "cannot pass &x to (*G).SetIndex"},
+	{"index assignment on a local vector", `
+import "pluto/vec"
+var keep *int
+func f() {
+	x := 42
+	v := vec.Make[*int](1)
+	defer v.Free()
+	v[0] = &x
+	keep = v[0]
+}
+func main() { f() }`, "cannot pass &x to vec.(*Vec).SetIndex"},
+	{"index read through a container's Index method", `
+type G struct{ p *[1]*int }
+func (g *G) Index(i int) *int { return g.p[i] }
+var keep *int
+func f() {
+	x := 42
+	arr := [1]*int{&x}
+	g := G{&arr}
+	keep = g[0]
+}
+func main() { f() }`, "cannot store g[0] in package variable keep"},
 	{"element of an array as a pointer in an interface", `
 type S struct{ n int }
 var keepS *S

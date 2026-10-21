@@ -33,6 +33,7 @@ b25_task_from_rangefunc_body: main.p:17:2: cannot pass &x to yield (which may ca
 c01_vec_append_global: main.p:13:2: cannot pass &x to vec.(*Vec).Append, which keeps it after returning
 c02_vec_insert_global: main.p:13:2: cannot pass &x to vec.(*Vec).Insert, which keeps it after returning
 c03_vec_set_global: main.p:13:2: cannot pass &x to vec.(*Vec).Set, which keeps it after returning
+c04_vec_index_assign_global: main.p:13:2: cannot pass &x to vec.(*Vec).SetIndex, which keeps it after returning
 c05_vec_push_param: main.p:13:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
 c06_vec_local_at_to_global: main.p:14:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
 c07_vec_local_returned_holding_frame_ptr: main.p:14:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
@@ -183,7 +184,13 @@ r17_heaponly_via_multi_return: main.p:23:2: cannot pass &b to keepNext, which ke
 r18_heaponly_via_closure_param: main.p:22:2: cannot pass &b to keepNext, which keeps it after returning
 r19_depth4_load: main.p:18:2: cannot pass &p3 to g, which keeps it after returning
 r20_deep_fields: main.p:34:2: cannot pass &v to g, which keeps it after returning
+s01_user_setindex_sugar: main.p:20:2: cannot pass &x to (*G).SetIndex, which keeps it after returning
+s02_user_setindex_explicit_control: main.p:20:2: cannot pass &x to (*G).SetIndex, which keeps it after returning
+s03_user_setindex_local_receiver: main.p:18:2: cannot pass &x to (*G).SetIndex, which keeps it after returning
+s04_user_index_sugar_returns_frame: main.p:20:2: cannot store g[0] in package variable keep, which outlives x
+s05_user_setindex_op_assign: main.p:20:2: cannot pass &x to (*G).SetIndex, which keeps it after returning
 s06_user_all_sugar_range: main.p:13:3: cannot pass &local to yield (which may call the loop body at main.p:23), which keeps it after returning
+s07_user_setindex_local_container: main.p:19:2: cannot pass &x to (*G).SetIndex, which keeps it after returning
 v10_variant_value_in_generic_func: main.p:22:9: cannot return wrap(&x), which points into x, a local variable of g
 v11_variant_value_named_func_type: main.p:19:9: cannot return m(&x), which points into x, a local variable of g
 v12_variant_value_generic_apply: main.p:19:9: cannot return apply(U.P, &x), which points into x, a local variable of g

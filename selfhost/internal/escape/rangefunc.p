@@ -107,7 +107,7 @@ func (w *walker) rangeFunc(st *ast.RangeStmt, label string, sig *types2.Signatur
 			if e == nil || i >= len(body.params) {
 				continue
 			}
-			w.assignTo(e, tset{paramTok(bsc, i)}, body.params[i].Type(), e, st.Pos())
+			w.assignTo(e, compat.Clone(tset{paramTok(bsc, i)}), body.params[i].Type(), e, st.Pos())
 		}
 	}, func() {
 		w.block(st.Body)

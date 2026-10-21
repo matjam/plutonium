@@ -233,6 +233,7 @@ func (w *walker) labeled(st ast.Stmt, label string) {
 		w.orStmt(st)
 	case *ast.IncDecStmt:
 		w.value(st.X)
+		w.indexUpdate(st.X)
 	case *ast.BlockStmt:
 		w.block(st)
 	case *ast.IfStmt:
@@ -338,6 +339,7 @@ func (w *walker) assignStmt(st *ast.AssignStmt) {
 		// x op= y: arithmetic, no pointers move.
 		w.value(st.Lhs[0])
 		w.value(st.Rhs[0])
+		w.indexUpdate(st.Lhs[0])
 		return
 	}
 	if len(st.Lhs) == len(st.Rhs) {
@@ -439,6 +441,16 @@ func (w *walker) assignTo(lhs ast.Expr, val tset, from types2.Type, node ast.Nod
 			w.discard(x, val)
 		}
 		return
+	}
+	if x, index, ok := w.indexSugar(lhs); ok {
+		// x[i] = v is x.SetIndex(i, v) (language spec section 11.11).
+		if t, ok := w.sugarTarget(x, types2.SetIndexMethodName); ok && t.sig.Params().Len() == 2 {
+			src, _ := node.(ast.Expr)
+			v := w.conv(val, from, t.sig.Params().At(1).Type(), node)
+			if _, ok := w.indexCall(lhs, x, index, types2.SetIndexMethodName, []tset{v}, []ast.Expr{src}, 0); ok {
+				return
+			}
+		}
 	}
 	to := w.lhsType(lhs)
 	val = w.conv(val, from, to, node)
@@ -771,4 +783,13 @@ func argExprs(e *ast.CallExpr, sig *types2.Signature) []ast.Expr {
 		out[i] = a
 	}
 	return out
+}
+
+// indexUpdate applies the SetIndex call of x[i] op= v or x[i]++ on a
+// container (section 11.11): the value it stores is a number or a new
+// string, which points into no frame.
+func (w *walker) indexUpdate(lhs ast.Expr) {
+	if x, index, ok := w.indexSugar(lhs); ok {
+		w.indexCall(lhs, x, index, types2.SetIndexMethodName, []tset{nil}, []ast.Expr{nil}, 0)
+	}
 }

@@ -465,6 +465,11 @@ func (w *walker) value1(e ast.Expr) tset {
 			// A generic function or method instantiated as a value.
 			return w.value(x)
 		}
+		if cx, ci, ok := w.indexSugar(e); ok {
+			if res, ok := w.indexCall(e, cx, ci, types2.IndexMethodName, nil, nil, 1); ok {
+				return res[0]
+			}
+		}
 		for _, i := range index {
 			w.value(i)
 		}
@@ -1355,6 +1360,14 @@ func (w *walker) multi(e ast.Expr, n int) ([]tset, []types2.Type) {
 		if ch, ok := underlying(w.typeOf(x.X)).(*types2.Chan); ok {
 			types[0] = ch.Elem()
 		}
+	case *ast.IndexExpr:
+		if cx, ci, ok := w.indexSugar(x); ok && n == 2 {
+			if res, ok := w.indexCall(x, cx, ci, types2.IndexOkMethodName, nil, nil, 2); ok {
+				copy(vals, res)
+				return vals, types
+			}
+		}
+		vals[0] = w.value1(x)
 	default:
 		vals[0] = w.value1(x)
 	}
