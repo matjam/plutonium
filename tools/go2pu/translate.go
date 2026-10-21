@@ -240,6 +240,9 @@ const (
 var untranslated = map[string]string{
 	"internal/syntax/ast/print.go": "the reflection-based debugging printer (plan section 3.6)",
 	"internal/build/test.go":       "pluto test's test main, which the self-hosted driver does not have yet (plan section 8)",
+	"internal/lower/oracle.go":     "the lowering oracle, test machinery of the Go compiler (docs/plans/2026-10-20-escape-redesign.md)",
+	"internal/build/oracle.go":     "the lowering oracle's inputs, test machinery of the Go compiler",
+	"internal/escape/oracle.go":    "the lowering oracle's record of the calls the escape analysis applies, test machinery of the Go compiler",
 }
 
 // TranslateDir translates the Go package in dir.

@@ -52,6 +52,10 @@ type Config struct {
 	// Overlaps are the checks the race check needs before scoped tasks
 	// start (race.AnalyzeWith, spec section 19.4).
 	Overlaps scoped.Overlaps
+	// Keep, if set, receives the Lowerer before lowering starts, so that the
+	// lowering oracle (oracle.go) can read what lowering recorded about
+	// calls once it is done.
+	Keep func(*Lowerer)
 }
 
 // A Lowerer lowers one program.
@@ -223,6 +227,9 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		gxWrapped:      map[*ssa.Sym]*types2.Func{},
 	}
 	l.types = newTypeTable(l)
+	if cfg.Keep != nil {
+		cfg.Keep(l)
+	}
 	if l.sizes == nil {
 		l.sizes = types2.SizesFor("gc", "amd64")
 	}
