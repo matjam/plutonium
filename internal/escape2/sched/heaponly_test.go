@@ -2,6 +2,7 @@ package sched
 
 import (
 	"testing"
+	"time"
 
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/types2"
@@ -170,6 +171,93 @@ func TestHeapOnlyPhiRing(t *testing.T) {
 		if got := x.heapOnly(x.node, 1); got == frame {
 			t.Errorf("frame address on the ring %v: Node.next heap-only %v", frame, got)
 		}
+	}
+}
+
+// TestRegTypePhiDiamonds checks that inferring a register's type through
+// phis is linear: 40 levels of diamonds over sources of unknown type are 2^40
+// paths, which a search that explores a register once per path never
+// finishes (the hang on the translated type checker).
+func TestRegTypePhiDiamonds(t *testing.T) {
+	x := newHoFixture(t)
+	m := x.main
+	a := m.add(eir.Instr{Op: eir.OpHeap, Heap: eir.HeapAlloc}, true)
+	b := m.add(eir.Instr{Op: eir.OpHeap, Heap: eir.HeapAlloc}, true)
+	for i := 0; i < 40; i++ {
+		a2 := m.add(eir.Instr{Op: eir.OpPhi, Args: []eir.Reg{a, b}}, true)
+		b2 := m.add(eir.Instr{Op: eir.OpPhi, Args: []eir.Reg{b, a}}, true)
+		a, b = a2, b2
+	}
+	// A store through a: its location type comes from a's type, which no
+	// source has.
+	m.add(eir.Instr{Op: eir.OpStore, X: a, Y: m.heap()}, false)
+	done := make(chan bool, 1)
+	go func() { done <- stageB(x.pr.p).HeapOnly(x.node, 1) }()
+	select {
+	case got := <-done:
+		// The store's type is unknown: nothing may be called heap-only.
+		if got {
+			t.Errorf("Node.next heap-only after a store of unknown type")
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("stage B did not finish in 20 seconds on 40 levels of phi diamonds")
+	}
+}
+
+// TestStageBRecursiveTypes checks that stage B finishes on recursive types:
+// a struct that points to itself, two that point to each other, and a
+// generic type instantiated with itself, used through stores, loads and a
+// loop's phis.
+func TestStageBRecursiveTypes(t *testing.T) {
+	pkg := typecheck(t, `
+type Node struct{ next *Node; v *int }
+type A struct{ b *B }
+type B struct{ a *A; v *int }
+type G[T any] struct{ self *G[T]; v T }
+func use[T any](g *G[T]) {}
+`)
+	node, a, b := lookupType(t, pkg, "Node"), lookupType(t, pkg, "A"), lookupType(t, pkg, "B")
+	use := lookupFunc(t, pkg, "use")
+	gint, err := types2.Instantiate(nil, lookupType(t, pkg, "G"), []types2.Type{types2.Typ[types2.Int]}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ggint, err := types2.Instantiate(nil, lookupType(t, pkg, "G"), []types2.Type{gint}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := newProg()
+	m := pr.fn("main", eir.FuncKey{}, nil)
+	m.f.External = true
+	ub := pr.decl(use)
+	tp := use.Signature().TypeParams().At(0)
+	gT := use.Signature().Params().At(0).Type().(*types2.Pointer).Elem()
+	// use[T] walks g.self.self... in a loop: a phi ring through loads.
+	g := ub.input(0)
+	cur := ub.reg()
+	next := ub.load(ub.field(cur, 0), types2.NewPointer(gT))
+	ub.add(eir.Instr{Op: eir.OpPhi, Dst: cur, Args: []eir.Reg{g, next}}, false)
+	ub.store(ub.field(cur, 0), next, types2.NewPointer(gT))
+	ub.store(ub.field(cur, 1), ub.load(ub.field(next, 1), tp), tp)
+	m.f.Facts.Instances = []eir.Instance{{Obj: use, Args: []types2.Type{gint}}, {Obj: use, Args: []types2.Type{ggint}}}
+	for _, T := range []types2.Type{node, a, b, gint, ggint} {
+		o := m.obj(eir.Object{Kind: eir.ObjVar, Type: T, Life: eir.LifeFrame, Loop: -1})
+		p := m.addr(o)
+		// p.f0 = p.f0.f0: a load and store through the recursive field.
+		inner := m.load(m.field(p, 0), types2.NewPointer(T))
+		m.store(m.field(p, 0), m.load(m.field(inner, 0), types2.NewPointer(T)), types2.NewPointer(T))
+	}
+	m.callStatic(ub, m.heap())
+
+	done := make(chan *facts, 1)
+	go func() { done <- stageB(pr.p) }()
+	select {
+	case f := <-done:
+		for _, T := range []types2.Type{node, a, b, gint, ggint} {
+			_ = f.HeapOnly(T, 0) // must answer, whatever the answer
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("stage B did not finish in 20 seconds on recursive types")
 	}
 }
 

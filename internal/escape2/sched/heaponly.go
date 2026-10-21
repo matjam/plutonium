@@ -207,12 +207,23 @@ func (h *heapOnly) classKey(s *types2.Struct, i int) hoKey {
 
 // --- register types -------------------------------------------------------
 
-// regType infers the type of register r of f, or nil. Answers are
-// memoized; a register asked for again while its own answer is being found
-// (a cycle through phis) has no answer on that path, and the phi takes the
-// type of another argument.
-func (h *heapOnly) regType(f *eir.Func, r eir.Reg, depth int) types2.Type {
-	if r == 0 || int(r) >= len(h.defs[f.ID]) || depth > 32 {
+// regType infers the type of register r of f, or nil. Each call is one
+// query: it explores every register at most once (rbusy), so it is linear
+// in the function however its phis join (a loop's phis, diamonds of them),
+// and a register met again on a cycle has no answer on that path, so a
+// phi takes the type of another argument. Types found are memoized, and so
+// is the query's own answer, found or not.
+func (h *heapOnly) regType(f *eir.Func, r eir.Reg) types2.Type {
+	clear(h.rbusy)
+	t := h.regTypeRec(f, r, 0)
+	if r != 0 && int(r) < len(h.defs[f.ID]) {
+		h.rtypes[regKey{f.ID, r}] = t
+	}
+	return t
+}
+
+func (h *heapOnly) regTypeRec(f *eir.Func, r eir.Reg, depth int) types2.Type {
+	if r == 0 || int(r) >= len(h.defs[f.ID]) || depth > 64 {
 		return nil
 	}
 	k := regKey{f.ID, r}
@@ -224,8 +235,7 @@ func (h *heapOnly) regType(f *eir.Func, r eir.Reg, depth int) types2.Type {
 	}
 	h.rbusy[k] = true
 	t := h.regType1(f, r, depth)
-	delete(h.rbusy, k)
-	if t != nil || depth == 0 {
+	if t != nil {
 		h.rtypes[k] = t
 	}
 	return t
@@ -265,7 +275,7 @@ func (h *heapOnly) regType1(f *eir.Func, r eir.Reg, depth int) types2.Type {
 		if in.Type != nil {
 			return in.Type
 		}
-		if pt := pointee(h.regType(f, in.X, depth+1)); pt != nil {
+		if pt := pointee(h.regTypeRec(f, in.X, depth+1)); pt != nil {
 			if t := walkPath(pt, in.Path); t != nil {
 				return types2.NewPointer(t)
 			}
@@ -274,21 +284,21 @@ func (h *heapOnly) regType1(f *eir.Func, r eir.Reg, depth int) types2.Type {
 		if in.Type != nil {
 			return in.Type
 		}
-		if t := elemOf(pointee(h.regType(f, in.X, depth+1))); t != nil {
+		if t := elemOf(pointee(h.regTypeRec(f, in.X, depth+1))); t != nil {
 			return types2.NewPointer(t)
 		}
-		if t := elemOf(h.regType(f, in.X, depth+1)); t != nil {
+		if t := elemOf(h.regTypeRec(f, in.X, depth+1)); t != nil {
 			return types2.NewPointer(t)
 		}
 	case eir.OpSelect:
-		return walkPath(h.regType(f, in.X, depth+1), in.Path)
+		return walkPath(h.regTypeRec(f, in.X, depth+1), in.Path)
 	case eir.OpCopy:
-		return h.regType(f, in.X, depth+1)
+		return h.regTypeRec(f, in.X, depth+1)
 	case eir.OpConv:
 		return in.To
 	case eir.OpPhi:
 		for _, a := range in.Args {
-			if t := h.regType(f, a, depth+1); t != nil {
+			if t := h.regTypeRec(f, a, depth+1); t != nil {
 				return t
 			}
 		}
@@ -371,7 +381,7 @@ func (h *heapOnly) addrLoc(f *eir.Func, r eir.Reg, depth int) loc {
 	case eir.OpField:
 		l := h.addrLoc(f, in.X, depth+1)
 		if l.base == nil {
-			if pt := pointee(h.regType(f, in.X, depth+1)); pt != nil {
+			if pt := pointee(h.regType(f, in.X)); pt != nil {
 				return loc{base: pt, steps: in.Path}
 			}
 			return loc{fieldStep: l.fieldStep || hasField(in.Path)}
@@ -386,9 +396,9 @@ func (h *heapOnly) addrLoc(f *eir.Func, r eir.Reg, depth int) loc {
 		}
 		// An element of a slice, or of an array of unknown place: a
 		// location of the element type, in no struct we can name.
-		t := elemOf(pointee(h.regType(f, in.X, depth+1)))
+		t := elemOf(pointee(h.regType(f, in.X)))
 		if t == nil {
-			t = elemOf(h.regType(f, in.X, depth+1))
+			t = elemOf(h.regType(f, in.X))
 		}
 		return loc{base: t, fieldStep: l.fieldStep}
 	case eir.OpCopy:
@@ -836,7 +846,7 @@ func (h *heapOnly) store(st *originState, in *eir.Instr) {
 		}
 	} else {
 		if L == nil {
-			L = pointee(h.regType(f, in.X, 0))
+			L = pointee(h.regType(f, in.X))
 		}
 		if L == nil {
 			h.poison = true
@@ -951,7 +961,7 @@ func (h *heapOnly) opaqueCall(st *originState, c *eir.Call) {
 		return
 	}
 	for _, a := range c.Args {
-		t := h.regType(st.f, a, 0)
+		t := h.regType(st.f, a)
 		if t == nil {
 			h.poison = true
 			return
