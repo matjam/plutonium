@@ -12,7 +12,6 @@ func GenRegister(p unsafe.Pointer, size uintptr, backing unsafe.Pointer, key uin
 func GenUnregister(token uintptr)                                             {}
 func GenTagHeap(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer { return p }
 func GenFreeHeap(token uintptr, p unsafe.Pointer, size uintptr) bool          { return true }
-func GenSetEpoch(token uintptr, p unsafe.Pointer, size uintptr, epoch uint16) {}
 func GenInvalidate(token uintptr, from, to uintptr)                           {}
 func GenCustomAlloc(p unsafe.Pointer, size, key uintptr) unsafe.Pointer       { return p }
 func GenCustomFree(p unsafe.Pointer, size, key uintptr) unsafe.Pointer        { return p }

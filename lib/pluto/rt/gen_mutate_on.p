@@ -44,15 +44,6 @@ func GenTagHeap(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer {
 	return unsafe.Pointer(a | uintptr(next)<<48)
 }
 
-// GenSetEpoch gives an allocation's granules their arena epoch.
-func GenSetEpoch(token uintptr, p unsafe.Pointer, size uintptr, epoch uint16) {
-	r := (*genRecord)(unsafe.Pointer(token))
-	a, end := uintptr(p), uintptr(p)+size
-	for b := a &^ 15; b < end; b += 16 {
-		vstore16(genEntry(r, b), epoch)
-	}
-}
-
 // GenInvalidate clears reclaimed granules before their payload is reused.
 // Rounding from upward preserves allocations preceding a partial mark.
 func GenInvalidate(token uintptr, from, to uintptr) {

@@ -189,26 +189,6 @@ func genPage(i uintptr, create bool) *genInterval {
 	return r
 }
 
-// vload64 and vload16 read metadata that writers change concurrently, and
-// vstore16 writes a granule's tag. A naturally aligned volatile access is
-// one indivisible MOV of its width, and the compiler moves no other memory
-// access across it (memory-model sections 4.4 and 5.2). On x86-64, under
-// total store order, such a load has acquire and such a store release
-// semantics (section 5.3), which is all the metadata protocol needs:
-// readers only load, and each writer's stores (under genWriter) become
-// visible in order, so a reader that sees a publication or a version also
-// sees what was stored before it. Seqlock versions and directory
-// publication keep store64, a sequentially consistent exchange.
-//
-//pu:inline
-func vload64(p *uint64) uint64 { return *(*volatile[uint64])(unsafe.Pointer(p)) }
-
-//pu:inline
-func vload16(p *uint16) uint16 { return *(*volatile[uint16])(unsafe.Pointer(p)) }
-
-//pu:inline
-func vstore16(p *uint16, v uint16) { *(*volatile[uint16])(unsafe.Pointer(p)) = v }
-
 func genEntry(r *genRecord, a uintptr) *uint16 {
 	return (*uint16)(unsafe.Add(unsafe.Pointer(r.table), (a-r.origin)>>4*2))
 }
@@ -598,9 +578,9 @@ func genHint(page *genInterval, r, to *genRecord) {
 	for g := (lo - base) >> 4; g <= (hi-1-base)>>4; g++ {
 		e := (*uint64)(unsafe.Pointer(h + g*8))
 		if to != nil {
-			*(*volatile[uint64])(unsafe.Pointer(e)) = uint64(uintptr(unsafe.Pointer(to)))
+			vstore64(e, uint64(uintptr(unsafe.Pointer(to))))
 		} else if uintptr(*e) == uintptr(unsafe.Pointer(r)) {
-			*(*volatile[uint64])(unsafe.Pointer(e)) = 0
+			vstore64(e, 0)
 		}
 	}
 }
@@ -858,7 +838,7 @@ func GenRegister(p unsafe.Pointer, size uintptr, backing unsafe.Pointer, key uin
 	// 8-byte words, each store clearing four entries at once.
 	if r.capacity >= 4 {
 		for i := uintptr(0); i < r.capacity; i += 4 {
-			*(*volatile[uint64])(unsafe.Add(unsafe.Pointer(r.table), i*2)) = 0
+			vstore64((*uint64)(unsafe.Add(unsafe.Pointer(r.table), i*2)), 0)
 		}
 	} else {
 		for i := uintptr(0); i < r.capacity; i++ {
