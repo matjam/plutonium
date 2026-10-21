@@ -1,12 +1,14 @@
 package eir_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	plutonium "github.com/matjam/plutonium"
+	"github.com/matjam/plutonium/internal/escape2/contract"
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/types2"
@@ -112,9 +114,72 @@ func TestBuildCorpus(t *testing.T) {
 			if !ok {
 				t.Skip("does not load")
 			}
-			if _, err := eir.Build(prog); err != nil {
+			p, err := eir.Build(prog)
+			if err != nil {
 				t.Errorf("%v", err)
+				return
+			}
+			for _, m := range receiverValues(p) {
+				t.Errorf("%s", m)
 			}
 		})
 	}
+}
+
+// receiverValues returns the calls of a method with a pointer receiver
+// (a declared method, a ring's, a trusted contract method) whose receiver
+// argument is a value loaded from memory that is not a pointer: the
+// review-5 class, where the ring's value was passed for its address. The
+// lowering oracle cannot see it for the ring's methods, which the lowerer
+// expands inline.
+func receiverValues(p *eir.Program) []string {
+	var out []string
+	for _, f := range p.Funcs {
+		defs := map[eir.Reg]*eir.Instr{}
+		for _, b := range f.Blocks {
+			for i := range b.Instrs {
+				if in := &b.Instrs[i]; in.Dst != 0 {
+					defs[in.Dst] = in
+				}
+			}
+		}
+		for _, b := range f.Blocks {
+			for i := range b.Instrs {
+				in := &b.Instrs[i]
+				if in.Op != eir.OpCall || len(in.Call.Args) == 0 || in.Call.Args[0] == 0 {
+					continue
+				}
+				c := in.Call
+				var recv types2.Type
+				switch {
+				case c.Kind == eir.CallContract && c.Contract == contract.RingMethod:
+					// Every method of a ring has a pointer receiver.
+					recv = types2.NewPointer(types2.Typ[types2.Int])
+				case c.Kind == eir.CallStatic && c.Callee != eir.NoFunc && p.Funcs[c.Callee].Key.Obj != nil:
+					if r := p.Funcs[c.Callee].Key.Obj.Type().(*types2.Signature).Recv(); r != nil {
+						recv = r.Type()
+					}
+				}
+				if recv == nil {
+					continue
+				}
+				if _, ptr := types2.Unalias(recv).(*types2.Pointer); !ptr {
+					continue
+				}
+				d := defs[c.Args[0]]
+				if d == nil || d.Op != eir.OpLoad || d.Type == nil {
+					continue
+				}
+				switch d.Type.Underlying().(type) {
+				case *types2.Pointer, *types2.Basic, *types2.Interface, *types2.TypeParam:
+					continue // a pointer (or a word that holds one) loaded from a variable
+				}
+				if w, ok := d.Type.Underlying().(*types2.Wrapper); ok && w.IsPointer() {
+					continue
+				}
+				out = append(out, fmt.Sprintf("%s: a call of a method with a pointer receiver passes a loaded %s for its address", f.Name, d.Type))
+			}
+		}
+	}
+	return out
 }
