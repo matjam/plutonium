@@ -1096,12 +1096,16 @@ memory that can be reclaimed).
   set indexes are reused from a pool (`tbuf.done`), and `applyEscapes` declares its key buffer once per call.
   Building `typecheck` now allocates 139 GB instead of 248 GB and takes 152 s instead of 199 s. That is about
   half, nowhere near enough for stage 2.
-- Generation checks. A checked pluto1 is about 9 times slower than an unchecked one (`hello` at -O2: 52 s
-  against 6 s; the Go-hosted compiler takes 1.4 s). The runtime's generation directory (`genPage`,
-  `lib/pluto/rt/gen_directory_on.p`) finds a 64 KiB interval through a chain in one of 4,096 hash buckets, so
-  each checked access costs more as the heap grows: about 6 entries a chain at 1.6 GB, about 75 at 20 GB. The
-  bootstrap stages build with `--gencheck=false` (`tools/bootstrap -flags "-O2 --gencheck=false"`), and
-  `-pluto1 file` starts the later stages from a stage 1 compiler built before.
+- Generation checks. A checked pluto1 was about 9 times slower than an unchecked one (`hello` at -O2: 52 s
+  against 6 s; the Go-hosted compiler takes 1.4 s). The bootstrap stages build with `--gencheck=false`
+  (`tools/bootstrap -flags "-O2 --gencheck=false"`), and `-pluto1 file` starts the later stages from a stage 1
+  compiler built before. Update (2026-10-21): the directory's hash chains are gone. It is a two-level radix
+  table (`lib/pluto/rt/gen_directory_on.p`), so a lookup costs the same whatever the size of the heap, and the
+  check's fast path, now inlined in the check helpers, is near its floor. What remains is how many checks run:
+  accesses through one base in a block share one check (`opt.GenCheck`, abi.md section 1.3), but every
+  element of a loop over a slice is still checked on its own. On the `ssaback` demo (the printf example,
+  `-O2`) the checked build runs 8.8 times the unchecked one's instructions (13.2 before these changes) and
+  takes about 5.6 times its cycles (8.5 before).
 - Why the other fixes considered do not fit in 22 GB:
   - Scratch reuse alone (above) halves the allocation.
   - A per-function scratch arena only for the token sets and indexes (75%) leaves about 170 GB of other
