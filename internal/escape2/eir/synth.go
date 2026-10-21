@@ -293,7 +293,8 @@ func (fb *fnb) methodValue(e *ast.SelectorExpr, sel *types2.Selection) Reg {
 		return fb.emitDst(Instr{Op: OpMethodVal, X: x, Obj: o, Method: fn, Callee: NoFunc, Type: recvT, Pos: e.Pos()})
 	}
 	if fb.isRingMethod(fn) {
-		x := fb.expr(e.X)
+		x := fb.methodReceiver(e.X, fn, sel.Index()) // the ring's address
+		recvT = fn.Type().(*types2.Signature).Recv().Type()
 		o := fb.newObj(Object{Kind: ObjMethodVal, Type: recvT, Name: "method value", Pos: e.Pos()})
 		return fb.emitDst(Instr{Op: OpMethodVal, X: x, Obj: o, Method: fn, Callee: NoFunc, Type: recvT, Pos: e.Pos()})
 	}

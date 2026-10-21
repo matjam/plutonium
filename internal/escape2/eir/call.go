@@ -280,9 +280,11 @@ func (fb *fnb) methodCallee(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.S
 		return &Call{Kind: CallTypeParam, Method: fn, Iface: tp, Sig: sig}, append([]Reg{recv}, args...), append([]types2.Type{recvT}, types...), true
 	}
 	if fb.isRingMethod(fn) {
-		x := fb.expr(se.X)
+		// The methods of ring[T, N] have pointer receivers: the contract
+		// takes the ring's address (its place, as the lowerer does).
+		x := fb.methodReceiver(se.X, fn, sel.Index())
 		args, types := fb.args(e, sig, nil)
-		return &Call{Kind: CallContract, Contract: contract.RingMethod, Sig: sig}, append([]Reg{x}, args...), append([]types2.Type{recvT}, types...), true
+		return &Call{Kind: CallContract, Contract: contract.RingMethod, Sig: sig}, append([]Reg{x}, args...), append([]types2.Type{fn.Type().(*types2.Signature).Recv().Type()}, types...), true
 	}
 	recv := fb.methodReceiver(se.X, fn, sel.Index())
 	if isIfaceMethod(fn) {
