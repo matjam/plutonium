@@ -1,21 +1,382 @@
 package summary
 
-import "github.com/matjam/plutonium/internal/escape2/domain"
+import (
+	"slices"
+
+	"github.com/matjam/plutonium/internal/escape2/domain"
+)
 
 // Leq reports whether s is no wider than t: every entry of s is covered by
 // one of t. It is the post-fixed-point check of D44 (plan section (f)): a
 // loaded summary t is accepted when the summary computed against it is Leq t.
 //
-// Interface stub; the solver's implementation replaces it.
+// Coverage is entry by entry: an Esc or HeapStore key by a key that covers it
+// (domain.Covers), a Store pair by a pair whose two keys cover its two keys,
+// a result key at a field by a key at the same field that covers it, or by a
+// GE key at a prefix of the field (a caller places what a GE key leads to
+// anywhere under that field), and heap results by heap results of the same
+// kind (a caller does not tell heap pointers apart by field). Region facts
+// are compared as sets. Reasons are explanations and are not compared.
 func Leq(ps domain.Paths, s, t *Summary) bool {
-	panic("escape2/summary: Leq is not built yet")
+	if s == nil {
+		return true
+	}
+	if t == nil {
+		return isBottom(s)
+	}
+	for _, k := range s.Esc {
+		if !coveredKey(ps, k, t.Esc) {
+			return false
+		}
+	}
+	for _, k := range s.HeapStore {
+		if !coveredKey(ps, k, t.HeapStore) {
+			return false
+		}
+	}
+	for _, p := range s.Store {
+		if !coveredPair(ps, p, t.Store) {
+			return false
+		}
+	}
+	for r, res := range s.Res {
+		var tr Result
+		if r < len(t.Res) {
+			tr = t.Res[r]
+		}
+		for _, rk := range res.From {
+			if !coveredResult(ps, rk, tr.From) {
+				return false
+			}
+		}
+		if len(res.Heap) > 0 && len(tr.Heap) == 0 {
+			return false
+		}
+		if len(res.CountedHeap) > 0 && len(tr.CountedHeap) == 0 {
+			return false
+		}
+	}
+	if s.Region.Builds && !t.Region.Builds {
+		return false
+	}
+	for _, r := range s.Region.OuterResults {
+		if !slices.Contains(t.Region.OuterResults, r) {
+			return false
+		}
+	}
+	return true
+}
+
+// isBottom reports whether s has no effects at all.
+func isBottom(s *Summary) bool {
+	if len(s.Esc) > 0 || len(s.Store) > 0 || len(s.HeapStore) > 0 || s.Region.Builds || len(s.Region.OuterResults) > 0 {
+		return false
+	}
+	for _, r := range s.Res {
+		if len(r.From) > 0 || len(r.Heap) > 0 || len(r.CountedHeap) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func coveredKey(ps domain.Paths, k domain.Key, by []domain.Key) bool {
+	for _, b := range by {
+		if domain.Covers(ps, b, k) {
+			return true
+		}
+	}
+	return false
+}
+
+func coveredPair(ps domain.Paths, p StorePair, by []StorePair) bool {
+	for _, b := range by {
+		if domain.Covers(ps, b.Src, p.Src) && domain.Covers(ps, b.Dst, p.Dst) {
+			return true
+		}
+	}
+	return false
+}
+
+// resultCovers reports whether result key a covers b.
+func resultCovers(ps domain.Paths, a, b ResultKey) bool {
+	if !domain.Covers(ps, a.Key, b.Key) {
+		return false
+	}
+	if a.Field == b.Field {
+		return true
+	}
+	return a.Key.GE() && ps.HasPrefix(b.Field, a.Field)
+}
+
+func coveredResult(ps domain.Paths, rk ResultKey, by []ResultKey) bool {
+	for _, b := range by {
+		if resultCovers(ps, b, rk) {
+			return true
+		}
+	}
+	return false
 }
 
 // Widen applies the caps: past MaxEscPerInput or MaxStorePerInput entries of
 // one input, that input's keys are cut and marked GE, and the sets are made
 // antichains again. The result covers s.
 //
-// Interface stub; the solver's implementation replaces it.
+// The cap on Esc applies to HeapStore and to each result's keys as well. If
+// the cut keys of an input are still past the cap, they are replaced by the
+// input's root with GE, which covers every key of the input. Reasons, when
+// present, follow their entries; an entry that absorbs others keeps its own.
 func Widen(ps domain.Paths, s *Summary) {
-	panic("escape2/summary: Widen is not built yet")
+	if s == nil {
+		return
+	}
+	var escWhy, storeWhy []Reason
+	if len(s.Reasons) == len(s.Esc)+len(s.Store) && len(s.Reasons) > 0 {
+		escWhy = s.Reasons[:len(s.Esc)]
+		storeWhy = s.Reasons[len(s.Esc):]
+	}
+	s.Esc, escWhy = widenKeys(ps, s.Esc, escWhy, MaxEscPerInput)
+	s.HeapStore, _ = widenKeys(ps, s.HeapStore, nil, MaxEscPerInput)
+	s.Store, storeWhy = widenPairs(ps, s.Store, storeWhy)
+	for r := range s.Res {
+		s.Res[r].From = widenResults(ps, s.Res[r].From)
+		s.Res[r].Heap = sortedPaths(s.Res[r].Heap)
+		s.Res[r].CountedHeap = sortedPaths(s.Res[r].CountedHeap)
+	}
+	s.Region.OuterResults = sortedInts(s.Region.OuterResults)
+	if escWhy != nil || storeWhy != nil {
+		s.Reasons = append(append([]Reason(nil), escWhy...), storeWhy...)
+	} else {
+		s.Reasons = nil
+	}
+}
+
+// cutKey is the widening of one key: its path cut, GE set.
+func cutKey(ps domain.Paths, k domain.Key) domain.Key {
+	return k.WithPath(ps.Cut(k.Path()), true)
+}
+
+// rootKey covers every key of k's input with k's flags.
+func rootKey(k domain.Key) domain.Key {
+	return k.WithPath(domain.Root, true)
+}
+
+// perInput counts the keys of each input.
+func perInput(keys []domain.Key) map[int]int {
+	n := map[int]int{}
+	for _, k := range keys {
+		n[k.Input()]++
+	}
+	return n
+}
+
+// widenKeys caps keys per input and returns an antichain, sorted, with the
+// reasons (if any) of the surviving keys.
+func widenKeys(ps domain.Paths, keys []domain.Key, why []Reason, limit int) ([]domain.Key, []Reason) {
+	keys, why = antichainKeys(ps, keys, why)
+	for pass := 0; pass < 2; pass++ {
+		over := false
+		for in, n := range perInput(keys) {
+			if n <= limit {
+				continue
+			}
+			over = true
+			for i, k := range keys {
+				if k.Input() != in {
+					continue
+				}
+				if pass == 0 {
+					keys[i] = cutKey(ps, k)
+				} else {
+					keys[i] = rootKey(k)
+				}
+			}
+		}
+		if !over {
+			break
+		}
+		keys, why = antichainKeys(ps, keys, why)
+	}
+	return keys, why
+}
+
+// antichainKeys sorts keys, drops duplicates and keys another key covers.
+func antichainKeys(ps domain.Paths, keys []domain.Key, why []Reason) ([]domain.Key, []Reason) {
+	idx := make([]int, len(keys))
+	for i := range idx {
+		idx[i] = i
+	}
+	slices.SortStableFunc(idx, func(a, b int) int { return cmpU64(uint64(keys[a]), uint64(keys[b])) })
+	var out []domain.Key
+	var outWhy []Reason
+	for _, i := range idx {
+		k := keys[i]
+		covered := false
+		for j, o := range keys {
+			if j == i {
+				continue
+			}
+			// o covers k strictly, or equally and comes first: k goes.
+			if domain.Covers(ps, o, k) && (o != k || j < i) {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		out = append(out, k)
+		if why != nil {
+			outWhy = append(outWhy, why[i])
+		}
+	}
+	return out, outWhy
+}
+
+func widenPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, []Reason) {
+	pairs, why = antichainPairs(ps, pairs, why)
+	for pass := 0; pass < 2; pass++ {
+		n := map[int]int{}
+		for _, p := range pairs {
+			n[p.Src.Input()]++
+		}
+		over := false
+		for in, c := range n {
+			if c <= MaxStorePerInput {
+				continue
+			}
+			over = true
+			for i, p := range pairs {
+				if p.Src.Input() != in {
+					continue
+				}
+				if pass == 0 {
+					pairs[i] = StorePair{cutKey(ps, p.Src), cutKey(ps, p.Dst)}
+				} else {
+					pairs[i] = StorePair{rootKey(p.Src), rootKey(p.Dst)}
+				}
+			}
+		}
+		if !over {
+			break
+		}
+		pairs, why = antichainPairs(ps, pairs, why)
+	}
+	return pairs, why
+}
+
+func antichainPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, []Reason) {
+	idx := make([]int, len(pairs))
+	for i := range idx {
+		idx[i] = i
+	}
+	slices.SortStableFunc(idx, func(a, b int) int {
+		if c := cmpU64(uint64(pairs[a].Src), uint64(pairs[b].Src)); c != 0 {
+			return c
+		}
+		return cmpU64(uint64(pairs[a].Dst), uint64(pairs[b].Dst))
+	})
+	var out []StorePair
+	var outWhy []Reason
+	for _, i := range idx {
+		p := pairs[i]
+		covered := false
+		for j, o := range pairs {
+			if j == i {
+				continue
+			}
+			if domain.Covers(ps, o.Src, p.Src) && domain.Covers(ps, o.Dst, p.Dst) && (o != p || j < i) {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		out = append(out, p)
+		if why != nil {
+			outWhy = append(outWhy, why[i])
+		}
+	}
+	return out, outWhy
+}
+
+func widenResults(ps domain.Paths, from []ResultKey) []ResultKey {
+	from = antichainResults(ps, from)
+	for pass := 0; pass < 2; pass++ {
+		n := map[int]int{}
+		for _, rk := range from {
+			n[rk.Key.Input()]++
+		}
+		over := false
+		for in, c := range n {
+			if c <= MaxEscPerInput {
+				continue
+			}
+			over = true
+			for i, rk := range from {
+				if rk.Key.Input() != in {
+					continue
+				}
+				// A cut key stands anywhere under the field; the field is
+				// kept, since a GE key covers its extensions at any prefix
+				// of the field (resultCovers), and a caller places it with
+				// GE tags.
+				if pass == 0 {
+					from[i].Key = cutKey(ps, rk.Key)
+				} else {
+					from[i] = ResultKey{rootKey(rk.Key), domain.Root}
+				}
+			}
+		}
+		if !over {
+			break
+		}
+		from = antichainResults(ps, from)
+	}
+	return from
+}
+
+func antichainResults(ps domain.Paths, from []ResultKey) []ResultKey {
+	sorted := slices.Clone(from)
+	slices.SortStableFunc(sorted, func(a, b ResultKey) int {
+		if c := cmpU64(uint64(a.Key), uint64(b.Key)); c != 0 {
+			return c
+		}
+		return cmpU64(uint64(a.Field), uint64(b.Field))
+	})
+	var out []ResultKey
+	for i, rk := range sorted {
+		covered := false
+		for j, o := range sorted {
+			if j != i && resultCovers(ps, o, rk) && (o != rk || j < i) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, rk)
+		}
+	}
+	return out
+}
+
+func sortedPaths(ps []domain.PathID) []domain.PathID {
+	slices.Sort(ps)
+	return slices.Compact(ps)
+}
+
+func sortedInts(xs []int) []int {
+	slices.Sort(xs)
+	return slices.Compact(xs)
+}
+
+func cmpU64(a, b uint64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	}
+	return 0
 }
