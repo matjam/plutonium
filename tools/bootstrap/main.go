@@ -14,11 +14,16 @@
 //
 // Each stage's build is timed, and its resident memory is sampled every
 // second; a build past -limit-mb is killed and reported with the numbers.
-// Every stage builds with the same flags (-flags, default "-O2").
+// Every stage builds with the same flags (-flags, default "-O2"). The
+// unchecked mode ("-O2 --gencheck=false") makes the compilers of stages 2
+// and 3 about nine times faster: a checked build looks up every heap access
+// in the generation directory, whose cost grows with the heap, and the
+// compiler's arena is never freed. -pluto1 starts from a stage 1 compiler
+// built before.
 //
 // Usage:
 //
-//	go run ./tools/bootstrap [-stages 3] [-corpus] [-work dir] [-limit-mb 24000] [-flags "-O2"] [-lib-every 3] [-j 8]
+//	go run ./tools/bootstrap [-stages 3] [-corpus] [-work dir] [-limit-mb 24000] [-flags "-O2"] [-pluto1 file] [-lib-every 3] [-j 8]
 //
 // Run it from the repository root. PLUTOROOT is set to ./lib for every
 // stage, so that all of them compile the same standard library.
@@ -43,10 +48,11 @@ func main() {
 	flags := flag.String("flags", "-O2", "flags of every stage's build of selfhost/cmd/pluto")
 	libEvery := flag.Int("lib-every", 3, "check one in every n programs of testdata/lib")
 	jobs := flag.Int("j", 8, "corpus builds to run at once")
+	from := flag.String("pluto1", "", "start from this stage 1 compiler instead of building one (stage 2 onwards)")
 	only := flag.String("only", "", "check only the corpus programs whose names contain one of these comma-separated strings")
 	flag.Parse()
 	if err := run(&options{stages: *stages, corpus: *corpus, work: *work, limitMB: *limit,
-		flags: strings.Fields(*flags), libEvery: *libEvery, jobs: *jobs, only: *only}); err != nil {
+		flags: strings.Fields(*flags), libEvery: *libEvery, jobs: *jobs, only: *only, pluto1: *from}); err != nil {
 		fmt.Fprintln(os.Stderr, "bootstrap:", err)
 		os.Exit(1)
 	}
@@ -61,6 +67,7 @@ type options struct {
 	libEvery int
 	jobs     int
 	only     string
+	pluto1   string // a stage 1 compiler to start from, or ""
 }
 
 func run(o *options) error {
@@ -89,6 +96,12 @@ func run(o *options) error {
 	var built []string
 	for stage := 1; stage <= o.stages; stage++ {
 		out := filepath.Join(o.work, fmt.Sprintf("pluto%d", stage))
+		if stage == 1 && o.pluto1 != "" {
+			fmt.Printf("stage 1: %s\n", o.pluto1)
+			built = append(built, o.pluto1)
+			prev = o.pluto1
+			continue
+		}
 		m, err := buildStage(root, lib, prev, out, o.flags, o.limitMB)
 		fmt.Printf("stage %d: %s\n", stage, m)
 		if err != nil {
