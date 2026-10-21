@@ -133,16 +133,10 @@ func RunWith(p *eir.Program, opts Options) *Result {
 
 	// iterate solves an SCC from bottom to a post-fixed point.
 	iterate := func(comp []eir.FuncID, st *SCCStats) {
-		work := append([]eir.FuncID(nil), comp...)
-		queued := map[eir.FuncID]bool{}
-		for _, id := range comp {
-			queued[id] = true
-		}
+		work := newSCCWork(comp, func(id eir.FuncID) []eir.FuncID { return g.deps[id] })
 		solves := map[eir.FuncID]int{}
-		for len(work) > 0 {
-			id := work[0]
-			work = work[1:]
-			queued[id] = false
+		for !work.empty() {
+			id := work.pop()
 			solves[id]++
 			if solves[id] > maxSolvesPerFunc {
 				panic(fmt.Sprintf("internal compiler error: escape2: %s did not converge in its SCC of %d functions", p.Funcs[id].Name, len(comp)))
@@ -172,10 +166,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 				continue
 			}
 			for _, rd := range readers[id] {
-				if !queued[rd] {
-					queued[rd] = true
-					work = append(work, rd)
-				}
+				work.push(rd)
 			}
 		}
 	}

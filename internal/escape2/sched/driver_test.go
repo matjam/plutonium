@@ -204,6 +204,32 @@ func TestDriver(t *testing.T) {
 	}
 }
 
+// TestSCCWorkOrder checks the SCC worklist: callees first by a postorder of
+// the SCC's own calls, each function queued once, others ignored.
+func TestSCCWorkOrder(t *testing.T) {
+	// a calls b, b calls c, c calls a; c also calls d outside the SCC.
+	deps := map[eir.FuncID][]eir.FuncID{0: {1}, 1: {2}, 2: {0, 9}}
+	w := newSCCWork([]eir.FuncID{0, 1, 2}, func(id eir.FuncID) []eir.FuncID { return deps[id] })
+	var got []eir.FuncID
+	for !w.empty() {
+		got = append(got, w.pop())
+	}
+	if want := []eir.FuncID{2, 1, 0}; !sameIDs(got, want) {
+		t.Errorf("order %v, want %v (callees first)", got, want)
+	}
+	w.push(0)
+	w.push(2)
+	w.push(0)
+	w.push(9) // not in the SCC
+	got = nil
+	for !w.empty() {
+		got = append(got, w.pop())
+	}
+	if want := []eir.FuncID{2, 0}; !sameIDs(got, want) {
+		t.Errorf("after pushes: %v, want %v", got, want)
+	}
+}
+
 // TestDriverLimit checks a function past the solver's limits: it gets an
 // E3010 finding and the top summary, its callers are solved against that,
 // and the analysis goes on. A panic that is not a limit is not caught.
