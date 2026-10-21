@@ -19,8 +19,11 @@ import (
 //	%      the elements of a slice
 //	$N     the object a synced[T] refers to, T being the analyzer's type N
 //	&      the address of what the path before it names
-//	#      memory an owner owns through its views: the steps after it are
-//	       not told apart, and it stands for all of that memory
+//	#      everything reachable from the place before it, through any
+//	       number of pointers: memory an owner owns through its views, what
+//	       dropping a value frees (a write of P# is a drop of the value at
+//	       P), or the rest of a path cut short; the steps after it are not
+//	       told apart
 //	@P     after [] or %: the part P of those elements, which an index or
 //	       slice expression selects (scope.go): @c3 is element 3; the
 //	       others are told apart only by the check of scoped tasks
@@ -188,11 +191,22 @@ func overlaps(a, b vpath) bool {
 		return false
 	}
 	pa, pb := stripOwned(a.path), stripOwned(b.path)
-	sa, sb := stripParts(pa), stripParts(pb)
-	if !within(sa, sb) && !within(sb, sa) {
+	if !contains(a.path, b.path) && !contains(b.path, a.path) {
 		return false
 	}
 	return !partsDisjoint(pa, pb, nil)
+}
+
+// contains reports whether place p, with its parts ignored, holds place q:
+// q is within p's own storage, or anywhere below p when p ends in #, which
+// stands for everything reachable from it, except the objects of counted
+// references ($N), which their other references keep.
+func contains(p, q string) bool {
+	sp, sq := stripParts(stripOwned(p)), stripParts(stripOwned(q))
+	if strings.HasSuffix(p, "#") {
+		return prefixOf(sp, sq) && !strings.Contains(strings.SliceFrom(sq, len(sp)), "$")
+	}
+	return within(sp, sq)
 }
 
 // stripParts removes the part steps of a path.

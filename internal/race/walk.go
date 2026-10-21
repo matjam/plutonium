@@ -161,8 +161,12 @@ type walker struct {
 	party    *party
 	noFilter bool // deferred calls at the exit: every Scope is still there
 	inlined  int  // depth of literals walked in place
-	conc     bool // a summary: the code walked runs in several scoped tasks at once
-	noPark   int  // inside the communication of a select: the select decided whether to wait
+	// inlinedAt is the call of the outermost literal walked in place: the
+	// tasks running there are those running at its uses of memory.
+	inlinedAt token.Pos
+	conc      bool // a summary: the code walked runs in several scoped tasks at once
+	noPark    int  // inside the communication of a select: the select decided whether to wait
+	freeing   int  // the writes recorded free or drop the memory (free.go)
 }
 
 func newWalker(a *analyzer, fn *function) *walker {
@@ -784,7 +788,11 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 		}
 		if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
 			if w.frame != nil {
-				w.access(vpath{root: root{kind: rLocal, v: v}}, true, false, id.Pos(), v.Type(), false, "")
+				p := vpath{root: root{kind: rLocal, v: v}}
+				w.access(p, true, false, id.Pos(), v.Type(), false, "")
+				if !w.newVar(id) {
+					w.dropWrite([]vpath{p}, v.Type(), id.Pos())
+				}
 				w.newScope(v)
 			}
 			w.cpuCarry(v, val, id.Pos())
@@ -810,6 +818,10 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 	T := w.typeOf(lhs)
 	for _, p := range ps.ps {
 		w.access(p, true, false, lhs.Pos(), T, ps.sync, ps.key)
+	}
+	if !ps.sync && !isMap {
+		// The value it replaces is dropped.
+		w.dropWrite(ps.ps, T, lhs.Pos())
 	}
 	if !ps.sync && !isMap {
 		// A map element is a copy: no view can see it change.
@@ -1128,7 +1140,7 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 		return
 	}
 	if w.frame != nil {
-		w.frame.note(w, &frameAcc{place: p, write: write, atomic: atomic, pos: pos, typ: T, locks: w.st.locks})
+		w.frame.note(w, &frameAcc{place: p, write: write, atomic: atomic, free: w.freeing > 0, pos: pos, typ: T, locks: w.st.locks})
 		return
 	}
 	if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] {
@@ -1146,7 +1158,7 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 		// no other task can reach it yet.
 		return
 	}
-	x := &access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T}
+	x := &access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T, free: w.freeing > 0}
 	if !write && !atomic && isSyncType(T) {
 		// Reading a whole synchronised value copies it, as any read does.
 		x.atomic = false

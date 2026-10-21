@@ -45,7 +45,10 @@ import (
 //     as their starter.
 //   - Two uses by parties that may run at once conflict when one writes,
 //     not both are atomic, they may reach the same memory, and no lock is
-//     held by both (exclusively by a writer).
+//     held by both (exclusively by a writer). Freeing memory, and dropping
+//     a value, which frees what it owns, write it (free.go): a view made
+//     from an owner before a task starts is a use of the owner's memory,
+//     which a task that grows or replaces the owner frees.
 //   - They reach the same memory when their places overlap. Index and slice
 //     expressions select parts of elements (path.go): different constant
 //     elements; x[i] and windows x[i*k:(i+1)*k], x[i:i+c] of the variable i
@@ -149,6 +152,7 @@ type frameAcc struct {
 	place  vpath
 	write  bool
 	atomic bool
+	free   bool // a write that frees or drops the memory (free.go)
 	move   bool // the starter moves or drops the variable (E3404)
 	drop   bool // by calling its Drop method
 	locks  lockset
@@ -429,7 +433,7 @@ func (fc *frameCheck) expandEdges() {
 		x := &expander{a: fc.a, seen: map[expKey]bool{}, keys: map[accKey]bool{}}
 		x.expand(e.f, e.args, e.locks, false)
 		for _, acc := range x.out {
-			fc.add(e.party, &frameAcc{place: acc.place, write: acc.write, atomic: acc.atomic, locks: acc.locks, pos: acc.pos, via: e.pos, typ: acc.typ, run: e.run})
+			fc.add(e.party, &frameAcc{place: acc.place, write: acc.write, atomic: acc.atomic, free: acc.free, locks: acc.locks, pos: acc.pos, via: e.pos, typ: acc.typ, run: e.run})
 		}
 	}
 }
@@ -455,6 +459,9 @@ func (w *walker) running(pos token.Pos) runSet {
 	if w.noFilter {
 		return w.st.running
 	}
+	if w.inlinedAt.IsValid() {
+		pos = w.inlinedAt
+	}
 	return w.st.running.keep(w.frame.alive(pos))
 }
 
@@ -462,6 +469,9 @@ func (w *walker) running(pos token.Pos) runSet {
 func (fc *frameCheck) note(w *walker, x *frameAcc) {
 	if !fc.record || w.quiet > 0 || w.st.dead {
 		return
+	}
+	if !x.via.IsValid() && w.inlinedAt.IsValid() {
+		x.via = w.inlinedAt // in a literal called there
 	}
 	if w.party.task == nil {
 		at := x.pos
@@ -489,7 +499,7 @@ func (fc *frameCheck) add(p *party, x *frameAcc) {
 	if x.place.root.kind == rFunc || x.place.root.kind == rLit {
 		return
 	}
-	k := fmt.Sprintf("%s|%v%v%v|%s|%d|%s", x.place.key(), x.write, x.atomic, x.move, x.locks, x.pos, x.run.String())
+	k := fmt.Sprintf("%s|%v%v%v%v|%s|%d|%s", x.place.key(), x.write, x.atomic, x.move, x.free, x.locks, x.pos, x.run.String())
 	if p.seen[k] {
 		return
 	}
@@ -551,7 +561,7 @@ func (w *walker) scopedTaskCall(e *ast.CallExpr, t *scoped.Task) {
 			}
 		}
 		// A task a task starts on another Scope: part of the party.
-		w.inlineLit(t.Lit, nil, true)
+		w.inlineLit(t.Lit, nil, true, e.Pos())
 		return
 	}
 	// A summary: the task's code is the starter's, run with no locks
@@ -724,12 +734,18 @@ func (w *walker) scopeWait(v *types2.Var) {
 }
 
 // inlineLit walks a function literal of the starter's unit where it is
-// called (or, for a task, started), so that its uses of the frame are seen
-// with the caller's locks (or none). args are its arguments.
-func (w *walker) inlineLit(lit *ast.FuncLit, args []origins, task bool) []origins {
+// called at pos (or, for a task, started), so that its uses of the frame
+// are seen with the caller's locks (or none), and with the tasks running at
+// the call (the literal may be written before the Scope). args are its
+// arguments.
+func (w *walker) inlineLit(lit *ast.FuncLit, args []origins, task bool, pos token.Pos) []origins {
 	f := w.a.lits[lit]
 	if f == nil || w.inlined > maxDepth {
 		return nil
+	}
+	savedAt := w.inlinedAt
+	if !task && !savedAt.IsValid() {
+		w.inlinedAt = pos
 	}
 	savedSt, savedExit, savedDefers, savedTargets, savedGotos, savedFn := w.st, w.exit, w.defers, w.targets, w.gotos, w.fn
 	if task {
@@ -761,6 +777,7 @@ func (w *walker) inlineLit(lit *ast.FuncLit, args []origins, task bool) []origin
 	}
 	after := w.st
 	w.inlined--
+	w.inlinedAt = savedAt
 	w.st, w.exit, w.defers, w.targets, w.gotos, w.fn = savedSt, savedExit, savedDefers, savedTargets, savedGotos, savedFn
 	if !task && !after.dead {
 		w.st.locks, w.st.rel = after.locks, after.rel
@@ -771,7 +788,7 @@ func (w *walker) inlineLit(lit *ast.FuncLit, args []origins, task bool) []origin
 // noteSub records, in a check of scoped tasks, a use that a callee makes
 // of what its parameters reach.
 func (fc *frameCheck) noteSub(w *walker, p vpath, x *access, locks lockset, call token.Pos) {
-	fc.note(w, &frameAcc{place: p, write: x.write, atomic: x.atomic, locks: locks, pos: x.pos, via: call, typ: x.typ})
+	fc.note(w, &frameAcc{place: p, write: x.write, atomic: x.atomic, free: x.free, locks: locks, pos: x.pos, via: call, typ: x.typ})
 }
 
 // noteEdge records a call whose callee's uses of package variables and
@@ -1109,8 +1126,7 @@ func holds(S, T types2.Type, depth int) bool {
 func (fc *frameCheck) meet(x, y *frameAcc, p, q *party, self bool) (meets, alias bool) {
 	if x.place.root == y.place.root {
 		pa, pb := stripOwned(x.place.path), stripOwned(y.place.path)
-		sa, sb := stripParts(pa), stripParts(pb)
-		if !within(sa, sb) && !within(sb, sa) {
+		if !contains(x.place.path, y.place.path) && !contains(y.place.path, x.place.path) {
 			return false, false
 		}
 		if partsDisjoint(pa, pb, splitApart) {
@@ -1159,6 +1175,7 @@ type conflictRec struct {
 // check reports the races among the parties.
 func (fc *frameCheck) check() {
 	ps := fc.parties
+
 	for i, p := range ps {
 		for _, q := range ps[i:] {
 			switch {
@@ -1181,8 +1198,22 @@ func (fc *frameCheck) pair(p, q *party, self bool) {
 	// parties have no other: the other is the clearer error.
 	var aliases []conflictRec
 	found := false
+	// Of the conflicts of one use, the first is reported: a free, which
+	// says best why a use of memory the other party reallocates races,
+	// before other writes.
+	ys := make([]*frameAcc, 0, len(q.accs))
+	for _, y := range q.accs {
+		if y.free {
+			ys = append(ys, y)
+		}
+	}
+	for _, y := range q.accs {
+		if !y.free {
+			ys = append(ys, y)
+		}
+	}
 	for _, x := range p.accs {
-		for _, y := range q.accs {
+		for _, y := range ys {
 			if !x.write && !y.write || x.atomic && y.atomic {
 				continue
 			}

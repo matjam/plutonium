@@ -113,6 +113,10 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		return w.ringCall(e, t)
 	}
 	args := w.args(e, t.sig)
+	if fn := w.calledFunc(e); fn != nil {
+		w.freeCall(e, fn)
+		w.rtIntrinsic(e, fn, args)
+	}
 	w.cpuCallStore(e)
 	if fn := w.calledFunc(e); fn != nil && w.a.isBlocking(fn) {
 		w.parkPoint() // a call of the function that every wait ends in
@@ -148,7 +152,7 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	case t.static != nil && w.frame != nil && t.static.lit != nil && t.static.unit == w.fn.unit && w.a.scoped.Lits[t.static.lit] == nil:
 		// A literal of the frame being checked, called where it is
 		// written: its uses of the frame are not in its summary.
-		return pad(w.inlineLit(t.static.lit, args, false), nres)
+		return pad(w.inlineLit(t.static.lit, args, false, e.Pos()), nres)
 	case t.static != nil:
 		res, after := w.apply(t.static, args, e.Pos(), t.name, w.st, &applyOpts{noLockEffect: t.syncRecv})
 		w.st = after
@@ -434,8 +438,13 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 	case "clear":
 		vs := vals()
 		if len(vs) == 1 {
-			for _, p := range vs[0].derefOr(w.derefStep(w.typeOf(e.Args[0])), w.unknownFor(e.Args[0])) {
+			ps := vs[0].derefOr(w.derefStep(w.typeOf(e.Args[0])), w.unknownFor(e.Args[0]))
+			for _, p := range ps {
 				w.access(p, true, false, e.Pos(), w.typeOf(e.Args[0]), false, "")
+			}
+			if sl, ok := underlying(w.typeOf(e.Args[0])).(*types2.Slice); ok {
+				// Clearing a slice drops its elements.
+				w.dropWrite(ps, sl.Elem(), e.Pos())
 			}
 		}
 		return nil
@@ -465,11 +474,15 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 		}
 		return one(nil)
 	case "Drop":
-		// unsafe.Drop destroys what its argument points to: unsafe code,
-		// whose uses are its own responsibility (memory safety design,
-		// section 2); freeing memory another task uses is a use after
-		// free, which generation checks catch, rather than a data race.
-		vals()
+		// unsafe.Drop destroys what its argument points to, freeing what
+		// that value owns: a write of all of it (free.go). The unsafe code
+		// that calls it answers for its own uses; the write is what a safe
+		// caller of that code is checked against.
+		vs := vals()
+		if len(vs) == 1 {
+			T := pointerElem(w.typeOf(e.Args[0]))
+			w.dropWrite(vs[0].derefOr("*", w.unknownFor(e.Args[0])), T, e.Pos())
+		}
 		return nil
 	}
 	vals()
@@ -910,6 +923,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 					pos:    x.pos,
 					pre:    !base.spawned && x.pre,
 					typ:    x.typ,
+					free:   x.free,
 				})
 			}
 		}
@@ -1097,7 +1111,7 @@ func (w *walker) callValueIn(fv origins, args []origins, pos token.Pos, sig *typ
 				if w.frame != nil && w.a.lits[lit] != nil && w.a.lits[lit].unit == w.fn.unit && w.a.scoped.Lits[lit] == nil {
 					// A literal of the frame being checked: its uses of the
 					// frame are not in its summary.
-					res = unionResults(res, w.inlineLit(lit, args, false))
+					res = unionResults(res, w.inlineLit(lit, args, false, pos))
 					if out == nil {
 						out = w.st
 					} else {

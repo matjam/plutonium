@@ -199,6 +199,7 @@ type access struct {
 	tkey   string      // "field:T.f": the field of the object a pointer led to, for the type rule
 	typ    types2.Type // the type of what is used, when known (scope.go)
 	cpu    *cpuUse     // a use of a per-CPU variable (region.go), which the rules of sharing do not see
+	free   bool        // a write that frees or drops the memory (free.go)
 }
 
 // An accKey identifies what matters of an access for the rules; accesses
@@ -224,6 +225,9 @@ func (x *access) key() accKey {
 	}
 	if x.pre {
 		k.flags |= 4
+	}
+	if x.free {
+		k.flags |= 8
 	}
 	if len(x.locks) > 0 || x.rel.all || len(x.rel.keys) > 0 {
 		k.locks = "L" + x.locks.String() + "|R" + x.rel.String()

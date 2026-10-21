@@ -53,7 +53,11 @@ func (fc *frameCheck) partyName(p *party, plural bool) string {
 // it when it is in a function the party calls.
 func (fc *frameCheck) accWhere(x *frameAcc) string {
 	if x.via.IsValid() && x.via != x.pos {
-		return fmt.Sprintf("%s, in %s called at %s", fc.a.short(x.pos), fc.a.funcAt(x.pos), fc.a.short(x.via))
+		fn := fc.a.funcAt(x.pos)
+		if sp := fnSpan(fc.starter); sp.Pos() <= x.pos && x.pos < sp.End() {
+			fn = "the function literal" // one of the starter's, called where it is used
+		}
+		return fmt.Sprintf("%s, in %s called at %s", fc.a.short(x.pos), fn, fc.a.short(x.via))
 	}
 	return fc.a.short(x.pos)
 }
@@ -62,6 +66,8 @@ func passive(x *frameAcc) string {
 	switch {
 	case x.move:
 		return "is moved"
+	case x.free:
+		return "is freed"
 	case x.write:
 		return "is written"
 	}
@@ -72,6 +78,8 @@ func verb(x *frameAcc) string {
 	switch {
 	case x.move:
 		return "moves"
+	case x.free:
+		return "frees"
 	case x.write:
 		return "writes"
 	}
@@ -106,7 +114,14 @@ func (fc *frameCheck) report(c conflictRec) {
 		x, y, p, q = y, x, q, p
 	}
 	place := fc.placeName(x.place)
-	key := fmt.Sprintf("scope|%s|%d|%d", stripParts(x.place.key()), p.idx, q.idx)
+	// The parties are numbered within one starter, and a root's key holds
+	// an @ that stripParts would take for a part.
+	key := fmt.Sprintf("scope|%d|%s%s|%d|%d", fc.starterNode().Pos(), x.place.root.key(), stripParts(stripOwned(x.place.path)), p.idx, q.idx)
+	if x.via.IsValid() && x.via != x.pos {
+		// One race for each call that makes it: a callee that reads the
+		// memory of a vector and its header races once.
+		key = fmt.Sprintf("scope|%d|via%d|%d|%d|%v", fc.starterNode().Pos(), x.via, p.idx, q.idx, x.move)
+	}
 	var d *diag.Diagnostic
 	switch {
 	case p.task == nil && x.move:

@@ -1,0 +1,114 @@
+$DIR/main.p:43:10: v.data[0] is read here while the task started at main.p:38 may write it
+    The task started at main.p:38 frees v.data[i] at pluto/vec/vec.p:446, in
+    (*Vec).free called at main.p:40, and s waits for it at main.p:44. Meanwhile
+    v.data[0] is read at main.p:43 in slice, so the two may run at the same
+    time, one of them writing: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using v.data[0]:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)
+
+$DIR/main.p:59:10: v.data[i] is read here while the task started at main.p:54 may write it
+    The task started at main.p:54 frees v.data[i] at pluto/vec/vec.p:446, in
+    (*Vec).free called at main.p:56, and s waits for it at main.p:60. Meanwhile
+    v.data[i] is read at main.p:59 in helpers, so the two may run at the same
+    time, one of them writing: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using v.data[i]:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)
+
+$DIR/main.p:75:10: v.data[i] is read here while the task started at main.p:70 may write it
+    The task started at main.p:70 frees v.data[i] at pluto/vec/vec.p:446, in
+    (*Vec).free called at main.p:72, and s waits for it at main.p:76. Meanwhile
+    v.data[i] is read at main.p:75 in field, so the two may run at the same
+    time, one of them writing: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using v.data[i]:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)
+
+$DIR/main.p:85:29: v.data[i] is read here while the task started at main.p:87 may write it
+    The task started at main.p:87 frees v.data[i] at pluto/vec/vec.p:446, in
+    (*Vec).free called at main.p:89, and s waits for it at main.p:93. Meanwhile
+    v.data[i] is read at main.p:85, in the function literal called at main.p:92
+    in closure, so the two may run at the same time, one of them writing: a data
+    race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using v.data[i]:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)
+
+$DIR/main.p:107:10: the memory allocated at main.p:99 is read here while the task started at main.p:102 may write it
+    The task started at main.p:102 frees the memory allocated at main.p:99 at
+    main.p:104, and s waits for it at main.p:108. Meanwhile the memory allocated
+    at main.p:99 is read at main.p:107 in replaced, so the two may run at the
+    same time, one of them writing: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using the memory allocated at main.p:99:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)
+
+$DIR/main.p:123:10: d.rows.data[i] is read here while the task started at main.p:118 may write it
+    The task started at main.p:118 frees d.rows.data[i] at pluto/vec/vec.p:446,
+    in (*Vec).free called at main.p:120, and s waits for it at main.p:124.
+    Meanwhile d.rows.data[i] is read at main.p:123 in nested, so the two may run
+    at the same time, one of them writing: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using d.rows.data[i]:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)

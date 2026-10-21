@@ -217,6 +217,7 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 			pos:    acc.pos,
 			pre:    pre && acc.pre,
 			cpu:    acc.cpu,
+			free:   acc.free,
 		})
 	}
 	for _, ce := range s.edges {

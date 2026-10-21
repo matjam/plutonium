@@ -1,0 +1,6 @@
+$DIR/main.p:43:10: v.data[0] is read here while the task started at main.p:38 may write it
+$DIR/main.p:59:10: v.data[i] is read here while the task started at main.p:54 may write it
+$DIR/main.p:75:10: v.data[i] is read here while the task started at main.p:70 may write it
+$DIR/main.p:85:29: v.data[i] is read here while the task started at main.p:87 may write it
+$DIR/main.p:107:10: the memory allocated at main.p:99 is read here while the task started at main.p:102 may write it
+$DIR/main.p:123:10: d.rows.data[i] is read here while the task started at main.p:118 may write it
