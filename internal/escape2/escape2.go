@@ -75,12 +75,13 @@ func Check(prog *load.Program) error {
 // CheckWith is Check with options for the scheduler, and returns the
 // analysis's result as well (nil when it failed).
 func CheckWith(prog *load.Program, opts sched.Options) (res *sched.Result, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			res, err = nil, recoveredError(r)
-		}
-	}()
+	defer recoverInternal(&res, &err)
+	return checkWith(prog, opts)
+}
+
+func checkWith(prog *load.Program, opts sched.Options) (*sched.Result, error) {
 	var c *cache.Cache
+	var err error
 	if dir := os.Getenv(cache.EnvVar); dir != "" && opts.Cache == nil {
 		if c, err = cache.Open(dir, cache.Config{}); err != nil {
 			fmt.Fprintf(os.Stderr, "escape2: %v\n", err) // no cache: costs time only
