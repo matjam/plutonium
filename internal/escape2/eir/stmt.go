@@ -121,6 +121,24 @@ func (fb *fnb) addTemp(obj ObjID, T types2.Type) {
 	sc.slots = append(sc.slots, dropSlot{obj: obj, T: T, pos: fb.pos})
 }
 
+// endStmtTemps ends the lifetime of the statement temporaries (LifeStmt
+// objects) made since object objStart, by the statement st just built and
+// not by a statement within it: an OpDrop of each at its end.
+func (fb *fnb) endStmtTemps(objStart int, st ast.Stmt) {
+	for i := objStart; i < len(fb.f.Objects); i++ {
+		if fb.f.Objects[i].Life != LifeStmt || fb.stmtEnded[ObjID(i)] {
+			continue
+		}
+		if fb.stmtEnded == nil {
+			fb.stmtEnded = map[ObjID]bool{}
+		}
+		fb.stmtEnded[ObjID(i)] = true
+		if fb.cur != nil {
+			fb.emit(Instr{Op: OpDrop, Obj: ObjID(i), Pos: st.End()})
+		}
+	}
+}
+
 // ownerTemp keeps the owner value r, of type T, in a statement temporary
 // that is dropped when the statement ends, and returns the value.
 func (fb *fnb) ownerTemp(r Reg, T types2.Type) Reg {
@@ -191,6 +209,10 @@ func (fb *fnb) stmt(st ast.Stmt) {
 				fb.leaveForExit(st.Pos())
 			}
 		}()
+		// The statement's temporaries end with it, after its drops: a
+		// register still holding a view of one is E3009 (section 18.3).
+		objStart := len(fb.f.Objects)
+		defer fb.endStmtTemps(objStart, st)
 		sc := fb.pushScope(st, isScopeStmt(st))
 		defer fb.popScope(sc)
 		savedStmt := fb.curStmt

@@ -39,7 +39,15 @@ func (fb *fnb) exprAs(e ast.Expr, T types2.Type) Reg {
 		}
 		return fb.constReg(fb.typeOf(e))
 	}
-	r := fb.expr(e)
+	var r Reg
+	if from := fb.typeOf(e); T != nil && isBox(from) && isInterface(unwrap(T)) && !types2.IsOwner(T) && (!types2.IsCountedError(T) || !isCountedBox(from)) {
+		// An interface that does not own lends the box it holds: its data
+		// word is a view of the box's object (section 18.7). (A counted
+		// error takes a reference of its own to a shared or synced box.)
+		r = fb.pointee(e)
+	} else {
+		r = fb.expr(e)
+	}
 	return fb.convertReg(r, fb.typeOf(e), T, e.Pos())
 }
 

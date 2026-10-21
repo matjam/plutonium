@@ -28,6 +28,12 @@ func isBox(T types2.Type) bool {
 	return ok && w.IsPointer()
 }
 
+// isCountedBox reports whether T is shared[T] or synced[T].
+func isCountedBox(T types2.Type) bool {
+	w, ok := unwrap(T).Underlying().(*types2.Wrapper)
+	return ok && (w.Kind() == types2.WrapShared || w.Kind() == types2.WrapSynced)
+}
+
 // pointee returns what the pointer-like operand x points to: its value,
 // or for a box held in a local, the box view.
 func (fb *fnb) pointee(x ast.Expr) Reg {

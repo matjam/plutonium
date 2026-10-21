@@ -115,7 +115,16 @@ func (fb *fnb) addr(obj ObjID, path ...int) Reg {
 // load returns a register holding *x, a location of type T; 0 if T holds
 // no pointers.
 func (fb *fnb) load(x Reg, T types2.Type) Reg {
-	if x == 0 || !hasPointers(T) {
+	if x == 0 {
+		return 0
+	}
+	if !hasPointers(T) {
+		if fb.stmtEnded != nil {
+			// A read through x, which may be a view of a statement
+			// temporary that has ended (E3009): a use of x, which the
+			// OpDrop rule's liveness sees.
+			fb.emitDst(Instr{Op: OpCopy, X: x})
+		}
 		return 0
 	}
 	return fb.emitDst(Instr{Op: OpLoad, X: x, Type: T})

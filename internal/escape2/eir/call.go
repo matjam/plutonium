@@ -623,6 +623,10 @@ func (fb *fnb) conversion(e *ast.CallExpr) Reg {
 	if isInterface(to) {
 		return fb.exprAs(arg, to)
 	}
+	if isBox(from) && pointerElem(to) != nil && !isBox(to) {
+		// (*T)(b) of an owned, shared or synced b: a view of its object.
+		return fb.pointee(arg)
+	}
 	v := fb.expr(arg)
 	if isString(to) && !isString(from) {
 		// string(runes) and string(r) copy into a new counted string.
