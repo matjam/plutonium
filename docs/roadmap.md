@@ -342,6 +342,44 @@ against the corrected specification. The immediate implementation order is:
      nested block whose storage ends before the scope waits (b16, b23: `{ y := 42; p := &y; s.Task(func() {
      ... *p ... }) }` with the join after the block) is E3401 by 19.4; the check covers loop bodies only. No
      dangling pointer today (b23 prints `same slot: false`), but a slot reused after the block would be one.
+140. **Memory allocated from a shared allocator, for the race check** (planned; sections 19.4 "Memory reached
+     through views", 18.9; depends on item 138; found by the race-fix agent, probe `a13fixed`). A scoped task
+     that calls `Reset` on an `arena.Fixed` held in the starting function's frame, then allocates from it,
+     while the starting function reads through a pointer into an earlier allocation, compiles:
+
+     ```go
+     a := arena.NewFixed(1024)
+     v := vec.New[int](&a)
+     v.Push(1)
+     p := v.Ptr(0)
+     var s sync.Scope
+     s.Task(func() { mu.Lock(); a.Reset(); w := vec.New[int](&a); w.Push(7); mu.Unlock() })
+     println(*p) // races with Reset and with w.Push, which may write the same memory
+     s.Wait()
+     ```
+
+     The check sees the task's writes to `a` under `mu`, and its writes through `w` as writes to memory the
+     task allocated itself, which no other party can reach; it does not see that `p` and `w` may point to the
+     same memory, since an allocator may hand out again what it took back. The read of `*p` is not under
+     `mu`, so the program is E3402 by 19.4 (a view of memory in the frame's arena, written by one party
+     while another reads it, with no common lock); a checked build stops it at run time only when `*p`
+     happens to read after the reset ("use of memory from an arena that was reset", 18.9), and an unchecked
+     build reads whatever the task wrote.
+
+     Design (allocator provenance). Memory allocated from an allocator is, for the race check, part of the
+     memory of that allocator: a view of an allocation from `&a` (a vector or box built on it, `v.Ptr(i)`,
+     `a.New[T]()`) is a view reaching `a`'s memory, wherever `a` is held. Every call that may recycle what
+     the allocator handed out (`Reset`, `Release`, `Free`, and `Alloc`, which may return memory freed
+     before) is a write to all of that memory; reading or writing through a view of an allocation is an
+     access to it. Two parties then conflict when one recycles or writes allocator memory and another
+     accesses a view of the same allocator, unless they hold a common lock (E3402). A task's fresh
+     allocation stays its own only when it comes from an allocator no other party can reach (a local of the
+     task, the task's default allocator not shared with the starting function). The provenance is the one
+     item 138 gives the escape analysis (a local arena's allocations are views of the arena, as `lkArena`
+     already is for `alloc.Use` windows), carried into the race summaries as a path "the memory of the
+     allocator at parameter path P"; the default allocator, which is per task (section 18.9), needs nothing.
+     Tests: the probe (E3402 at `println(*p)`), the same with the read under `mu` (accepted), and with the
+     task allocating from an arena of its own (accepted).
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
