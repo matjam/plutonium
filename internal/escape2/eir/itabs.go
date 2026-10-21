@@ -1,6 +1,9 @@
 package eir
 
 import (
+	"sort"
+
+	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -23,6 +26,42 @@ type itabState struct {
 	ifaces    []types2.Type // the asserted interfaces with methods
 	// The pairs made: of the first doneI interfaces and doneC types.
 	doneC, doneI int
+
+	// genericDone: the types of the program's instances are described
+	// (noteGenericConv).
+	genericDone bool
+}
+
+// noteGenericConv records that generic code converts a value whose type
+// mentions a type parameter to the interface I: every concrete type of an
+// instance of the program (a type argument, or an instantiated type) is
+// described, and I is asserted to, so each gets I's adapters.
+func (b *builder) noteGenericConv(I types2.Type) {
+	if containsTypeParam(I) {
+		return
+	}
+	b.noteAsserted(I)
+	if !b.itabs.genericDone {
+		b.itabs.genericDone = true
+		// In source order, so that the adapters (and their FuncIDs) are
+		// the same from run to run.
+		ids := make([]*ast.Ident, 0, len(b.instances))
+		for id := range b.instances {
+			ids = append(ids, id)
+		}
+		sort.Slice(ids, func(i, j int) bool { return ids[i].Pos() < ids[j].Pos() })
+		for _, id := range ids {
+			inst := b.instances[id]
+			if inst.TypeArgs != nil {
+				for i := 0; i < inst.TypeArgs.Len(); i++ {
+					b.describe(inst.TypeArgs.At(i))
+				}
+			}
+			if _, isSig := inst.Type.(*types2.Signature); !isSig && inst.Type != nil {
+				b.describe(inst.Type)
+			}
+		}
+	}
 }
 
 // noteAsserted records that a value is asserted to T, an interface that

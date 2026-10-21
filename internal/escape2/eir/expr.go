@@ -158,7 +158,13 @@ func isScalar(T types2.Type) bool {
 // functions an interface call on a value converted from from may reach.
 func (fb *fnb) noteItab(from, I types2.Type) {
 	iface, ok := I.Underlying().(*types2.Interface)
-	if !ok || containsTypeParam(from) {
+	if !ok {
+		return
+	}
+	if containsTypeParam(from) {
+		// Generic code: each instance's type has the itab, as finishItabs
+		// makes for the instances' types (itabs.go).
+		fb.b.noteGenericConv(I)
 		return
 	}
 	for i := 0; i < iface.NumMethods(); i++ {
