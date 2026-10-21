@@ -166,12 +166,22 @@ func composite(x int) V {
 	return V{f: func() int { return x * 10 }}
 }
 
+func namedCapture(s string) (f func() string, last string) {
+	last = s
+	f = func() string { return last }
+	return
+}
+
 func main() {
 	_ = later()
 	_ = named()
 	_ = composite(1)
+	_, _ = namedCapture("x")
 }
 `)
+	if !strings.Contains(out, `var string "last" life=6`) {
+		t.Errorf("a named result a returned closure captures is not in the region:\n%s", out)
+	}
 	for _, fn := range []string{"main.later", "main.named", "main.composite"} {
 		i := strings.Index(out, "func "+fn+"\n")
 		if i < 0 {

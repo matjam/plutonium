@@ -238,13 +238,23 @@ func (fb *fnb) madeHere(n ast.Node, body *ast.BlockStmt) bool {
 	return here
 }
 
-// isParamOf reports whether v is a parameter or the receiver of sig.
+// isParamOf reports whether v is a parameter, a named result or the
+// receiver of sig (a named result a returned closure captures is in the
+// region too: lower/func.go).
 func isParamOf(sig *types2.Signature, v *types2.Var) bool {
+	if v == nil {
+		return false
+	}
 	if r := sig.Recv(); r == v {
 		return true
 	}
 	for i := 0; i < sig.Params().Len(); i++ {
 		if sig.Params().At(i) == v {
+			return true
+		}
+	}
+	for i := 0; i < sig.Results().Len(); i++ {
+		if sig.Results().At(i) == v {
 			return true
 		}
 	}
