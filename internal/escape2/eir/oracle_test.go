@@ -464,6 +464,12 @@ func (o *oracle) symKeys(sym *ssa.Sym, active map[*ssa.Sym]bool) []oracleKey {
 func (o *oracle) eirKeys(c *eir.Call, active map[eir.FuncID]bool) []oracleKey {
 	switch c.Kind {
 	case eir.CallStatic:
+		if c.Implicit == eir.ImplRangeIter && o.p.Funcs[c.Callee].Key.Range != nil {
+			// A ring's iterator calling the loop body (rangestmt.go): the
+			// lowerer's iterator function makes that call, through the
+			// func value the "func" call passes it.
+			return nil
+		}
 		return o.funcKeys(c.Callee, active)
 	case eir.CallIface:
 		if c.Method == nil {

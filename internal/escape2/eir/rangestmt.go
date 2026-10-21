@@ -263,6 +263,26 @@ func (fb *fnb) rangeFunc(st *ast.RangeStmt, label *types2.Label, sig *types2.Sig
 	rec := fb.newObj(Object{Kind: ObjClosure, Type: yieldT, Name: "range body", Pos: st.Pos()})
 	clo := fb.emitDst(Instr{Op: OpClosure, Callee: bf.ID, Obj: rec, Args: fb.recordArgs(body), Pos: st.Pos()})
 	fb.f.Facts.FuncValues = append(fb.f.Facts.FuncValues, bf.ID)
+	if ring := fb.ringIterOf(st); ring && target != 0 {
+		// The iterator of a ring (its All or Values, or a range over the
+		// ring itself) is code the lowerer makes, which calls the body
+		// with each element: its value, or for an element type that is
+		// an owner (section 7.17) its slot's address, a view into the
+		// ring. The iterator value is the ring's address (the RingMethod
+		// contract).
+		args := make([]Reg, ySig.Params().Len())
+		for i := range args {
+			pt := ySig.Params().At(i).Type()
+			if !hasPointers(pt) {
+				continue
+			}
+			args[i] = fb.either(target, fb.load(target, pt))
+		}
+		fb.emitCall(&Call{Kind: CallFunc, Target: target, Sig: sig, Args: []Reg{clo}, Implicit: ImplRangeIter}, st.Pos())
+		fb.emitCall(&Call{Kind: CallStatic, Callee: bf.ID, Sig: ySig, Args: append(args, clo), Implicit: ImplRangeIter}, st.Pos())
+		fb.rangeDispatch(rc)
+		return
+	}
 	c := &Call{Sig: sig, Args: []Reg{clo}, Implicit: ImplRangeIter}
 	if static != NoFunc {
 		c.Kind, c.Callee = CallStatic, static
@@ -271,6 +291,28 @@ func (fb *fnb) rangeFunc(st *ast.RangeStmt, label *types2.Label, sig *types2.Sig
 	}
 	fb.emitCall(c, st.Pos())
 	fb.rangeDispatch(rc)
+}
+
+// ringIterOf reports whether the range statement st ranges over a ring's
+// iterator: a ring itself, or its All or Values method's result.
+func (fb *fnb) ringIterOf(st *ast.RangeStmt) bool {
+	if fb.isRingType(fb.typeOf(st.X)) {
+		return true
+	}
+	call, ok := ast.Unparen(st.X).(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	se, ok := ast.Unparen(call.Fun).(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	sel := fb.b.selections[se]
+	if sel == nil {
+		return false
+	}
+	fn, ok := sel.Obj().(*types2.Func)
+	return ok && fb.isRingMethod(fn) && types2.IsRingIterator(fn.Name())
 }
 
 // buildRangeBody builds the body function of a range-over-func loop.
