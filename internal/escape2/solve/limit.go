@@ -48,6 +48,7 @@ func (e *LimitError) Error() string {
 // MaxFuncArena or MaxFuncSteps.
 func (s *solver) checkLimit() {
 	if b := s.a.Bytes() - s.base; b > maxFuncArena || s.nsteps > maxFuncSteps {
+		s.dump(nil)
 		panic(&LimitError{Func: s.f.Name, Bytes: b, Steps: s.nsteps})
 	}
 }

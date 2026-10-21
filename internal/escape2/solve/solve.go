@@ -22,7 +22,9 @@ func Solve(f *eir.Func, env Env, ws *Workspace) Result {
 	s.run()
 	s.checkDrops()
 	s.measure()
-	return Result{Summary: s.summary(), Findings: s.findings}
+	sum := s.summary()
+	s.dump(sum)
+	return Result{Summary: sum, Findings: s.findings}
 }
 
 // solver is the state of one solve.

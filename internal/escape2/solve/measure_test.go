@@ -22,7 +22,8 @@ import (
 // (examples, testdata/run, lib, plutonium and trace), the review suites and,
 // with ESCAPE2_MEASURE=all, the translated compiler (selfhost/demo/diagdemo):
 // the most tokens of one input, the arena and the work of the largest solves,
-// against solve.MaxFuncArena and solve.MaxFuncSteps. It prints the largest
+// against solve.MaxFuncArena and solve.MaxFuncSteps (ESCAPE2_MEASURE=diagdemo
+// measures the translated compiler alone). It prints the largest
 // and fails if any function comes within 10x of a limit. It loads every
 // program of the corpus, so it runs only with ESCAPE2_MEASURE set (through
 // bigjob.sh for "all").
@@ -61,6 +62,9 @@ func TestMeasure(t *testing.T) {
 	}
 	if mode == "all" {
 		dirs = append(dirs, filepath.Join(root, "selfhost", "demo", "diagdemo"))
+	}
+	if mode == "diagdemo" {
+		dirs, files = []string{filepath.Join(root, "selfhost", "demo", "diagdemo")}, nil
 	}
 	cfg := &load.Config{Tags: load.BuildTags(false, false, nil), Stdlib: plutonium.Stdlib(), Sizes: types2.SizesFor("gc", "amd64")}
 	run := func(name string, prog *load.Program) {
