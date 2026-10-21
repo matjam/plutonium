@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -32,10 +33,14 @@ func corpus(root string, libEvery int) ([]program, error) {
 	for _, f := range examples {
 		out = append(out, program{name: "examples/" + filepath.Base(filepath.Dir(f)), dir: filepath.Dir(f)})
 	}
-	for _, k := range []struct{ name, mode string }{
-		{"sched", "kernel"}, {"smoke", "kernel"}, {"gsuser", "kernel"}, {"irq", "freestanding"},
+	for _, k := range []struct {
+		name  string
+		flags []string
+	}{
+		{"sched", []string{"--mode", "kernel"}}, {"smoke", []string{"--mode", "kernel"}},
+		{"gsuser", []string{"--mode", "kernel"}}, {"irq", []string{"--mode", "freestanding", "--ldscript", "kernel.ld"}},
 	} {
-		out = append(out, program{name: "kernel/" + k.name, dir: filepath.Join(root, "testdata", "kernel", k.name), flags: []string{"--mode", k.mode}})
+		out = append(out, program{name: "kernel/" + k.name, dir: filepath.Join(root, "testdata", "kernel", k.name), flags: k.flags})
 	}
 	out = append(out, program{name: "cabi", dir: filepath.Join(root, "testdata", "cabi")})
 	for _, d := range []string{"run", "lib", "trace"} {
@@ -64,6 +69,17 @@ func corpus(root string, libEvery int) ([]program, error) {
 	return out, nil
 }
 
+// knownDifferences are the programs whose diagnostics the translated
+// compiler prints differently, and why. Their exit status must still agree.
+var knownDifferences = map[string]string{
+	// The type checker shows the fix for an owner type declaration as
+	// printed source (types2.DeclPrinter); the printer is not translated
+	// (it needs text/tabwriter and go/doc/comment), so the translation
+	// shows the declaration's description instead (selfhost/internal/load,
+	// printhook.p).
+	"diag/owners": "no source printer in the translation",
+}
+
 // A result is what one compiler made of one build.
 type result struct {
 	status int
@@ -83,8 +99,11 @@ func checkCorpus(root, lib string, o *options, want, got string) error {
 	}
 	var todo []program
 	for _, p := range progs {
-		if strings.Contains(p.name, o.only) {
-			todo = append(todo, p)
+		for _, only := range strings.Split(o.only, ",") {
+			if strings.Contains(p.name, only) {
+				todo = append(todo, p)
+				break
+			}
 		}
 	}
 	work, err := os.MkdirTemp(o.work, "corpus-")
@@ -180,6 +199,8 @@ func checkProgram(lib, work string, p program, want, got string) ([]string, map[
 		switch {
 		case w.status != g.status:
 			msgs = append(msgs, fmt.Sprintf("%s: exit status %d, want %d\n%s", name, g.status, w.status, firstDifference(w.stderr, g.stderr)))
+		case knownDifferences[p.name] != "":
+			// Only the exit status is compared.
 		case !bytes.Equal(w.stderr, g.stderr):
 			msgs = append(msgs, fmt.Sprintf("%s: standard error differs\n%s", name, firstDifference(w.stderr, g.stderr)))
 		case !bytes.Equal(w.output, g.output):
@@ -206,7 +227,9 @@ func buildOnce(lib, dir, out, compiler string, args []string) result {
 	cmd.Stdout, cmd.Stderr = &stderr, &stderr
 	start := time.Now()
 	err := cmd.Run()
-	r := result{stderr: stderr.Bytes(), took: time.Since(start)}
+	// The work directory's name differs on every build; the linker's
+	// messages name its files.
+	r := result{stderr: workDir.ReplaceAll(stderr.Bytes(), []byte("pluto-build-N")), took: time.Since(start)}
 	var ee *exec.ExitError
 	switch {
 	case errors.As(err, &ee):
@@ -221,6 +244,9 @@ func buildOnce(lib, dir, out, compiler string, args []string) result {
 	_ = os.Remove(out)
 	return r
 }
+
+// workDir matches the name of a build's temporary directory.
+var workDir = regexp.MustCompile(`pluto-build-[0-9]+`)
 
 // firstDifference shows the first line where two texts differ.
 func firstDifference(want, got []byte) string {

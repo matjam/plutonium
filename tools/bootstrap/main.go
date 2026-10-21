@@ -43,7 +43,7 @@ func main() {
 	flags := flag.String("flags", "-O2", "flags of every stage's build of selfhost/cmd/pluto")
 	libEvery := flag.Int("lib-every", 3, "check one in every n programs of testdata/lib")
 	jobs := flag.Int("j", 8, "corpus builds to run at once")
-	only := flag.String("only", "", "check only the corpus programs whose names contain this")
+	only := flag.String("only", "", "check only the corpus programs whose names contain one of these comma-separated strings")
 	flag.Parse()
 	if err := run(&options{stages: *stages, corpus: *corpus, work: *work, limitMB: *limit,
 		flags: strings.Fields(*flags), libEvery: *libEvery, jobs: *jobs, only: *only}); err != nil {

@@ -66,6 +66,15 @@ func (check *Checker) basicLit(x *operand, e *ast.BasicLit) {
 		}
 	}
 	x.setConst(e.Kind, e.Value)
+	if !x.isValid() && e.Kind == token.STRING {
+		// The parser has checked the literal's syntax, so Go's
+		// strconv.Unquote accepts it. The translated compiler's
+		// (self-hosting plan, section 8) rejects only escapes that
+		// make the string invalid UTF-8: the same error as below.
+		check.errorf(e, InvalidUTF8String, "string literal %s is not valid UTF-8; use a []byte for binary data", e.Value)
+		x.invalidate()
+		return
+	}
 	if !x.isValid() {
 		// The parser already establishes syntactic correctness.
 		// If we reach here it's because of number under-/overflow.
