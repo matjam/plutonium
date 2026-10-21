@@ -967,6 +967,11 @@ func (w *walker) ringCall(e *ast.CallExpr, t callTarget) []tset {
 	case "Pop", "Peek":
 		return []tset{w.load(r), nil}
 	}
+	if types2.IsRingIterator(t.ring.Obj().Name()) && t.sig.Results().Len() == 1 {
+		// The iterator's closure record holds the ring's address: the
+		// iterator is a view of the ring, wherever the ring is.
+		return []tset{r}
+	}
 	return make([]tset, t.sig.Results().Len())
 }
 

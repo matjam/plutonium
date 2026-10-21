@@ -796,6 +796,17 @@ func keep(s []int = []int{seven(), seven()}) { kept = s }
 func f() { keep() }
 func main() { f() }`, []string{"cannot pass []int{...} to keep, which keeps it", "slice literal (at main.p:5) keeps its elements in an array in f's frame"}},
 
+	// Review 5 (a1): a ring's iterator is a closure record holding the
+	// ring's address.
+	{"iterator of a local ring stored in a package variable", `
+import "pluto/iter"
+var g iter.Seq2[int, *int]
+func f() {
+	var r ring[*int, 4]
+	g = r.All()
+}
+func main() { f() }`, []string{"cannot store r.All() in package variable g", "r.All() points into r"}},
+
 	{"builder over a local arena returned", `
 import (
 	"pluto/arena"
