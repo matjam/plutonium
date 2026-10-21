@@ -29,15 +29,16 @@ type virtuals struct {
 	index map[string]eir.FuncID // candidate set, encoded, to its virtual function
 	sets  [][]eir.FuncID        // by virtual function, less len(p.Funcs)
 
-	// cache holds each virtual function's join, valid while gen has not
-	// moved: gen counts the changes of every summary.
-	cache   []*summary.Summary
-	cacheAt []uint64
-	gen     uint64
+	// cache holds each virtual function's join, valid until a member's
+	// summary changes (dirty); memberOf lists the virtual functions each
+	// function is a member of.
+	cache    []*summary.Summary
+	dirty    []bool
+	memberOf map[eir.FuncID][]int
 }
 
 func newVirtuals(p *eir.Program, paths domain.Paths) *virtuals {
-	return &virtuals{p: p, paths: paths, index: map[string]eir.FuncID{}, gen: 1}
+	return &virtuals{p: p, paths: paths, index: map[string]eir.FuncID{}, memberOf: map[eir.FuncID][]int{}}
 }
 
 // of returns the candidates the solver applies for a candidate set: the set
@@ -62,7 +63,10 @@ func (v *virtuals) of(ids []eir.FuncID) []eir.FuncID {
 	v.index[string(key)] = vid
 	v.sets = append(v.sets, append([]eir.FuncID(nil), ids...))
 	v.cache = append(v.cache, nil)
-	v.cacheAt = append(v.cacheAt, 0)
+	v.dirty = append(v.dirty, true)
+	for _, id := range ids {
+		v.memberOf[id] = append(v.memberOf[id], len(v.sets)-1)
+	}
 	return []eir.FuncID{vid}
 }
 
@@ -72,18 +76,33 @@ func (v *virtuals) isVirtual(id eir.FuncID) bool {
 	return i >= 0 && i < len(v.sets)
 }
 
-// changed notes that some summary changed: every join must be recomputed.
-func (v *virtuals) changed() { v.gen++ }
+// changed notes that any summaries may have changed: every join must be
+// recomputed.
+func (v *virtuals) changed() {
+	for i := range v.dirty {
+		v.dirty[i] = true
+	}
+}
+
+// changedFunc notes that the summary of id changed: the joins it is a
+// member of must be recomputed, and no others. With a virtual function per
+// distinct candidate set there are thousands of joins, and recomputing all
+// of them on every change dominated the analysis.
+func (v *virtuals) changedFunc(id eir.FuncID) {
+	for _, i := range v.memberOf[id] {
+		v.dirty[i] = true
+	}
+}
 
 // summary returns the join for virtual function id, given the current
 // summary of each member (nil: bottom).
 func (v *virtuals) summary(id eir.FuncID, sum func(eir.FuncID) *summary.Summary) *summary.Summary {
 	i := int(id) - len(v.p.Funcs)
-	if v.cacheAt[i] == v.gen && v.cache[i] != nil {
+	if !v.dirty[i] && v.cache[i] != nil {
 		return v.cache[i]
 	}
 	s := join(v.paths, v.sets[i], sum)
-	v.cache[i], v.cacheAt[i] = s, v.gen
+	v.cache[i], v.dirty[i] = s, false
 	return s
 }
 
