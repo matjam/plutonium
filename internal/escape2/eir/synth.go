@@ -1,0 +1,346 @@
+package eir
+
+import (
+	"github.com/matjam/plutonium/internal/escape2/contract"
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// Synthesized functions: the functions internal/lower makes that have no
+// source, with the same bodies (drop glue, lower/drop.go; itab adapters,
+// lower/iface.go; method values and expressions, lower/call.go; variants,
+// lower/union.go).
+
+// synthSig returns the signature of a synthesized function.
+func (b *builder) synthSig(s *Synth) *types2.Signature {
+	unsafePtr := types2.Typ[types2.UnsafePointer]
+	switch s.Kind {
+	case SynthDropGlue:
+		p := types2.NewVar(token.NoPos, nil, "p", types2.NewPointer(s.Recv))
+		return types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
+	case SynthItabAdapter:
+		sig := s.Method.Type().(*types2.Signature)
+		data := types2.NewVar(token.NoPos, nil, "data", unsafePtr)
+		return types2.NewSignatureType(data, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
+	case SynthMethodValue, SynthIfaceMethodValue:
+		sig := s.Method.Type().(*types2.Signature)
+		return types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
+	case SynthMethodExpr:
+		sig := s.Method.Type().(*types2.Signature)
+		params := []*types2.Var{types2.NewVar(token.NoPos, nil, "recv", s.Recv)}
+		for i := 0; i < sig.Params().Len(); i++ {
+			params = append(params, sig.Params().At(i))
+		}
+		return types2.NewSignatureType(nil, nil, nil, types2.NewTuple(params...), sig.Results(), sig.Variadic())
+	case SynthVariant:
+		vs := types2.UnionVariants(s.Recv)
+		var P types2.Type = types2.Typ[types2.Int]
+		if len(s.Path) == 1 && s.Path[0] < len(vs) {
+			P = vs[s.Path[0]].Payload()
+		}
+		return types2.NewSignatureType(nil, nil, nil,
+			types2.NewTuple(types2.NewVar(token.NoPos, nil, "payload", P)),
+			types2.NewTuple(types2.NewVar(token.NoPos, nil, "", s.Recv)), false)
+	}
+	return types2.NewSignatureType(nil, nil, nil, nil, nil, false)
+}
+
+// buildSynth builds a synthesized function's body.
+func (b *builder) buildSynth(f *Func) {
+	s := f.Key.Synth
+	fb := b.newFnb(f, nil, nil)
+	fb.addressed = map[*types2.Var]bool{}
+	sig := f.Sig
+	var in []Reg
+	add := func(v *types2.Var) {
+		f.Inputs = append(f.Inputs, Input{Var: v, Type: v.Type()})
+		in = append(in, fb.input(len(f.Inputs)-1))
+	}
+	if r := sig.Recv(); r != nil {
+		add(r)
+	}
+	for i := 0; i < sig.Params().Len(); i++ {
+		add(sig.Params().At(i))
+	}
+	var record Reg
+	if s.Kind == SynthMethodValue || s.Kind == SynthIfaceMethodValue {
+		f.Inputs = append(f.Inputs, Input{Type: types2.Typ[types2.UnsafePointer]})
+		record = fb.input(len(f.Inputs) - 1)
+	}
+	var res []Reg
+	switch s.Kind {
+	case SynthDropGlue:
+		fb.dropFields(in[0], s.Recv)
+	case SynthItabAdapter:
+		res = fb.itabAdapterBody(s, in[0], in[1:])
+	case SynthMethodValue:
+		_, byPtr := s.Method.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
+		recvT := s.Recv
+		var recv Reg
+		if byPtr {
+			recv = fb.load(fb.field(record, 0), recvT)
+		} else {
+			recv = fb.load(fb.field(record, 0), recvT)
+		}
+		res = fb.wrapperCall(s.Method, append([]Reg{recv}, in...))
+	case SynthIfaceMethodValue:
+		iv := fb.load(fb.field(record, 0), s.Recv)
+		msig := s.Method.Type().(*types2.Signature)
+		res = fb.emitCall(&Call{Kind: CallIface, Method: s.Method, Iface: s.Recv, Target: iv, Sig: msig, Args: in, Implicit: ImplWrapper}, token.NoPos)
+	case SynthMethodExpr:
+		if isTypeParam(s.Recv) || isTypeParam(pointerElem(s.Recv)) {
+			msig := s.Method.Type().(*types2.Signature)
+			tp := s.Recv
+			if !isTypeParam(tp) {
+				tp = pointerElem(tp)
+			}
+			res = fb.emitCall(&Call{Kind: CallTypeParam, Method: s.Method, Iface: tp, Sig: msig, Args: in, Implicit: ImplWrapper}, token.NoPos)
+			break
+		}
+		recv := fb.receiverFromValue(in[0], s.Recv, s.Method, s.Path)
+		if isIfaceMethod(s.Method) {
+			I := fb.recvFieldType(s.Recv, s.Path)
+			if len(s.Path) <= 1 {
+				I = s.Recv
+			}
+			msig := s.Method.Type().(*types2.Signature)
+			res = fb.emitCall(&Call{Kind: CallIface, Method: s.Method, Iface: I, Target: recv, Sig: msig, Args: in[1:], Implicit: ImplWrapper}, token.NoPos)
+		} else {
+			res = fb.wrapperCall(s.Method, append([]Reg{recv}, in[1:]...))
+		}
+	case SynthVariant:
+		res = []Reg{in[0]}
+	default:
+		b.errorf(token.NoPos, "synthesized function of kind %d", s.Kind)
+	}
+	for i := 0; i < sig.Results().Len() && i < len(res); i++ {
+		fb.sink(SinkReturn, res[i], i, token.NoPos)
+	}
+	fb.cur = nil
+	fb.finish()
+}
+
+// wrapperCall calls method fn, with the receiver first in args, from a
+// synthesized wrapper.
+func (fb *fnb) wrapperCall(fn *types2.Func, args []Reg) []Reg {
+	id := fb.b.funcOf(fn)
+	if id == NoFunc {
+		fb.b.errorf(token.NoPos, "method %s has no source", fn.Name())
+		return nil
+	}
+	return fb.emitCall(&Call{Kind: CallStatic, Callee: id, Sig: fn.Type().(*types2.Signature), Args: args, Implicit: ImplWrapper}, token.NoPos)
+}
+
+// dropFields is the body of T's drop glue (lower/drop.go dropFields): its
+// Drop method, then the drops of its parts.
+func (fb *fnb) dropFields(p Reg, T types2.Type) {
+	if isTypeParam(T) {
+		// The drop glue of a type parameter: each instance's.
+		return
+	}
+	if m := dropMethod(T); m != nil {
+		sig := m.Type().(*types2.Signature)
+		recv := p
+		if _, byPtr := sig.Recv().Type().(*types2.Pointer); !byPtr {
+			recv = fb.load(p, T)
+		}
+		fb.wrapperCall(m, []Reg{recv})
+	}
+	if A := types2.OwnerBase(T); A != nil {
+		fb.dropFields(p, A)
+		return
+	}
+	switch u := unwrap(T).Underlying().(type) {
+	case *types2.Wrapper:
+		if u.Kind() == types2.WrapOwned {
+			obj := fb.load(p, T)
+			fb.destroyAt(obj, u.Elem())
+		}
+	case *types2.Interface:
+		// An owning interface drops its dynamic value: a call of the drop
+		// adapter its itab or type descriptor holds (lower/owniface.go).
+		iv := fb.load(p, T)
+		fb.emitCall(&Call{Kind: CallIface, Iface: T, Target: iv, Sig: types2.NewSignatureType(nil, nil, nil, nil, nil, false), Implicit: ImplDrop}, token.NoPos)
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() {
+				fb.destroyAt(p, v.Payload())
+			}
+		}
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			fb.destroyAt(fb.field(p, i), u.Field(i).Type())
+		}
+	case *types2.Array:
+		if u.Len() > 0 {
+			fb.destroyAt(fb.field(p, ElemStep), u.Elem())
+		}
+	}
+}
+
+// destroyAt destroys the T at p: its drop glue, if it has any. (Releasing
+// counted references is a runtime call, with no EIR call.)
+func (fb *fnb) destroyAt(p Reg, T types2.Type) {
+	fb.dropAt(p, T, fb.pos)
+}
+
+// itabAdapterBody is the body of the adapter an itab holds for method m
+// of concrete type T: it recovers the receiver from the data word and
+// calls T's method (lower/iface.go itabAdapter).
+func (fb *fnb) itabAdapterBody(s *Synth, data Reg, args []Reg) []Reg {
+	T := s.Recv
+	obj, index, _ := types2.LookupFieldOrMethod(T, false, s.Method.Pkg(), s.Method.Name())
+	fn, ok := obj.(*types2.Func)
+	if !ok {
+		fb.b.errorf(token.NoPos, "%s has no method %s", T, s.Method.Name())
+		return nil
+	}
+	if isIfaceMethod(fn) {
+		I := fb.recvFieldType(T, index)
+		iv := fb.receiverFromData(data, T, index, I)
+		return fb.emitCall(&Call{Kind: CallIface, Method: fn, Iface: I, Target: iv, Sig: fn.Type().(*types2.Signature), Args: args, Implicit: ImplWrapper}, token.NoPos)
+	}
+	if fb.isRingMethod(fn) {
+		return fb.emitCall(&Call{Kind: CallContract, Contract: contract.RingMethod, Sig: fn.Type().(*types2.Signature), Args: append([]Reg{data}, args...), Implicit: ImplWrapper}, token.NoPos)
+	}
+	recvT := fn.Type().(*types2.Signature).Recv().Type()
+	recv := fb.receiverFromData(data, T, index, recvT)
+	return fb.wrapperCall(fn, append([]Reg{recv}, args...))
+}
+
+// receiverFromData builds the receiver, of type recvT, of a method of T
+// reached by index, from an interface data word.
+func (fb *fnb) receiverFromData(data Reg, T types2.Type, index []int, recvT types2.Type) Reg {
+	_, wantPtr := recvT.(*types2.Pointer)
+	if len(index) == 1 {
+		switch {
+		case wantPtr:
+			return data
+		case pointerElem(T) != nil:
+			return fb.load(data, pointerElem(T))
+		case fb.isDirect(T):
+			return data
+		}
+		return fb.load(data, T)
+	}
+	var addr Reg
+	cur := T
+	switch {
+	case pointerElem(T) != nil:
+		addr, cur = data, pointerElem(T)
+	case fb.isDirect(T):
+		o := fb.newObj(Object{Kind: ObjTemp, Type: T, Name: "recv"})
+		addr = fb.addr(o)
+		fb.store(addr, data, T)
+	default:
+		addr = data
+	}
+	addr, cur = fb.fieldPath(addr, cur, index[:len(index)-1])
+	if el := pointerElem(cur); el != nil {
+		addr = fb.load(addr, cur)
+	}
+	if wantPtr {
+		return addr
+	}
+	return fb.load(addr, recvT)
+}
+
+// receiverFromValue builds the receiver of method fn, reached by path,
+// from a value v of the type R the method was selected on.
+func (fb *fnb) receiverFromValue(v Reg, R types2.Type, fn *types2.Func, path []int) Reg {
+	_, wantPtr := fn.Type().(*types2.Signature).Recv().Type().(*types2.Pointer)
+	if isIfaceMethod(fn) && len(path) <= 1 {
+		return v
+	}
+	if len(path) == 1 && !wantPtr && pointerElem(R) == nil {
+		return v
+	}
+	var addr Reg
+	cur := R
+	if el := pointerElem(R); el != nil {
+		addr, cur = v, el
+	} else {
+		o := fb.newObj(Object{Kind: ObjTemp, Type: R, Name: "recv"})
+		addr = fb.addr(o)
+		fb.store(addr, v, R)
+	}
+	return fb.receiverAt(addr, cur, path, wantPtr && !isIfaceMethod(fn), fn)
+}
+
+// ----------------------------------------------------------------------------
+// Method values and method expressions
+
+// methodValue builds x.m used as a value: a record in this frame holding
+// the receiver, and the wrapper that calls the method with it.
+func (fb *fnb) methodValue(e *ast.SelectorExpr, sel *types2.Selection) Reg {
+	fn := sel.Obj().(*types2.Func)
+	recvT := fb.typeOf(e.X)
+	if isInterface(recvT) && len(sel.Index()) == 1 {
+		iv := fb.expr(e.X)
+		return fb.boundValue(SynthIfaceMethodValue, recvT, fn, iv, recvT, e.Pos())
+	}
+	if isTypeParam(recvT) || isTypeParam(pointerElem(recvT)) {
+		// The method of each instance's type argument.
+		x := fb.expr(e.X)
+		o := fb.newObj(Object{Kind: ObjMethodVal, Type: recvT, Name: "method value", Pos: e.Pos()})
+		return fb.emitDst(Instr{Op: OpMethodVal, X: x, Obj: o, Method: fn, Callee: NoFunc, Type: recvT, Pos: e.Pos()})
+	}
+	if fb.isRingMethod(fn) {
+		x := fb.expr(e.X)
+		o := fb.newObj(Object{Kind: ObjMethodVal, Type: recvT, Name: "method value", Pos: e.Pos()})
+		return fb.emitDst(Instr{Op: OpMethodVal, X: x, Obj: o, Method: fn, Callee: NoFunc, Type: recvT, Pos: e.Pos()})
+	}
+	recv := fb.methodReceiver(e.X, fn, sel.Index())
+	if isIfaceMethod(fn) {
+		I := fb.recvFieldType(recvT, sel.Index())
+		return fb.boundValue(SynthIfaceMethodValue, I, fn, recv, I, e.Pos())
+	}
+	fb.noteMethodInstance(fn, e)
+	full := fn.Type().(*types2.Signature)
+	return fb.boundValue(SynthMethodValue, full.Recv().Type(), fn, recv, full.Recv().Type(), e.Pos())
+}
+
+// boundValue makes the record of a method value, holding x of type T, and
+// returns the value; its function is the synthesized wrapper of kind k.
+func (fb *fnb) boundValue(k SynthKind, R types2.Type, fn *types2.Func, x Reg, T types2.Type, pos token.Pos) Reg {
+	id := fb.b.synth(Synth{Kind: k, Recv: R, Method: fn})
+	fb.f.Facts.FuncValues = append(fb.f.Facts.FuncValues, id)
+	o := fb.newObj(Object{Kind: ObjMethodVal, Type: T, Name: "method value", Pos: pos})
+	return fb.emitDst(Instr{Op: OpMethodVal, X: x, Obj: o, Method: fn, Callee: id, Type: T, Pos: pos})
+}
+
+// methodExpr builds T.m used as a value: a static record of the function
+// that takes the receiver first.
+func (fb *fnb) methodExpr(e *ast.SelectorExpr, sel *types2.Selection) Reg {
+	id := fb.methodExprFunc(e, sel)
+	if id == NoFunc {
+		return 0
+	}
+	fb.f.Facts.FuncValues = append(fb.f.Facts.FuncValues, id)
+	return fb.emitDst(Instr{Op: OpClosure, Callee: id, Obj: NoObj, Pos: e.Pos()})
+}
+
+// methodExprFunc returns the function a method expression R.m denotes: the
+// method itself when R is its receiver type, otherwise a wrapper that
+// reaches it by dereferencing R, following embedded fields or calling
+// through an interface (lower/call.go methodExpr).
+func (fb *fnb) methodExprFunc(e *ast.SelectorExpr, sel *types2.Selection) FuncID {
+	R := sel.Recv()
+	fn := sel.Obj().(*types2.Func)
+	path := sel.Index()
+	if isTypeParam(R) {
+		// Resolved per instance; the generic body names the constraint's
+		// method through a wrapper of the type parameter.
+		return fb.b.synth(Synth{Kind: SynthMethodExpr, Recv: R, Method: fn, Path: path})
+	}
+	if isIfaceMethod(fn) || fb.isRingMethod(fn) {
+		return fb.b.synth(Synth{Kind: SynthMethodExpr, Recv: R, Method: fn, Path: path})
+	}
+	fb.noteMethodInstance(fn, e)
+	full := fn.Type().(*types2.Signature)
+	if len(path) == 1 && types2.Identical(full.Recv().Type(), R) {
+		return fb.b.funcOf(fn)
+	}
+	return fb.b.synth(Synth{Kind: SynthMethodExpr, Recv: R, Method: fn, Path: path})
+}

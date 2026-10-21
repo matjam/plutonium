@@ -1,0 +1,297 @@
+package eir
+
+import (
+	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/syntax/ast"
+	"github.com/matjam/plutonium/internal/syntax/token"
+	"github.com/matjam/plutonium/internal/types2"
+)
+
+// fnb builds one function.
+type fnb struct {
+	b      *builder
+	f      *Func
+	pkg    *load.Package
+	blocks []*bblock
+	cur    *bblock
+	pos    token.Pos
+
+	// For literals and range bodies: the function the literal or loop is
+	// in. root is the function whose frame holds the deferred calls and the
+	// results that a range body's return sets: the function itself, or for
+	// a range body the function its outermost loop is in.
+	parent *fnb
+	root   *fnb
+	rng    *rangeCtx // for a range body: its loop
+
+	// addressed are the local variables, of the whole declaration this
+	// function is part of, that are frame objects (addressed.go).
+	addressed map[*types2.Var]bool
+	objs      map[*types2.Var]ObjID // this function's frame-object variables
+	locals    map[*types2.Var]bool  // this function's register variables
+
+	// The closure record of a literal or range body, and what its slots
+	// hold: the addresses of locations of enclosing functions, by key (a
+	// *types2.Var, or an outerObj).
+	record   Reg
+	caps     []any
+	capIndex map[any]int
+	capPtr   map[any]Reg
+	prologue []Instr // instructions of the entry block that come first
+
+	results []*types2.Var // the result variables, named or not
+	exit    *bblock       // where returns go: deferred calls, then the results
+
+	scopes  []*scope
+	defers  []*deferred // root only
+	labels  map[*types2.Label]*labelInfo
+	targets []*jumpTarget // the enclosing loops, switches and selects
+
+	curStmt    ast.Stmt     // the statement being built
+	bodyNode   ast.Node     // the body of the declaration or literal, for goto
+	frameSlots []dropSlot   // owners the function holds as a whole: its owner parameters
+	switchDrop *switchDrop  // the value a type switch drops when no clause takes it
+
+	dropRecv        bool // a Drop method, whose receiver its drop glue destroys
+	resultsInMemory bool // results are frame objects (a range body returns)
+}
+
+// outerObj names a frame object of another function, for a closure record
+// slot that holds its address.
+type outerObj struct {
+	fn  *fnb
+	obj ObjID
+}
+
+func (b *builder) newFnb(f *Func, pkg *load.Package, parent *fnb) *fnb {
+	fb := &fnb{
+		b:        b,
+		f:        f,
+		pkg:      pkg,
+		parent:   parent,
+		objs:     map[*types2.Var]ObjID{},
+		locals:   map[*types2.Var]bool{},
+		capIndex: map[any]int{},
+		capPtr:   map[any]Reg{},
+		labels:   map[*types2.Label]*labelInfo{},
+		pos:      f.Pos,
+	}
+	fb.root = fb
+	if parent != nil {
+		fb.addressed = parent.addressed
+	}
+	entry := fb.newBlock()
+	fb.seal(entry)
+	fb.startBlock(entry)
+	return fb
+}
+
+// input returns a register holding input i, made in the prologue.
+func (fb *fnb) input(i int) Reg {
+	r := fb.newReg()
+	fb.prologue = append(fb.prologue, Instr{Op: OpInput, Dst: r, Index: i, Pos: fb.f.Pos})
+	return r
+}
+
+// setupParams makes the inputs of a function of signature sig whose
+// receiver and parameters are the variables vars (nil for unnamed ones),
+// binds them, and makes the result variables. hasRecord adds the closure
+// record as the last input.
+func (fb *fnb) setupParams(sig *types2.Signature, hasRecord bool) {
+	var vars []*types2.Var
+	if r := sig.Recv(); r != nil {
+		vars = append(vars, r)
+	}
+	for i := 0; i < sig.Params().Len(); i++ {
+		vars = append(vars, sig.Params().At(i))
+	}
+	for i, v := range vars {
+		fb.f.Inputs = append(fb.f.Inputs, Input{Var: v, Type: v.Type()})
+		r := fb.input(i)
+		if v.Name() == "" || v.Name() == "_" {
+			continue
+		}
+		// Parameters that are owners belong to the function, which drops
+		// them when it returns; a Drop method's receiver is the value
+		// being destroyed, whose fields the drop glue destroys after it.
+		owner := fb.b.needsDrop(v.Type()) && !(i == 0 && sig.Recv() != nil && fb.dropRecv)
+		if owner {
+			fb.addressed[v] = true
+		}
+		fb.declareVar(v, ObjParam, v.Pos())
+		fb.assignVar(v, r)
+		if owner {
+			fb.frameSlots = append(fb.frameSlots, dropSlot{obj: fb.objs[v], T: v.Type(), v: v, pos: v.Pos()})
+		}
+	}
+	if hasRecord {
+		fb.f.Inputs = append(fb.f.Inputs, Input{Type: types2.Typ[types2.UnsafePointer]})
+		fb.record = fb.input(len(vars))
+	}
+	for i := 0; i < sig.Results().Len(); i++ {
+		v := sig.Results().At(i)
+		if v.Name() == "" || v.Name() == "_" {
+			v = types2.NewVar(v.Pos(), v.Pkg(), "", v.Type())
+		}
+		if fb.resultsInMemory {
+			fb.addressed[v] = true
+		}
+		fb.results = append(fb.results, v)
+		fb.declareVar(v, ObjVar, v.Pos())
+	}
+}
+
+// declareVar makes the storage of a local variable declared in this
+// function: a frame object if it is addressed, otherwise a register
+// variable, which holds nothing until it is assigned.
+func (fb *fnb) declareVar(v *types2.Var, kind ObjKind, pos token.Pos) {
+	if fb.addressed[v] {
+		if _, ok := fb.objs[v]; ok {
+			return
+		}
+		fb.objs[v] = fb.newObj(Object{Kind: kind, Type: v.Type(), Var: v, Pos: pos, Name: v.Name(), Life: LifeBlock})
+		return
+	}
+	fb.locals[v] = true
+	fb.writeVar(v, 0)
+}
+
+// varAddr returns a register holding the address of local variable v, of
+// this function or an enclosing one, or 0 if v is a register variable
+// (which has no address).
+func (fb *fnb) varAddr(v *types2.Var) Reg {
+	if o, ok := fb.objs[v]; ok {
+		return fb.addr(o)
+	}
+	if fb.locals[v] {
+		return 0
+	}
+	if fb.parent != nil && fb.parent.owns(v) {
+		return fb.captured(v)
+	}
+	return 0
+}
+
+// owns reports whether v is a local of fb or of a function enclosing it.
+func (fb *fnb) owns(v *types2.Var) bool {
+	for f := fb; f != nil; f = f.parent {
+		if _, ok := f.objs[v]; ok {
+			return true
+		}
+		if f.locals[v] {
+			return true
+		}
+	}
+	return false
+}
+
+// captured returns the address, in this literal or range body, of the
+// location key of an enclosing function: a pointer loaded from the
+// closure record, which never changes.
+func (fb *fnb) captured(key any) Reg {
+	if r, ok := fb.capPtr[key]; ok {
+		return r
+	}
+	if fb.record == 0 {
+		fb.b.errorf(fb.pos, "a location of another function is used where no closure record reaches it")
+		return 0
+	}
+	i, ok := fb.capIndex[key]
+	if !ok {
+		i = len(fb.caps)
+		fb.caps = append(fb.caps, key)
+		fb.capIndex[key] = i
+	}
+	slot := fb.newReg()
+	ptr := fb.newReg()
+	fb.prologue = append(fb.prologue,
+		Instr{Op: OpField, Dst: slot, X: fb.record, Path: []int{i}, Pos: fb.f.Pos},
+		Instr{Op: OpLoad, Dst: ptr, X: slot, Type: types2.Typ[types2.UnsafePointer], Pos: fb.f.Pos})
+	fb.capPtr[key] = ptr
+	return ptr
+}
+
+// outerAddr returns, in fb, the address of the location key of fb or of a
+// function enclosing it.
+func (fb *fnb) outerAddr(key any) Reg {
+	switch k := key.(type) {
+	case *types2.Var:
+		if o, ok := fb.objs[k]; ok {
+			return fb.addr(o)
+		}
+	case outerObj:
+		if k.fn == fb {
+			return fb.addr(k.obj)
+		}
+	}
+	return fb.captured(key)
+}
+
+// objAddr returns, in fb, the address of frame object obj of function
+// owner, which is fb or encloses it.
+func (fb *fnb) objAddr(owner *fnb, obj ObjID) Reg {
+	if owner == fb {
+		return fb.addr(obj)
+	}
+	return fb.captured(outerObj{owner, obj})
+}
+
+// readLocal returns the value of local variable v.
+func (fb *fnb) readLocal(v *types2.Var) Reg {
+	if !hasPointers(v.Type()) {
+		return 0
+	}
+	if fb.locals[v] {
+		return fb.readVar(v)
+	}
+	if a := fb.varAddr(v); a != 0 {
+		return fb.load(a, v.Type())
+	}
+	fb.b.errorf(fb.pos, "variable %s has no storage", v.Name())
+	return 0
+}
+
+// assignVar gives local variable v the value r.
+func (fb *fnb) assignVar(v *types2.Var, r Reg) {
+	if fb.locals[v] {
+		if hasPointers(v.Type()) {
+			fb.writeVar(v, r)
+		}
+		return
+	}
+	if a := fb.varAddr(v); a != 0 {
+		fb.store(a, r, v.Type())
+		return
+	}
+	fb.b.errorf(fb.pos, "variable %s has no storage", v.Name())
+}
+
+// recordArgs returns, in the function enclosing a literal or range body,
+// the registers the body's closure record holds: the addresses of the
+// locations it captured.
+func (fb *fnb) recordArgs(body *fnb) []Reg {
+	args := make([]Reg, len(body.caps))
+	for i, k := range body.caps {
+		args[i] = fb.outerAddr(k)
+	}
+	return args
+}
+
+// finish completes the function: the prologue first in the entry block,
+// phis first in every block, and the loops of its CFG.
+func (fb *fnb) finish() {
+	fb.finishBlocks()
+	entry := fb.f.Blocks[0]
+	entry.Instrs = append(append([]Instr(nil), fb.prologue...), entry.Instrs...)
+	fb.f.Loops = findLoops(fb.f)
+	for i := range fb.f.Objects {
+		fb.f.Objects[i].Loop = -1
+	}
+}
+
+// newSite returns a fresh call site.
+func (fb *fnb) newSite() SiteID {
+	s := SiteID(fb.f.NumSites)
+	fb.f.NumSites++
+	return s
+}
