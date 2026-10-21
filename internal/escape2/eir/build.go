@@ -67,7 +67,7 @@ type builder struct {
 	scoped *scoped.Info
 
 	synths map[synthKey][]*Synth // every synthesized function, by kind and method
-	queue  []func()              // bodies still to build
+	queue  []job                 // bodies still to build
 
 	ctxt      *types2.Context
 	litFns    map[*ast.FuncLit]*fnb
@@ -187,19 +187,55 @@ func (b *builder) declare() {
 		case f.Key.Obj != nil:
 			d := b.decls[f.Key.Obj]
 			if d.decl.Body == nil {
-				b.queue = append(b.queue, func() {
-					if b.hookBody(f, d) {
-						f.Bodyless = false
-						return
-					}
-					b.buildBodyless(f)
-				})
+				b.queue = append(b.queue, job{kind: jobBodyless, f: f, d: d})
 				continue
 			}
-			b.queue = append(b.queue, func() { b.buildDecl(f, d) })
+			b.queue = append(b.queue, job{kind: jobDecl, f: f, d: d})
 		case f.Key.Init != nil:
-			b.queue = append(b.queue, func() { b.buildInit(f, b.pkgOf[f.Key.Init]) })
+			b.queue = append(b.queue, job{kind: jobInit, f: f})
 		}
+	}
+}
+
+// A job is a body to build: of a declared function (jobDecl), of one
+// declared without a body (jobBodyless), of a package's initialization, of
+// a method the type checker declares (jobConstMethod), of a synthesized
+// function. (A value, not a closure: the translated compiler keeps no
+// closure past its frame.)
+type job struct {
+	kind jobKind
+	f    *Func
+	d    *declRef
+}
+
+type jobKind uint8
+
+const (
+	jobDecl jobKind = iota
+	jobBodyless
+	jobInit
+	jobConstMethod
+	jobSynth
+)
+
+// build builds the body of job j.
+func (b *builder) build(j job) {
+	f := j.f
+	switch j.kind {
+	case jobDecl:
+		b.buildDecl(f, j.d)
+	case jobBodyless:
+		if b.hookBody(f, j.d) {
+			f.Bodyless = false
+			return
+		}
+		b.buildBodyless(f)
+	case jobInit:
+		b.buildInit(f, b.pkgOf[f.Key.Init])
+	case jobConstMethod:
+		b.buildConstMethod(f)
+	case jobSynth:
+		b.buildSynth(f)
 	}
 }
 
@@ -209,9 +245,9 @@ func (b *builder) declare() {
 func (b *builder) run() {
 	for {
 		for len(b.queue) > 0 {
-			job := b.queue[0]
+			j := b.queue[0]
 			b.queue = b.queue[1:]
-			job()
+			b.build(j)
 		}
 		if !b.finishItabs() {
 			return
@@ -276,7 +312,7 @@ func (b *builder) funcOf(fn *types2.Func) FuncID {
 	// the String method of an enum type, the Error method of an
 	// errors.New call site's type. Both return a constant string.
 	f := b.newFunc(FuncKey{Obj: fn}, funcName(fn), fn.Pkg(), sig, fn.Pos(), fn.Pos())
-	b.queue = append(b.queue, func() { b.buildConstMethod(f) })
+	b.queue = append(b.queue, job{kind: jobConstMethod, f: f})
 	return f.ID
 }
 
@@ -317,7 +353,7 @@ func (b *builder) synth(s Synth) FuncID {
 		pkg = sp.Method.Pkg()
 	}
 	f := b.newFunc(FuncKey{Synth: sp}, synthName(sp), pkg, sig, token.NoPos, token.NoPos)
-	b.queue = append(b.queue, func() { b.buildSynth(f) })
+	b.queue = append(b.queue, job{kind: jobSynth, f: f})
 	return f.ID
 }
 
