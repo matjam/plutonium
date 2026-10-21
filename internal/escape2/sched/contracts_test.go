@@ -4,7 +4,31 @@ import (
 	"testing"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
+	"github.com/matjam/plutonium/internal/escape2/eir"
+	"github.com/matjam/plutonium/internal/escape2/summary"
 )
+
+// TestJoin checks the join of candidate summaries: every entry, the most
+// inputs, an antichain, reasons naming the candidate.
+func TestJoin(t *testing.T) {
+	ps := domain.NewPaths()
+	k := func(in int) domain.Key { return domain.MakeKey(in, domain.Root, domain.KeyFlags{}) }
+	sums := map[eir.FuncID]*summary.Summary{
+		1: {Inputs: 1, Esc: []domain.Key{k(0)}},
+		2: {Inputs: 3, Esc: []domain.Key{k(0), k(2)}, Store: []summary.StorePair{{Src: k(1), Dst: k(0)}},
+			Res: []summary.Result{{Heap: []domain.PathID{domain.Root}}}},
+	}
+	s := join(ps, []eir.FuncID{1, 2, 3}, func(id eir.FuncID) *summary.Summary { return sums[id] })
+	if s.Inputs != 3 || len(s.Esc) != 2 || len(s.Store) != 1 || len(s.Res) != 1 || len(s.Res[0].Heap) != 1 {
+		t.Fatalf("join: %+v", s)
+	}
+	if len(s.Reasons) != len(s.Esc)+len(s.Store) {
+		t.Errorf("reasons %v do not follow the entries", s.Reasons)
+	}
+	if !summary.Leq(ps, sums[1], s) || !summary.Leq(ps, sums[2], s) {
+		t.Errorf("the join does not cover its members")
+	}
+}
 
 // TestContractSummaries checks that contract-table entries become the
 // summaries their effects state.

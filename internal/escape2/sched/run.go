@@ -116,6 +116,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		opts:    opts,
 		current: -1,
 	}
+	env.virt = newVirtuals(p, env.paths)
 	if env.opts.Contract == nil {
 		env.opts.Contract = newContractSummaries(env.paths).lookup
 	}
@@ -169,6 +170,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			findings[id] = r.Findings
 			prev := env.sums[id]
 			env.sums[id] = r.Summary
+			env.virt.changed()
 			if b := arena.Bytes(); b > st.ArenaBytes {
 				st.ArenaBytes = b
 			}
@@ -227,6 +229,7 @@ type env struct {
 	inSCC   []int32
 	current int32
 	opts    Options
+	virt    *virtuals
 }
 
 func (e *env) Program() *eir.Program { return e.p }
@@ -235,8 +238,11 @@ func (e *env) Paths() domain.Paths   { return e.paths }
 // Summary is the current summary of a callee: final for earlier SCCs, the
 // latest iterate in the current one, nil (bottom) before the first.
 func (e *env) Summary(id eir.FuncID) *summary.Summary {
+	if e.virt.isVirtual(id) {
+		return e.virt.summary(id, e.Summary)
+	}
 	if int(id) >= len(e.sums) {
-		return nil
+		panic(fmt.Sprintf("internal compiler error: escape2: the summary of function %d, which the program does not have, was read", id))
 	}
 	if e.inSCC[id] < 0 || e.inSCC[id] > e.current {
 		// Not scheduled before the current SCC: the graph has no edge to
@@ -246,8 +252,10 @@ func (e *env) Summary(id eir.FuncID) *summary.Summary {
 	return e.sums[id]
 }
 
+// Candidates are the candidates the solver applies at a dynamic call: the
+// virtual function whose summary joins the candidate set (join.go).
 func (e *env) Candidates(f *eir.Func, c *eir.Call) []eir.FuncID {
-	return e.facts.Candidates(f, c)
+	return e.virt.of(e.facts.Candidates(f, c))
 }
 
 func (e *env) Contract(name string) (*summary.Summary, bool) {

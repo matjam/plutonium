@@ -58,8 +58,15 @@ func fakeSolve(order *[]eir.FuncID) func(f *eir.Func, env solve.Env, ws *solve.W
 		keys := map[domain.Key]bool{domain.Key(f.ID): true}
 		for _, b := range f.Blocks {
 			for _, in := range b.Instrs {
-				if in.Op == eir.OpCall && in.Call.Kind == eir.CallStatic {
-					if s := env.Summary(in.Call.Callee); s != nil {
+				if in.Op != eir.OpCall {
+					continue
+				}
+				callees := []eir.FuncID{in.Call.Callee}
+				if in.Call.Kind != eir.CallStatic {
+					callees = env.Candidates(f, in.Call)
+				}
+				for _, id := range callees {
+					if s := env.Summary(id); s != nil {
 						for _, k := range s.Esc {
 							keys[k] = true
 						}
@@ -201,4 +208,44 @@ func TestDriverUnscheduledRead(t *testing.T) {
 	}()
 	b.callStatic(a)
 	RunWith(pr.p, Options{})
+}
+
+// TestDriverDynamicJoin checks that a dynamic call is given one virtual
+// candidate whose summary joins its candidates', and that functions in a
+// cycle through a dynamic call are solved to their fixed point.
+func TestDriverDynamicJoin(t *testing.T) {
+	var order []eir.FuncID
+	withFakes(t, &order)
+	pr := newProg()
+	main := pr.fn("main", eir.FuncKey{}, nil)
+	g1 := pr.fn("g1", eir.FuncKey{}, nil)
+	g2 := pr.fn("g2", eir.FuncKey{}, nil)
+	h := pr.fn("h", eir.FuncKey{}, nil)
+	main.f.Facts.FuncValues = []eir.FuncID{g1.f.ID, g2.f.ID}
+	dyn := &eir.Call{Kind: eir.CallFunc, Target: main.heap()}
+	main.call(dyn)
+	g2.callStatic(h)
+	// h calls back through a func value: g1, g2 and h form a cycle through
+	// the dispatch node; main is outside it.
+	hd := &eir.Call{Kind: eir.CallFunc, Target: h.heap()}
+	h.call(hd)
+
+	var gotCands []eir.FuncID
+	saved := solveFunc
+	solveFunc = func(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
+		if f.ID == main.f.ID {
+			gotCands = env.Candidates(f, dyn)
+		}
+		return saved(f, env, ws)
+	}
+	res := RunWith(pr.p, Options{})
+	if len(gotCands) != 1 || int(gotCands[0]) < len(pr.p.Funcs) {
+		t.Fatalf("candidates of the dynamic call: %v, want one virtual function", gotCands)
+	}
+	want := map[*fbuild]int{main: 4, g1: 1, g2: 3, h: 3}
+	for fb, n := range want {
+		if s := res.Summaries[fb.f.ID]; s == nil || len(s.Esc) != n {
+			t.Errorf("%s: summary %+v, want %d keys", fb.f.Name, s, n)
+		}
+	}
 }
