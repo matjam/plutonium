@@ -74,7 +74,8 @@ func (f *facts) InstantiatedKnown(tp *types2.TypeParam) ([]types2.Type, bool) {
 
 // Options configure Run.
 type Options struct {
-	// Contract gives the summaries of contract-table entries.
+	// Contract gives the summaries of contract-table entries; nil means
+	// those of internal/escape2/contract.
 	Contract func(name string) (*summary.Summary, bool)
 	// OnSCC, if set, is called after each SCC is final, with its
 	// functions and measurements, before its arena is reset.
@@ -114,6 +115,9 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		inSCC:   make([]int32, len(p.Funcs)),
 		opts:    opts,
 		current: -1,
+	}
+	if env.opts.Contract == nil {
+		env.opts.Contract = newContractSummaries(env.paths).lookup
 	}
 	for i := range env.inSCC {
 		env.inSCC[i] = -1

@@ -90,11 +90,11 @@ func TestCompare(t *testing.T) {
 	if d == nil || !d.VerdictsDiffer() || len(d.OnlyOld) != 1 || len(d.OnlyNew) != 0 {
 		t.Fatalf("old rejects, new accepts: %+v", d)
 	}
-	if s := d.String(); !strings.Contains(s, "verdicts differ: old rejects, new accepts") || !strings.Contains(s, "old only: a.p:1:2 E3001") {
+	if s := d.String(); !strings.Contains(s, "verdicts differ: old rejects, new accepts") || !strings.Contains(s, "old only: a.p:1 E3001") {
 		t.Errorf("report:\n%s", s)
 	}
 	d = Compare(prog, list("a.p:1:2 E3001"), list("a.p:3:4 E3002", "a.p:1:2 E3001"))
-	if d == nil || d.VerdictsDiffer() || len(d.OnlyNew) != 1 || d.OnlyNew[0].Pos != "a.p:3:4" {
+	if d == nil || d.VerdictsDiffer() || len(d.OnlyNew) != 1 || d.OnlyNew[0].Pos != "a.p:3" {
 		t.Errorf("same verdict, extra site: %+v", d)
 	}
 	d = Compare(prog, nil, errors.New("internal compiler error: escape2: not built"))
@@ -103,6 +103,14 @@ func TestCompare(t *testing.T) {
 	}
 	if s := d.String(); !strings.Contains(s, "new analysis failed") {
 		t.Errorf("report:\n%s", s)
+	}
+}
+
+// TestCompareColumns checks that one error reported at another column of
+// the same line is the same site.
+func TestCompareColumns(t *testing.T) {
+	if d := Compare(&load.Program{}, list("a.p:5:9 E3001"), list("a.p:5:2 E3001")); d != nil {
+		t.Errorf("same line, other column: %v", d)
 	}
 }
 
@@ -136,7 +144,7 @@ func TestCheckInternalError(t *testing.T) {
 	if err == nil {
 		t.Skip("the new analysis is complete enough to accept this program")
 	}
-	if !isInternal(err) && !strings.Contains(err.Error(), "E3") {
+	if !isInternal(err) && len(sites(err)) == 0 {
 		t.Errorf("unexpected error: %v", err)
 	}
 }

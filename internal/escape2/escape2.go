@@ -133,7 +133,7 @@ func message(p *eir.Program, f solve.Finding) string {
 
 // Site is one error of a verdict: its position and code.
 type Site struct {
-	Pos  string // file:line:col
+	Pos  string // file:line: the two analyses point at different columns of one line (the address taken, the statement that keeps it)
 	Code diag.Code
 }
 
@@ -199,7 +199,7 @@ func sites(err error) map[Site]bool {
 		if d.Code == diag.InternalError {
 			return
 		}
-		out[Site{Pos: d.Pos.String(), Code: d.Code}] = true
+		out[Site{Pos: fmt.Sprintf("%s:%d", d.Pos.Filename, d.Pos.Line), Code: d.Code}] = true
 	}
 	switch e := err.(type) {
 	case nil:
