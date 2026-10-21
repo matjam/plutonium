@@ -70,6 +70,7 @@ type cands struct {
 	sigMemo   map[*types2.Signature]map[typeID]bool // nil: open
 	defs      map[eir.FuncID][]*eir.Instr           // localClosures' definitions, by function
 	namedMemo map[*types2.Func][]eir.FuncID         // allNamedMemo
+	dropsMemo []eir.FuncID                          // ifaceDrops
 }
 
 type tpKey struct {
@@ -245,6 +246,10 @@ func substAll(tt *typeTable, inst *instClosure, t types2.Type) ([]types2.Type, b
 func (c *cands) of(f *eir.Func, call *eir.Call) []eir.FuncID {
 	switch call.Kind {
 	case eir.CallIface:
+		if call.Method == nil {
+			// The drop of an owning interface's dynamic value.
+			return c.ifaceDrops()
+		}
 		return c.iface(call.Method)
 	case eir.CallTypeParam:
 		tp, _ := types2.Unalias(call.Iface).(*types2.TypeParam)
@@ -550,17 +555,26 @@ func (c *cands) methodsOf(t types2.Type, m *types2.Func, set map[eir.FuncID]bool
 	}
 }
 
-// typeParamDrops returns what the drop of a value of type parameter tp may
-// run (a call with no method and Implicit ImplDrop, section 18.6): for each
-// type tp is instantiated with, its drop glue and its Drop method; every
-// drop glue and Drop method of the program when the instantiations are
-// open, or when tp is not known.
-func (c *cands) typeParamDrops(tp *types2.TypeParam) []eir.FuncID {
-	var types []types2.Type
-	known := false
-	if tp != nil {
-		types, known = c.inst.instantiated(tp)
+// ifaceDrops returns what the drop of an interface's dynamic value may run
+// (an interface call with no method, section 18.6): the Drop method and
+// drop glue of every dynamic type, or of every type when the dynamic types
+// are open. It is the same for every owning interface: the dynamic types
+// are not narrowed by interface, which is sound and computed once.
+func (c *cands) ifaceDrops() []eir.FuncID {
+	if c.dropsMemo != nil {
+		return c.dropsMemo
 	}
+	var types []types2.Type
+	if !c.dynOpen {
+		types = c.dyn
+	}
+	c.dropsMemo = c.dropsOf(types, !c.dynOpen)
+	return c.dropsMemo
+}
+
+// dropsOf returns the Drop methods and drop glues of the given types (or
+// pointers to them), or all of them when known is false.
+func (c *cands) dropsOf(types []types2.Type, known bool) []eir.FuncID {
 	set := map[eir.FuncID]bool{}
 	for _, f := range c.p.Funcs {
 		var recv types2.Type
@@ -572,18 +586,32 @@ func (c *cands) typeParamDrops(tp *types2.TypeParam) []eir.FuncID {
 		default:
 			continue
 		}
-		if !known {
+		if !known || recv == nil {
 			set[f.ID] = true
 			continue
 		}
 		for _, t := range types {
-			if recv == nil || c.tt.mayMatch(recv, t) || c.tt.mayMatch(recv, types2.NewPointer(t)) {
+			if c.tt.mayMatch(recv, t) || c.tt.mayMatch(recv, types2.NewPointer(t)) {
 				set[f.ID] = true
 				break
 			}
 		}
 	}
 	return setIDs(set)
+}
+
+// typeParamDrops returns what the drop of a value of type parameter tp may
+// run (a call with no method and Implicit ImplDrop, section 18.6): for each
+// type tp is instantiated with, its drop glue and its Drop method; every
+// drop glue and Drop method of the program when the instantiations are
+// open, or when tp is not known.
+func (c *cands) typeParamDrops(tp *types2.TypeParam) []eir.FuncID {
+	var types []types2.Type
+	known := false
+	if tp != nil {
+		types, known = c.inst.instantiated(tp)
+	}
+	return c.dropsOf(types, known)
 }
 
 // allNamedMemo is allNamed, memoized by method.

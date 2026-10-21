@@ -353,6 +353,34 @@ func hold[T owner any](t T) {}
 	}
 }
 
+// TestIfaceDropCandidates checks the drop of an owning interface's dynamic
+// value (an interface call with no method): it reaches the Drop method and
+// drop glue of each converted type, never nothing.
+func TestIfaceDropCandidates(t *testing.T) {
+	pkg := typecheck(t, `
+type O owner struct{ p *int }
+func (o *O) Drop() {}
+type Q owner struct{ p *int }
+func (q *Q) Drop() {}
+type Dropper interface{ Drop() }
+func f(d Dropper) {}
+`)
+	O, Q := lookupType(t, pkg, "O"), lookupType(t, pkg, "Q")
+	pr := newProg()
+	oDrop := pr.decl(method(t, types2.NewPointer(O), "Drop"))
+	pr.decl(method(t, types2.NewPointer(Q), "Drop"))
+	glueO := pr.fn("O (drop)", eir.FuncKey{Synth: &eir.Synth{Kind: eir.SynthDropGlue, Recv: types2.NewPointer(O)}}, nil)
+	pr.fn("Q (drop)", eir.FuncKey{Synth: &eir.Synth{Kind: eir.SynthDropGlue, Recv: Q}}, nil)
+	fb := pr.decl(lookupFunc(t, pkg, "f"))
+	c := &eir.Call{Kind: eir.CallIface, Iface: lookupType(t, pkg, "Dropper"), Target: fb.input(0), Implicit: eir.ImplDrop}
+	fb.call(c)
+	main := pr.fn("main", eir.FuncKey{}, nil)
+	main.f.Facts.Converted = []types2.Type{types2.NewPointer(O)}
+	if got, want := stageB(pr.p).Candidates(fb.f, c), idsOf(oDrop, glueO); !sameIDs(got, want) {
+		t.Errorf("candidates %v, want %v", got, want)
+	}
+}
+
 // TestFuncValueCandidates checks func-value calls: by signature, a generic
 // signature standing for its instantiations, and nothing for a call in code
 // that is never instantiated.
