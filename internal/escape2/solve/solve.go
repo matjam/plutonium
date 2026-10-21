@@ -169,6 +169,9 @@ const (
 func (s *solver) life(o uint32) (eir.Lifetime, int) {
 	if int(o) < len(s.f.Objects) {
 		ob := &s.f.Objects[o]
+		if ob.Life == eir.LifeBlock {
+			return eir.LifeFrame, ob.Loop // rules.go, outlives
+		}
 		return ob.Life, ob.Loop
 	}
 	site := int(o) - len(s.f.Objects)
@@ -366,6 +369,10 @@ func (s *solver) linkSub(m uint32, r domain.PathID, rg bool, dst uint32, p domai
 // pointer Obj(o, p, false) the function makes itself).
 func (s *solver) storeInto(o uint32, steps []domain.Step, val uint32, why uint64) {
 	if val == 0 {
+		return
+	}
+	if o == uint32(eir.NoObj) {
+		s.addCons(val, cSink, cE3002, why) // a static record
 		return
 	}
 	if l, _ := s.life(o); l == eir.LifeHeap {
@@ -850,6 +857,10 @@ func (s *solver) edge(x eir.Reg, dst uint32, w uint64) {
 // objResult puts a pointer to the whole of object o in dst.
 func (s *solver) objResult(dst uint32, o uint32) {
 	if dst == 0 {
+		return
+	}
+	if o == uint32(eir.NoObj) {
+		s.addTok(dst, heapTok) // a func value with no record: static
 		return
 	}
 	if l, _ := s.life(o); l == eir.LifeHeap {

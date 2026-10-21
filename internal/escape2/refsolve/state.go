@@ -83,7 +83,11 @@ func newSolver(f *eir.Func, env solve.Env) *solver {
 		s.res[i] = resAcc{map[summary.ResultKey]bool{}, map[domain.PathID]bool{}, map[domain.PathID]bool{}}
 	}
 	for _, o := range f.Objects {
-		s.objs = append(s.objs, objInfo{life: o.Life, loop: o.Loop, kind: o.Kind})
+		life := o.Life
+		if life == eir.LifeBlock {
+			life = eir.LifeFrame // rules.go, outlives: a block's variables live in the frame
+		}
+		s.objs = append(s.objs, objInfo{life: life, loop: o.Loop, kind: o.Kind})
 	}
 	// Reg(s) for every call site: the lifetime of its call.
 	regs := make([]objInfo, f.NumSites)

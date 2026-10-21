@@ -34,7 +34,10 @@ package solve
 // An object o with Objects[o].Life == LifeHeap is Heap: every rule that
 // would make a token Obj(o, ...) of it (OpAddr, OpConv, OpClosure,
 // OpMethodVal) makes Heap instead, and every rule that would store into a
-// place of it stores into Heap (store, the case d = Heap). An object with Life == LifeCaller (a region the caller
+// place of it stores into Heap (store, the case d = Heap). So does Obj =
+// eir.NoObj in OpClosure and OpMethodVal: a func value with no record in the
+// frame (a declared function, a method expression, a union variant) is
+// static. An object with Life == LifeCaller (a region the caller
 // provides, eir.ObjRegion) is the caller's memory: it is never reported as a
 // frame of this function, and returning a pointer to it sets Region facts.
 //
@@ -120,7 +123,10 @@ package solve
 //	                    u = In              summary Esc u's key
 //
 // outlives(o2, o): o2 is o; or Life(o2) > Life(o) in the order LifeStmt <
-// LifeIter < LifeBlock < LifeFrame < LifeCaller < LifeHeap, except that for
+// LifeIter < LifeFrame < LifeCaller < LifeHeap, LifeBlock counting as
+// LifeFrame (section 18.2: a local variable lives in the frame, whatever its
+// block; what ends with a block is an owner's drop, which is section 18.3's
+// E3313 and not this check), except that for
 // Life(o2) = Life(o) = LifeIter, o's loop must be o2's loop or nested in it;
 // or Life(o2) = Life(o) and neither is LifeIter. Reg(s) has the lifetime of
 // its call (above), with one exception: Reg(s) of a call outside any loop

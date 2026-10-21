@@ -56,8 +56,8 @@ func (s *solver) objPtr(o eir.ObjID) value { return s.objAt(o, domain.Root, fals
 
 // objAt is the pointer value Obj(o, p, ge), or Heap for an object of LifeHeap.
 func (s *solver) objAt(o eir.ObjID, p domain.PathID, ge bool) value {
-	if s.objs[o].life == eir.LifeHeap {
-		return single(ptr(tok{kind: kHeap}))
+	if o == eir.NoObj || s.objs[o].life == eir.LifeHeap {
+		return single(ptr(tok{kind: kHeap})) // NoObj: a static func value
 	}
 	return single(ptr(tok{kind: kObj, id: int(o), path: p, ge: ge}))
 }
