@@ -58,21 +58,21 @@ func TestCapParallel(t *testing.T) {
 func TestRSSCap(t *testing.T) {
 	const gb = 1 << 30
 	t.Setenv("PLUTO_TEST_RSS_MB", "")
-	if got, on := rssCap(10*gb, true); !on || got != 8*gb {
+	if got, on := rssCap(10*gb, true, false); !on || got != 8*gb {
 		t.Errorf("default cap at 10 GB available = %d, %v", got, on)
 	}
-	if got, on := rssCap(30*gb, true); !on || got != 12*gb {
+	if got, on := rssCap(30*gb, true, false); !on || got != 12*gb {
 		t.Errorf("default cap at 30 GB available = %d, %v", got, on)
 	}
-	if _, on := rssCap(0, false); on {
+	if _, on := rssCap(0, false, false); on {
 		t.Error("watchdog on without /proc/meminfo")
 	}
 	t.Setenv("PLUTO_TEST_RSS_MB", "2048")
-	if got, on := rssCap(30*gb, true); !on || got != 2*gb {
+	if got, on := rssCap(30*gb, true, false); !on || got != 2*gb {
 		t.Errorf("cap with override = %d, %v", got, on)
 	}
 	t.Setenv("PLUTO_TEST_RSS_MB", "0")
-	if _, on := rssCap(30*gb, true); on {
+	if _, on := rssCap(30*gb, true, false); on {
 		t.Error("PLUTO_TEST_RSS_MB=0 left the watchdog on")
 	}
 }
@@ -105,7 +105,7 @@ func TestRunningNames(t *testing.T) {
 		if !contains(names, t.Name()) || contains(names, "TestRunningNames") {
 			t.Errorf("running() = %v, want the subtest and not its parent", names)
 		}
-		if !strings.Contains(report(3<<30, 2<<30), t.Name()) {
+		if !strings.Contains(report(3<<30, 2<<30, nil), t.Name()) {
 			t.Errorf("report does not name %s", t.Name())
 		}
 	})
@@ -121,7 +121,7 @@ func contains(list []string, s string) bool {
 }
 
 func TestReport(t *testing.T) {
-	r := report(3<<30, 2<<30)
+	r := report(3<<30, 2<<30, nil)
 	for _, want := range []string{"3072 MB", "cap of 2048 MB", "PLUTO_TEST_RSS_MB", "TestReport"} {
 		if !strings.Contains(r, want) {
 			t.Errorf("report lacks %q:\n%s", want, r)
@@ -168,7 +168,7 @@ func TestReportTruncates(t *testing.T) {
 			delete(inFlight, fmt.Sprintf("TestFake/%03d", i))
 		}
 	})
-	r := report(3<<30, 2<<30)
+	r := report(3<<30, 2<<30, nil)
 	if !strings.Contains(r, "... and 5 more") || strings.Count(r, "TestFake/") != maxListed {
 		t.Errorf("report does not stop at %d tests:\n%s", maxListed, r)
 	}

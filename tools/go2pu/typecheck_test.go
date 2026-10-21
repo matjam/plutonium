@@ -11,8 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	plutonium "github.com/matjam/plutonium"
-	"github.com/matjam/plutonium/internal/build"
 	"github.com/matjam/plutonium/internal/testguard"
 )
 
@@ -49,10 +47,7 @@ func TestTypeCheck(t *testing.T) {
 		dirs = keep
 	}
 	t.Logf("%d directories", len(dirs))
-	goBin := filepath.Join(work, "typecheck-go")
-	if out, err := exec.Command("go", "build", "-o", goBin, "./testdata/typecheck").CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
+	goBin := goBinary(t, "./testdata/typecheck")
 	lib, err := filepath.Abs(filepath.Join(repoRoot, "lib"))
 	if err != nil {
 		t.Fatal(err)
@@ -60,12 +55,7 @@ func TestTypeCheck(t *testing.T) {
 	for _, level := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
 			testguard.Parallel(t)
-			puBin := filepath.Join(t.TempDir(), "typecheck-pu")
-			cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", "typecheck"), Output: puBin,
-				Stdlib: plutonium.Stdlib(), OptLevel: level}
-			if err := build.Build(cfg); err != nil {
-				t.Fatal(err)
-			}
+			puBin := demoBinary(t, "typecheck", level, false)
 			const batch = 20
 			mismatched := 0
 			for i := 0; i < len(dirs); i += batch {

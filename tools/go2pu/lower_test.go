@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	plutonium "github.com/matjam/plutonium"
-	"github.com/matjam/plutonium/internal/build"
 	"github.com/matjam/plutonium/internal/testguard"
 )
 
@@ -60,10 +58,7 @@ func TestLower(t *testing.T) {
 		n++
 	}
 	t.Logf("%d directories", len(dirs))
-	goBin := filepath.Join(work, "lowerdemo-go")
-	if out, err := exec.Command("go", "build", "-o", goBin, "./testdata/lowerdemo").CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
+	goBin := goBinary(t, "./testdata/lowerdemo")
 	lib, err := filepath.Abs(filepath.Join(repoRoot, "lib"))
 	if err != nil {
 		t.Fatal(err)
@@ -72,12 +67,7 @@ func TestLower(t *testing.T) {
 		// One level after the other: building the translated front end takes
 		// 15 GB.
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
-			puBin := filepath.Join(t.TempDir(), "lowerdemo-pu")
-			cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", "lowerdemo"), Output: puBin,
-				Stdlib: plutonium.Stdlib(), OptLevel: level}
-			if err := build.Build(cfg); err != nil {
-				t.Fatal(err)
-			}
+			puBin := demoBinary(t, "lowerdemo", level, false)
 			mismatched := 0
 			for _, d := range dirs {
 				want := runLower(t, goBin, lib, level, "digest", d)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -8,7 +9,15 @@ import (
 )
 
 // TestMain lowers -parallel when the machine is short of memory and stops
-// the run if the test binary grows past a cap (see internal/testguard).
+// the run if the test binary grows past a cap (see internal/testguard), and
+// keeps the demos the tests build (demoBinary) until the run ends.
 func TestMain(m *testing.M) {
-	os.Exit(testguard.Run(m, nil))
+	cleanup, err := makeDemoDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	status := testguard.Run(m, nil)
+	cleanup()
+	os.Exit(status)
 }

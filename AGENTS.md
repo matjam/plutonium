@@ -129,16 +129,24 @@ End-to-end tests live in `internal/build`:
   available is the lesser of `MemAvailable` and the headroom under the
   process's cgroup v2 limits (`memory.max`, `memory.high`, of its cgroup and
   its ancestors), so a run under `systemd-run -p MemoryMax=11G` sizes itself
-  to 11 GB. A step that needs far more than a slot (a build of a translated
-  compiler) calls `testguard.Reserve(t, mb)` with its measured peak first;
-  reservations share a budget the size of the watchdog's cap, so two 5 GB
-  builds do not start together in an 11 GB cgroup. A watchdog samples the
-  test binary's resident memory every second and, past `PLUTO_TEST_RSS_MB`
-  (default: 80% of the memory available at start, at most 12288; 0 turns it
-  off), prints the tests in flight and exits with status 2. A run killed
-  this way means a test, or a compiler change it exercises, uses far more
-  memory than before: fix that rather than raising the cap. Linux only
-  (`/proc`); elsewhere both do nothing.
+  to 11 GB. A watchdog samples the memory of the run every second: the
+  resident memory of the test binary and the processes it started (the
+  programs the tests build and run), or, when the run has its cgroup to
+  itself (as under `bigjob.sh`), the cgroup's usage less reclaimable file
+  cache if that is more (files in a tmpfs `/tmp` count). Past
+  `PLUTO_TEST_RSS_MB` (default: 80% of the memory available at start, 95%
+  if that is a cgroup's headroom, at most 12288; 0 turns it off) it prints
+  the tests in flight and the largest processes and exits with status 2. A
+  run killed this way means a test, or a compiler change it exercises, uses
+  far more memory than before: fix that rather than raising the cap. A step
+  that needs far more than a slot (a build of a translated compiler, a run
+  of the translated back end) calls `testguard.Reserve(t, mb)` with its
+  measured peak first: reservations share a budget the size of the
+  watchdog's cap less the memory in use, and one of more than a third of
+  it runs alone, so two 4 GB builds do not start together in an 11 GB
+  cgroup. Linux only (`/proc`); elsewhere all of this does nothing. The
+  measurements behind the estimates are in
+  `docs/verification/2026-10-21-test-memory.md`.
 
 ## The agent skill
 

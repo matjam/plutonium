@@ -84,12 +84,7 @@ var mixedVariants = []struct {
 // MIXED_ONLY=<substring> runs the programs whose names contain it.
 func TestMixedPipeline(t *testing.T) {
 	testguard.Parallel(t)
-	bin := filepath.Join(t.TempDir(), "ssaback")
-	cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", "ssaback"), Output: bin,
-		Stdlib: plutonium.Stdlib(), OptLevel: 2, NoGenCheck: true}
-	if err := build.Build(cfg); err != nil {
-		t.Fatal(err)
-	}
+	bin := demoBinary(t, "ssaback", 2, true)
 	only := os.Getenv("MIXED_ONLY")
 	for i, p := range mixedCorpus(t) {
 		if !strings.Contains(p.name, only) {
@@ -134,29 +129,15 @@ func TestMixedPipeline(t *testing.T) {
 // mixedCheck compiles the program in cfg both ways and compares the objects.
 func mixedCheck(t *testing.T, bin string, cfg *build.Config) {
 	t.Helper()
-	l, err := build.Frontend(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text, err := l.Text(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	file := filepath.Join(t.TempDir(), "program.ssat")
-	if err := os.WriteFile(file, text, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if keep := os.Getenv("MIXED_KEEP"); keep != "" {
-		// For looking at the text and timing the back end by hand.
-		name := fmt.Sprintf("%s-O%d.ssat", strings.ReplaceAll(t.Name(), "/", "_"), cfg.OptLevel)
-		if err := os.WriteFile(filepath.Join(keep, name), text, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	want, err := l.Object(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// The Go compile takes a parallel slot's memory, reserved so that it
+	// waits while the translated back end runs alone on a large program.
+	front := testguard.Reserve(t, testguard.DefaultSlotMB)
+	file, size, want := mixedGo(t, cfg)
+	front()
+	// The translated back end takes up to 8.5 GB on the corpus: reserve
+	// its estimate, so that the run does not start more of them than fit.
+	release := testguard.Reserve(t, ssabackPeakMB(size, cfg.OptLevel))
+	defer release()
 	args := []string{"-O", fmt.Sprint(cfg.OptLevel)}
 	if cfg.NoTrace {
 		args = append(args, "-notrace")
@@ -177,8 +158,56 @@ func mixedCheck(t *testing.T, bin string, cfg *build.Config) {
 			at++
 		}
 		t.Errorf("the objects differ: %d bytes from the Plutonium back end, %d from the Go back end, the first difference at byte %d (%d bytes of text)",
-			len(got), len(want), at, len(text))
+			len(got), len(want), at, size)
 	}
+}
+
+// mixedGo compiles the program in cfg with the Go back end, writes the SSA
+// text it gives the translated back end to a file, and returns the file, the
+// text's size and the Go back end's object. Nothing of the build outlives
+// it, so a test waiting for memory to run the translated back end holds
+// only the object.
+func mixedGo(t *testing.T, cfg *build.Config) (file string, size int, want []byte) {
+	t.Helper()
+	l, err := build.Frontend(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := l.Text(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file = filepath.Join(t.TempDir(), "program.ssat")
+	if err := os.WriteFile(file, text, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if keep := os.Getenv("MIXED_KEEP"); keep != "" {
+		// For looking at the text and timing the back end by hand.
+		name := fmt.Sprintf("%s-O%d.ssat", strings.ReplaceAll(t.Name(), "/", "_"), cfg.OptLevel)
+		if err := os.WriteFile(filepath.Join(keep, name), text, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err = l.Object(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file, len(text), want
+}
+
+// ssabackPeakMB estimates the peak memory, in MB, of the translated back
+// end compiling size bytes of SSA text at the level. It holds what it
+// allocates, so its peak grows faster than the text: over the corpus it
+// was 60 to 90 bytes for each byte of text at -O0, and at -O2 150 bytes
+// for a text of 1 MB rising to 650 for one of 5 MB or more (8.5 GB for the
+// 13.7 MB of lib/strconvfloat). The estimate is above every measurement
+// (docs/verification/2026-10-21-test-memory.md).
+func ssabackPeakMB(size, level int) uint64 {
+	perByte := uint64(100)
+	if level > 0 {
+		perByte = min(660, 150+130*uint64(size)>>20)
+	}
+	return max(uint64(size)*perByte>>20, 64)
 }
 
 // mixedMerge returns base with the settings of v added.
@@ -198,17 +227,32 @@ func mixedMerge(base, v build.Config) build.Config {
 // is a failure here.
 func TestMixedPipelineChecked(t *testing.T) {
 	testguard.Parallel(t)
-	bin := filepath.Join(t.TempDir(), "ssaback")
-	cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", "ssaback"), Output: bin,
-		Stdlib: plutonium.Stdlib(), OptLevel: 2}
-	if err := build.Build(cfg); err != nil {
-		t.Fatal(err)
-	}
+	bin := demoBinary(t, "ssaback", 2, false)
 	for _, level := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
 			testguard.Parallel(t)
 			c := build.Config{Dir: filepath.Join(repoRoot, "examples", "07-hello"), Stdlib: plutonium.Stdlib(), OptLevel: level}
 			mixedCheck(t, bin, &c)
 		})
+	}
+}
+
+// TestSSAbackPeak checks the estimate of the translated back end's memory
+// against measurements of it (size of the text, level, peak in MB).
+func TestSSAbackPeak(t *testing.T) {
+	testguard.Parallel(t)
+	for _, m := range []struct {
+		size, level int
+		peakMB      uint64
+	}{
+		{1171059, 2, 168}, {1510112, 2, 263}, {1534754, 2, 273}, {1942952, 2, 383},
+		{2902434, 2, 552}, {3474164, 2, 607}, {4052624, 2, 1991}, {4780940, 2, 1372},
+		{5484439, 2, 2608}, {5580504, 2, 3059}, {6167616, 2, 3824}, {6919562, 2, 4167},
+		{7369628, 2, 3465}, {13658562, 2, 8488},
+		{4052624, 0, 248}, {4780940, 0, 416}, {7369628, 0, 448}, {13658562, 0, 1002},
+	} {
+		if got := ssabackPeakMB(m.size, m.level); got < m.peakMB {
+			t.Errorf("ssabackPeakMB(%d, %d) = %d, below the %d MB measured", m.size, m.level, got, m.peakMB)
+		}
 	}
 }

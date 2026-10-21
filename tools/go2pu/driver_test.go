@@ -24,13 +24,8 @@ func TestDriverMatchesCmd(t *testing.T) {
 		t.Skip("no linker")
 	}
 	work := t.TempDir()
-	driver := filepath.Join(work, "driver")
-	cmd := filepath.Join(work, "pluto")
-	for bin, pkg := range map[string]string{driver: "./testdata/pluto", cmd: "../../cmd/pluto"} {
-		if out, err := exec.Command("go", "build", "-o", bin, pkg).CombinedOutput(); err != nil {
-			t.Fatalf("go build %s: %v\n%s", pkg, err, out)
-		}
-	}
+	driver := goBinary(t, "./testdata/pluto")
+	cmd := goBinary(t, "../../cmd/pluto")
 	bad := filepath.Join(work, "bad")
 	if err := os.MkdirAll(bad, 0o755); err != nil {
 		t.Fatal(err)

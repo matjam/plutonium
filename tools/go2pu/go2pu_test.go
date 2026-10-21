@@ -146,19 +146,13 @@ func TestDifferential(t *testing.T) {
 		// or regenerated the translations.
 		t.Run(name, func(t *testing.T) {
 			testguard.Parallel(t)
-			goBin := filepath.Join(t.TempDir(), "go-"+name)
-			if out, err := exec.Command("go", "build", "-o", goBin, "./"+tr.dir).CombinedOutput(); err != nil {
-				t.Fatalf("go build: %v\n%s", err, out)
-			}
-			want := run(t, goBin)
+			want := run(t, goBinary(t, "./"+tr.dir))
 			for _, level := range []int{0, 2} {
 				t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
 					testguard.Parallel(t)
-					puBin := filepath.Join(t.TempDir(), "pu-"+name)
-					cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", name), Output: puBin,
-						Stdlib: plutonium.Stdlib(), OptLevel: level}
-					if err := build.Build(cfg); err != nil {
-						t.Fatal(err)
+					puBin := demoBinary(t, name, level, false)
+					if mb, ok := demoRunMB[name]; ok {
+						defer testguard.Reserve(t, mb)()
 					}
 					if got := run(t, puBin); got != want {
 						t.Errorf("output differs\n--- Plutonium ---\n%s\n--- Go ---\n%s", got, want)

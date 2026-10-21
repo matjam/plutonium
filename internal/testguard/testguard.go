@@ -25,10 +25,11 @@
 //
 //	PLUTO_TEST_SLOT_MB   memory budget of one parallel slot in MB (default
 //	                     256); 0 turns the -parallel reduction off
-//	PLUTO_TEST_RSS_MB    resident memory cap of the test binary in MB
-//	                     (default: 80% of what was available at start, but
-//	                     at most 12 GB); 0 turns the watchdog off, and
-//	                     with it the limit on reservations
+//	PLUTO_TEST_RSS_MB    resident memory cap of the test binary and the
+//	                     processes it starts, in MB (default: 80% of what
+//	                     was available at start, 95% if that is a cgroup's
+//	                     headroom, at most 12 GB); 0 turns the watchdog
+//	                     off, and with it the limit on reservations
 //
 // All of this relies on /proc and does nothing where it is missing.
 package testguard
@@ -89,10 +90,22 @@ func Run(m *testing.M, tune func(parallel int)) int {
 	if tune != nil {
 		tune(parallel)
 	}
-	if capBytes, on := rssCap(avail, haveAvail); on {
+	if capBytes, on := rssCap(avail, haveAvail, mem.inGroup); on {
 		if _, ok := readRSS(); ok {
-			budget = newPool(capBytes)
+			runCgroup = selfCgroupDir()
+			budget = newPool(capBytes, func() uint64 {
+				rss, _, _ := treeRSS(runCgroup)
+				return rss
+			})
+			go func() {
+				for range time.Tick(sampleInterval) {
+					budget.wake()
+				}
+			}()
 			go watch(capBytes, sampleInterval, exit)
+			if mem.inGroup && testing.Verbose() {
+				fmt.Fprintf(os.Stderr, "testguard: %s; memory cap %s\n", mem, mbString(capBytes))
+			}
 		}
 	}
 	return m.Run()
@@ -109,8 +122,12 @@ func capParallel(want int, avail, budget uint64, on bool) int {
 }
 
 // rssCap returns the cap on the process's resident memory in bytes, and
-// whether the watchdog is on.
-func rssCap(avail uint64, haveAvail bool) (uint64, bool) {
+// whether the watchdog is on. The default is 80% of the memory available,
+// or 95% when that is a cgroup's headroom: there nothing else competes for
+// the memory and nothing swaps, so the margin only has to cover the growth
+// between two samples (the largest program the tests run grows by about
+// 110 MB a second).
+func rssCap(avail uint64, haveAvail, inGroup bool) (uint64, bool) {
 	if v, set := os.LookupEnv("PLUTO_TEST_RSS_MB"); set {
 		if n, err := strconv.ParseUint(strings.TrimSpace(v), 10, 63); err == nil {
 			return n << 20, n != 0
@@ -119,7 +136,11 @@ func rssCap(avail uint64, haveAvail bool) (uint64, bool) {
 	if !haveAvail {
 		return 0, false
 	}
-	return min(avail/10*8, DefaultMaxCapMB<<20), true
+	percent := uint64(80)
+	if inGroup {
+		percent = 95
+	}
+	return min(avail*percent/100, DefaultMaxCapMB<<20), true
 }
 
 // envMB reads a size in megabytes from the environment and returns it in
@@ -240,15 +261,15 @@ func parseStatm(s string, pageSize uint64) (uint64, bool) {
 	return pages * pageSize, true
 }
 
-// watch samples the resident memory every interval and calls stop with a
-// report if it ever exceeds limit.
+// watch samples the resident memory of the process and its descendants
+// every interval and calls stop with a report if it ever exceeds limit.
 func watch(limit uint64, interval time.Duration, stop func(report string)) {
 	for range time.Tick(interval) {
-		rss, ok := readRSS()
+		rss, kids, ok := treeRSS(runCgroup)
 		if !ok || rss <= limit {
 			continue
 		}
-		stop(report(rss, limit))
+		stop(report(rss, limit, kids))
 		return
 	}
 }
@@ -263,9 +284,15 @@ func exit(report string) {
 // report describes a memory overrun: the sizes, the tests in flight, and the
 // test functions on any goroutine stack (which also covers tests that run
 // sequentially and so are not registered).
-func report(rss, limit uint64) string {
+func report(rss, limit uint64, kids []proc) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "\ntestguard: resident memory %s passed the cap of %s; stopping the run.\n", mbString(rss), mbString(limit))
+	fmt.Fprintf(&b, "\ntestguard: resident memory %s (the test binary and the processes it started) passed the cap of %s; stopping the run.\n", mbString(rss), mbString(limit))
+	if len(kids) > 0 {
+		fmt.Fprintf(&b, "The largest processes it started:\n")
+		for _, d := range describeProcs(kids, 10) {
+			fmt.Fprintf(&b, "\t%s\n", d)
+		}
+	}
 	fmt.Fprintf(&b, "Memory is probably being used by one of these tests (oldest first):\n")
 	names := running()
 	for i, n := range names {

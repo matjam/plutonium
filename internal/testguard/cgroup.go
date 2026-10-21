@@ -18,8 +18,8 @@ type cgroupLimit struct {
 	limit uint64
 	// avail is that limit's headroom: the least, over the cgroups with a
 	// limit, of the limit minus what the cgroup uses (memory.current less
-	// the inactive file cache of memory.stat, which the kernel reclaims
-	// before it kills anything).
+	// the file cache of memory.stat, which the kernel reclaims before it
+	// kills anything).
 	avail uint64
 	// swap is memory.swap.max of the process's own cgroup in bytes, and
 	// swapLimited whether it has one. Swap never counts as available: a
@@ -28,13 +28,34 @@ type cgroupLimit struct {
 	swapLimited bool
 }
 
-// cgroupMemory reads the limits of the process's cgroup.
+// cgroupMemory reads the limits of the process's cgroup. If the run has the
+// cgroup to itself, what it already uses is the run's own and the watchdog
+// counts it, so it is not taken off the headroom.
 func cgroupMemory() (cgroupLimit, bool) {
 	b, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		return cgroupLimit{}, false
 	}
-	return readCgroup(string(b), cgroupRoot)
+	cl, ok := readCgroup(string(b), cgroupRoot)
+	if dir := selfCgroupDir(); ok && dir != "" && dedicatedCgroup(dir, readProcs("/proc"), os.Getpid()) {
+		if used, ok := cgroupUsage(dir); ok {
+			cl.avail = min(cl.limit, cl.avail+used)
+		}
+	}
+	return cl, ok
+}
+
+// selfCgroupDir returns the directory of the process's cgroup v2, or "".
+func selfCgroupDir() string {
+	b, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		return ""
+	}
+	rel, ok := cgroupPath(string(b))
+	if !ok {
+		return ""
+	}
+	return filepath.Join(cgroupRoot, filepath.FromSlash(rel))
 }
 
 // readCgroup returns the limits of the cgroup v2 named in procCgroup (the
@@ -64,13 +85,7 @@ func readCgroup(procCgroup, root string) (cl cgroupLimit, ok bool) {
 		if !limited {
 			continue
 		}
-		used := uint64(0)
-		if v, l, ok := readLimit(filepath.Join(dir, "memory.current")); ok && l {
-			used = v
-		}
-		if inactive, ok := statField(filepath.Join(dir, "memory.stat"), "inactive_file"); ok {
-			used -= min(used, inactive)
-		}
+		used, _ := cgroupUsage(dir)
 		head := lim - min(lim, used)
 		if !ok || lim < cl.limit {
 			cl.limit = lim
@@ -81,6 +96,56 @@ func readCgroup(procCgroup, root string) (cl cgroupLimit, ok bool) {
 		ok = true
 	}
 	return cl, ok
+}
+
+// cgroupUsage returns what the cgroup at dir uses and cannot give back:
+// memory.current less the file cache of memory.stat that the kernel can
+// drop or write back before it kills anything. Files in a tmpfs (shmem, as
+// /tmp often is) are file cache too, but without swap they stay, so they
+// count as used.
+func cgroupUsage(dir string) (uint64, bool) {
+	used, limited, ok := readLimit(filepath.Join(dir, "memory.current"))
+	if !ok || !limited {
+		return 0, false
+	}
+	stat := filepath.Join(dir, "memory.stat")
+	if file, ok := statField(stat, "file"); ok {
+		shmem, _ := statField(stat, "shmem")
+		used -= min(used, file-min(file, shmem))
+	}
+	return used, true
+}
+
+// dedicatedCgroup reports whether the cgroup at dir holds only this test
+// run: the process (pid self), the processes it started, and the processes
+// that started it (as bigjob.sh's systemd-run scope does). Its usage is then
+// the run's, files in a tmpfs and kernel memory included.
+func dedicatedCgroup(dir string, procs []proc, self int) bool {
+	b, err := os.ReadFile(filepath.Join(dir, "cgroup.procs"))
+	if err != nil {
+		return false
+	}
+	ours := map[int]bool{}
+	for _, p := range tree(procs, self) {
+		ours[p.pid] = true
+	}
+	parent := map[int]int{}
+	for _, p := range procs {
+		parent[p.pid] = p.ppid
+	}
+	for pid := self; pid > 1; pid = parent[pid] {
+		ours[pid] = true
+		if _, known := parent[pid]; !known {
+			break
+		}
+	}
+	for _, f := range strings.Fields(string(b)) {
+		pid, err := strconv.Atoi(f)
+		if err != nil || !ours[pid] {
+			return false
+		}
+	}
+	return true
 }
 
 // cgroupPath returns the cgroup v2 path of the process: the "0::" line of

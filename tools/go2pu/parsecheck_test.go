@@ -12,8 +12,6 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	plutonium "github.com/matjam/plutonium"
-	"github.com/matjam/plutonium/internal/build"
 	"github.com/matjam/plutonium/internal/testguard"
 )
 
@@ -33,21 +31,13 @@ func TestParseCheck(t *testing.T) {
 	if _, err := exec.LookPath("ld"); err != nil {
 		t.Skip("no linker")
 	}
-	goBin := filepath.Join(t.TempDir(), "parsecheck-go")
-	if out, err := exec.Command("go", "build", "-o", goBin, "./testdata/parsecheck").CombinedOutput(); err != nil {
-		t.Fatalf("go build: %v\n%s", err, out)
-	}
+	goBin := goBinary(t, "./testdata/parsecheck")
 	files := parseCheckFiles(t)
 	t.Logf("%d files", len(files))
 	for _, level := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", level), func(t *testing.T) {
 			testguard.Parallel(t)
-			puBin := filepath.Join(t.TempDir(), "parsecheck-pu")
-			cfg := &build.Config{Dir: filepath.Join(selfhostDir, "demo", "parsecheck"), Output: puBin,
-				Stdlib: plutonium.Stdlib(), OptLevel: level}
-			if err := build.Build(cfg); err != nil {
-				t.Fatal(err)
-			}
+			puBin := demoBinary(t, "parsecheck", level, false)
 			const batch = 100
 			mismatched := 0
 			for i := 0; i < len(files); i += batch {
