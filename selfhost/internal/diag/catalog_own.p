@@ -80,6 +80,13 @@ func init() {
 			Fixed:   "buf := readAll(f)\ndata := buf.Slice()\nuse(data)",
 		}),
 		pu.New(Entry{
+			Code: EscapeLimit, Name: "EscapeLimit",
+			Text: "The escape analysis of a function reached its memory limit (256 MB) or its work limit (a billion steps) before it could finish: the function holds more distinct pointers than the analysis can follow. The analysis never guesses past its limits, since a guess could accept a program that keeps a pointer into a dead frame, so it stops with this error instead.\nSplit the function into smaller functions.",
+			Why:  "The compiler proves that no pointer into a frame outlives it, without a garbage collector to fall back on. It follows each function's pointers precisely (section 18.3), and that work is bounded so that a build cannot run out of memory.",
+			Spec: pspec("18.3", "Views"),
+			Fix:  pu.New(Fix{Intro: "Split the function into smaller functions, each handling part of the work", Code: "func handle(req *Request) {\n\tparseHeaders(req)\n\troute(req)\n}"}),
+		}),
+		pu.New(Entry{
 			Code: ScopeOutlivesVar, Name: "ScopeOutlivesVar",
 			Text:    "A task started by s.Task holds a pointer, slice or function literal that looks at a variable whose storage is reused before s waits for the task. A variable declared in a loop body is new in each iteration in Go, but in Plutonium every iteration reuses the same memory, so a later iteration would overwrite what the task is still looking at.\nThe task takes its own copy of each such variable that it uses directly, so use the variable itself in the function literal rather than a view of it. Or wait for the task before the iteration ends, with s.Wait() at the end of the loop body.",
 			Why:     whyScope,

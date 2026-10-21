@@ -1,6 +1,7 @@
 package escape2
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/report"
 	"github.com/matjam/plutonium/internal/escape2/sched"
+	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/load"
 )
 
@@ -75,8 +77,7 @@ func Check(prog *load.Program) error {
 func CheckWith(prog *load.Program, opts sched.Options) (res *sched.Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			res = nil
-			err = &diag.Diagnostic{Code: diag.InternalError, Msg: fmt.Sprintf("internal compiler error: escape2: %v", r)}
+			res, err = nil, recoveredError(r)
 		}
 	}()
 	var c *cache.Cache
@@ -97,6 +98,19 @@ func CheckWith(prog *load.Program, opts sched.Options) (res *sched.Result, err e
 		}
 	}
 	return res, Diagnostics(prog, p, res)
+}
+
+// recoveredError is the diagnostic for a panic of the analysis: a function too
+// large for the solver's limits is the program's error (E3010, section 18.3),
+// anything else an internal compiler error.
+func recoveredError(r any) error {
+	if rerr, ok := r.(error); ok {
+		var lim *solve.LimitError
+		if errors.As(rerr, &lim) {
+			return &diag.Diagnostic{Code: diag.EscapeLimit, Msg: lim.Error()}
+		}
+	}
+	return &diag.Diagnostic{Code: diag.InternalError, Msg: fmt.Sprintf("internal compiler error: escape2: %v", r)}
 }
 
 // Run builds the program's EIR and analyses it.

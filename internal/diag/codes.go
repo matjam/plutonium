@@ -129,6 +129,7 @@ const (
 
 	ResultHoldsOutsideStd Code = "E3008" // //pu:resultholds outside the standard library
 	TempViewKept          Code = "E3009" // a view of an owner temporary kept past its statement
+	EscapeLimit           Code = "E3010" // a function too large for the escape analysis's memory or work limit
 )
 
 // The move checker (internal/moves).

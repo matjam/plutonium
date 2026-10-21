@@ -17,8 +17,7 @@ import (
 // says); the rest of the program is.
 
 // codeEscapeLimit is the code of a function past the solver's limits.
-// TODO(A): use diag.EscapeLimit once it is in internal/diag.
-const codeEscapeLimit diag.Code = "E3010"
+const codeEscapeLimit = diag.EscapeLimit
 
 // solveGuarded is solveFunc, turning a solve past the limits into the top
 // summary and an E3010 finding at the function. Any other panic is not a
