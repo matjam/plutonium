@@ -11,8 +11,8 @@ import (
 	"github.com/matjam/plutonium/internal/escape2/summary"
 )
 
-// ESCAPE2_DUMP=<substring> prints, for every solve of a function whose name
-// contains the substring, what the solve holds and what it read: the
+// ESCAPE2_DUMP=<substring>[|<substring>...] prints, for every solve of a
+// function whose name contains one of the substrings, what the solve holds and what it read: the
 // tokens by kind and by input (count, distinct paths, distinct tags, the
 // longest paths), the summaries of its callees (entries per kind), and the
 // summary it produces. A solve stopped by its limits is dumped before it
@@ -23,7 +23,15 @@ var dumpFilter = os.Getenv("ESCAPE2_DUMP")
 var dumpPass = map[string]int{}
 
 func (s *solver) wantDump() bool {
-	return dumpFilter != "" && strings.Contains(s.f.Name, dumpFilter)
+	if dumpFilter == "" {
+		return false
+	}
+	for _, f := range strings.Split(dumpFilter, "|") {
+		if f != "" && strings.Contains(s.f.Name, f) {
+			return true
+		}
+	}
+	return false
 }
 
 // dump prints the state of the solve (rules above); res is nil for a solve
