@@ -25,8 +25,11 @@ import (
 // reads, every solve is from scratch, as before.
 //
 // PLUTO_ESCAPE2_RESUMECHECK=1 solves every resumed function from scratch as
-// well and checks that the two summaries cover each other: an internal
-// compiler error otherwise.
+// well: a resumed summary narrower than the fresh one is an internal
+// compiler error; a wider one (drift: the kept state remembers derivations
+// from a callee's older entries) is sound and reported on standard error.
+// With resumption, summaries and findings can depend on the order of the
+// solves; they are the same run to run.
 
 // resumable is a solve whose state is kept to be resumed (solve.State).
 type resumable interface {
@@ -63,8 +66,10 @@ type retained struct {
 	pool  []*solve.Workspace
 	bytes int // what the kept states hold now
 	peak  int // the most they held, in this SCC
-	// resumes counts the solves that resumed a kept state.
+	// resumes counts the solves that resumed a kept state; drift the
+	// resumed solves the check found wider than a solve from scratch.
 	resumes int
+	drift   int
 }
 
 func newRetained() *retained {
@@ -168,8 +173,17 @@ func (r *retained) account(id eir.FuncID, k *keptSolve) {
 func (r *retained) check(f *eir.Func, env solve.Env, scratch *solve.Workspace, resumed solve.Result) {
 	fresh := solveFunc(f, env, scratch)
 	ps := env.Paths()
-	if !leq(ps, fresh.Summary, resumed.Summary) || !leq(ps, resumed.Summary, fresh.Summary) {
-		panic(fmt.Sprintf("internal compiler error: escape2: the resumed solve of %s differs from a solve from scratch", f.Name))
+	// A resumed solve must cover a solve from scratch: anything narrower
+	// would be unsound. It may be wider: the kept state still holds what it
+	// derived from a callee's older entries, which the newer ones need not
+	// cover where paths are cut. That is drift, sound but dependent on the
+	// order of the solves, counted and reported.
+	if !leq(ps, fresh.Summary, resumed.Summary) {
+		panic(fmt.Sprintf("internal compiler error: escape2: the resumed solve of %s is narrower than a solve from scratch", f.Name))
+	}
+	if !leq(ps, resumed.Summary, fresh.Summary) {
+		r.drift++
+		fmt.Fprintf(os.Stderr, "escape2: PLUTO_ESCAPE2_RESUMECHECK: the resumed solve of %s is wider than a solve from scratch\n", f.Name)
 	}
 	scratch.Sets.Reset()
 	scratch.Arena.Reset()
