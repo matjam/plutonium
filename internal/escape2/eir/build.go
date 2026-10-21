@@ -66,8 +66,8 @@ type builder struct {
 	moves  *moves.Info
 	scoped *scoped.Info
 
-	synths []*Synth // every synthesized function, for lookup by fields
-	queue  []func() // bodies still to build
+	synths map[synthKey][]*Synth // every synthesized function, by kind and method
+	queue  []func()              // bodies still to build
 
 	ctxt      *types2.Context
 	litFns    map[*ast.FuncLit]*fnb
@@ -78,6 +78,7 @@ type builder struct {
 
 	dropNeeds typeMap[bool] // needsDrop
 	countedT  typeMap[bool] // counted
+	itabs     itabState     // itabs.go
 
 	errs diag.List
 }
@@ -202,12 +203,18 @@ func (b *builder) declare() {
 }
 
 // run builds queued bodies until none is left; building a body may queue
-// synthesized functions.
+// synthesized functions, and then the itab adapters of interfaces asserted
+// to (itabs.go), whose bodies may queue more.
 func (b *builder) run() {
-	for len(b.queue) > 0 {
-		job := b.queue[0]
-		b.queue = b.queue[1:]
-		job()
+	for {
+		for len(b.queue) > 0 {
+			job := b.queue[0]
+			b.queue = b.queue[1:]
+			job()
+		}
+		if !b.finishItabs() {
+			return
+		}
 	}
 }
 
@@ -292,13 +299,17 @@ func (b *builder) buildConstMethod(f *Func) {
 // synth returns the synthesized function s names, adding it, and queueing
 // its body, the first time.
 func (b *builder) synth(s Synth) FuncID {
-	for _, t := range b.synths {
+	k := synthKey{s.Kind, s.Method}
+	for _, t := range b.synths[k] {
 		if sameSynth(t, &s) {
 			return b.p.Sources[FuncKey{Synth: t}]
 		}
 	}
 	sp := &Synth{Kind: s.Kind, Recv: s.Recv, Method: s.Method, Path: append([]int(nil), s.Path...), Site: s.Site}
-	b.synths = append(b.synths, sp)
+	if b.synths == nil {
+		b.synths = map[synthKey][]*Synth{}
+	}
+	b.synths[k] = append(b.synths[k], sp)
 	sig := b.synthSig(sp)
 	var pkg *types2.Package
 	if sp.Method != nil {
@@ -311,6 +322,12 @@ func (b *builder) synth(s Synth) FuncID {
 
 // sameSynth reports whether two Synths name the same function: the same
 // kind, method, path and site, and identical types.
+// synthKey buckets synthesized functions.
+type synthKey struct {
+	kind   SynthKind
+	method *types2.Func
+}
+
 func sameSynth(a, b *Synth) bool {
 	if a.Kind != b.Kind || a.Method != b.Method || a.Site != b.Site || len(a.Path) != len(b.Path) {
 		return false

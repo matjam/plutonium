@@ -71,7 +71,11 @@ func (fb *fnb) convertReg(r Reg, from, to types2.Type, pos token.Pos) Reg {
 
 // conv converts r, of concrete type from, to interface I.
 func (fb *fnb) conv(r Reg, from, I types2.Type, pos token.Pos) Reg {
-	if from == nil || isInterface(from) {
+	if from == nil {
+		return r
+	}
+	if isInterface(from) {
+		fb.b.noteAsserted(I) // an itab found at run time (convI2I)
 		return r
 	}
 	from = unwrap(from)
@@ -83,6 +87,7 @@ func (fb *fnb) conv(r Reg, from, I types2.Type, pos token.Pos) Reg {
 	}
 	fb.f.Facts.Converted = append(fb.f.Facts.Converted, from)
 	fb.noteItab(from, I)
+	fb.b.describe(from)
 	in := Instr{Op: OpConv, X: r, Type: from, To: I, Obj: NoObj, Pos: pos}
 	if !fb.isDirect(from) {
 		in.Obj = fb.newObj(Object{Kind: ObjBox, Type: from, Name: "interface box", Pos: pos})
@@ -360,6 +365,7 @@ func (fb *fnb) typeAssert(e *ast.TypeAssertExpr, commaOk bool) Reg {
 // concrete type that is not its own data word, the value loaded from the
 // box.
 func (fb *fnb) assertTo(x Reg, T types2.Type, pos token.Pos) Reg {
+	fb.b.noteAsserted(T)
 	r := fb.emitDst(Instr{Op: OpAssert, X: x, Type: T, Pos: pos})
 	if isTypeParam(unwrap(T)) {
 		// The instance decides: the data word is the value (a direct

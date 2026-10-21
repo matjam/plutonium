@@ -851,7 +851,10 @@ func (fb *fnb) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 			defaultBody = bodies[i]
 			continue
 		}
-		for range cc.List {
+		for _, e := range cc.List {
+			if tv := fb.b.types[e]; !tv.IsNil() && tv.Type != nil {
+				fb.b.noteAsserted(tv.Type)
+			}
 			next := fb.newBlock()
 			fb.branchBoth(bodies[i], next)
 			fb.seal(next)
