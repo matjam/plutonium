@@ -14,7 +14,20 @@ import (
 func (s *solver) extend(a domain.PathID, st domain.Step) (domain.PathID, bool) {
 	q, c := s.ps.Extend(a, st)
 	if c {
-		return a, true
+		// The prefix of a through its last load (a itself without one).
+		steps := s.ps.Steps(a)
+		i := len(steps)
+		for i > 0 && steps[i-1] != domain.StepLoad {
+			i--
+		}
+		if i == 0 || i == len(steps) {
+			return a, true
+		}
+		p := domain.Root
+		for _, st := range steps[:i] {
+			p, _ = s.ps.Extend(p, st)
+		}
+		return p, true
 	}
 	return q, false
 }

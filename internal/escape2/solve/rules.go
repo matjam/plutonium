@@ -79,10 +79,12 @@ package solve
 // # Paths past the limits
 //
 // Extending a path P by a step past the limits of section 18.3 (the cut
-// domain.Paths.Extend reports) gives P itself with GE: it covers P and the
-// step, and every extension. (The domain's own cut goes back to an earlier
-// prefix, which may name the pointer P was reached through rather than what
-// it leads to.) Every "cut" below is this.
+// domain.Paths.Extend reports) gives the prefix of P through its last load
+// (P itself if it has none) with GE: it covers P and the step, and every
+// extension. (The domain's own cut goes back to its prefix through the
+// second load, which may name the pointer P was reached through rather than
+// what it leads to; keeping all of P's steps costs ten times the work on
+// the corpus's largest function.) Every "cut" below is this.
 //
 // # Operations on values
 //

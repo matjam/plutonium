@@ -88,9 +88,25 @@ func key(t tok) domain.Key {
 func (s *solver) extend(p domain.PathID, st domain.Step) (domain.PathID, bool) {
 	q, cut := s.ps.Extend(p, st)
 	if cut {
-		return p, true
+		return s.throughLastLoad(p), true
 	}
 	return q, false
+}
+
+// throughLastLoad is the prefix of p through its last load (p itself when it
+// has none): what a path past the limits widens to (rules.go, "Paths past
+// the limits").
+func (s *solver) throughLastLoad(p domain.PathID) domain.PathID {
+	steps := s.ps.Steps(p)
+	i := len(steps)
+	for i > 0 && steps[i-1] != domain.StepLoad {
+		i--
+	}
+	if i == 0 || i == len(steps) {
+		return p
+	}
+	q, _ := s.pathOf(steps[:i])
+	return q
 }
 
 // extendAll appends steps to p, stopping at the first past the limits.
