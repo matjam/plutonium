@@ -241,3 +241,21 @@ func TestRegionStaticInInit(t *testing.T) {
 	r := e.solve(t, b.f)
 	wantFindings(t, r, "E3002@4")
 }
+
+// Reasons carry the position of what made each entry, and for the
+// function's own sinks their kind (for messages, stage 5).
+func TestReasons(t *testing.T) {
+	e := newEnv()
+	g := e.fn("g", 1, 0)
+	g.at(5).sink(eir.SinkGlobal, g.input(0))
+	r := e.solve(t, g.f)
+	if rs := r.Summary.Reasons; len(rs) != 1 || rs[0].Pos != 5 || rs[0].Sink != uint8(eir.SinkGlobal) || rs[0].Site != ^uint32(0) {
+		t.Fatalf("own reason: %+v", rs)
+	}
+	b := e.fn("f", 1, 0)
+	b.at(9).static(g.f, 0, b.input(0))
+	r = e.solve(t, b.f)
+	if rs := r.Summary.Reasons; len(rs) != 1 || rs[0].Pos != 9 || rs[0].Site != 0 || rs[0].Callee != uint32(g.f.ID) || rs[0].Entry != 0 {
+		t.Fatalf("call reason: %+v", rs)
+	}
+}

@@ -92,6 +92,12 @@ type Reason struct {
 	Site   uint32 // the call site in the function, or ^0 for its own code
 	Callee uint32 // the eir.FuncID of the callee, or ^0
 	Entry  uint32 // the index of the entry in the callee's summary
+	// Pos is the position of what made the entry: the call, or for the
+	// function's own code the store or sink (a token.Pos; 0 when unknown).
+	Pos uint32
+	// Sink is the eir.SinkKind of an entry the function's own code made by
+	// a sink (package memory, send, task, external); 0 for a store.
+	Sink uint8
 }
 
 // Leq and Widen are in ops.go, which the solver's builder owns.
