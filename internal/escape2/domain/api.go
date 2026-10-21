@@ -42,14 +42,13 @@ const Root PathID = 0
 // (the program arena); paths are bounded by the program's types and the
 // limits, so it does not grow with the number of SCCs or iterations.
 type Paths interface {
-	// Extend returns p followed by s, cut to the limits. A path that would
-	// pass MaxLoads or MaxSteps is cut back to its prefix through the
-	// second load (the fields between the two loads are kept, so that the
-	// cut covers the path), and cut reports that the result stands for p+s
-	// and every extension (the key's GE bit must be set). An offset step
-	// past MaxFieldNest in a segment is absorbed without a cut (the
-	// segment already stands for its further offsets). Extend ignores GE:
-	// extend a key with ExtendKey.
+	// Extend returns p followed by s, within the limits. When p+s would
+	// pass MaxLoads or MaxSteps, it returns p itself and cut reports that
+	// the result stands for p and every extension (the key's GE bit must
+	// be set): p covers p+s, and returning p keeps Extend monotone under
+	// Covers. An offset step past MaxFieldNest in a segment is absorbed
+	// without a cut (the segment already stands for its further offsets).
+	// Extend ignores GE: extend a key with ExtendKey.
 	Extend(p PathID, s Step) (q PathID, cut bool)
 	// Steps returns the steps of p, in order. The slice is shared: do not
 	// change it.
