@@ -11,8 +11,8 @@ import (
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/escape"
 	"github.com/matjam/plutonium/internal/escape2/eir"
+	"github.com/matjam/plutonium/internal/escape2/report"
 	"github.com/matjam/plutonium/internal/escape2/sched"
-	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/load"
 )
 
@@ -94,41 +94,11 @@ func Run(prog *load.Program, opts sched.Options) (*eir.Program, *sched.Result, e
 	return p, sched.RunWith(p, opts), nil
 }
 
-// Diagnostics turns findings into errors. The messages are plain until
-// stage 5 brings them to the quality of internal/escape's; the position and
-// code are what both-mode comparison and the review suites check.
+// Diagnostics turns findings into errors, with the messages of
+// internal/escape2/report.
 func Diagnostics(prog *load.Program, p *eir.Program, res *sched.Result) error {
-	var l diag.List
-	seen := map[string]bool{}
-	for _, f := range res.Findings {
-		pos := prog.Fset.Position(f.Pos)
-		key := fmt.Sprintf("%s %s", pos, f.Code)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		l = append(l, diag.New(pos, f.Code, "%s", message(p, f)))
-	}
+	l := diag.List(report.Diagnostics(prog, p, res))
 	return l.Err()
-}
-
-func message(p *eir.Program, f solve.Finding) string {
-	what := "a frame object"
-	if int(f.Func) < len(p.Funcs) {
-		fn := p.Funcs[f.Func]
-		if int(f.Obj) < len(fn.Objects) && fn.Objects[f.Obj].Name != "" {
-			what = fn.Objects[f.Obj].Name
-		}
-	}
-	where := map[eir.SinkKind]string{
-		eir.SinkReturn: "is returned", eir.SinkGlobal: "is stored in package memory",
-		eir.SinkSend: "is sent on a channel", eir.SinkTask: "is passed to a task",
-		eir.SinkExternal: "is passed to code outside Plutonium",
-	}[f.Sink]
-	if where == "" {
-		where = "outlives it"
-	}
-	return fmt.Sprintf("a pointer to %s %s, past the end of its frame", what, where)
 }
 
 // Site is one error of a verdict: its position and code.
