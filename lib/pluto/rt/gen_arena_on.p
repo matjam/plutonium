@@ -107,13 +107,8 @@ func GenTrimArena(token uintptr, from, pc uintptr) {
 	// Unlink pages wholly in the suffix. The retained boundary page is
 	// removed by the ordinary unregister of the remaining prefix.
 	for i := (from + 65535) >> 16; i <= (oldHi-1)>>16; i++ {
-		page := genPage(i, false)
-		for l := uintptr(vload64(&page.head)); l != 0; {
-			link := (*genLink)(unsafe.Pointer(l))
-			if uintptr(vload64(&link.reg)) == token {
-				store64(&link.reg, 0)
-			}
-			l = link.next
+		if page := genPage(i, false); page != nil {
+			genUnlink(page, r)
 		}
 	}
 	genWriter.Unlock()

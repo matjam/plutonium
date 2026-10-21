@@ -89,4 +89,77 @@ func main() {
 	heap.Free(d, 48, 16)
 	heap.Free(big, 5000, 16)
 	println("probes", probes, "disagree", disagree)
+	oracle()
+}
+
+var checked bool
+var wrong int
+
+// expect checks, in a checked build, that the n bytes at p are live or
+// not, both through the range check and byte by byte.
+func expect(name string, i int, p unsafe.Pointer, n uintptr, live bool) {
+	if !checked {
+		return
+	}
+	if rt.GenRegisteredRangeLive(p, n) != live {
+		wrong++
+		println("wrong:", name, i, "range live", !live)
+	}
+	for off := uintptr(0); off < n; off++ {
+		if rt.GenRegisteredLive(unsafe.Add(p, off)) != live {
+			wrong++
+			println("wrong:", name, i, "byte", off, "live", !live)
+			return
+		}
+	}
+}
+
+// oracle checks liveness the program knows: many allocations in one arena
+// chunk, so that their interval of the directory keeps a registration for
+// each, across a Release, reuse, a partial Free of the latest allocation
+// and Drop; and a freed heap slot.
+func oracle() {
+	heap := alloc.Default()
+	s := alloc.Raw(32, 16)
+	heap.Free(s, 32, 16)
+	checked = !rt.GenRegisteredLive(s)
+
+	const n = 300
+	ar := arena.NewChunked()
+	var first, second [n]unsafe.Pointer
+	for i := range first[:n/2] {
+		first[i] = ar.Alloc(16, 8)
+	}
+	m := ar.Mark()
+	for i := n / 2; i < n; i++ {
+		first[i] = ar.Alloc(16, 8)
+	}
+	for i := range first {
+		expect("allocated", i, first[i], 16, true)
+	}
+	ar.Release(m)
+	for i := range first {
+		expect("released", i, first[i], 16, i < n/2)
+	}
+	for i := n / 2; i < n; i++ {
+		second[i] = ar.Alloc(16, 8)
+	}
+	for i := n / 2; i < n; i++ {
+		expect("stale", i, first[i], 16, false)
+		expect("reused", i, second[i], 16, true)
+	}
+	t := ar.Alloc(40, 8)
+	ar.Free(unsafe.Add(t, 24), 16, 8) // keeps 24 bytes of the latest allocation
+	expect("kept", 0, t, 24, true)
+	expect("trimmed", 0, unsafe.Add(t, 24), 16, false)
+	if checked && rt.GenRegisteredRangeLive(unsafe.Add(t, 16), 16) {
+		wrong++
+		println("wrong: an extent across the trimmed end is live")
+	}
+	ar.Drop()
+	for i := range first {
+		expect("dropped", i, first[i], 16, false)
+	}
+	expect("dropped", 0, t, 24, false)
+	println("wrong", wrong)
 }

@@ -9,16 +9,33 @@ import "unsafe"
 // Interval/link topology is immutable after publication; only link.reg
 // changes. Record reuse is published under a version, and each backing
 // reference also saves the record's incarnation.
+//
+// An interval with many registrations (an arena chunk holds one for each
+// of its allocations) also has hints: for each granule, the registration
+// most recently published over it, which a lookup tries before walking
+// the links. A hint is only a candidate. The lookup validates it exactly
+// as a registration reached through the links (genLive), so a stale hint
+// costs a walk and never makes memory live; it holds no liveness.
 type genInterval struct {
 	interval uintptr
 	head     uint64
 	history  *[4096]uint16
+	hints    uint64 // 0, or a *[4096]uint64 of registrations by granule
+	// Writer state (genWriter): the number of links, the links whose
+	// registration was removed, and where genPrune continues.
+	links uintptr
+	free  *genLink
+	sweep *genLink
 }
 
 type genLink struct {
-	next uintptr
-	reg  uint64
+	next     uintptr
+	reg      uint64
+	nextFree *genLink
 }
+
+// genHintLinks is the number of links past which an interval keeps hints.
+const genHintLinks = 8
 
 // The fields a lookup reads come first, within 64 bytes.
 type genRecord struct {
@@ -39,6 +56,7 @@ type genRecord struct {
 	ownerNext   *genRecord
 	nextFree    uintptr
 	nextClass   uintptr
+	link0       *genLink // the link in the interval of lo, while published
 }
 
 // genTop is the directory's first level, indexed by bits 47..32 of an
@@ -302,6 +320,9 @@ func genReadLive(a, end uintptr, tag uint16) bool {
 	if page == 0 {
 		return false
 	}
+	if r := genHinted((*genInterval)(unsafe.Pointer(page)), a); r != nil && genLive(r, a, end, tag) {
+		return true
+	}
 	for l := uintptr(vload64(&(*genInterval)(unsafe.Pointer(page)).head)); l != 0; {
 		link := (*genLink)(unsafe.Pointer(l))
 		if rp := uintptr(vload64(&link.reg)); rp != 0 {
@@ -360,10 +381,12 @@ func GenRegisteredRangeLive(p unsafe.Pointer, n uintptr) bool {
 	return genRangeLive(p, n)
 }
 
-// genFirstLive is the common case of genReadLive without a call or a
-// retry: the interval's newest registration has no backing allocation and
-// covers [a, end) live under tag in one stable snapshot. False means only
-// that the complete lookup must decide.
+// genFirstLive is the common case of genReadLive: one candidate, the
+// granule's hint or else the interval's newest registration, covers
+// [a, end) live under tag. A candidate without a backing allocation (the
+// default heap's) is validated here in one stable snapshot, without a call
+// or a retry; one with a backing allocation (an arena's) by genLive. False
+// means only that the complete lookup must decide.
 //
 //pu:inline
 func genFirstLive(a, end uintptr, tag uint16) bool {
@@ -371,23 +394,28 @@ func genFirstLive(a, end uintptr, tag uint16) bool {
 	if slot == nil {
 		return false
 	}
-	page := uintptr(vload64(slot))
-	if page == 0 {
+	page := (*genInterval)(unsafe.Pointer(uintptr(vload64(slot))))
+	if page == nil {
 		return false
 	}
-	l := uintptr(vload64(&(*genInterval)(unsafe.Pointer(page)).head))
-	if l == 0 {
-		return false
+	r := genHinted(page, a)
+	if r == nil {
+		l := uintptr(vload64(&page.head))
+		if l == 0 {
+			return false
+		}
+		r = (*genRecord)(unsafe.Pointer(uintptr(vload64(&(*genLink)(unsafe.Pointer(l)).reg))))
+		if r == nil {
+			return false
+		}
 	}
-	rp := uintptr(vload64(&(*genLink)(unsafe.Pointer(l)).reg))
-	if rp == 0 {
-		return false
-	}
-	r := (*genRecord)(unsafe.Pointer(rp))
 	v := vload64(&r.version)
 	active, lo, hi := r.active, r.lo, uintptr(vload64((*uint64)(unsafe.Pointer(&r.hi))))
 	parent, table, origin, capacity := r.parent, r.table, r.origin, r.capacity
-	if v&1 != 0 || v != vload64(&r.version) || parent != nil || !genCovers(active, lo, hi, origin, capacity, a, end) {
+	if parent != nil {
+		return genLive(r, a, end, tag)
+	}
+	if v&1 != 0 || v != vload64(&r.version) || !genCovers(active, lo, hi, origin, capacity, a, end) {
 		return false
 	}
 	return genTableMatch(table, origin, a, end, tag) && v == vload64(&r.version)
@@ -482,14 +510,26 @@ func genRecordDead(r *genRecord) bool {
 
 // Pruning on reuse bounds lookup and shadow storage by active overlaps,
 // even when a discarded allocator's old heads are never touched again.
+// Each registration examines a few links of each interval it covers,
+// continuing round the chain where the last one stopped, so an interval of
+// n links costs O(1) per registration and is swept every n/genPruneLinks
+// registrations. A dead registration fails every lookup through its
+// backing (genLive), so pruning reclaims storage and is never needed for
+// a check to fail.
 func genPrune(i uintptr) {
 	page := genPage(i, false)
 	if page == nil {
 		return
 	}
-	for l := uintptr(vload64(&page.head)); l != 0; {
-		link := (*genLink)(unsafe.Pointer(l))
-		if rp := uintptr(vload64(&link.reg)); rp != 0 {
+	l := page.sweep
+	for n := 0; n < genPruneLinks; n++ {
+		if l == nil {
+			l = (*genLink)(unsafe.Pointer(uintptr(vload64(&page.head))))
+			if l == nil {
+				break
+			}
+		}
+		if rp := uintptr(vload64(&l.reg)); rp != 0 {
 			r := (*genRecord)(unsafe.Pointer(rp))
 			if r.active && genRecordDead(r) {
 				if r.owner != 0 {
@@ -499,8 +539,87 @@ func genPrune(i uintptr) {
 				}
 			}
 		}
-		l = link.next
+		l = (*genLink)(unsafe.Pointer(l.next))
 	}
+	page.sweep = l
+}
+
+// genPruneLinks is the number of links genPrune examines in an interval.
+const genPruneLinks = 2
+
+// genHinted returns the registration hinted for the granule of a, or nil.
+//
+//pu:inline
+func genHinted(page *genInterval, a uintptr) *genRecord {
+	h := uintptr(vload64(&page.hints))
+	if h == 0 {
+		return nil
+	}
+	return (*genRecord)(unsafe.Pointer(uintptr(vload64((*uint64)(unsafe.Pointer(h + (a&65535)>>4*8))))))
+}
+
+// genHint sets the hints of r's granules in page's interval to to, or,
+// when to is nil, clears those that name r. The writer lock is held.
+func genHint(page *genInterval, r, to *genRecord) {
+	h := uintptr(page.hints)
+	if h == 0 {
+		return
+	}
+	base := page.interval << 16
+	lo, hi := max(r.lo, base), min(r.hi, base+65536)
+	if lo >= hi {
+		return // a trimmed registration that no longer reaches here
+	}
+	for g := (lo - base) >> 4; g <= (hi-1-base)>>4; g++ {
+		e := (*uint64)(unsafe.Pointer(h + g*8))
+		if to != nil {
+			*(*volatile[uint64])(unsafe.Pointer(e)) = uint64(uintptr(unsafe.Pointer(to)))
+		} else if uintptr(*e) == uintptr(unsafe.Pointer(r)) {
+			*(*volatile[uint64])(unsafe.Pointer(e)) = 0
+		}
+	}
+}
+
+// genHintsCreate gives page hints, each granule naming the newest of the
+// registrations linked over it. The writer lock is held.
+func genHintsCreate(page *genInterval) {
+	h := uintptr(genMetadata(4096 * 8)) // zero: metadata is never reused
+	for l := (*genLink)(unsafe.Pointer(uintptr(page.head))); l != nil; l = (*genLink)(unsafe.Pointer(l.next)) {
+		rp := uintptr(l.reg)
+		if rp == 0 {
+			continue
+		}
+		r := (*genRecord)(unsafe.Pointer(rp))
+		base := page.interval << 16
+		lo, hi := max(r.lo, base), min(r.hi, base+65536)
+		for g := (lo - base) >> 4; lo < hi && g <= (hi-1-base)>>4; g++ {
+			if e := (*uint64)(unsafe.Pointer(h + g*8)); *e == 0 {
+				*e = uint64(rp)
+			}
+		}
+	}
+	store64(&page.hints, uint64(h))
+}
+
+// genUnlink removes r's link from page's interval, if r has one there,
+// and keeps the link for reuse. The writer lock is held.
+func genUnlink(page *genInterval, r *genRecord) {
+	link := r.link0
+	if link == nil || page.interval != r.lo>>16 || uintptr(link.reg) != uintptr(unsafe.Pointer(r)) {
+		link = nil
+		for l := (*genLink)(unsafe.Pointer(uintptr(page.head))); l != nil; l = (*genLink)(unsafe.Pointer(l.next)) {
+			if uintptr(l.reg) == uintptr(unsafe.Pointer(r)) {
+				link = l
+				break
+			}
+		}
+	}
+	if link == nil {
+		return
+	}
+	store64(&link.reg, 0)
+	link.nextFree, page.free = page.free, link
+	genHint(page, r, nil)
 }
 
 func GenSlabBackingLive(p unsafe.Pointer, owner uintptr) bool {
@@ -566,6 +685,18 @@ func genBacking(p unsafe.Pointer, size uintptr) *genRecord {
 		}
 		return nil
 	}
+	// Tags at a granule are never reused (address history), so at most one
+	// registration's table holds want at a: when the hint, or a backing
+	// allocation of it, is that one, it is the registration the walk below
+	// would choose. (A new arena allocation's backing is the heap block
+	// under the arena's chunk, which the previous allocation's hint
+	// reaches as its parent.)
+	for r, n := genHinted(page, a), 0; want != 0 && r != nil && n < 4; r, n = r.parent, n+1 {
+		if r.active && a >= r.lo && a < r.hi && size <= r.hi-a &&
+			vload16(genEntry(r, a)) == want && (size == 0 || genLive(r, a, a+size, want)) {
+			return r
+		}
+	}
 	var best *genRecord
 	for l := uintptr(vload64(&page.head)); l != 0; {
 		link := (*genLink)(unsafe.Pointer(l))
@@ -588,30 +719,36 @@ func genBacking(p unsafe.Pointer, size uintptr) *genRecord {
 	return best
 }
 
+// genPublish links r into, or unlinks it from, every interval it covers.
+// The writer lock is held.
 func genPublish(r *genRecord, add bool) {
 	for i := r.lo >> 16; i <= (r.hi-1)>>16; i++ {
 		page := genPage(i, add)
-		var empty *genLink
-		for l := uintptr(vload64(&page.head)); l != 0; {
-			link := (*genLink)(unsafe.Pointer(l))
-			p := uintptr(vload64(&link.reg))
-			if !add && p == uintptr(unsafe.Pointer(r)) {
-				store64(&link.reg, 0)
-			}
-			if add && p == 0 && empty == nil {
-				empty = link
-			}
-			l = link.next
-		}
-		if !add {
+		if page == nil {
 			continue
 		}
-		if empty == nil {
-			empty = (*genLink)(genMetadata(unsafe.Sizeof(genLink{})))
-			empty.next = uintptr(vload64(&page.head))
-			store64(&page.head, uint64(uintptr(unsafe.Pointer(empty))))
+		if !add {
+			genUnlink(page, r)
+			continue
 		}
-		store64(&empty.reg, uint64(uintptr(unsafe.Pointer(r))))
+		link := page.free
+		if link != nil {
+			page.free = link.nextFree
+		} else {
+			link = (*genLink)(genMetadata(unsafe.Sizeof(genLink{})))
+			link.next = uintptr(page.head)
+			store64(&page.head, uint64(uintptr(unsafe.Pointer(link))))
+			page.links++
+		}
+		store64(&link.reg, uint64(uintptr(unsafe.Pointer(r))))
+		if i == r.lo>>16 {
+			r.link0 = link
+		}
+		if page.hints != 0 {
+			genHint(page, r, r)
+		} else if page.links > genHintLinks {
+			genHintsCreate(page)
+		}
 	}
 }
 
