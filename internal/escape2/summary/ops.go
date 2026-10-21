@@ -325,7 +325,7 @@ func widenResults(ps domain.Paths, from []ResultKey) []ResultKey {
 				if pass == 0 {
 					from[i].Key = cutKey(ps, rk.Key)
 				} else {
-					from[i] = ResultKey{rootKey(rk.Key), domain.Root}
+					from[i] = ResultKey{Key: rootKey(rk.Key), Field: domain.Root}
 				}
 			}
 		}

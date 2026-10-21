@@ -173,8 +173,8 @@ type Lifetime uint8
 const (
 	LifeStmt   Lifetime = iota + 1 // until the statement ends
 	LifeIter                       // until the iteration of its loop ends (section 18.4)
-	LifeBlock                      // until its block ends
-	LifeFrame                      // until the function returns
+	LifeBlock                      // until its block ends: reserved for objects the lowerer ends at a block exit (none yet)
+	LifeFrame                      // until the function returns: every plain local (section 18.2), whatever block declares it
 	LifeCaller                     // memory the caller provides
 	LifeHeap                       // heap or static memory
 )
@@ -217,14 +217,14 @@ const (
 	OpInput                   // Dst = input Index
 	OpLoad                    // Dst = *X (Type: the type of the location read)
 	OpStore                   // *X = Y (Type: the type of the location written)
-	OpField                   // Dst = &(*X).Path: an offset into what X points to
-	OpElem                    // Dst = &(*X)[i]: an element of the array or slice X points to
+	OpField                   // Dst = &(*X).Path: an offset into what X points to (Type: the type of what X points to)
+	OpElem                    // Dst = &(*X)[i]: an element of the array or slice X points to (Type: the type of what X points to)
 	OpSelect                  // Dst = X.Path: a field of the struct value in X (no memory)
 	OpCompose                 // Dst = a struct value whose field Fields[i] holds Args[i]
 	OpCopy                    // Dst = X
 	OpConv                    // Dst = X converted from Type to To (an interface): boxes into Obj when X is not direct
-	OpClosure                 // Dst = the closure of Callee; its record Obj holds Args (captures, in record order)
-	OpMethodVal               // Dst = the method value X.Method; its record Obj holds X
+	OpClosure                 // Dst = the closure of Callee; its record Obj holds Args (captures, in record order); Obj NoObj: a static record (no captures)
+	OpMethodVal               // Dst = the method value X.Method; its record Obj holds X at field 0; Obj NoObj: a static record
 	OpAssert                  // Dst = X.(Type): Type a concrete type or an interface
 	OpCall                    // Call
 	OpSink                    // X goes to Sink (Index: the result, for SinkReturn)

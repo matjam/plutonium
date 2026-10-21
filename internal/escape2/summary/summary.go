@@ -72,6 +72,8 @@ type Result struct {
 type ResultKey struct {
 	Key   domain.Key
 	Field domain.PathID
+	// FieldGE: the key is held at Field or at any field path under it.
+	FieldGE bool
 }
 
 // Region is what a function does with closure regions (section 11.5).
