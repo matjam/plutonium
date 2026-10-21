@@ -302,6 +302,12 @@ const (
 // OpField paths: elements are not told apart.
 const ElemStep = -1
 
+// AnyStep is a path step of OpField whose offset is not known: unsafe.Add,
+// or an unsafe.Pointer converted to another pointer type. The result may
+// point anywhere in the object X points into, at or after X's own path: the
+// solver takes it as an offset to any field, GE.
+const AnyStep = -2
+
 // HeapKind says what OpHeap's pointer is.
 type HeapKind uint8
 
