@@ -109,9 +109,11 @@ func (s *solver) has(n uint32, id uint64) bool {
 	return w < len(b) && b[w]&(1<<(id%64)) != 0
 }
 
-// addID adds token id to node n and reports whether it was new.
+// addID adds token id to node n and reports whether it was new. An In
+// token that a GE In token of the node covers is not added (rules.go, "GE
+// subsumption"): everything it leads to, the covering token leads to.
 func (s *solver) addID(n uint32, id uint64) bool {
-	if s.has(n, id) {
+	if s.has(n, id) || s.coveredIn(n, id) {
 		return false
 	}
 	w := int(id / 64)
@@ -124,6 +126,50 @@ func (s *solver) addID(n uint32, id uint64) bool {
 }
 
 func (s *solver) nodeKind(n uint32) int { return int(s.nodeInfo.s[n] & 0xff) }
+
+// coveredIn reports whether node n holds a GE In token, other than id, that
+// covers token id: a prefix of its path (itself included) with GE, and a tag
+// that holds its tag.
+func (s *solver) coveredIn(n uint32, id uint64) bool {
+	t := s.tokAt(id)
+	if t.kind != tIn {
+		return false
+	}
+	steps := s.ps.Steps(t.path)
+	tsteps := s.ps.Steps(t.tag)
+	p := domain.Root
+	for i := 0; ; i++ {
+		// Candidate coverers at path p: the same tag (GE, or exact when
+		// t's is exact), and every prefix of the tag with GE.
+		q := domain.Root
+		for j := 0; ; j++ {
+			c := tok{kind: tIn, base: t.base, path: p, ge: true, tag: q, tagGE: true}
+			if s.holdsTok(n, c, id) {
+				return true
+			}
+			if j == len(tsteps) {
+				break
+			}
+			q, _ = s.ps.Extend(q, tsteps[j])
+		}
+		if !t.tagGE {
+			if s.holdsTok(n, tok{kind: tIn, base: t.base, path: p, ge: true, tag: t.tag}, id) {
+				return true
+			}
+		}
+		if i == len(steps) {
+			return false
+		}
+		p, _ = s.ps.Extend(p, steps[i])
+	}
+}
+
+// holdsTok reports whether node n holds token c (when it is not token id).
+func (s *solver) holdsTok(n uint32, c tok, id uint64) bool {
+	w0, w1 := c.words()
+	cid, ok := s.tokIdx.get(w0, w1)
+	return ok && cid != id && s.has(n, cid)
+}
 
 // addTokens adds tokens to node n and queues it if it grew.
 func (s *solver) addTokens(n uint32, ids []uint64) bool {
@@ -236,6 +282,7 @@ func (s *solver) sendAlong(e uint64, d []uint64) {
 
 // transform applies transform word x to t, pushing the results on s.buf.
 func (s *solver) transform(x uint64, t tok) {
+	s.nsteps++
 	path := domain.PathID(x >> 32)
 	flag := x&(1<<8) != 0
 	switch int(x & 0xff) {
@@ -294,6 +341,7 @@ func (s *solver) run() {
 		for s.head < len(s.work.s) {
 			n := uint32(s.work.s[s.head])
 			s.head++
+			s.checkLimit()
 			s.inWork.s[n] = 0
 			if s.find(n) != n {
 				continue

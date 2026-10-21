@@ -17,7 +17,7 @@ func (v *vec) grow(a domain.Arena, need int) {
 	if need <= cap(v.s) {
 		return
 	}
-	n := max(2*cap(v.s), need, 16)
+	n := max(2*cap(v.s), need, 4)
 	ns := a.Alloc(n)
 	copy(ns, v.s)
 	v.s = ns[:len(v.s)]

@@ -133,9 +133,54 @@ func (s *solver) def(r eir.Reg, v value) {
 	if r == 0 {
 		return
 	}
-	if s.regs[r].addAll(v) {
+	if s.addCovered(s.regs[r], v) {
 		s.changed = true
 	}
+}
+
+// covers reports whether tagged token c covers x (rules.go, "GE
+// subsumption"): both In tokens of one input, c GE with a path that is a
+// prefix of x's, and c's tag holding x's.
+func (s *solver) covers(c, x tv) bool {
+	if c == x || c.t.kind != kIn || x.t.kind != kIn || !c.t.ge || c.t.id != x.t.id || !s.ps.HasPrefix(x.t.path, c.t.path) {
+		return false
+	}
+	if c.tag == x.tag {
+		return c.g || !x.g
+	}
+	return c.g && s.ps.HasPrefix(x.tag, c.tag)
+}
+
+// addCovered adds the elements of w to v that no GE element of v covers,
+// and drops the elements of v a new GE element covers. It reports whether v
+// changed.
+func (s *solver) addCovered(v, w value) bool {
+	changed := false
+	for x := range w {
+		if v[x] {
+			continue
+		}
+		covered := false
+		for c := range v {
+			if s.covers(c, x) {
+				covered = true
+				break
+			}
+		}
+		if covered {
+			continue
+		}
+		if x.t.kind == kIn && x.t.ge {
+			for y := range v {
+				if s.covers(x, y) {
+					delete(v, y)
+				}
+			}
+		}
+		v[x] = true
+		changed = true
+	}
+	return changed
 }
 
 // putPlace adds v to the place pl.
@@ -146,7 +191,7 @@ func (s *solver) putPlace(pl place, v value) {
 		s.places[pl] = cur
 		s.changed = true
 	}
-	if cur.addAll(v) {
+	if s.addCovered(cur, v) {
 		s.changed = true
 	}
 }

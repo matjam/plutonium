@@ -58,8 +58,19 @@ func TestDifferential(t *testing.T) {
 	if v, err := strconv.Atoi(os.Getenv("REFSOLVE_FROM")); err == nil {
 		from = int64(v)
 	}
-	trace := os.Getenv("REFSOLVE_TRACE") != ""
-	for seed := from; seed < from+int64(cases()); seed++ {
+	n := cases()
+	if ran := runRange(t, from, n, os.Getenv("REFSOLVE_TRACE") != ""); ran != n {
+		t.Fatalf("ran %d cases of %d", ran, n)
+	}
+	t.Logf("seeds %d to %d: %d cases, both solvers on each", from, from+int64(n)-1, n)
+}
+
+// runRange compares the two solvers on seeds from to from+n-1 and returns how
+// many cases ran both solvers (Compare counts them).
+func runRange(t *testing.T, from int64, n int, trace bool) int {
+	t.Helper()
+	before := compared.Load()
+	for seed := from; seed < from+int64(n); seed++ {
 		if trace {
 			fmt.Fprintln(os.Stderr, "seed", seed)
 		}
@@ -67,6 +78,31 @@ func TestDifferential(t *testing.T) {
 		if d := compareBounded(c); d != "" {
 			t.Fatalf("solve and refsolve differ on seed %d:\n%s\n%s", seed, d, c.Dump())
 		}
+	}
+	return int(compared.Load() - before)
+}
+
+// A run over a range of seeds runs both solvers on every seed of it, as a
+// run from seed 0 does, and a range far from 0 makes cases of the same size
+// as one near it (the generator does not degenerate with large seeds).
+func TestRangeRunsEveryCase(t *testing.T) {
+	if got := runRange(t, 0, 50, false); got != 50 {
+		t.Fatalf("from 0: %d cases of 50", got)
+	}
+	if got := runRange(t, 20000, 50, false); got != 50 {
+		t.Fatalf("from 20000: %d cases of 50", got)
+	}
+	size := func(from int64) int {
+		n := 0
+		for seed := from; seed < from+200; seed++ {
+			for _, b := range Random(seed, domain.NewPaths()).F.Blocks {
+				n += len(b.Instrs)
+			}
+		}
+		return n
+	}
+	if a, b := size(0), size(20000); b*2 < a || a*2 < b {
+		t.Errorf("instructions in 200 cases: %d from seed 0, %d from seed 20000", a, b)
 	}
 }
 
@@ -91,5 +127,15 @@ func compareBounded(c *Case) string {
 		return d
 	case <-time.After(caseTime):
 		return fmt.Sprintf("time bound: the case ran past %v", caseTime)
+	}
+}
+
+// Seed 5401 is a random function whose one input reached about 260,000
+// distinct tokens within the path limits of section 18.3 before the solvers
+// dropped tokens a GE token covers (rules.go, "GE subsumption"); now it is
+// an ordinary case, and both solvers must agree on it quickly.
+func TestSeed5401(t *testing.T) {
+	if got := runRange(t, 5401, 1, false); got != 1 {
+		t.Fatalf("ran %d cases", got)
 	}
 }

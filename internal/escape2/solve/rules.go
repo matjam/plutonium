@@ -49,6 +49,14 @@ package solve
 // For an In token, the tag Root (not g) means the value is the whole value
 // found at P, whatever its type: a field step on it extends P.
 //
+// GE subsumption: a value never needs an In token that a GE In token of the
+// same value covers (same input, a path that is a prefix of the token's,
+// and a tag that holds its tag: the same tag, GE or exact for an exact one,
+// or a GE prefix of it). A solver may drop such a token when it arrives, and
+// may drop the tokens a GE token covers when it arrives; everything the
+// covered token leads to (loads, offsets, fields, summary keys) the covering
+// one leads to, so the summary after Widen and the findings are the same.
+//
 // A place is <o, p, pg> for a frame object; pt(place) is the value it holds.
 // Places are flow-insensitive: a place holds everything ever stored in it.
 // Registers are SSA, so a register's value is flow-insensitive too and

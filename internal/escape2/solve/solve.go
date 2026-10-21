@@ -21,6 +21,7 @@ func Solve(f *eir.Func, env Env, ws *Workspace) Result {
 	s.build()
 	s.run()
 	s.checkDrops()
+	s.measure()
 	return Result{Summary: s.summary(), Findings: s.findings}
 }
 
@@ -33,7 +34,9 @@ type solver struct {
 	a    domain.Arena
 	prog *eir.Program
 
-	nobj int // objects of f, then one region per call site
+	nobj   int // objects of f, then one region per call site
+	base   int // the arena's bytes when the solve began
+	nsteps int // constraint firings and edge transforms, for MaxFuncSteps
 
 	toks   vec // two words per tagged token
 	tokIdx table
@@ -85,6 +88,7 @@ func newSolver(f *eir.Func, env Env, ws *Workspace) *solver {
 		sets: ws.Sets,
 		a:    ws.Arena,
 		prog: env.Program(),
+		base: ws.Arena.Bytes(),
 	}
 	s.nobj = len(f.Objects) + f.NumSites
 	s.objPlaces.resize(s.a, s.nobj)
@@ -460,6 +464,7 @@ func (s *solver) tokNode(t tok) uint32 {
 // --- firing complex constraints ---
 
 func (s *solver) fire(n uint32, c uint64, id uint64) {
+	s.nsteps++
 	w := s.cons.s[c*consWords : c*consWords+consWords]
 	kind, a, b := int(w[0]), w[1], w[2]
 	t := s.tokAt(id)

@@ -3,11 +3,16 @@ package refsolve
 import (
 	"fmt"
 	"strings"
+	"sync/atomic"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/escape2/summary"
 )
+
+// compared counts the cases Compare has run both solvers on, for the test
+// that a range of seeds runs every case.
+var compared atomic.Int64
 
 func resultOf(sm *summary.Summary) solve.Result { return solve.Result{Summary: sm} }
 
@@ -33,33 +38,18 @@ func Available() (ok bool) {
 // results are equal, else a diff of the two.
 //
 // Each solver is bounded so that a case that grows without end fails with
-// its seed instead of taking the machine's memory: the solver's arena is
-// capped at MaxCaseBytes (its sets live in it), and the reference solver at
+// its seed instead of taking the machine's memory: the solver by its own
+// limit (solve.MaxFuncArena, a LimitError panic), the reference solver at
 // MaxPasses passes and MaxValues tagged tokens (Solve panics past them).
 func Compare(c *Case) string {
-	a := &cappedArena{Arena: domain.NewArena(), max: MaxCaseBytes}
+	a := domain.NewArena()
 	ws := &solve.Workspace{Arena: a, Sets: domain.NewSets(a)}
+	compared.Add(1)
 	got := Canon(c.Env.P, solve.Solve(c.F, c.Env, ws))
 	ws.Sets.Reset()
 	a.Reset()
 	want := Canon(c.Env.P, Solve(c.F, c.Env))
 	return Diff(got, want)
-}
-
-// MaxCaseBytes caps the solver's arena on one case of the differential test.
-const MaxCaseBytes = 256 << 20
-
-// cappedArena panics when more than max bytes would be held.
-type cappedArena struct {
-	domain.Arena
-	max int
-}
-
-func (a *cappedArena) Alloc(n int) []uint64 {
-	if a.Bytes()+8*n > a.max {
-		panic(fmt.Sprintf("escape2/refsolve: the solver's arena passed %d bytes on one case", a.max))
-	}
-	return a.Arena.Alloc(n)
 }
 
 // Diff is "" when got and want are equal, else the lines only in one of them.
