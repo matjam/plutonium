@@ -40,6 +40,30 @@ bind it (recorded in the project decision log):
 Build status: stages 0 to 2 are being built in `internal/escape2`, off by default, by several builders in
 parallel; the shared interfaces are the files named in `internal/escape2/doc.go`.
 
+**Stage 0 results (2026-10-21).** The lowering oracle is `tools/escapeoracle` (with
+`internal/lower/oracle.go`, `internal/escape/oracle.go`, `internal/build/oracle.go`); it ran against the
+current analysis over the escapedigest corpus (481 programs), the review programs (980) and the translated
+front end (`selfhost/demo/diagdemo`). Holes it found in today's analysis, fixed with regression tests in
+`internal/escape/escape_test.go`: pluto/fmt's descriptor walk calls the pointer methods of structs inside a
+box (rt.Make with PtrTo), which were not candidates and whose interior pointers a filter dropped; default
+parameter values (section 10.13) were not evaluated at calls, so a default slice literal kept by the callee
+dangled. It also re-finds, mechanically, the open defects of the fourth review (`len` as `Len`, promoted
+method expressions, func-typed type parameters, `WaitGroup.Task`). The call-graph measurement is
+`tools/escapescc`:
+
+| Program | Graph | Largest SCC | Estimated arena |
+|---|---|---|---|
+| translated front end (diagdemo), lowered | static | 103 functions, 161k SSA values | 25 MB |
+| translated front end (diagdemo), lowered | all dynamic edges unioned | 1,383 functions, 590k SSA values | 90 MB |
+| whole translated compiler (`selfhost/cmd/pluto`), typed AST by class hierarchy analysis | static | 103 functions | 28 MB |
+| whole translated compiler, typed AST | interface edges | 233 functions | 19 MB |
+| whole translated compiler, typed AST | all dynamic edges unioned | 3,969 of 7,284 functions | 426 MB |
+
+The arena estimate is 160 bytes per SSA value (6 SSA values per AST node, measured on diagdemo). The
+giant SCC with dynamic edges comes mostly from func values of common signatures; the origin analysis of
+section (b) and per-signature dispatch nodes are what must keep it in check, and stage 2's scheduler
+measures the real graph.
+
 The original study's status line follows. Design study, no code. Written against `cd87595c` (this worktree), the four adversarial
 reviews (REVIEW.md to REVIEW4.md in the worktrees named in the brief), the selfSafe notes of
 `940e37f3`, decision D44 (`project:plutonium:decisions`) and the specification sections 11.5, 11.11,
