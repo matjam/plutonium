@@ -106,7 +106,10 @@ package solve
 // LifeIter < LifeBlock < LifeFrame < LifeCaller < LifeHeap, except that for
 // Life(o2) = Life(o) = LifeIter, o's loop must be o2's loop or nested in it;
 // or Life(o2) = Life(o) and neither is LifeIter. Reg(s) has the lifetime of
-// its call (above). A token is a frame token when it is Obj(o, ...) of an
+// its call (above), with one exception: Reg(s) of a call outside any loop
+// may be stored in a LifeCaller object (section 11.5: a function that
+// returns the closures of a call passes part of its own region down for
+// them). A token is a frame token when it is Obj(o, ...) of an
 // object o whose Life is not LifeHeap (LifeCaller objects and regions
 // included).
 //
@@ -140,7 +143,11 @@ package solve
 //	OpSink       SinkReturn: for each <u,T,g> in X:
 //	                 u = Obj frame, LifeFrame or shorter  finding E3001
 //	                 u = Obj LifeCaller (a region)        Region.Builds,
-//	                                                      OuterResults += Index
+//	                                                      OuterResults += Index,
+//	                                                      and for every
+//	                                                      Obj(Reg(s),...) in
+//	                                                      its reach, the check
+//	                                                      below
 //	                 u = Obj(Reg(s),...)                  Region.OuterResults
 //	                                                      += Index, and every
 //	                                                      frame token in

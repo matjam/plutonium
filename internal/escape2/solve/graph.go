@@ -55,15 +55,15 @@ const edgeWords = 5
 const consWords = 4
 
 const (
-	cLoad      = iota + 1 // a: the destination node; b: 1 if heap-only
-	cReach                // the node's own tokens: subscribe their places
-	cStore                // a: the value node; b: why
-	cStoreIn              // a: the destination token; b: why
-	cSink                 // a: code index; b: why
-	cReturn               // a: result index; b: why
-	cRegionChk            // a: result index; b: why
-	cBack                 // a: loop index; b: why
-	cEsc                  // a summary Esc entry: a: code index (E3003); b: why
+	cLoad       = iota + 1 // a: the destination node; b: 1 if heap-only
+	cReach                 // the node's own tokens: subscribe their places
+	cStore                 // a: the value node; b: why
+	cStoreIn               // a: the destination token; b: why
+	cSink                  // a: code index; b: why
+	cReturn                // a: result index; b: why
+	cRegionChk             // a: result index; b: why
+	cBack                  // a: loop index; b: why
+	cRegionWalk            // a: result index; b: why: the regions of calls in it
 )
 
 func (s *solver) newNode(kind uint64) uint32 {
@@ -193,69 +193,67 @@ func (s *solver) sendAlong(e uint64, d domain.SetID) {
 		s.addTokens(m, d)
 		return
 	}
-	buf := s.buf[:0]
+	s.buf.s = s.buf.s[:0]
 	for _, id := range s.sets.Elems(d) {
-		buf = s.transform(buf, x, s.tokAt(id))
+		s.transform(x, s.tokAt(id))
 	}
 	if why != 0 && s.nodeKind(m) == nkPlace {
-		for _, id := range buf {
+		for _, id := range s.buf.s {
 			s.checkStore(m, s.tokAt(id), why)
 		}
 	}
-	s.buf = buf[:0]
-	if len(buf) > 0 {
-		s.addTokens(m, s.sets.Intern(buf))
+	if len(s.buf.s) > 0 {
+		s.addTokens(m, s.sets.Intern(s.buf.s))
 	}
 }
 
-// transform applies transform word x to t, appending the results.
-func (s *solver) transform(buf []uint64, x uint64, t tok) []uint64 {
+// transform applies transform word x to t, pushing the results on s.buf.
+func (s *solver) transform(x uint64, t tok) {
 	path := domain.PathID(x >> 32)
 	flag := x&(1<<8) != 0
 	switch int(x & 0xff) {
 	case xID:
-		return append(buf, s.intern(t))
+		s.buf.push(s.a, s.intern(t))
 	case xSel:
 		if u, ok := s.sel(t, path); ok {
-			buf = append(buf, s.intern(u))
+			s.buf.push(s.a, s.intern(u))
 		}
 	case xPre:
-		buf = append(buf, s.intern(s.pre(t, path, flag)))
+		s.buf.push(s.a, s.intern(s.pre(t, path, flag)))
 	case xOff:
 		u := s.off(t, s.ps.Steps(path))
 		if flag && (u.kind == tObj || u.kind == tIn) {
 			u.ge = true // the path was cut: anywhere under it
 		}
-		buf = append(buf, s.intern(u))
+		s.buf.push(s.a, s.intern(u))
 	case xStep:
 		if u, ok := s.sel(t, path); ok {
-			buf = append(buf, s.intern(u))
+			s.buf.push(s.a, s.intern(u))
 		}
 		if t.kind == tObj && t.tag == domain.Root {
-			buf = append(buf, s.intern(s.off(asPointer(t), s.ps.Steps(path))))
+			s.buf.push(s.a, s.intern(s.off(asPointer(t), s.ps.Steps(path))))
 		}
 		if t.kind == tObj && t.tagGE {
 			// Somewhere in the value: it may be the pointer the step
 			// offsets.
-			buf = append(buf, s.intern(geify(s.off(t, s.ps.Steps(path)))))
+			s.buf.push(s.a, s.intern(geify(s.off(t, s.ps.Steps(path)))))
 		}
 	case xGe:
-		buf = append(buf, s.intern(geify(t)))
+		s.buf.push(s.a, s.intern(geify(t)))
 	case xRetag:
 		t.tag, t.tagGE = domain.Root, true
-		buf = append(buf, s.intern(t))
+		s.buf.push(s.a, s.intern(t))
 	case xPreLoad:
 		u := s.pre(t, path, flag)
-		buf = append(buf, s.intern(u))
+		s.buf.push(s.a, s.intern(u))
 	case xSelLoad:
 		if u, ok := s.sel(t, path); ok {
 			if flag {
 				u.tag, u.tagGE = domain.Root, true
 			}
-			buf = append(buf, s.intern(u))
+			s.buf.push(s.a, s.intern(u))
 		}
 	}
-	return buf
 }
 
 // run propagates until nothing changes.
@@ -318,10 +316,9 @@ func (s *solver) lazyCycle(n uint32, e uint64) {
 // collapseFrom runs Tarjan's algorithm over the identity edges between
 // collapsible nodes reachable from root, and merges each cycle it finds.
 func (s *solver) collapseFrom(root uint32) {
-	s.tjIndex = s.tjIndex[:0]
-	s.tjLow = s.tjLow[:0]
-	s.tjStack = s.tjStack[:0]
-	s.tjOn = s.tjOn[:0]
+	s.tjIndex.s = s.tjIndex.s[:0]
+	s.tjLow.s = s.tjLow.s[:0]
+	s.tjStack.s = s.tjStack.s[:0]
 	s.tjSeen.n = 0
 	clear(s.tjSeen.slots)
 	s.tjCounter = 0
@@ -336,12 +333,11 @@ func (s *solver) tjNum(n uint32) (int, bool) {
 func (s *solver) tarjan(n uint32) uint64 {
 	idx := s.tjCounter
 	s.tjCounter++
-	s.tjSeen.put(s.a, uint64(n), 0, uint64(len(s.tjIndex)))
-	slot := len(s.tjIndex)
-	s.tjIndex = append(s.tjIndex, idx)
-	s.tjLow = append(s.tjLow, idx)
-	s.tjStack = append(s.tjStack, n)
-	s.tjOn = append(s.tjOn, true)
+	s.tjSeen.put(s.a, uint64(n), 0, uint64(len(s.tjIndex.s)))
+	slot := len(s.tjIndex.s)
+	s.tjIndex.push(s.a, idx)
+	s.tjLow.push(s.a, idx|tjOnStack)
+	s.tjStack.push(s.a, uint64(n))
 	for e := s.nodeEdges.s[n]; e != 0; e = s.edges.s[(e-1)*edgeWords+3] {
 		w := s.edges.s[(e-1)*edgeWords : (e-1)*edgeWords+edgeWords]
 		if w[1] != xw(xID, 0, false) || w[2] != 0 {
@@ -352,31 +348,38 @@ func (s *solver) tarjan(n uint32) uint64 {
 			continue
 		}
 		if ms, ok := s.tjNum(m); !ok {
-			low := s.tarjan(m)
-			s.tjLow[slot] = min(s.tjLow[slot], low)
-		} else if s.tjOn[ms] {
-			s.tjLow[slot] = min(s.tjLow[slot], s.tjIndex[ms])
+			s.lower(slot, s.tarjan(m))
+		} else if s.tjLow.s[ms]&tjOnStack != 0 {
+			s.lower(slot, s.tjIndex.s[ms])
 		}
 	}
-	if s.tjLow[slot] == s.tjIndex[slot] {
-		// Pop the component.
-		var first uint32
-		k := len(s.tjStack) - 1
+	if s.tjLow.s[slot]&^tjOnStack == s.tjIndex.s[slot] {
+		// Pop the component and merge it into n.
+		k := len(s.tjStack.s) - 1
 		for ; ; k-- {
-			m := s.tjStack[k]
+			m := uint32(s.tjStack.s[k])
 			ms, _ := s.tjNum(m)
-			s.tjOn[ms] = false
+			s.tjLow.s[ms] &^= tjOnStack
 			if m == n {
 				break
 			}
 		}
-		first = n
-		for _, m := range s.tjStack[k+1:] {
-			s.merge(first, m)
+		for _, m := range s.tjStack.s[k+1:] {
+			s.merge(n, uint32(m))
 		}
-		s.tjStack = s.tjStack[:k]
+		s.tjStack.s = s.tjStack.s[:k]
 	}
-	return s.tjLow[slot]
+	return s.tjLow.s[slot] &^ tjOnStack
+}
+
+// tjOnStack marks, in tjLow, a node on Tarjan's stack.
+const tjOnStack = 1 << 63
+
+// lower lowers the low link of slot to low, keeping its on-stack mark.
+func (s *solver) lower(slot int, low uint64) {
+	if low < s.tjLow.s[slot]&^tjOnStack {
+		s.tjLow.s[slot] = low | s.tjLow.s[slot]&tjOnStack
+	}
 }
 
 // merge folds node b into node a: sets, edges and constraints. The merged

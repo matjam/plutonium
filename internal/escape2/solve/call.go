@@ -59,14 +59,14 @@ func (s *solver) applyCandidate(in *eir.Instr, cand eir.FuncID) {
 
 // binding returns the node bound to each input of a candidate with n inputs
 // (rules.go, "Input binding"); 0 for an input with no argument.
-func (s *solver) binding(c *eir.Call, n int, cand eir.FuncID) []uint32 {
-	bind := make([]uint32, n)
+func (s *solver) binding(c *eir.Call, n int, cand eir.FuncID) []uint64 {
+	bind := s.a.Alloc(n)
 	args := c.Args
 	k := 0
 	switch c.Kind {
 	case eir.CallIface, eir.CallTypeParam:
 		if c.Target != 0 && n > 0 {
-			bind[0] = uint32(c.Target)
+			bind[0] = uint64(c.Target)
 			k = 1
 		}
 	}
@@ -74,17 +74,17 @@ func (s *solver) binding(c *eir.Call, n int, cand eir.FuncID) []uint32 {
 		if k >= n {
 			break
 		}
-		bind[k] = uint32(a)
+		bind[k] = uint64(a)
 		k++
 	}
 	if c.Kind == eir.CallFunc && n == len(args)+1 {
-		bind[n-1] = uint32(c.Target)
+		bind[n-1] = uint64(c.Target)
 	}
 	return bind
 }
 
 // apply applies summary sum of callee cand at the call in.
-func (s *solver) apply(in *eir.Instr, bind []uint32, sum *summary.Summary, cand eir.FuncID) {
+func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand eir.FuncID) {
 	c := in.Call
 	why := func(entry int) uint64 { return s.why(in.Pos, whyCall, 0, c.Site, cand, entry) }
 	val := func(k domain.Key) (uint32, bool) {
@@ -92,7 +92,7 @@ func (s *solver) apply(in *eir.Instr, bind []uint32, sum *summary.Summary, cand 
 		if i >= len(bind) || bind[i] == 0 {
 			return 0, false
 		}
-		return s.valNode(bind[i], k.Path(), k.GE()), true
+		return s.valNode(uint32(bind[i]), k.Path(), k.GE()), true
 	}
 	for e, k := range sum.Esc {
 		if v, ok := val(k); ok {
@@ -140,14 +140,14 @@ func (s *solver) apply(in *eir.Instr, bind []uint32, sum *summary.Summary, cand 
 // applyDefault applies the default of a bodyless function without a
 // summary: it keeps every input, and its results hold every input and heap
 // memory (section 18.3, "Facts the compiler cannot see").
-func (s *solver) applyDefault(in *eir.Instr, bind []uint32, cand eir.FuncID) {
+func (s *solver) applyDefault(in *eir.Instr, bind []uint64, cand eir.FuncID) {
 	c := in.Call
 	w := s.why(in.Pos, whyCall, 0, c.Site, cand, -1)
 	for _, n := range bind {
 		if n == 0 {
 			continue
 		}
-		r := s.reachNode(n)
+		r := s.reachNode(uint32(n))
 		s.addCons(r, cSink, cE3003, w)
 		for _, res := range c.Results {
 			if res != 0 {
@@ -165,14 +165,14 @@ func (s *solver) applyDefault(in *eir.Instr, bind []uint32, cand eir.FuncID) {
 // region returns the object of the region the function provides at call
 // site site, seeding it once with what the callee may have put there
 // (rules.go, Reg(s)).
-func (s *solver) region(site eir.SiteID, bind []uint32) uint32 {
+func (s *solver) region(site eir.SiteID, bind []uint64) uint32 {
 	o := uint32(len(s.f.Objects)) + uint32(site)
 	pn := s.place(o, domain.Root, true)
 	s.addTok(pn, tok{kind: tObj, base: o, ge: true, tagGE: true})
 	s.addTok(pn, heapTok)
 	for _, n := range bind {
 		if n != 0 {
-			s.addEdge(s.reachNode(n), pn, xw(xID, 0, false), 0)
+			s.addEdge(s.reachNode(uint32(n)), pn, xw(xID, 0, false), 0)
 		}
 	}
 	return o

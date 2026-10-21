@@ -175,3 +175,28 @@ func TestBottomCallee(t *testing.T) {
 	e.sums[g.f.ID] = &summary.Summary{Inputs: 1, Esc: []domain.Key{e.key(0, false)}}
 	wantFindings(t, e.solve(t, b.f), "E3003@0")
 }
+
+// A function that returns its own closure holding the closure of a call
+// passes part of its region down for it (section 11.5): allowed, unless the
+// call's region holds a view of the frame (E3001).
+func TestRegionNested(t *testing.T) {
+	e := newEnv()
+	g := regionCallee(t, e)
+	b := e.fn("f", 1, 1)
+	reg := b.obj("region", eir.LifeCaller, -1)
+	res := b.static(g.f, 1, b.input(0))
+	b.store(b.addr(reg, 0), res[0])
+	b.ret(0, b.addr(reg))
+	r := e.solve(t, b.f)
+	wantFindings(t, r, "")
+	e.wantSummary(t, r, "builds; outer0")
+
+	b = e.fn("h", 0, 1)
+	reg = b.obj("region", eir.LifeCaller, -1)
+	x := b.obj("x", eir.LifeFrame, -1)
+	res = b.static(g.f, 1, b.addr(x))
+	b.store(b.addr(reg, 0), res[0])
+	b.at(5).ret(0, b.addr(reg))
+	r = e.solve(t, b.f)
+	wantFindings(t, r, "E3001@5")
+}

@@ -66,12 +66,10 @@ type solver struct {
 	drops                   vec // block<<32 | instr, of drops of statement temporaries
 	heapNode                uint32
 	scratch1                [1]uint64
-	buf                     []uint64
+	buf                     vec
 	merged                  int
 	noCollapse              bool // tests: solve without cycle collapse
-	tjIndex, tjLow          []uint64
-	tjStack                 []uint32
-	tjOn                    []bool
+	tjIndex, tjLow, tjStack vec
 	tjSeen                  table
 	tjCounter               uint64
 	stepBuf                 []domain.Step
@@ -214,6 +212,19 @@ func (s *solver) outlives(o2, o uint32) bool {
 		return s.nested(lp, lp2)
 	}
 	return true
+}
+
+// regionOutlives is the exception of section 11.5 to the lifetime order: the
+// region of a call outside any loop may be held by the region the function's
+// own caller provides, since a function that returns the closures of a call
+// passes part of its own region down for them.
+func (s *solver) regionOutlives(o2, o uint32) bool {
+	if !s.isRegion(o2) {
+		return false
+	}
+	l2, _ := s.life(o2)
+	l, _ := s.life(o)
+	return l2 == eir.LifeFrame && l == eir.LifeCaller
 }
 
 // shortCode is the code for storing a pointer to o2 where it outlives o2.
@@ -387,7 +398,7 @@ func (s *solver) checkStore(m uint32, u tok, why uint64) {
 		return
 	}
 	o := uint32(s.nodeInfo.s[m] >> 9)
-	if !s.outlives(u.base, o) {
+	if !s.outlives(u.base, o) && !s.regionOutlives(u.base, o) {
 		s.report(s.shortCode(u.base), u.base, why)
 	}
 }
@@ -537,6 +548,11 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			case l == eir.LifeCaller:
 				s.builds = true
 				s.addOuter(r)
+				// The regions of calls whose closures it holds are in it
+				// too, with what they captured. What the function stored
+				// in it itself had the store check.
+				rn := s.reachNode(s.tokNode(asPointer(t)))
+				s.addCons(rn, cRegionWalk, a, b)
 			default:
 				s.report(cE3001, t.base, b)
 			}
@@ -550,6 +566,11 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			s.addResHeap(r, false)
 		case tCHeap:
 			s.addResHeap(r, true)
+		}
+	case cRegionWalk:
+		if t.kind == tObj && s.isRegion(t.base) {
+			rn := s.reachNode(s.tokNode(asPointer(t)))
+			s.addCons(rn, cRegionChk, a, b)
 		}
 	case cRegionChk:
 		if t.kind == tObj && !s.isRegion(t.base) {
