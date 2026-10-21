@@ -287,6 +287,72 @@ type S2 struct { p *int ; g func(b int) }
 	}
 }
 
+// TestEmbeddedIfaceCandidates checks a method call on a type parameter
+// instantiated with a struct that has the method only through an embedded
+// interface: no function of the program is that method, and the call must
+// still reach the implementations (it dispatches on the field), never
+// nothing.
+func TestEmbeddedIfaceCandidates(t *testing.T) {
+	pkg := typecheck(t, `
+type Putter interface{ Put(p *int) }
+type I struct{}
+func (*I) Put(p *int) {}
+type W struct{ Putter }
+func put[P Putter](p P, x *int) { p.Put(x) }
+`)
+	I, W := lookupType(t, pkg, "I"), lookupType(t, pkg, "W")
+	put := lookupFunc(t, pkg, "put")
+	tp := put.Signature().TypeParams().At(0)
+	m := method(t, lookupType(t, pkg, "Putter"), "Put")
+	pr := newProg()
+	iPut := pr.decl(method(t, types2.NewPointer(I), "Put"))
+	pb := pr.decl(put)
+	c := &eir.Call{Kind: eir.CallTypeParam, Method: m, Iface: tp, Args: []eir.Reg{pb.input(0), pb.input(1)}}
+	pb.call(c)
+	main := pr.fn("main", eir.FuncKey{}, nil)
+	main.f.Facts.Instances = []eir.Instance{{Obj: put, Args: []types2.Type{W}}}
+	main.f.Facts.Converted = []types2.Type{types2.NewPointer(I)}
+	got := stageB(pr.p).Candidates(pb.f, c)
+	found := false
+	for _, id := range got {
+		if id == iPut.f.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("candidates %v do not include (*I).Put", got)
+	}
+}
+
+// TestTypeParamDropCandidates checks the drop of a value of type
+// parameter type: it reaches the Drop method and drop glue of each
+// instantiation, and only those.
+func TestTypeParamDropCandidates(t *testing.T) {
+	pkg := typecheck(t, `
+type O owner struct{ p *int }
+func (o *O) Drop() {}
+type Q owner struct{ p *int }
+func (q *Q) Drop() {}
+func hold[T owner any](t T) {}
+`)
+	O, Q := lookupType(t, pkg, "O"), lookupType(t, pkg, "Q")
+	hold := lookupFunc(t, pkg, "hold")
+	tp := hold.Signature().TypeParams().At(0)
+	pr := newProg()
+	oDrop := pr.decl(method(t, types2.NewPointer(O), "Drop"))
+	pr.decl(method(t, types2.NewPointer(Q), "Drop"))
+	glueO := pr.fn("O (drop)", eir.FuncKey{Synth: &eir.Synth{Kind: eir.SynthDropGlue, Recv: O}}, nil)
+	pr.fn("Q (drop)", eir.FuncKey{Synth: &eir.Synth{Kind: eir.SynthDropGlue, Recv: Q}}, nil)
+	hb := pr.decl(hold)
+	c := &eir.Call{Kind: eir.CallTypeParam, Iface: tp, Implicit: eir.ImplDrop, Args: []eir.Reg{hb.input(0)}}
+	hb.call(c)
+	main := pr.fn("main", eir.FuncKey{}, nil)
+	main.f.Facts.Instances = []eir.Instance{{Obj: hold, Args: []types2.Type{O}}}
+	if got, want := stageB(pr.p).Candidates(hb.f, c), idsOf(oDrop, glueO); !sameIDs(got, want) {
+		t.Errorf("candidates %v, want %v", got, want)
+	}
+}
+
 // TestFuncValueCandidates checks func-value calls: by signature, a generic
 // signature standing for its instantiations, and nothing for a call in code
 // that is never instantiated.

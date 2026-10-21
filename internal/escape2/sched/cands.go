@@ -69,6 +69,7 @@ type cands struct {
 	funcMemo  map[*types2.Signature][]eir.FuncID
 	sigMemo   map[*types2.Signature]map[typeID]bool // nil: open
 	defs      map[eir.FuncID][]*eir.Instr           // localClosures' definitions, by function
+	namedMemo map[*types2.Func][]eir.FuncID         // allNamedMemo
 }
 
 type tpKey struct {
@@ -86,6 +87,7 @@ func newCands(p *eir.Program, tt *typeTable, inst *instClosure) *cands {
 		funcMemo:      map[*types2.Signature][]eir.FuncID{},
 		sigMemo:       map[*types2.Signature]map[typeID]bool{},
 		defs:          map[eir.FuncID][]*eir.Instr{},
+		namedMemo:     map[*types2.Func][]eir.FuncID{},
 	}
 	c.index()
 	c.dynamicTypes()
@@ -246,6 +248,9 @@ func (c *cands) of(f *eir.Func, call *eir.Call) []eir.FuncID {
 		return c.iface(call.Method)
 	case eir.CallTypeParam:
 		tp, _ := types2.Unalias(call.Iface).(*types2.TypeParam)
+		if call.Method == nil && call.Implicit == eir.ImplDrop {
+			return c.typeParamDrops(tp)
+		}
 		return c.typeParam(tp, call.Method)
 	case eir.CallFunc:
 		if ids := c.localClosures(f, call.Target); ids != nil {
@@ -520,16 +525,75 @@ func (c *cands) methodsOf(t types2.Type, m *types2.Func, set map[eir.FuncID]bool
 	if !c.tt.sigMayMatch(fn.Signature(), m.Signature(), 0) {
 		return
 	}
+	found := false
 	if id := c.p.Lookup(eir.FuncKey{Obj: fn.Origin()}); id != eir.NoFunc {
 		set[id] = true
+		found = true
 	}
 	ptr := types2.NewPointer(t)
 	for _, id := range c.synthByName[m.Name()] {
 		s := c.p.Funcs[id].Key.Synth
 		if s.Recv == nil || c.tt.mayMatch(s.Recv, t) || c.tt.mayMatch(s.Recv, ptr) {
 			set[id] = true
+			found = true
 		}
 	}
+	if !found {
+		// t has the method, but no function of the program stands for
+		// it: it is promoted from an embedded interface (and dispatches
+		// again on that field's dynamic type), or its wrapper was not
+		// made. The call may then run any function of that name and
+		// signature; never nothing.
+		for _, id := range c.allNamedMemo(m) {
+			set[id] = true
+		}
+	}
+}
+
+// typeParamDrops returns what the drop of a value of type parameter tp may
+// run (a call with no method and Implicit ImplDrop, section 18.6): for each
+// type tp is instantiated with, its drop glue and its Drop method; every
+// drop glue and Drop method of the program when the instantiations are
+// open, or when tp is not known.
+func (c *cands) typeParamDrops(tp *types2.TypeParam) []eir.FuncID {
+	var types []types2.Type
+	known := false
+	if tp != nil {
+		types, known = c.inst.instantiated(tp)
+	}
+	set := map[eir.FuncID]bool{}
+	for _, f := range c.p.Funcs {
+		var recv types2.Type
+		switch {
+		case f.Key.Synth != nil && f.Key.Synth.Kind == eir.SynthDropGlue:
+			recv = f.Key.Synth.Recv
+		case f.Key.Obj != nil && f.Key.Obj.Name() == "Drop" && f.Key.Obj.Signature().Recv() != nil:
+			recv = f.Key.Obj.Signature().Recv().Type()
+		default:
+			continue
+		}
+		if !known {
+			set[f.ID] = true
+			continue
+		}
+		for _, t := range types {
+			if recv == nil || c.tt.mayMatch(recv, t) || c.tt.mayMatch(recv, types2.NewPointer(t)) {
+				set[f.ID] = true
+				break
+			}
+		}
+	}
+	return setIDs(set)
+}
+
+// allNamedMemo is allNamed, memoized by method.
+func (c *cands) allNamedMemo(m *types2.Func) []eir.FuncID {
+	if ids, ok := c.namedMemo[m]; ok {
+		return ids
+	}
+	ids := c.allNamed(m)
+	c.namedMemo[m] = ids
+	return ids
 }
 
 // allNamed returns every method or method wrapper named as m whose
