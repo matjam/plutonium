@@ -184,35 +184,91 @@ func call[T Stringer](x T) string { return x.String() }
 	}
 }
 
-// TestFuncValueCandidates checks func-value calls: by signature, with type
-// parameters matching anything.
+// TestInternIdentical checks that identical types intern to one ID even
+// where their text differs (parameter names, struct tags), and that types
+// that differ do not.
+func TestInternIdentical(t *testing.T) {
+	pkg := typecheck(t, `
+type F1 func(x int, s string) (n int)
+type F2 func(int, string) int
+type F3 func(int, string) bool
+type S1 struct { p *int "tag" ; g func(a int) }
+type S2 struct { p *int ; g func(b int) }
+`)
+	tt := newTypeTable()
+	u := func(n string) types2.Type { return lookupType(t, pkg, n).Underlying() }
+	if tt.intern(u("F1")) != tt.intern(u("F2")) {
+		t.Errorf("func(x int, s string) (n int) and func(int, string) int: two IDs")
+	}
+	if tt.intern(u("F2")) == tt.intern(u("F3")) {
+		t.Errorf("func(int, string) int and func(int, string) bool: one ID")
+	}
+	if tt.intern(u("S1")) == tt.intern(u("S2")) {
+		t.Errorf("structs with different tags: one ID")
+	}
+	if _, ok := tt.lookup(types2.NewSignatureType(nil, nil, nil,
+		types2.NewTuple(types2.NewParam(0, nil, "q", types2.Typ[types2.Int]), types2.NewParam(0, nil, "", types2.Typ[types2.String])),
+		types2.NewTuple(types2.NewParam(0, nil, "", types2.Typ[types2.Int])), false)); !ok {
+		t.Errorf("an identical signature made apart is not found")
+	}
+}
+
+// TestFuncValueCandidates checks func-value calls: by signature, a generic
+// signature standing for its instantiations, and nothing for a call in code
+// that is never instantiated.
 func TestFuncValueCandidates(t *testing.T) {
 	pkg := typecheck(t, `
 func f1(int) int { return 0 }
 func f2(int) int { return 0 }
 func f3(string) int { return 0 }
+func f4(bool) int { return 0 }
 func apply[T any](g func(T) int, x T) int { return g(x) }
+func lit[U any]() func(U) int { return func(U) int { return 0 } }
 `)
-	pr := newProg()
-	b1 := pr.decl(lookupFunc(t, pkg, "f1"))
-	b2 := pr.decl(lookupFunc(t, pkg, "f2"))
-	b3 := pr.decl(lookupFunc(t, pkg, "f3"))
-	ap := lookupFunc(t, pkg, "apply")
-	ab := pr.decl(ap)
-	main := pr.fn("main", eir.FuncKey{}, nil)
-	main.f.Facts.FuncValues = []eir.FuncID{b1.f.ID, b3.f.ID} // f2 is never a value
-	gsig := ap.Signature().Params().At(0).Type().(*types2.Signature)
-	c := &eir.Call{Kind: eir.CallFunc, Sig: gsig, Target: ab.input(0)}
-	ab.call(c)
-	intSig := lookupFunc(t, pkg, "f1").Signature()
-	c2 := &eir.Call{Kind: eir.CallFunc, Sig: intSig, Target: main.heap()}
-	main.call(c2)
-	f := stageB(pr.p)
-	if got, want := f.Candidates(ab.f, c), idsOf(b1, b3); !sameIDs(got, want) {
-		t.Errorf("generic call: candidates %v, want %v", got, want)
+	for _, instantiate := range []bool{false, true} {
+		pr := newProg()
+		b1 := pr.decl(lookupFunc(t, pkg, "f1"))
+		pr.decl(lookupFunc(t, pkg, "f2"))
+		b3 := pr.decl(lookupFunc(t, pkg, "f3"))
+		b4 := pr.decl(lookupFunc(t, pkg, "f4"))
+		ap := lookupFunc(t, pkg, "apply")
+		ab := pr.decl(ap)
+		litF := lookupFunc(t, pkg, "lit")
+		pr.decl(litF)
+		// The literal in lit[U]: func(U) int, a func value.
+		litSig := litF.Signature().Results().At(0).Type().(*types2.Signature)
+		lb := pr.fn("lit literal", eir.FuncKey{}, litSig)
+		main := pr.fn("main", eir.FuncKey{}, nil)
+		// f2 is never a value; the literal is one (OpClosure).
+		main.f.Facts.FuncValues = []eir.FuncID{b1.f.ID, b3.f.ID, b4.f.ID}
+		main.add(eir.Instr{Op: eir.OpClosure, Callee: lb.f.ID, Obj: eir.NoObj}, true)
+		if instantiate {
+			main.f.Facts.Instances = []eir.Instance{
+				{Obj: ap, Args: []types2.Type{types2.Typ[types2.Int]}},
+				{Obj: ap, Args: []types2.Type{types2.Typ[types2.String]}},
+				{Obj: litF, Args: []types2.Type{types2.Typ[types2.String]}},
+			}
+		}
+		gsig := ap.Signature().Params().At(0).Type().(*types2.Signature)
+		c := &eir.Call{Kind: eir.CallFunc, Sig: gsig, Target: ab.input(0)}
+		ab.call(c)
+		intSig := lookupFunc(t, pkg, "f1").Signature()
+		c2 := &eir.Call{Kind: eir.CallFunc, Sig: intSig, Target: main.heap()}
+		main.call(c2)
+		f := stageB(pr.p)
+		var want []eir.FuncID
+		if instantiate {
+			// apply[int] and apply[string]: f1, f3 and lit[string]'s literal;
+			// never f4, whose func(bool) int no instantiation gives.
+			want = idsOf(b1, b3, lb)
+		}
+		if got := f.Candidates(ab.f, c); !sameIDs(got, want) {
+			t.Errorf("instantiated %v: generic call: candidates %v, want %v", instantiate, got, want)
+		}
+		// A func(int) int call: f1 only (lit's literal is func(string) int
+		// where instantiated, and made nowhere otherwise).
+		if got, want := f.Candidates(main.f, c2), idsOf(b1); !sameIDs(got, want) {
+			t.Errorf("instantiated %v: func(int) int call: candidates %v, want %v", instantiate, got, want)
+		}
 	}
-	if got, want := f.Candidates(main.f, c2), idsOf(b1); !sameIDs(got, want) {
-		t.Errorf("func(int) int call: candidates %v, want %v", got, want)
-	}
-	_ = b2
 }

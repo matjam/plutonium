@@ -25,7 +25,7 @@ func (tt *typeTable) intern(t types2.Type) typeID {
 	if id, ok := tt.lookup(t); ok {
 		return id
 	}
-	h := types2.TypeString(t, nil)
+	h := bucketKey(t)
 	id := typeID(len(tt.types))
 	tt.types = append(tt.types, t)
 	tt.buckets[h] = append(tt.buckets[h], id)
@@ -34,12 +34,133 @@ func (tt *typeTable) intern(t types2.Type) typeID {
 
 // lookup returns the ID of a type identical to t, if one is interned.
 func (tt *typeTable) lookup(t types2.Type) (typeID, bool) {
-	for _, id := range tt.buckets[types2.TypeString(t, nil)] {
+	for _, id := range tt.buckets[bucketKey(t)] {
 		if types2.Identical(tt.types[id], t) {
 			return id, true
 		}
 	}
 	return 0, false
+}
+
+// bucketKey is a text that identical types (types2.Identical) always share:
+// the type's structure, without what identity ignores (names of parameters
+// and results) or what this text need not tell apart (struct tags, the
+// scopes of local named types), which Identical decides within the bucket.
+// TypeString is not such a text: it prints parameter names.
+func bucketKey(t types2.Type) string {
+	var b []byte
+	return string(appendKey(b, t, 0))
+}
+
+func appendKey(b []byte, t types2.Type, depth int) []byte {
+	if depth > 32 {
+		return append(b, '~')
+	}
+	d := depth + 1
+	switch t := types2.Unalias(t).(type) {
+	case nil:
+		return append(b, "nil"...)
+	case *types2.Named:
+		o := t.Origin().Obj()
+		if o.Pkg() != nil {
+			b = append(b, o.Pkg().Path()...)
+			b = append(b, '.')
+		}
+		b = append(b, o.Name()...)
+		if args := t.TypeArgs(); args != nil && args.Len() > 0 {
+			b = append(b, '[')
+			for i := 0; i < args.Len(); i++ {
+				b = appendKey(b, args.At(i), d)
+				b = append(b, ',')
+			}
+			b = append(b, ']')
+		}
+		return b
+	case *types2.TypeParam:
+		return append(append(b, "$"...), t.Obj().Name()...)
+	case *types2.Pointer:
+		return appendKey(append(b, '*'), t.Elem(), d)
+	case *types2.Slice:
+		return appendKey(append(b, "[]"...), t.Elem(), d)
+	case *types2.Array:
+		b = append(b, '[')
+		b = appendInt(b, t.Len())
+		return appendKey(append(b, ']'), t.Elem(), d)
+	case *types2.Map:
+		b = appendKey(append(b, "map["...), t.Key(), d)
+		return appendKey(append(b, ']'), t.Elem(), d)
+	case *types2.Chan:
+		b = append(b, "chan"...)
+		b = appendInt(b, int64(t.Dir()))
+		return appendKey(append(b, ' '), t.Elem(), d)
+	case *types2.Wrapper:
+		b = append(b, "wrap"...)
+		b = appendInt(b, int64(t.Kind()))
+		return appendKey(append(b, '['), t.Elem(), d)
+	case *types2.Signature:
+		b = append(b, "func("...)
+		for i := 0; i < t.Params().Len(); i++ {
+			b = appendKey(b, t.Params().At(i).Type(), d)
+			b = append(b, ',')
+		}
+		if t.Variadic() {
+			b = append(b, "..."...)
+		}
+		b = append(b, ")("...)
+		for i := 0; i < t.Results().Len(); i++ {
+			b = appendKey(b, t.Results().At(i).Type(), d)
+			b = append(b, ',')
+		}
+		return append(b, ')')
+	case *types2.Tuple:
+		b = append(b, '(')
+		for i := 0; i < t.Len(); i++ {
+			b = appendKey(b, t.At(i).Type(), d)
+			b = append(b, ',')
+		}
+		return append(b, ')')
+	case *types2.Struct:
+		b = append(b, "struct{"...)
+		for i := 0; i < t.NumFields(); i++ {
+			f := t.Field(i)
+			if f.Embedded() {
+				b = append(b, '!')
+			}
+			b = append(b, f.Name()...)
+			b = append(b, ' ')
+			b = appendKey(b, f.Type(), d)
+			b = append(b, ';')
+		}
+		return append(b, '}')
+	case *types2.Interface:
+		// Identical interfaces have the same method names; their
+		// signatures are compared by Identical.
+		b = append(b, "interface{"...)
+		for i := 0; i < t.NumMethods(); i++ {
+			b = append(b, t.Method(i).Name()...)
+			b = append(b, ';')
+		}
+		return append(b, '}')
+	}
+	return append(b, types2.TypeString(t, nil)...)
+}
+
+func appendInt(b []byte, n int64) []byte {
+	if n < 0 {
+		b = append(b, '-')
+		n = -n
+	}
+	var tmp [20]byte
+	i := len(tmp)
+	for {
+		i--
+		tmp[i] = byte('0' + n%10)
+		n /= 10
+		if n == 0 {
+			break
+		}
+	}
+	return append(b, tmp[i:]...)
 }
 
 // hasTypeParam reports whether t mentions a type parameter.

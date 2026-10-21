@@ -67,6 +67,7 @@ type cands struct {
 	ifaceMemo map[*types2.Func][]eir.FuncID
 	tpMemo    map[tpKey][]eir.FuncID
 	funcMemo  map[*types2.Signature][]eir.FuncID
+	sigMemo   map[*types2.Signature]map[typeID]bool // nil: open
 }
 
 type tpKey struct {
@@ -82,6 +83,7 @@ func newCands(p *eir.Program, tt *typeTable, inst *instClosure) *cands {
 		ifaceMemo:     map[*types2.Func][]eir.FuncID{},
 		tpMemo:        map[tpKey][]eir.FuncID{},
 		funcMemo:      map[*types2.Signature][]eir.FuncID{},
+		sigMemo:       map[*types2.Signature]map[typeID]bool{},
 	}
 	c.index()
 	c.dynamicTypes()
@@ -305,7 +307,13 @@ func (c *cands) typeParam(tp *types2.TypeParam, m *types2.Func) []eir.FuncID {
 	return ids
 }
 
-// funcs returns the func values a call of signature sig may reach.
+// funcs returns the func values a call of signature sig may reach. A
+// signature that mentions type parameters stands for its instantiations
+// (sigSet): the call reaches a func value if some instantiation of its
+// signature is identical to some instantiation of the call's. Code whose
+// type parameters are never instantiated never runs: a call there reaches
+// nothing, and a func value made there is never one. Where an
+// instantiation set is open, type parameters match anything (mayMatch).
 func (c *cands) funcs(sig *types2.Signature) []eir.FuncID {
 	if sig == nil {
 		return append([]eir.FuncID(nil), c.funcValues...)
@@ -313,15 +321,56 @@ func (c *cands) funcs(sig *types2.Signature) []eir.FuncID {
 	if ids, ok := c.funcMemo[sig]; ok {
 		return ids
 	}
+	callSet, callOK := c.sigSet(sig)
 	var ids []eir.FuncID
-	for _, id := range c.funcValues {
-		fs := c.p.Funcs[id].Sig
-		if fs == nil || c.tt.sigMayMatch(fs, sig, 0) {
-			ids = append(ids, id)
+	if !callOK || len(callSet) > 0 {
+		for _, id := range c.funcValues {
+			fs := c.p.Funcs[id].Sig
+			if fs == nil {
+				ids = append(ids, id)
+				continue
+			}
+			candSet, candOK := c.sigSet(fs)
+			switch {
+			case candOK && len(candSet) == 0:
+				// made only in code that never runs
+			case !callOK || !candOK:
+				if c.tt.sigMayMatch(fs, sig, 0) {
+					ids = append(ids, id)
+				}
+			default:
+				for t := range candSet {
+					if callSet[t] {
+						ids = append(ids, id)
+						break
+					}
+				}
+			}
 		}
 	}
 	c.funcMemo[sig] = ids
 	return ids
+}
+
+// sigSet returns the concrete signatures sig stands for, by their IDs in
+// the type table, and false if they cannot be bounded. A signature with no
+// type parameters stands for itself.
+func (c *cands) sigSet(sig *types2.Signature) (map[typeID]bool, bool) {
+	if set, ok := c.sigMemo[sig]; ok {
+		return set, set != nil
+	}
+	plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
+	types, ok := substAll(c.tt, c.inst, plain)
+	if !ok {
+		c.sigMemo[sig] = nil
+		return nil, false
+	}
+	set := map[typeID]bool{}
+	for _, t := range types {
+		set[c.tt.intern(t)] = true
+	}
+	c.sigMemo[sig] = set
+	return set, true
 }
 
 // methodsOf adds the functions that may run for method m of dynamic type t:
