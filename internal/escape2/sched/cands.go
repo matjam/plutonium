@@ -416,7 +416,7 @@ func (c *cands) iface(m *types2.Func) []eir.FuncID {
 	} else {
 		set := map[eir.FuncID]bool{}
 		for _, t := range c.dyn {
-			c.methodsOf(t, m, set)
+			c.methodsOf(t, m, set, true)
 		}
 		ids = setIDs(set)
 	}
@@ -450,7 +450,7 @@ func (c *cands) typeParam(tp *types2.TypeParam, m *types2.Func) []eir.FuncID {
 				}
 				continue
 			}
-			c.methodsOf(t, m, set)
+			c.methodsOf(t, m, set, false)
 		}
 		ids = setIDs(set)
 	}
@@ -527,7 +527,28 @@ func (c *cands) sigSet(sig *types2.Signature) (map[typeID]bool, bool) {
 // methodsOf adds the functions that may run for method m of dynamic type t:
 // the method t's method set (or *t's) has under that name, if its signature
 // may match m's, and the wrappers of a method of that name for t or *t.
-func (c *cands) methodsOf(t types2.Type, m *types2.Func, set map[eir.FuncID]bool) {
+//
+// For an interface call (iface), the itab holds an adapter where the
+// method needs one: it takes the interface's data word (for a type that is
+// not direct, the box) and does the load the source method lacks. Where an
+// adapter of that name for t exists, it alone is the candidate: binding the
+// source method of a value receiver to the box pointer would read the box
+// as the value. Without an adapter, the method and the other wrappers stay,
+// the sound fallback.
+func (c *cands) methodsOf(t types2.Type, m *types2.Func, set map[eir.FuncID]bool, iface bool) {
+	if iface {
+		found := false
+		for _, id := range c.synthByName[m.Name()] {
+			s := c.p.Funcs[id].Key.Synth
+			if s.Kind == eir.SynthItabAdapter && s.Recv != nil && c.tt.mayMatch(s.Recv, t) {
+				set[id] = true
+				found = true
+			}
+		}
+		if found {
+			return
+		}
+	}
 	obj, _, _ := types2.LookupFieldOrMethod(t, true, m.Pkg(), m.Name())
 	fn, ok := obj.(*types2.Func)
 	if !ok {

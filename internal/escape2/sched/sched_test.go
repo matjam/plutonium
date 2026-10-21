@@ -102,6 +102,30 @@ func TestIfaceCandidates(t *testing.T) {
 	}
 }
 
+// TestIfaceAdapterCandidates checks that an interface call reaches a type's
+// itab adapter alone when there is one (it loads the value from the box the
+// data word points to; the source method would read the box as the value),
+// and the source method when there is none.
+func TestIfaceAdapterCandidates(t *testing.T) {
+	pkg := typecheck(t, ifaceSrc)
+	str := lookupType(t, pkg, "Stringer")
+	A, C := lookupType(t, pkg, "A"), lookupType(t, pkg, "C")
+	m := method(t, str, "String")
+	pr := newProg()
+	aS := method(t, A, "String")
+	pr.decl(aS)
+	cS := pr.decl(method(t, C, "String"))
+	adapter := pr.fn("A.String (interface adapter)", eir.FuncKey{Synth: &eir.Synth{Kind: eir.SynthItabAdapter, Recv: A, Method: aS}}, aS.Signature())
+	use := pr.decl(lookupFunc(t, pkg, "use"))
+	call := &eir.Call{Kind: eir.CallIface, Method: m, Iface: str, Target: use.input(0)}
+	use.call(call)
+	main := pr.fn("main", eir.FuncKey{}, nil)
+	main.f.Facts.Converted = []types2.Type{A, C}
+	if got, want := stageB(pr.p).Candidates(use.f, call), idsOf(adapter, cS); !sameIDs(got, want) {
+		t.Errorf("candidates %v, want %v (A's adapter, not A.String; C.String, which has none)", got, want)
+	}
+}
+
 // TestGenericConversion checks that a conversion in a generic body is
 // substituted over the instantiations of its type parameter.
 func TestGenericConversion(t *testing.T) {
