@@ -50,6 +50,7 @@ type Cache interface {
 type Recorder interface {
 	HeapOnly(T types2.Type, field int, heap bool)
 	Contract(name string, s *summary.Summary, ok bool)
+	Instantiated(tp *types2.TypeParam, types []types2.Type, known bool)
 }
 
 // CacheView is what the cache reads of the run.
@@ -98,6 +99,12 @@ func (e recordingEnv) HeapOnly(T types2.Type, field int) bool {
 	h := e.env.HeapOnly(T, field)
 	e.rec.HeapOnly(T, field, h)
 	return h
+}
+
+func (e recordingEnv) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
+	types, known := e.env.Instantiated(tp)
+	e.rec.Instantiated(tp, types, known)
+	return types, known
 }
 
 func (e recordingEnv) Contract(name string) (*summary.Summary, bool) {

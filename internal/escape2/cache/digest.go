@@ -3,6 +3,7 @@ package cache
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"fmt"
 	"hash"
 	"maps"
 	"slices"
@@ -234,6 +235,14 @@ type recorder struct {
 	c        *Cache
 	heap     map[heapQ]bool
 	contract map[string]*summary.Summary // nil: no entry
+	inst     map[*types2.TypeParam]instA
+}
+
+// instA is an answer of Instantiated: the type arguments, written, and
+// whether the set is known.
+type instA struct {
+	types []string
+	known bool
 }
 
 type heapQ struct {
@@ -242,11 +251,23 @@ type heapQ struct {
 }
 
 func (c *Cache) newRecorder() *recorder {
-	return &recorder{c: c, heap: map[heapQ]bool{}, contract: map[string]*summary.Summary{}}
+	return &recorder{c: c, heap: map[heapQ]bool{}, contract: map[string]*summary.Summary{}, inst: map[*types2.TypeParam]instA{}}
 }
 
 func (r *recorder) HeapOnly(T types2.Type, field int, heap bool) {
 	r.heap[heapQ{T, field}] = heap
+}
+
+func (r *recorder) Instantiated(tp *types2.TypeParam, types []types2.Type, known bool) {
+	if _, ok := r.inst[tp]; ok {
+		return
+	}
+	a := instA{known: known}
+	for _, T := range types {
+		a.types = append(a.types, r.c.typeKey(T))
+	}
+	slices.Sort(a.types)
+	r.inst[tp] = a
 }
 
 func (r *recorder) Contract(name string, s *summary.Summary, ok bool) {
@@ -284,6 +305,33 @@ func (r *recorder) sum() digest {
 		h.int(int64(a.field))
 		h.bool(a.heap)
 	}
+	// A type parameter is written as its declaring object and name, which
+	// stay the same from run to run.
+	type instW struct {
+		tp string
+		a  instA
+	}
+	var insts []instW
+	for tp, a := range r.inst {
+		insts = append(insts, instW{tpKey(tp), a})
+	}
+	// Two type parameters may write alike (one name and index in two
+	// generic functions); their answers are then ordered by content.
+	slices.SortFunc(insts, func(a, b instW) int {
+		if c := strings.Compare(a.tp, b.tp); c != 0 {
+			return c
+		}
+		return strings.Compare(fmt.Sprint(a.a), fmt.Sprint(b.a))
+	})
+	h.int(int64(len(insts)))
+	for _, w := range insts {
+		h.str(w.tp)
+		h.bool(w.a.known)
+		h.int(int64(len(w.a.types)))
+		for _, t := range w.a.types {
+			h.str(t)
+		}
+	}
 	names := slices.Sorted(maps.Keys(r.contract))
 	h.int(int64(len(names)))
 	for _, n := range names {
@@ -296,4 +344,17 @@ func (r *recorder) sum() digest {
 		}
 	}
 	return h.sum()
+}
+
+// tpKey names a type parameter: the object that declares it and its index
+// there.
+func tpKey(tp *types2.TypeParam) string {
+	owner := "-"
+	if o := tp.Obj(); o != nil {
+		if p := o.Pkg(); p != nil {
+			owner = p.Path()
+		}
+		owner += "." + o.Name()
+	}
+	return fmt.Sprintf("%s#%d %s", owner, tp.Index(), typeString(tp.Constraint()))
 }
