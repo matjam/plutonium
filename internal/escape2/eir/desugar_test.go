@@ -24,7 +24,7 @@ func calls(t *testing.T, src string) map[string][]string {
 	}
 	out := map[string][]string{}
 	for _, f := range p.Funcs {
-		if f.Pkg != prog.Main.Types && !(f.Key.Synth != nil && strings.Contains(f.Name, "main.")) {
+		if f.Pkg != prog.Main.Types && (f.Key.Synth == nil || !strings.Contains(f.Name, "main.")) {
 			continue
 		}
 		name := f.Name
