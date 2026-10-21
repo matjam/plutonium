@@ -189,7 +189,10 @@ package solve
 //	             Dst ⊇ <Obj(Obj, Root), Root, false>
 //	OpMethodVal  store(Obj(Obj, [0]), X, own); Dst ⊇ <Obj(Obj, Root), Root, false>
 //	OpAssert     Dst ⊇ X (stage 2 keeps no dynamic types; a builder that
-//	             unboxes a non-direct value emits the OpLoad after it)
+//	             unboxes a non-direct value emits the OpLoad after it). To a
+//	             concrete pointer-shaped Type the result is the data word of
+//	             a direct value, never a box: Obj tokens of eir.ObjBox
+//	             objects are left out.
 //	OpSink       SinkReturn: for each <u,T,g> in X:
 //	                 u = Obj frame, LifeFrame or shorter  finding E3001
 //	                 u = Obj LifeCaller (a region)        Region.Builds,

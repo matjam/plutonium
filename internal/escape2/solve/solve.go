@@ -940,8 +940,15 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 			}
 			s.edge(a, dst, xw(xPre, p, cut))
 		}
-	case eir.OpCopy, eir.OpAssert:
+	case eir.OpCopy:
 		s.edge(in.X, dst, xw(xID, 0, false))
+	case eir.OpAssert:
+		if directAssert(in.Type) {
+			// The value is a direct one: never a box (rules.go, OpAssert).
+			s.edge(in.X, dst, xw(xNoBox, 0, false))
+		} else {
+			s.edge(in.X, dst, xw(xID, 0, false))
+		}
 	case eir.OpPhi:
 		for _, a := range in.Args {
 			s.edge(a, dst, xw(xID, 0, false))
@@ -1032,6 +1039,22 @@ func (s *solver) backEdges(b eir.BlockID, in *eir.Instr, why uint64) {
 		}
 	}
 }
+
+// directAssert reports whether an assertion to T yields the interface's data
+// word itself, a pointer-shaped value, which can never be a box the
+// conversion made (an interface holds a direct value unboxed).
+func directAssert(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	if _, ok := T.Underlying().(*types2.Interface); ok {
+		return false
+	}
+	return types2.PointerShaped(T)
+}
+
+// DirectAssert is directAssert, for the reference solver.
+func DirectAssert(T types2.Type) bool { return directAssert(T) }
 
 // heapOnlyLoad reports whether a load through x reads a heap-only field
 // (rules.go, OpLoad): x is the address of a field of a struct, by OpAddr or

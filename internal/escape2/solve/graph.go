@@ -2,6 +2,7 @@ package solve
 
 import (
 	"github.com/matjam/plutonium/internal/escape2/domain"
+	"github.com/matjam/plutonium/internal/escape2/eir"
 )
 
 // The constraint graph. Nodes are the registers (node r for register r,
@@ -45,6 +46,7 @@ const (
 	xSelLoad        // a load link: sel(path), tags GE when flag
 	xSelGe          // a reach link: sel(path), then geify
 	xAny            // offset to anywhere in the object (eir.AnyStep)
+	xNoBox          // identity, without pointers to interface boxes (OpAssert to a direct type)
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -320,6 +322,11 @@ func (s *solver) transform(x uint64, t tok) {
 			}
 			s.buf.push(s.a, s.intern(u))
 		}
+	case xNoBox:
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].Kind == eir.ObjBox {
+			return
+		}
+		s.buf.push(s.a, s.intern(t))
 	case xAny:
 		s.buf.push(s.a, s.intern(s.anyOffset(t)))
 	case xSelGe:

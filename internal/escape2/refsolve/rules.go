@@ -4,6 +4,7 @@ import (
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
+	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/escape2/summary"
 	"github.com/matjam/plutonium/internal/types2"
 	"slices"
@@ -32,8 +33,22 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 		s.ruleSelect(in)
 	case eir.OpCompose:
 		s.ruleCompose(in)
-	case eir.OpCopy, eir.OpAssert:
-		s.def(in.Dst, s.val(in.X)) // OpCopy, OpAssert: Dst ⊇ X
+	case eir.OpCopy:
+		s.def(in.Dst, s.val(in.X)) // OpCopy: Dst ⊇ X
+	case eir.OpAssert:
+		// Dst ⊇ X; to a direct type, without pointers to interface boxes.
+		v := s.val(in.X)
+		if solve.DirectAssert(in.Type) {
+			w := value{}
+			for x := range v {
+				if x.t.kind == kObj && x.t.id < len(s.f.Objects) && s.f.Objects[x.t.id].Kind == eir.ObjBox {
+					continue
+				}
+				w.add(x)
+			}
+			v = w
+		}
+		s.def(in.Dst, v)
 	case eir.OpPhi:
 		s.rulePhi(b, in)
 	case eir.OpConv:
