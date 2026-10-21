@@ -18,7 +18,8 @@ var update = flag.Bool("update", false, "rewrite the expected output of TestDiag
 // whole error output, in the default form (each error with its
 // explanation) against default.out and with --brief against brief.out. A
 // file named flags adds build flags, one per line; a file named command
-// replaces the subcommand and its leading arguments ("test"), and
+// replaces the subcommand and its leading arguments ("test"); a file named
+// env sets environment variables, one KEY=VALUE per line; and
 // subdirectories are copied, for programs of several packages. Run with -update to
 // rewrite the expected output after changing an explanation, and read the
 // diff.
@@ -40,6 +41,17 @@ func TestDiagnostics(t *testing.T) {
 			}
 			if flags, err := os.ReadFile(filepath.Join(src, "flags")); err == nil {
 				args = append(args, strings.Fields(string(flags))...)
+			}
+			if env, err := os.ReadFile(filepath.Join(src, "env")); err == nil {
+				// "env" sets environment variables, one KEY=VALUE per line,
+				// such as PLUTO_ESCAPE=new.
+				for _, line := range strings.Split(strings.TrimSpace(string(env)), "\n") {
+					k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+					if !ok {
+						t.Fatalf("env: %q is not KEY=VALUE", line)
+					}
+					t.Setenv(k, v)
+				}
 			}
 			for _, mode := range []string{"default", "brief"} {
 				a := append([]string(nil), args...)
