@@ -184,6 +184,80 @@ func call[T Stringer](x T) string { return x.String() }
 	}
 }
 
+// TestLocalClosureCandidates checks that a call of a func value the
+// function made itself, from known literals through copies and phis,
+// reaches only those literals; with any other source it is matched by
+// signature.
+func TestLocalClosureCandidates(t *testing.T) {
+	pkg := typecheck(t, `
+func f(func()) {}
+func other() {}
+`)
+	sig := lookupFunc(t, pkg, "other").Signature()
+	for _, mixed := range []bool{false, true} {
+		pr := newProg()
+		other := pr.decl(lookupFunc(t, pkg, "other"))
+		l1 := pr.fn("lit1", eir.FuncKey{}, sig)
+		l2 := pr.fn("lit2", eir.FuncKey{}, sig)
+		fb := pr.decl(lookupFunc(t, pkg, "f"))
+		fb.f.Facts.FuncValues = []eir.FuncID{other.f.ID}
+		a := fb.add(eir.Instr{Op: eir.OpClosure, Callee: l1.f.ID, Obj: eir.NoObj}, true)
+		b := fb.add(eir.Instr{Op: eir.OpClosure, Callee: l2.f.ID, Obj: eir.NoObj}, true)
+		bc := fb.add(eir.Instr{Op: eir.OpCopy, X: b}, true)
+		args := []eir.Reg{a, bc}
+		if mixed {
+			args = append(args, fb.input(0))
+		}
+		target := fb.add(eir.Instr{Op: eir.OpPhi, Args: args}, true)
+		c := &eir.Call{Kind: eir.CallFunc, Sig: sig, Target: target, Implicit: eir.ImplDefer}
+		fb.call(c)
+		want := idsOf(l1, l2)
+		if mixed {
+			want = idsOf(other, l1, l2) // every func() value
+		}
+		if got := stageB(pr.p).Candidates(fb.f, c); !sameIDs(got, want) {
+			t.Errorf("mixed %v: candidates %v, want %v", mixed, got, want)
+		}
+	}
+}
+
+// TestDeferredClosureCandidates checks the deferred call of a literal: the
+// closure is stored in a frame temporary and loaded at the exit. While only
+// those loads and stores reach the temporary, the call reaches the literal
+// alone; once its address goes elsewhere, it is matched by signature.
+func TestDeferredClosureCandidates(t *testing.T) {
+	pkg := typecheck(t, `
+func f() {}
+func other() {}
+func keep(*func()) {}
+`)
+	sig := lookupFunc(t, pkg, "other").Signature()
+	for _, escapes := range []bool{false, true} {
+		pr := newProg()
+		other := pr.decl(lookupFunc(t, pkg, "other"))
+		keep := pr.decl(lookupFunc(t, pkg, "keep"))
+		lit := pr.fn("lit", eir.FuncKey{}, sig)
+		fb := pr.decl(lookupFunc(t, pkg, "f"))
+		fb.f.Facts.FuncValues = []eir.FuncID{other.f.ID}
+		tmp := fb.obj(eir.Object{Kind: eir.ObjTemp, Type: sig, Life: eir.LifeFrame, Loop: -1})
+		cl := fb.add(eir.Instr{Op: eir.OpClosure, Callee: lit.f.ID, Obj: eir.NoObj}, true)
+		fb.store(fb.addr(tmp), cl, sig)
+		if escapes {
+			fb.callStatic(keep, fb.addr(tmp))
+		}
+		target := fb.load(fb.addr(tmp), sig)
+		c := &eir.Call{Kind: eir.CallFunc, Sig: sig, Target: target, Implicit: eir.ImplDefer}
+		fb.call(c)
+		want := idsOf(lit)
+		if escapes {
+			want = idsOf(other, lit)
+		}
+		if got := stageB(pr.p).Candidates(fb.f, c); !sameIDs(got, want) {
+			t.Errorf("address escapes %v: candidates %v, want %v", escapes, got, want)
+		}
+	}
+}
+
 // TestInternIdentical checks that identical types intern to one ID even
 // where their text differs (parameter names, struct tags), and that types
 // that differ do not.

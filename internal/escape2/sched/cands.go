@@ -68,6 +68,7 @@ type cands struct {
 	tpMemo    map[tpKey][]eir.FuncID
 	funcMemo  map[*types2.Signature][]eir.FuncID
 	sigMemo   map[*types2.Signature]map[typeID]bool // nil: open
+	defs      map[eir.FuncID][]*eir.Instr           // localClosures' definitions, by function
 }
 
 type tpKey struct {
@@ -84,6 +85,7 @@ func newCands(p *eir.Program, tt *typeTable, inst *instClosure) *cands {
 		tpMemo:        map[tpKey][]eir.FuncID{},
 		funcMemo:      map[*types2.Signature][]eir.FuncID{},
 		sigMemo:       map[*types2.Signature]map[typeID]bool{},
+		defs:          map[eir.FuncID][]*eir.Instr{},
 	}
 	c.index()
 	c.dynamicTypes()
@@ -246,9 +248,142 @@ func (c *cands) of(f *eir.Func, call *eir.Call) []eir.FuncID {
 		tp, _ := types2.Unalias(call.Iface).(*types2.TypeParam)
 		return c.typeParam(tp, call.Method)
 	case eir.CallFunc:
+		if ids := c.localClosures(f, call.Target); ids != nil {
+			return ids
+		}
 		return c.funcs(call.Sig)
 	}
 	return nil
+}
+
+// localClosures returns the literals a func value can be when the function
+// itself made it: register r is defined, through copies and phis only, by
+// closures of known literals (a deferred literal, a literal called where it
+// is written). The value is then one of those closures and nothing else,
+// so the call reaches exactly their functions. Any other definition on the
+// way (an input, a load, a call's result) gives nil: the set is not known
+// locally.
+func (c *cands) localClosures(f *eir.Func, r eir.Reg) []eir.FuncID {
+	defs := c.defsOf(f)
+	seen := map[eir.Reg]bool{}
+	set := map[eir.FuncID]bool{}
+	work := []eir.Reg{r}
+	for len(work) > 0 {
+		x := work[len(work)-1]
+		work = work[:len(work)-1]
+		if seen[x] {
+			continue
+		}
+		seen[x] = true
+		if x == 0 || int(x) >= len(defs) || defs[x] == nil {
+			return nil
+		}
+		in := defs[x]
+		switch in.Op {
+		case eir.OpCopy:
+			work = append(work, in.X)
+		case eir.OpPhi:
+			work = append(work, in.Args...)
+		case eir.OpClosure:
+			if in.Callee == eir.NoFunc || int(in.Callee) >= len(c.p.Funcs) {
+				return nil
+			}
+			set[in.Callee] = true
+		case eir.OpLoad:
+			// A load from a frame object only this function's loads and
+			// stores reach (a deferred call's temporary): what it holds is
+			// what was stored there.
+			srcs, ok := c.objStores(f, in.X)
+			if !ok {
+				return nil
+			}
+			work = append(work, srcs...)
+		default:
+			return nil
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return setIDs(set)
+}
+
+// objStores returns the values stored at the place register addr names,
+// when that place is a whole frame object whose address is only ever the
+// address operand of loads and stores in f: nothing else can write it, so
+// these are all it can hold (besides its zero value, which no call reaches).
+func (c *cands) objStores(f *eir.Func, addr eir.Reg) ([]eir.Reg, bool) {
+	defs := c.defsOf(f)
+	if addr == 0 || int(addr) >= len(defs) || defs[addr] == nil || defs[addr].Op != eir.OpAddr || len(defs[addr].Path) != 0 {
+		return nil, false
+	}
+	obj := defs[addr].Obj
+	var srcs []eir.Reg
+	for _, b := range f.Blocks {
+		for i := range b.Instrs {
+			in := &b.Instrs[i]
+			// Every use of an address of obj must be a load's or store's
+			// address of the whole object.
+			uses := func(r eir.Reg) bool {
+				return r != 0 && int(r) < len(defs) && defs[r] != nil && defs[r].Op == eir.OpAddr && defs[r].Obj == obj
+			}
+			switch in.Op {
+			case eir.OpAddr:
+				if in.Obj == obj && len(in.Path) != 0 {
+					return nil, false
+				}
+				continue
+			case eir.OpLoad:
+				continue
+			case eir.OpStore:
+				if uses(in.Y) {
+					return nil, false
+				}
+				if uses(in.X) {
+					srcs = append(srcs, in.Y)
+				}
+				continue
+			}
+			if uses(in.X) || uses(in.Y) {
+				return nil, false
+			}
+			for _, a := range in.Args {
+				if uses(a) {
+					return nil, false
+				}
+			}
+			if in.Call != nil {
+				if uses(in.Call.Target) {
+					return nil, false
+				}
+				for _, a := range in.Call.Args {
+					if uses(a) {
+						return nil, false
+					}
+				}
+			}
+		}
+	}
+	return srcs, true
+}
+
+// defsOf returns the instruction defining each register of f (nil for none
+// or a call's result), built once per function.
+func (c *cands) defsOf(f *eir.Func) []*eir.Instr {
+	if d, ok := c.defs[f.ID]; ok {
+		return d
+	}
+	d := make([]*eir.Instr, f.NumRegs+1)
+	for _, b := range f.Blocks {
+		for i := range b.Instrs {
+			in := &b.Instrs[i]
+			if in.Op != eir.OpCall && in.Dst != 0 && int(in.Dst) < len(d) {
+				d[in.Dst] = in
+			}
+		}
+	}
+	c.defs[f.ID] = d
+	return d
 }
 
 // iface returns the methods an interface call of m may reach.
