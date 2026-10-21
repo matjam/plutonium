@@ -269,11 +269,11 @@ func main() {
 		want int
 		why  string
 	}{
-		{"main.sum", 1, "each indexed access checks its actual byte extent"},
+		{"main.sum", 1, "one range check before the loop covers every element it reads"},
 		{"main.walk", 4, "n.left, n.val on each path, and n.right: each is in another block or after a call"},
 		{"main.build", 3, "each new allocation field store comes after a call or in another block"},
 		{"main.release", 2, "release frees: n is checked again after the first call"},
-		{"main.rows", 2, "a row's pointer and length are adjacent words loaded in one block with nothing between: one check of their 16 bytes; the indexed element has its own"},
+		{"main.rows", 2, "a row's pointer and length are adjacent words loaded in one block with nothing between: one check of their 16 bytes; the inner loop's elements, one range check before it"},
 		{"main.fields", 2, "n.left and n.right share one check of their 16 bytes; n.val, in another block, has its own"},
 	} {
 		asm := listGenFunc(t, src, c.fn)

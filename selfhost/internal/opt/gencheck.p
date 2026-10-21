@@ -118,12 +118,16 @@ type genExtent struct {
 }
 
 // A genAccess is an address an access goes through, which emit replaces
-// by the same address without its tag.
+// by the same address without its tag: the offsets and indexes steps
+// apply to base (addrRoot), applied again to base without its tag, which
+// is computed once where base is defined. Offsets keep a pointer's tag and
+// never reach its bits (addresses use 47 bits), so the result is the same
+// as the address's own without its tag, as genMaskOnly does too.
 type genAccess struct {
-	v    *ssa.Value
-	arg  int
-	root *ssa.Value
-	off  int64
+	v     *ssa.Value
+	arg   int
+	base  *ssa.Value
+	steps []*ssa.Value
 }
 
 type genPlacer struct {
@@ -141,8 +145,12 @@ type genPlacer struct {
 	over  [][]int
 	parts map[*ssa.Value]*genParts
 	// barrier and reset are, by block ID, whether the block holds a
-	// barrier, and one that may reset (isReset).
-	barrier, reset    []bool
+	// barrier, and one that may reset (isReset); calls, whether it holds a
+	// call of any kind.
+	barrier, reset []bool
+	calls          []bool
+	// ranges are the checks hoistRange put before loops.
+	ranges            []*genRange
 	inlFree, inlReset []bool
 	split             []*ssa.Block // preheaders made by splitting an edge
 	cond              map[*ssa.Loop]*genCond
@@ -192,6 +200,7 @@ func (g *genPlacer) run() {
 	g.heldOut = g.dataflow(false)
 	for _, l := range g.ln.Loops { // inner loops first
 		g.hoist(l)
+		g.hoistRange(l)
 	}
 	g.dataflow(true)
 	g.emit()
@@ -320,6 +329,7 @@ const genMergeLimit = 64
 func (g *genPlacer) collect() {
 	g.barrier = compat.Make[bool](g.f.NumBlocks())
 	g.reset = compat.Make[bool](g.f.NumBlocks())
+	g.calls = compat.Make[bool](g.f.NumBlocks())
 	for _, b := range g.f.Blocks {
 		var order []genGroup
 		groups := map[genGroup][]genMember{}
@@ -330,6 +340,9 @@ func (g *genPlacer) collect() {
 			// or the program, or synchronize with another task comes between
 			// a shared check and the accesses it covers.
 			bound := v.Op == ssa.OpCall || v.Op == ssa.OpCallInd
+			if bound {
+				g.calls[b.ID] = true
+			}
 			if g.isReset(v) {
 				g.reset[b.ID] = true
 				g.barrier[b.ID] = true
@@ -344,7 +357,7 @@ func (g *genPlacer) collect() {
 				seg++
 			}
 			for _, ai := range genAddrArgs(v) {
-				base, _ := addrRoot(v.Args[ai])
+				base, steps := addrRoot(v.Args[ai])
 				if isStaticAddr(base) || isUntagPattern(base) {
 					continue
 				}
@@ -353,7 +366,7 @@ func (g *genPlacer) collect() {
 					continue
 				}
 				root, off := genOffsetRoot(v.Args[ai])
-				g.access = compat.Append(g.access, genAccess{v: v, arg: ai, root: root, off: off})
+				g.access = compat.Append(g.access, genAccess{v: v, arg: ai, base: base, steps: steps})
 				k := genGroup{root, seg}
 				if groups[k] == nil {
 					order = compat.Append(order, k)
@@ -478,18 +491,8 @@ func (g *genPlacer) hoist(l *ssa.Loop) {
 		barriers = barriers || g.barrier[b.ID]
 	}
 	h := l.Header
-	var pre *ssa.Block
-	pi := -1
-	for i, e := range h.Preds {
-		if l.Contains(g.ln, e.B) {
-			continue
-		}
-		if pre != nil {
-			return // entered from more than one place
-		}
-		pre, pi = e.B, i
-	}
-	if pre == nil || len(pre.Succs) != 1 || !g.dom.Reachable(pre) {
+	pre, pi := g.preheader(l)
+	if pre == nil {
 		return
 	}
 	// The sites in l, by extent of an invariant root, in the order first
@@ -567,6 +570,27 @@ func (g *genPlacer) hoist(l *ssa.Loop) {
 			g.addHoist(pre, s, guard)
 		}
 	}
+}
+
+// preheader returns the block loop l is entered from, the only one, which
+// leads only to l, and the index of its edge among the header's
+// predecessors; nil if there is none.
+func (g *genPlacer) preheader(l *ssa.Loop) (*ssa.Block, int) {
+	var pre *ssa.Block
+	pi := -1
+	for i, e := range l.Header.Preds {
+		if l.Contains(g.ln, e.B) {
+			continue
+		}
+		if pre != nil {
+			return nil, -1 // entered from more than one place
+		}
+		pre, pi = e.B, i
+	}
+	if pre == nil || len(pre.Succs) != 1 || !g.dom.Reachable(pre) {
+		return nil, -1
+	}
+	return pre, pi
 }
 
 // addHoist adds a check of from's root at the end of pre.
@@ -1020,25 +1044,17 @@ func (g *genPlacer) emit() {
 			g.check(s.block, nil, s)
 		}
 	}
+	for _, r := range g.ranges {
+		g.checkRange(r)
+	}
 	for _, s := range g.sites {
 		if s.arg >= 0 && s.need {
 			g.check(s.v.Block, s.v, s)
 		}
 	}
 	for _, a := range g.access {
-		a.v.SetArg(a.arg, g.offset(a.v.Block, a.v, g.parts[a.root].addr, a.off))
+		a.v.SetArg(a.arg, g.rebuild(a.v.Block, a.v, g.partsOf(a.base).addr, a.steps))
 	}
-}
-
-// offset returns p plus off, computed before v in b.
-func (g *genPlacer) offset(b *ssa.Block, v, p *ssa.Value, off int64) *ssa.Value {
-	if off == 0 {
-		return p
-	}
-	q := b.NewValueBefore(v, ssa.OpOffPtr, ssa.TPtr, p)
-	q.AuxInt = off
-	q.CopyPos(v)
-	return q
 }
 
 // genAddrArgs returns the arguments of v that are addresses it accesses
@@ -1166,15 +1182,31 @@ func (g *genPlacer) rebuild(b *ssa.Block, v, m *ssa.Value, steps []*ssa.Value) *
 
 // check splits b before at (at its end if at is nil) to check s's extent.
 func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
-	f := g.f
 	x := g.extOf[s.ext]
-	parts := g.parts[x.root]
-	pos := s.v
 	mem := s.mem
 	if at != nil {
 		mem = at.MemArg()
 	}
-	i64 := func(c int64) *ssa.Value { return f.ConstInt(ssa.TI64, c) }
+	cont := g.splitAt(b, at)
+	// The tagged address of the extent's first byte: an offset keeps the
+	// tag of the pointer it is applied to.
+	p := x.root
+	if x.off != 0 {
+		p = g.newValue(b, s.v, ssa.OpOffPtr, ssa.TPtr, p)
+		p.AuxInt = x.off
+	}
+	var n *ssa.Value
+	if x.size > 1 {
+		n = g.f.ConstInt(ssa.TI64, x.size)
+	}
+	g.lookup(b, cont, s.v, mem, s.guard, g.parts[x.root].bits, p, n)
+}
+
+// splitAt splits b before at (at its end if at is nil): the block it
+// returns takes the rest of b and its ending, and b is left without an
+// ending, for a check (genPlacer.lookup) to end.
+func (g *genPlacer) splitAt(b *ssa.Block, at *ssa.Value) *ssa.Block {
+	f := g.f
 
 	// Split b before at: cont takes the rest of b and its ending.
 	cont := f.NewBlock(b.Kind)
@@ -1201,18 +1233,20 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 		e.B.Preds[e.I] = ssa.Edge{B: cont, I: len(cont.Succs) - 1}
 		b.Succs = b.Succs[1:]
 	}
+	return cont
+}
 
-	// The tagged address of the extent's first byte: an offset keeps the
-	// tag of the pointer it is applied to.
-	p := x.root
-	if x.off != 0 {
-		p = g.newValue(b, pos, ssa.OpOffPtr, ssa.TPtr, p)
-		p.AuxInt = x.off
-	}
-	tag := g.newValue(b, pos, ssa.OpShrL, ssa.TI64, parts.bits, i64(genTagShift))
+// lookup ends b, which splitAt left without an ending, with the check of
+// the n bytes at p (one byte if n is nil), whose pointer has bits as an
+// integer, when guard holds (nil: always); the check continues to cont.
+// pos gives the positions, and mem is the memory state the lookup reads.
+func (g *genPlacer) lookup(b, cont *ssa.Block, pos, mem, guard, bits, p, n *ssa.Value) {
+	f := g.f
+	i64 := func(c int64) *ssa.Value { return f.ConstInt(ssa.TI64, c) }
+	tag := g.newValue(b, pos, ssa.OpShrL, ssa.TI64, bits, i64(genTagShift))
 	tagged := g.newValue(b, pos, ssa.OpNe, ssa.TBool, tag, i64(0))
-	if s.guard != nil {
-		tagged = g.newValue(b, pos, ssa.OpAnd, ssa.TBool, s.guard, tagged)
+	if guard != nil {
+		tagged = g.newValue(b, pos, ssa.OpAnd, ssa.TBool, guard, tagged)
 	}
 	chk := f.NewBlock(ssa.BlockIf)
 	fail := f.NewBlock(ssa.BlockExit)
@@ -1228,8 +1262,8 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	// metadata; the original memory state remains valid for the payload
 	// access, whose block is reached only after the lookup succeeds.
 	args, sym := []*ssa.Value{p}, f.GenLive
-	if x.size > 1 {
-		args, sym = compat.Append(args, i64(x.size)), f.GenRange
+	if n != nil {
+		args, sym = compat.Append(args, n), f.GenRange
 	}
 	args = compat.Append(args, mem)
 	live := g.newValue(chk, pos, ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem, ssa.TBool})...), args...)
@@ -1243,8 +1277,8 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	chk.AddEdgeTo(fail)
 
 	panicArgs, panicSym := []*ssa.Value{p}, f.GenPanic
-	if x.size > 1 {
-		panicArgs, panicSym = compat.Append(panicArgs, i64(x.size)), f.GenRangePanic
+	if n != nil {
+		panicArgs, panicSym = compat.Append(panicArgs, n), f.GenRangePanic
 	}
 	panicArgs = compat.Append(panicArgs, mem)
 	call := g.newValue(fail, pos, ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem})...), panicArgs...)
