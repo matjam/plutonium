@@ -78,40 +78,38 @@ type dynFilter struct {
 	I     types2.Type
 	iface *types2.Interface
 	exact bool // I is a concrete type, the receiver of a method
-	ptr   bool // the dynamic type must also be a pointer (see ptrFilter)
+	ptr   bool // the dynamic type must also be a pointer (see ptrToFilter)
+	// ptrTo, for a filter ptrToFilter made, is the type the dynamic type
+	// must be a pointer to.
+	ptrTo types2.Type
 	noop  bool // the filter keeps every pointer
 }
 
-// ptrFilterPkg is the package of the types ptrFilter makes.
+// ptrFilterPkg is the package of the types ptrToFilter makes.
 var ptrFilterPkg = types2.NewPackage("escape.ptrfilter", "ptrfilter")
 
-// ptrFilter returns the filter for a data word that passed a type assertion
-// to the interface I and is the receiver of a pointer method: the dynamic
-// type implements I and is a pointer, so a box holding a value of a type
-// whose method of that name has a value receiver cannot be the receiver. It is
-// a named type with I as its underlying type, one for each I so that equal
-// filters are the same type.
-func (a *analyzer) ptrFilter(I types2.Type) types2.Type {
-	if n, ok := I.(*types2.Named); ok && n.Obj().Pkg() == ptrFilterPkg {
-		return I // already
-	}
-	if iface, _ := I.Underlying().(*types2.Interface); iface == nil || containsTypeParam(I) {
-		return I
-	}
-	if p, ok := a.ptrFilters[I]; ok {
+// ptrToFilter returns the filter for a data word that is the receiver of a
+// pointer method of T, not promoted: the dynamic type is *T. It is a named
+// type with *T as its underlying type, one for each T.
+func (a *analyzer) ptrToFilter(T types2.Type) types2.Type {
+	if p, ok := a.ptrFilters[T]; ok {
 		return p
 	}
 	if a.ptrFilters == nil {
 		a.ptrFilters = map[types2.Type]types2.Type{}
 	}
-	p := types2.NewNamed(types2.NewTypeName(token.NoPos, ptrFilterPkg, "ptr", nil), I.Underlying(), nil)
-	a.ptrFilters[I] = p
+	name := "ptr(" + types2.TypeString(T, nil) + ")"
+	p := types2.NewNamed(types2.NewTypeName(token.NoPos, ptrFilterPkg, name, nil), types2.NewPointer(T), nil)
+	a.ptrFilters[T] = p
 	return p
 }
 
 func newDynFilter(I types2.Type) dynFilter {
 	iface, _ := I.Underlying().(*types2.Interface)
 	if n, ok := I.(*types2.Named); ok && n.Obj().Pkg() == ptrFilterPkg {
+		if p, ok := n.Underlying().(*types2.Pointer); ok {
+			return dynFilter{I: I, ptr: true, ptrTo: p.Elem()}
+		}
 		return dynFilter{I: I, iface: iface, ptr: true, noop: false}
 	}
 	exact := iface == nil
@@ -126,17 +124,41 @@ func (d *dynFilter) keep(t tok) (tok, bool) {
 		if t.path == "" && t.interior() {
 			// A pointer into the location: of the type of something in it.
 			if vt := t.loc.valueType(); vt != nil && !containsTypeParam(vt) {
+				if d.ptrTo != nil {
+					// A *T to a T in the location, a box included: pluto/fmt
+					// walks a box by its descriptor and makes a *T to each
+					// struct it reaches (rt.Make with PtrTo), to call a
+					// container's pointer methods.
+					if !holdsType(vt, d.ptrTo, 0) {
+						return t, false
+					}
+					return t, true
+				}
 				if d.exact && !holdsType(vt, d.I, 0) {
 					return t, false
 				}
-				// A pointer to something in a box is the address of a value of
-				// that type in an interface (boxed, so not a pointer); a pointer
-				// into another location is a pointer of that type.
-				if !d.exact && (t.loc.box && d.ptr || !holdsImplementer(vt, d.iface, t.loc.box, 0)) {
-					return t, false
+				// A pointer into a location is a pointer of the type of
+				// something in it. In a box it may also be the address of a
+				// boxed value of that type in an interface; and it may be a
+				// pointer all the same, which pluto/fmt's walk makes (above).
+				if !d.exact {
+					asPointer := holdsImplementer(vt, d.iface, false, 0)
+					asBoxedValue := t.loc.box && !d.ptr && holdsImplementer(vt, d.iface, true, 0)
+					if !asPointer && !asBoxedValue {
+						return t, false
+					}
 				}
 			}
 		} else if dyn := t.loc.dynamicType(); t.path == "" && dyn != nil && t.shape == shapeWhole && !containsTypeParam(dyn) {
+			if d.ptrTo != nil {
+				// A *T, or a box holding a T (fmt's *T to the box, above).
+				isPtr := types2.Identical(dyn, types2.NewPointer(d.ptrTo))
+				inBox := t.loc.box && holdsType(dyn, d.ptrTo, 0)
+				if !isPtr && !inBox {
+					return t, false
+				}
+				return t, true
+			}
 			if d.ptr {
 				if _, isPtr := dyn.Underlying().(*types2.Pointer); !isPtr {
 					return t, false

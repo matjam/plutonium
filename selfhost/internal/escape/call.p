@@ -670,10 +670,10 @@ func markRecv(a *analyzer, ts tset, f *function) tset {
 			case t.filtAt == len(t.path) && t.filtShape == t.shape && ptrRecv:
 				// A type assertion to an interface already constrains
 				// this data word, and a token has room for one filter.
-				// A pointer method is called only on a pointer, which
-				// a box holding a value is not: the filter becomes the
-				// interface and a pointer.
-				t.filt = a.ptrFilter(t.filt)
+				// A pointer method of T, not promoted, is called only on
+				// a *T: the filter becomes that, which implies the
+				// interface.
+				t.filt = a.ptrToFilter(T)
 			case t.filtAt == len(t.path) && t.filtShape == t.shape && isInterface(t.filt):
 				// A value method is called on a T or a *T, which implements
 				// the interface asserted (or f would not be its candidate):

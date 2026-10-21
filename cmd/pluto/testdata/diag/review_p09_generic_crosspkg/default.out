@@ -1,8 +1,7 @@
 $DIR/main.p:18:2: cannot pass &h to call, which keeps it after returning
     &h is a pointer to h. h is a local variable of f (declared at main.p:17).
-    call passes a pointer reachable from k to k.Keep (which may call
-    gen.(*g).Keep) (main.p:13), which stores x in package variable Kept
-    (gen.p:11), so &h would outlive h.
+    call passes k to k.Keep (which may call gen.(*g).Keep) (main.p:13), which
+    stores x in package variable Kept (gen.p:11), so &h would outlive h.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the

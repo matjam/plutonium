@@ -724,6 +724,11 @@ func (a *analyzer) noteConverted(T types2.Type, top bool) {
 	}
 	switch u := T.Underlying().(type) {
 	case *types2.Struct:
+		// pluto/fmt formats a struct it reaches by making a *T to it, and
+		// calls the methods of *T a container has (a Lister's FmtList, a
+		// Mapper's): those are candidates too, with the pointer into
+		// wherever the struct is (the frame's box, or a field of it).
+		a.noteConverted(types2.NewPointer(T), false)
 		for i := 0; i < u.NumFields(); i++ {
 			a.noteConverted(u.Field(i).Type(), false)
 		}

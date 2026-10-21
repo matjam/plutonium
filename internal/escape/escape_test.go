@@ -764,6 +764,29 @@ func f(a, b string) {
 }
 func main() { f("x", "y") }`, []string{"cannot convert s to an interface", "memory allocated from ar, a local arena of f", "after the arena ar is dropped"}},
 
+	// Found by the lowering oracle (tools/escapeoracle): pluto/fmt formats
+	// a struct it reaches inside a box by making a *T to it (rt.Make with
+	// PtrTo) and calling a Lister's FmtList, a method of *T that no
+	// conversion in the program lists. The interior pointer into the box
+	// must not be dropped by the pointer filter either.
+	{"fmt calls a pointer method of a struct field inside a box", `
+import "pluto/fmt"
+var kept *S
+type S struct{ n int }
+func (s *S) FmtList() (any, int) {
+	kept = s
+	return nil, 0
+}
+type Outer struct {
+	a int
+	s S
+}
+func f() {
+	o := Outer{a: 1, s: S{n: 7}}
+	fmt.Println(o)
+}
+func main() { f() }`, []string{"cannot pass o to fmt.Println, which keeps it", "may call main.(*S).FmtList", "stores s in package variable kept"}},
+
 	{"builder over a local arena returned", `
 import (
 	"pluto/arena"
