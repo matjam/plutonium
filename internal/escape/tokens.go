@@ -903,8 +903,9 @@ type function struct {
 	// outerRegionResults distinguishes addresses in captured region
 	// storage from copies of captured parameters' values.
 	outerRegionResults map[int]map[string]bool
-	inits              bool // the initialisers of a package's variables
-	loopBody           bool // the body of a range loop over a function, as its yield function (rangefunc.go)
+	inits              bool       // the initialisers of a package's variables
+	loopBody           bool       // the body of a range loop over a function, as its yield function (rangefunc.go)
+	dropVars           *[]dropVar // the variables whose drops call a Drop method, once listed (drops.go)
 	// tracked is the walker's computeTracked result for the function's
 	// body, kept for later passes.
 	tracked map[*types2.Var]bool

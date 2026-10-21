@@ -103,6 +103,7 @@ type analyzer struct {
 	// bodyParams are the parameters that may hold the closure of a loop
 	// body, through which a call may call the body (rangefunc.go).
 	bodyParams map[paramRef]bool
+	dropCalls  map[types2.Type]bool       // whether dropping a value of a type calls a Drop method (drops.go)
 	matchDepth int                        // the nesting of tparamMatches
 	sugar      map[ast.Node]*ast.CallExpr // the calls statements make by sugar (sugar.go)
 	order      []*function                // what to analyse: declarations and package initialisers

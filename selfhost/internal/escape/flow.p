@@ -173,7 +173,9 @@ func (w *walker) computeTracked(body ast.Node) {
 			return true
 		}
 		v, ok := w.a.defs[id].(*types2.Var)
-		if !ok || taken[v] || isGlobal(v) || v.IsField() || !flowType(v.Type()) {
+		// An owner whose drop calls a Drop method is dropped through its
+		// address (drops.go).
+		if !ok || taken[v] || isGlobal(v) || v.IsField() || !flowType(v.Type()) || w.a.dropsCall(v.Type()) {
 			return true
 		}
 		w.tracked[v] = true
@@ -185,7 +187,7 @@ func (w *walker) computeTracked(body ast.Node) {
 		if v.Pos() >= body.End() {
 			break
 		}
-		if !taken[v] && flowType(v.Type()) {
+		if !taken[v] && flowType(v.Type()) && !w.a.dropsCall(v.Type()) {
 			w.tracked[v] = true
 		}
 	}

@@ -1,0 +1,29 @@
+$DIR/main.p:21:1: cannot pass &g to (*Guard).Drop (called when g is dropped), which keeps it after returning
+    &g points into n. n is a local variable of Scope (declared at main.p:18).
+    (*Guard).Drop (called when g is dropped) stores a pointer loaded from g.hits
+    in package variable last (main.p:12), so &g would outlive n.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If (*Guard).Drop (called when g is dropped) should keep its own copy of n,
+    change it to take the value, not a pointer, or an owner it can keep: an
+    owned[int] from new, a shared[int], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:26:22: cannot pass &newGuard(&n) to (*Guard).Drop (called when newGuard(&n) is dropped), which keeps it after returning
+    &newGuard(&n) points into n. n is a local variable of Temporary (declared at
+    main.p:25). (*Guard).Drop (called when newGuard(&n) is dropped) stores a
+    pointer loaded from g.hits in package variable last (main.p:12), so
+    &newGuard(&n) would outlive n.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If (*Guard).Drop (called when newGuard(&n) is dropped) should keep its own
+    copy of n, change it to take the value, not a pointer, or an owner it can
+    keep: an owned[int] from new, a shared[int], or a library owner such as a
+    vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

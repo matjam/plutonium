@@ -91,6 +91,7 @@ func (w *walker) run() {
 	}
 	w.bindParams(w.top)
 	w.block(w.f.decl.Body)
+	w.dropScopeVars(w.top, w.f.decl)
 	w.finishScope(w.top)
 }
 
@@ -225,7 +226,7 @@ func (w *walker) labeled(st ast.Stmt, label string) {
 	case *ast.BranchStmt:
 		w.branch(st)
 	case *ast.ExprStmt:
-		w.value(st.X)
+		w.discard(st.X, w.value(st.X))
 	case *ast.DeclStmt:
 		w.declStmt(st)
 	case *ast.AssignStmt:
@@ -436,6 +437,9 @@ func (w *walker) orReturn(st *ast.OrStmt, r *ast.ReturnStmt, form types2.OrRetur
 func (w *walker) assignTo(lhs ast.Expr, val tset, from types2.Type, node ast.Node, pos token.Pos) {
 	if id, ok := ast.Unparen(lhs).(*ast.Ident); ok && id.Name == "_" {
 		w.conv(val, from, from, node)
+		if x, ok := node.(ast.Expr); ok {
+			w.discard(x, val)
+		}
 		return
 	}
 	to := w.lhsType(lhs)
@@ -769,7 +773,7 @@ func argExprs(e *ast.CallExpr, sig *types2.Signature) []ast.Expr {
 	return out
 }
 
-// goClosure_returnVal_1 is the function literal at walk.go:651, converted to a struct
+// goClosure_returnVal_1 is the function literal at walk.go:655, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_returnVal_1 struct {
 	t   tok

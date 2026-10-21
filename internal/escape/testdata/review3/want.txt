@@ -10,6 +10,7 @@ a14_chan_func_value_send: main.p:16:2: cannot pass &x to hook (which may call se
 a15_select_recv_then_store_frame: main.p:16:3: cannot store &x in package variable keep, which outlives x
 a16_chan_send_via_method_value: main.p:20:2: cannot pass &x to callf, which keeps it after returning
 a17_chan_send_in_rangefunc_body: main.p:11:2: cannot pass &x to yield (which may call the loop body at main.p:16), which keeps it after returning
+a18_chan_send_in_drop: main.p:18:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
 b02_task_helper_starts: main.p:17:2: cannot pass &x to start, which keeps it after returning
 b03_task_func_param: main.p:15:2: cannot pass the function literal to run, which keeps it after returning
 b04_task_iface_method: main.p:20:2: cannot pass R{...} to start, which keeps it after returning
@@ -27,6 +28,7 @@ b18_scope_loop_body_slice_in_struct: main.p:19:3: the task started here takes h,
 b19_scope_task_stores_to_outer_var: main.p:19:3: cannot keep &y in p after this iteration: the loop at line 14 reuses y in every iteration
 b20_scope_or_continue_before_wait: accepted
 b21_scope_panic_select_break_before_wait: accepted
+b24_task_in_drop: main.p:24:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
 b25_task_from_rangefunc_body: main.p:17:2: cannot pass &x to yield (which may call the loop body at main.p:22), which keeps it after returning
 c01_vec_append_global: main.p:13:2: cannot pass &x to vec.(*Vec).Append, which keeps it after returning
 c02_vec_insert_global: main.p:13:2: cannot pass &x to vec.(*Vec).Insert, which keeps it after returning
@@ -140,6 +142,21 @@ n33_generic_ptr_tparam_stringer_ordinary: main.p:27:10: cannot pass &s to descri
 n34_generic_ptr_tparam_fmt_println: main.p:22:2: cannot pass &s to show, which keeps it after returning
 n35_generic_slice_tparam_any: main.p:31:10: cannot pass arr[:] to first, which keeps it after returning
 n36_generic_type_instance_tparam_any: main.p:32:9: cannot pass st to st.String (which may call main.(*S).String), which keeps it after returning
+o01_owner_drop_keeps_receiver: main.p:18:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
+o02_owned_field_frame_ptr_moved_global: main.p:15:2: cannot store &x in b.p, which outlives x
+o04_owner_drop_stores_field: main.p:18:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
+o05_shared_holds_frame_ptr: main.p:16:2: cannot store &x in s.p, which outlives x
+o06_drop_array_elem_keeps: main.p:22:1: cannot pass &arr to (*O).Drop (called when arr is dropped), which keeps it after returning
+o07_drop_param_owner: main.p:14:23: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
+o08_drop_field_of_owner_struct: main.p:21:1: cannot pass &w to (*O).Drop (called when w is dropped), which keeps it after returning
+o09_drop_via_helper: main.p:19:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
+o10_drop_sends_on_chan: main.p:17:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
+o11_drop_temporary: main.p:17:20: cannot pass &mk() to (*O).Drop (called when mk() is dropped), which keeps it after returning
+o12_drop_explicit_call: main.p:17:2: cannot pass &o to (*O).Drop, which keeps it after returning
+o13_drop_generic_owner: main.p:17:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
+o14_drop_in_vec_of_owners_local: $PLUTOROOT/pluto/vec/vec.p:109:50: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
+o15_drop_keeps_pointer_to_frame_via_field_of_struct: main.p:22:2: cannot pass &x to g, which keeps it after returning
+o16_owner_iface_drop: main.p:20:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
 o17_shared_field_view_returned: main.p:16:9: cannot return &s.n, which points into the object s refers to, which s keeps alive in g
 o18_owned_field_view_returned: main.p:15:9: cannot return &b.n, which points into the object b refers to, which b keeps alive in g
 p01_init_local_closure: main.p:11:2: cannot store the function literal in package variable gf, which outlives x

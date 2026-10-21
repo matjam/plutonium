@@ -420,6 +420,11 @@ func (w *walker) value1(e ast.Expr) tset {
 		}
 		switch sel.Kind() {
 		case types2.FieldVal:
+			if isTemporary(e.X) {
+				// A field of an owner nothing keeps: the owner is dropped at
+				// the end of the statement.
+				w.discard(e.X, w.value(e.X))
+			}
 			p, isAddr := w.fieldPlace(e.X, sel.Index())
 			// Counted fields keep their children alive. Retain the
 			// receiver path so a borrowed result is bound to that holder.
@@ -1215,6 +1220,7 @@ func (w *walker) funcLit(lit *ast.FuncLit) tset {
 	w.sc, w.static, w.env, w.targets = sc, false, env{}, nil
 	w.bindParams(sc)
 	w.block(lit.Body)
+	w.dropScopeVars(sc, lit)
 	w.finishScope(sc)
 	w.sc, w.static, w.env, w.targets = saved, savedStatic, savedEnv, savedTargets
 
@@ -1314,6 +1320,11 @@ func (w *walker) receiverOf(x ast.Expr, fn *types2.Func, path []int) tset {
 		l.typ = xt
 		l.method = fn.Name()
 		w.addContents(l, cur)
+		if kind == lkStmtTemp && !w.static {
+			// Dropped at the end of the statement (language spec section
+			// 18.6).
+			w.dropAt(tset{frameTok(l)}, xt, exprText(x), x, x.End())
+		}
 		return tset{frameTok(l)}
 	case isAddr:
 		return w.load(cur)

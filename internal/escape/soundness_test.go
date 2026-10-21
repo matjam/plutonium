@@ -193,6 +193,34 @@ func g() int {
 	return len(b.p)
 }
 func main() { f(); println(g()) }`, "cannot store &x in b.p[0]"},
+	// The third adversarial review: the drop of an owner at the end of its
+	// scope calls its Drop method with a pointer to it (section 18.6).
+	{"the drop of a local owner whose Drop keeps its receiver", `
+type O owner struct{ n int }
+var keep *O
+func (o *O) Drop() { keep = o }
+func f() {
+	var o O
+	o.n = 1
+}
+func main() { f() }`, "cannot pass &o to (*O).Drop (called when o is dropped)"},
+	{"the drop of an owner field of a local struct", `
+type O owner struct{ n int }
+type W owner struct{ o O }
+var keep *O
+func (o *O) Drop() { keep = o }
+func f() {
+	var w W
+	w.o.n = 1
+}
+func main() { f() }`, "cannot pass &w to (*O).Drop (called when w is dropped)"},
+	{"the drop of a temporary owner", `
+type O owner struct{ n int }
+var keep *O
+func (o *O) Drop() { keep = o }
+func mk() O { return O{n: 1} }
+func f() int { return mk().n }
+func main() { println(f()) }`, "cannot pass &mk() to (*O).Drop (called when mk() is dropped)"},
 	{"element of an array as a pointer in an interface", `
 type S struct{ n int }
 var keepS *S
@@ -755,6 +783,15 @@ func TestKeepsFrameWays(t *testing.T) {
 // type is not a receiver of another type's method that keeps it, and an
 // interface holding a value that holds no such pointer calls no such method.
 var staysExact = []struct{ name, src string }{
+	{"the drop of a local owner whose Drop releases what it owns", `
+type O owner struct{ p owned[int] }
+func (o *O) Drop() { o.p = nil }
+func f() int {
+	var o O
+	o.p = new(int)
+	return *o.p
+}
+func main() { println(f()) }`},
 	{"a local vector of pointers to package variables", `
 import "pluto/vec"
 var a, b int

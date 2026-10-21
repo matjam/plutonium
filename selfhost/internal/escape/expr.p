@@ -422,6 +422,11 @@ func (w *walker) value1(e ast.Expr) tset {
 		}
 		switch sel.Kind() {
 		case types2.FieldVal:
+			if isTemporary(e.X) {
+				// A field of an owner nothing keeps: the owner is dropped at
+				// the end of the statement.
+				w.discard(e.X, w.value(e.X))
+			}
 			p, isAddr := w.fieldPlace(e.X, sel.Index())
 			// Counted fields keep their children alive. Retain the
 			// receiver path so a borrowed result is bound to that holder.
@@ -1217,6 +1222,7 @@ func (w *walker) funcLit(lit *ast.FuncLit) tset {
 	w.sc, w.static, w.env, w.targets = sc, false, env{}, nil
 	w.bindParams(sc)
 	w.block(lit.Body)
+	w.dropScopeVars(sc, lit)
 	w.finishScope(sc)
 	w.sc, w.static, w.env, w.targets = saved, savedStatic, savedEnv, savedTargets
 
@@ -1316,6 +1322,11 @@ func (w *walker) receiverOf(x ast.Expr, fn *types2.Func, path []int) tset {
 		l.typ = xt
 		l.method = fn.Name()
 		w.addContents(l, cur)
+		if kind == lkStmtTemp && !w.static {
+			// Dropped at the end of the statement (language spec section
+			// 18.6).
+			w.dropAt(compat.Clone(tset{frameTok(l)}), xt, exprText(x), x, x.End())
+		}
 		return compat.Clone(tset{frameTok(l)})
 	case isAddr:
 		return w.load(cur)
@@ -1547,7 +1558,7 @@ func (w *walker) escapeParam(t tok, why goFn1) {
 	w.a.grew = true
 }
 
-// goClosure_store_1 is the function literal at expr.go:1403, converted to a struct
+// goClosure_store_1 is the function literal at expr.go:1414, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_1 struct {
 	d   dest
@@ -1560,7 +1571,7 @@ func (goSelf *goClosure_store_1) Call() string {
 	return goSelf.d.why(goSelf.v.sc.fn.paramDesc(keyOf(goSelf.v)), goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_store_2 is the function literal at expr.go:1472, converted to a struct
+// goClosure_store_2 is the function literal at expr.go:1483, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_2 struct {
 	d   dest
@@ -1572,7 +1583,7 @@ func (goSelf *goClosure_store_2) Call() string {
 	return goSelf.d.why("it", goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_sink_1 is the function literal at expr.go:1505, converted to a struct
+// goClosure_sink_1 is the function literal at expr.go:1516, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sink_1 struct {
 	tail string
@@ -1586,7 +1597,7 @@ type goFn1 interface {
 	Call() string
 }
 
-// goClosure_sinkTail_1 is the function literal at expr.go:1520, converted to a struct
+// goClosure_sinkTail_1 is the function literal at expr.go:1531, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sinkTail_1 struct {
 	act  string

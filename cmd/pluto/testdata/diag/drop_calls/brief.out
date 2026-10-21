@@ -1,0 +1,2 @@
+$DIR/main.p:21:1: cannot pass &g to (*Guard).Drop (called when g is dropped), which keeps it after returning
+$DIR/main.p:26:22: cannot pass &newGuard(&n) to (*Guard).Drop (called when newGuard(&n) is dropped), which keeps it after returning
