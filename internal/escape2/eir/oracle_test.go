@@ -1,15 +1,12 @@
-//go:build escape2oracle
-
-// This test needs internal/lower's oracle view (lower.LowerFacts, piece A of
-// the redesign); until it is on main the file builds only with
-// -tags escape2oracle. Run it with
+// The lowering oracle runs, in the normal suite, over a sample of the
+// corpus (oracleSample); over the whole corpus with
 //
-//	PLUTO_ESCAPE_ORACLE=1 go test -tags escape2oracle ./internal/escape2/eir -run TestOracle
+//	PLUTO_ESCAPE_ORACLE=1 go test ./internal/escape2/eir -run TestOracle
 //
 // (PLUTO_ESCAPE_ORACLE_ONLY=group/ for part of the corpus,
 // PLUTO_ESCAPE_ORACLE_DIR=selfhost/demo/lowerdemo PLUTO_ESCAPE_ORACLE_NOESCAPE=1
 // for a translated compiler, PLUTO_ESCAPE_ORACLE_OUT=file for every
-// difference).
+// difference), which needs a bigjob slot.
 
 package eir_test
 
@@ -734,9 +731,26 @@ func (o *oracle) compare() oracleDiff {
 // over the corpus and the review programs (PLUTO_ESCAPE_ORACLE=1; it
 // lowers every program). PLUTO_ESCAPE_ORACLE_OUT=file writes every
 // difference found.
+// oracleSample are the programs the normal suite runs the oracle over:
+// each exercises desugarings that differ most from the source (defers and
+// closures in range bodies, closure regions, generic methods and
+// interfaces, rings, iterators of the library).
+var oracleSample = map[string]bool{
+	"run/rangefuncdefer":    true,
+	"run/rangefuncmore":     true,
+	"run/closureregions":    true,
+	"run/closureregions2":   true,
+	"run/closureifacechain": true,
+	"run/tpmethods":         true,
+	"run/tp_ifaceconv":      true,
+	"lib/bytes":             true,
+	"lib/hash":              true,
+}
+
 func TestOracle(t *testing.T) {
-	if os.Getenv("PLUTO_ESCAPE_ORACLE") == "" {
-		t.Skip("PLUTO_ESCAPE_ORACLE=1 runs the lowering oracle over the corpus")
+	all := os.Getenv("PLUTO_ESCAPE_ORACLE") != ""
+	if !all && testing.Short() {
+		t.Skip("lowers and builds the EIR of sample programs")
 	}
 	only := os.Getenv("PLUTO_ESCAPE_ORACLE_ONLY")
 	var mu sync.Mutex
@@ -748,6 +762,9 @@ func TestOracle(t *testing.T) {
 	}
 	for _, cp := range progs {
 		if only != "" && !strings.Contains(cp.name, only) {
+			continue
+		}
+		if !all && !oracleSample[cp.name] {
 			continue
 		}
 		t.Run(cp.name, func(t *testing.T) {
