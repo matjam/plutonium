@@ -95,7 +95,7 @@ func main() {
 	s, err := strconv.Unquote(strconv.Quote("a\tb"))
 	println(s, err == nil)
 }
-`, "quote.p:", "EIR's either-address-or-value receiver of a type-parameter method call (g09) gives utf8.AppendRune's summary a select of dst's field 0 that a caller passing &buf reads as a pointer to buf.data, stored into buf's buffer (E3003 at quote.p:220-267)",
+`, "quote.p:", "",
 	},
 }
 

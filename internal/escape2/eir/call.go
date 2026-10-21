@@ -261,23 +261,24 @@ func (fb *fnb) methodCallee(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.S
 		// A method of a type parameter's constraint: every method of that
 		// name over the instantiations (the receiver is the operand's
 		// address when it has one, as a pointer method takes it).
-		var recv Reg
-		if pointerElem(recvT) != nil {
-			recv = fb.expr(se.X)
+		// The instance's method may take the operand's address (a pointer
+		// method of a type argument that is not a pointer) or its value:
+		// Args[0] is the value, RecvAddr the address, and the solver binds
+		// the one each candidate takes.
+		var recv, addr Reg
+		tp := recvT
+		if el := pointerElem(recvT); el != nil {
+			tp = el
+			addr = fb.expr(se.X)
+			recv = fb.load(addr, el)
 		} else if a, ok := fb.addrIfPlace(se.X); ok {
-			// The instance's method may take the operand's address (a
-			// pointer method of a struct type) or its value (any method of
-			// a pointer type): the receiver is either.
-			recv = fb.either(a, fb.load(a, recvT))
+			addr = a
+			recv = fb.load(a, recvT)
 		} else {
 			recv = fb.expr(se.X)
 		}
 		args, types := fb.args(e, sig, nil)
-		tp := recvT
-		if !isTypeParam(tp) {
-			tp = pointerElem(recvT)
-		}
-		return &Call{Kind: CallTypeParam, Method: fn, Iface: tp, Sig: sig}, append([]Reg{recv}, args...), append([]types2.Type{recvT}, types...), true
+		return &Call{Kind: CallTypeParam, Method: fn, Iface: tp, Sig: sig, RecvAddr: addr}, append([]Reg{recv}, args...), append([]types2.Type{tp}, types...), true
 	}
 	if fb.isRingMethod(fn) {
 		// The methods of ring[T, N] have pointer receivers: the contract
@@ -1045,7 +1046,10 @@ func (fb *fnb) contMethod(c *contRef, name string, args []Reg, impl Implicit) ([
 	}
 	_, wantPtr := sig.Recv().Type().(*types2.Pointer)
 	if isTypeParam(T) {
-		return fb.emitCall(&Call{Kind: CallTypeParam, Method: fn, Iface: T, Sig: sig, Args: append([]Reg{c.base}, args...), Implicit: impl}, pos), resultTypes(sig)
+		// The value, or for a pointer method of an instance that is not a
+		// pointer, the address (RecvAddr).
+		recv := fb.load(c.base, T)
+		return fb.emitCall(&Call{Kind: CallTypeParam, Method: fn, Iface: T, Sig: sig, Args: append([]Reg{recv}, args...), Implicit: impl, RecvAddr: c.base}, pos), resultTypes(sig)
 	}
 	if isIfaceMethod(fn) {
 		recv := fb.receiverAt(c.base, c.baseT, path, false, fn)
@@ -1056,9 +1060,6 @@ func (fb *fnb) contMethod(c *contRef, name string, args []Reg, impl Implicit) ([
 		// A ring's methods are expanded inline; its iterators are
 		// functions the lowerer makes, which read the ring.
 		return fb.emitCall(&Call{Kind: CallContract, Contract: contract.RingMethod, Sig: sig, Args: append([]Reg{c.base}, args...), Implicit: impl}, pos), resultTypes(sig)
-	}
-	if isTypeParam(T) {
-		return fb.emitCall(&Call{Kind: CallTypeParam, Method: fn, Iface: T, Sig: sig, Args: append([]Reg{c.base}, args...), Implicit: impl}, pos), resultTypes(sig)
 	}
 	recv := fb.receiverAt(c.base, c.baseT, path, wantPtr, fn)
 	if n, ok := types2.Unalias(fb.recvFieldTypeDeref(c.baseT, path)).(*types2.Named); ok && n.TypeArgs() != nil {

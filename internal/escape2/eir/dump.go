@@ -140,6 +140,9 @@ func (p *Program) callString(c *Call) string {
 			m = c.Method.Name()
 		}
 		callee = fmt.Sprintf("tparam %s.%s", typeStr(c.Iface), m)
+		if c.RecvAddr != 0 {
+			callee += fmt.Sprintf(" &r%d", c.RecvAddr)
+		}
 	case CallFunc:
 		callee = fmt.Sprintf("func r%d", c.Target)
 	case CallContract:

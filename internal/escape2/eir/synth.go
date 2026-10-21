@@ -95,7 +95,14 @@ func (b *builder) buildSynth(f *Func) {
 			if !isTypeParam(tp) {
 				tp = pointerElem(tp)
 			}
-			res = fb.emitCall(&Call{Kind: CallTypeParam, Method: s.Method, Iface: tp, Sig: msig, Args: in, Implicit: ImplWrapper}, token.NoPos)
+			c := &Call{Kind: CallTypeParam, Method: s.Method, Iface: tp, Sig: msig, Args: in, Implicit: ImplWrapper}
+			if tp != s.Recv && len(in) > 0 {
+				// (*T).m: the receiver is a pointer to the value, its
+				// address for an instance whose method takes one.
+				c.RecvAddr = in[0]
+				c.Args = append([]Reg{fb.load(in[0], tp)}, in[1:]...)
+			}
+			res = fb.emitCall(c, token.NoPos)
 			break
 		}
 		recv := fb.receiverFromValue(in[0], s.Recv, s.Method, s.Path)

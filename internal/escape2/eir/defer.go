@@ -172,12 +172,19 @@ func (fb *fnb) deferStmt(st *ast.DeferStmt) {
 		if hasTarget {
 			target = fb.save(c.Target, fb.targetType(c))
 		}
+		var recvAddr saved
+		if c.RecvAddr != 0 {
+			recvAddr = fb.save(c.RecvAddr, types2.Typ[types2.UnsafePointer])
+		}
 		sargs := fb.saveAll(args, types)
 		proto := *c
 		run = func(fb *fnb) {
 			c := proto
 			if hasTarget {
 				c.Target = fb.loadSaved(target)
+			}
+			if proto.RecvAddr != 0 {
+				c.RecvAddr = fb.loadSaved(recvAddr)
 			}
 			c.Args = fb.loadAll(sargs)
 			c.Implicit = ImplDefer
@@ -251,6 +258,10 @@ func (fb *fnb) taskStmt(st *ast.TaskStmt) {
 	}
 	if c.Kind == CallFunc || c.Kind == CallIface {
 		fb.sink(SinkTask, c.Target, 0, call.Pos())
+	}
+	if c.RecvAddr != 0 {
+		// The receiver's address, for an instance whose method takes it.
+		fb.sink(SinkTask, c.RecvAddr, 0, call.Pos())
 	}
 	packed := c.Sig != nil && c.Sig.Variadic() && !call.Ellipsis.IsValid() && len(args) > 0 && len(call.Args) >= c.Sig.Params().Len()
 	for i, a := range args {
