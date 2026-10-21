@@ -423,7 +423,7 @@ func (o *oracle) symKeys(sym *ssa.Sym, active map[*ssa.Sym]bool) []oracleKey {
 	if k, ok := o.sourceKey(sym); ok {
 		return []oracleKey{o.lateHook(k)}
 	}
-	if !strings.Contains(sym.Name, ".") {
+	if !strings.Contains(sym.Name, ".") && !strings.Contains(sym.Name, "·") {
 		// A C name: the //pu:extern function, whatever the lowerer made
 		// for its C calling convention.
 		return []oracleKey{{what: "extern " + sym.Name}}
