@@ -803,8 +803,10 @@ func (fb *fnb) allocBox(withName string, alloc []ast.Expr, pos token.Pos) Reg {
 				fb.expr(a)
 			}
 		}
+		return fb.heap(HeapAlloc)
 	}
-	return fb.heap(HeapAlloc)
+	// No allocator: the current one (alloc.Default(), or alloc.Use's).
+	return fb.heap(HeapCurrent)
 }
 
 // makeBuiltin builds make(chan T, ...) and make(map[K]V, ...).
