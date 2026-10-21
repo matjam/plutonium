@@ -93,3 +93,65 @@ func main() {
 `)
 	t.Log(out)
 }
+
+// TestBuildInterfaceValues checks the forms of interface values: a
+// zero-sized value has no box (testdata/plutonium/tp_cons.p returns one);
+// a type parameter's is the box or the value, which the instance decides
+// (review4 ea01); and a type that is only a field of a converted type gets
+// the itab adapter of an interface asserted to (fmt reaches a field's
+// String through x.(Stringer)).
+func TestBuildInterfaceValues(t *testing.T) {
+	out := dumpMain(t, `package main
+
+type Nil struct{}
+
+type L []*int
+
+func (l L) String() string { return "l" }
+
+type Outer struct {
+	L L
+	K int
+}
+
+type Stringer interface{ String() string }
+
+func empty() any { return Nil{} }
+
+func generic[T any](x T) any { return x }
+
+func str(a any) string {
+	if s, ok := a.(Stringer); ok {
+		return s.String()
+	}
+	return ""
+}
+
+func main() {
+	_ = empty()
+	_ = generic[int](1)
+	n := 1
+	_ = str(Outer{L{&n}, 1})
+}
+`)
+	section := func(name string) string {
+		i := strings.Index(out, "func "+name+"\n")
+		if i < 0 {
+			t.Fatalf("no %s in\n%s", name, out)
+		}
+		s := out[i+1:]
+		if j := strings.Index(s, "func "); j >= 0 {
+			s = s[:j]
+		}
+		return s
+	}
+	if s := section("main.empty"); strings.Contains(s, " box ") {
+		t.Errorf("a zero-sized value is boxed:\n%s", s)
+	}
+	if s := section("main.generic"); !strings.Contains(s, "phi") {
+		t.Errorf("a type parameter's interface value is not the box or the value:\n%s", s)
+	}
+	if !strings.Contains(out, "func main.L.String (interface adapter)") {
+		t.Errorf("no adapter of main.L for Stringer:\n%s", out)
+	}
+}

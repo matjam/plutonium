@@ -89,7 +89,9 @@ func (fb *fnb) conv(r Reg, from, I types2.Type, pos token.Pos) Reg {
 	fb.noteItab(from, I)
 	fb.b.describe(from)
 	in := Instr{Op: OpConv, X: r, Type: from, To: I, Obj: NoObj, Pos: pos}
-	if !fb.isDirect(from) {
+	if !fb.isDirect(from) && !zeroSized(from) {
+		// (A box of no bytes holds nothing to read once its frame is
+		// gone.)
 		in.Obj = fb.newObj(Object{Kind: ObjBox, Type: from, Name: "interface box", Pos: pos})
 	}
 	d := fb.emitDst(in)
@@ -108,6 +110,26 @@ func (fb *fnb) isDirect(T types2.Type) bool {
 		return false
 	}
 	return types2.PointerShaped(T) || isScalar(T)
+}
+
+// zeroSized reports whether a value of T has no bytes: an empty struct, or
+// an array of none, or of zero-sized elements, whatever the instance.
+func zeroSized(T types2.Type) bool {
+	if T == nil || isTypeParam(T) {
+		return false
+	}
+	switch u := unwrap(T).Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if !zeroSized(u.Field(i).Type()) {
+				return false
+			}
+		}
+		return true
+	case *types2.Array:
+		return u.Len() == 0 || zeroSized(u.Elem())
+	}
+	return false
 }
 
 // isScalar reports whether T is a basic type other than a string, which
