@@ -150,11 +150,11 @@ func R[V any](x V) {}
 	intT := types2.Typ[types2.Int]
 	main.f.Facts.Instances = []eir.Instance{{Obj: F, Args: []types2.Type{intT}}, {Obj: R, Args: []types2.Type{intT}}}
 	f := stageB(pr.p)
-	got, ok := f.InstantiatedKnown(U)
+	got, ok := f.Instantiated(U)
 	if !ok || len(got) != 1 || !types2.Identical(got[0], types2.NewSlice(intT)) {
 		t.Errorf("G's U: %v %v, want [[]int]", got, ok)
 	}
-	if _, ok := f.InstantiatedKnown(V); ok {
+	if _, ok := f.Instantiated(V); ok {
 		t.Errorf("R's V is known; want open (R[T] instantiates R[[]T])")
 	}
 }

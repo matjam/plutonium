@@ -59,39 +59,10 @@ func (f *facts) HeapOnly(T types2.Type, field int) bool {
 }
 
 // Instantiated reports the type arguments a type parameter is instantiated
-// with anywhere in the program. For a type parameter whose instantiations
-// cannot be bounded it returns nil; InstantiatedKnown tells the two apart.
-func (f *facts) Instantiated(tp *types2.TypeParam) []types2.Type {
-	types, _ := f.inst.instantiated(tp)
-	return types
-}
-
-// InstantiatedKnown is Instantiated, and whether the set is known: false
-// for an open type parameter, which may be instantiated with any type.
-func (f *facts) InstantiatedKnown(tp *types2.TypeParam) ([]types2.Type, bool) {
+// with anywhere in the program, and whether the set is known: false for an
+// open type parameter, which may be instantiated with any type.
+func (f *facts) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
 	return f.inst.instantiated(tp)
-}
-
-// Options configure Run.
-type Options struct {
-	// Contract gives the summaries of contract-table entries; nil means
-	// those of internal/escape2/contract.
-	Contract func(name string) (*summary.Summary, bool)
-	// OnSCC, if set, is called after each SCC is final, with its
-	// functions and measurements, before its arena is reset.
-	OnSCC func(scc []eir.FuncID, st SCCStats)
-}
-
-// SCCStats are the measurements of one SCC.
-type SCCStats struct {
-	Funcs  int
-	Solves int
-	// ArenaBytes and SetBytes are the memory the arena and the set table
-	// held after the SCC's solves. The workspace is reset after every
-	// solve and keeps its chunks, so these grow only when a solve needs
-	// more than every solve before it: the largest is the peak.
-	ArenaBytes int
-	SetBytes   int
 }
 
 // Run analyses p: stage B, then the SCCs callees first.

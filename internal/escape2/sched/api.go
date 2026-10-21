@@ -38,8 +38,11 @@ type Facts interface {
 	// only heap pointers.
 	HeapOnly(T types2.Type, field int) bool
 	// Instantiated reports the type arguments a type parameter is
-	// instantiated with anywhere in the program.
-	Instantiated(tp *types2.TypeParam) []types2.Type
+	// instantiated with anywhere in the program, and whether that set is
+	// known. known false means open: the instantiations cannot be bounded
+	// (a type parameter instantiated with itself through a recursive
+	// chain), and a client must treat it as any type, never as none.
+	Instantiated(tp *types2.TypeParam) (types []types2.Type, known bool)
 }
 
 // Stats are the measurements the plan asks for (section (e), (h)).
@@ -57,4 +60,26 @@ type Result struct {
 	Summaries []*summary.Summary // by eir.FuncID
 	Findings  []solve.Finding    // sorted by position
 	Stats     Stats
+}
+
+// Options configure Run.
+type Options struct {
+	// Contract gives the summaries of contract-table entries; nil means
+	// those of internal/escape2/contract.
+	Contract func(name string) (*summary.Summary, bool)
+	// OnSCC, if set, is called after each SCC is final, with its
+	// functions and measurements, before its arena is reset.
+	OnSCC func(scc []eir.FuncID, st SCCStats)
+}
+
+// SCCStats are the measurements of one SCC.
+type SCCStats struct {
+	Funcs  int
+	Solves int
+	// ArenaBytes and SetBytes are the memory the arena and the set table
+	// held after the SCC's solves. The workspace is reset after every
+	// solve and keeps its chunks, so these grow only when a solve needs
+	// more than every solve before it: the largest is the peak.
+	ArenaBytes int
+	SetBytes   int
 }

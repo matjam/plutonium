@@ -316,8 +316,14 @@ type Call struct {
 	Sig      *types2.Signature
 	Target   Reg    // CallIface: the interface value; CallFunc: the func value
 	Contract string // CallContract
-	Args     []Reg  // receiver first for static method calls
-	Results  []Reg  // one per result; 0 for a result not used
+	// Args are the arguments: receiver first for static method calls; for
+	// CallIface and CallTypeParam the method's parameters without the
+	// receiver, which is Target's data word (a candidate's input 0 binds
+	// to it); for CallFunc the func value's parameters. They are registers
+	// like any other, so stage B sees their sources (OpHeap, loads, inputs)
+	// as it does at a static call, for every candidate's parameters.
+	Args     []Reg
+	Results  []Reg // one per result; 0 for a result not used
 	Implicit Implicit
 	Site     SiteID
 }
