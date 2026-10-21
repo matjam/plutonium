@@ -170,6 +170,15 @@ type Call struct {
 	Method   int
 	FSig     *types2.Signature
 	Targets  []*ssa.Sym // every function the call may reach, as lowered
+	// Params are the shapes of what the call passes for each parameter,
+	// receiver first, by the callee's lowered signature: for a static call
+	// whose callee lowering lowered, and for a call through an interface
+	// (whose receiver is the interface's data word) or a func value. Nil
+	// when the signature is not known.
+	Params []Arg
+	// Context is what a call through a func value passes as its closure
+	// context: the closure record.
+	Context ArgShape
 	// Unconverted are the targets of a call through an itab whose dynamic
 	// type the generated code never puts into an interface, directly or by
 	// walking a type descriptor (pluto/fmt): lowering emits itabs for every
@@ -200,6 +209,9 @@ func (cf *CallFacts) Calls(f *ssa.Func) []Call {
 					callee = exported
 				}
 				c.Kind, c.Static, c.Targets = CallStatic, callee, []*ssa.Sym{callee}
+				if sig := cf.l.sigs[callee]; sig != nil {
+					c.Params = cf.params(sig, v.Args[:len(v.Args)-1])
+				}
 			case v.Args[0].Op == ssa.OpFuncAddr:
 				callee := v.Args[0].Aux.(*ssa.Sym)
 				c.Kind, c.Static, c.Targets = CallStatic, callee, []*ssa.Sym{callee}
@@ -220,6 +232,17 @@ func (cf *CallFacts) Calls(f *ssa.Func) []Call {
 				}
 				if site != nil && site.iface != nil {
 					c.Unconverted = cf.unconverted(site)
+				}
+				if site != nil && site.iface != nil && site.method < site.iface.Underlying().(*types2.Interface).NumMethods() {
+					// The interface's data word is passed as the receiver,
+					// then the parameters.
+					m := site.iface.Underlying().(*types2.Interface).Method(site.method).Type().(*types2.Signature)
+					recv := types2.NewParam(token.NoPos, nil, "", types2.Typ[types2.UnsafePointer])
+					withRecv := types2.NewSignatureType(recv, nil, nil, m.Params(), m.Results(), m.Variadic())
+					c.Params = cf.params(withRecv, v.Args[2:len(v.Args)-1])
+				} else if site != nil && site.fsig != nil {
+					c.Context = argShape(v.Args[1])
+					c.Params = cf.params(site.fsig, v.Args[2:len(v.Args)-1])
 				}
 			}
 			out = append(out, c)
@@ -358,4 +381,181 @@ func (cf *CallFacts) reachableDescs() map[*ssa.Sym]bool {
 	}
 	cf.reach = reach
 	return reach
+}
+
+// ArgShape says what a call passes in one scalar argument, as lowered and
+// before optimisation: the address of a place in the frame or in static
+// memory, a value loaded from memory, a constant, or an input of the caller.
+type ArgShape uint8
+
+const (
+	ArgOther      ArgShape = iota // computed otherwise (a call's result, arithmetic)
+	ArgFrameAddr                  // the address of a stack slot, or an offset into one
+	ArgStaticAddr                 // the address of a global symbol or function, or an offset into one
+	ArgLoaded                     // a value loaded from memory
+	ArgConst                      // a constant
+	ArgInput                      // a parameter of the caller, or its closure context
+)
+
+func (a ArgShape) String() string {
+	return [...]string{"other", "frame address", "static address", "loaded", "constant", "input"}[a]
+}
+
+// Arg is what a call passes for one parameter: the shape of its first scalar
+// (a pointer parameter has one), how many scalars it takes, and whether it is
+// passed by reference to a copy the caller made (a large aggregate).
+type Arg struct {
+	Shape  ArgShape
+	Leaves int
+	ByRef  bool
+}
+
+// params maps a call's scalar arguments to the parameters of sig, receiver
+// first. flat are the arguments after the code pointer and closure context,
+// without the memory.
+func (cf *CallFacts) params(sig *types2.Signature, flat []*ssa.Value) []Arg {
+	if containsTypeParams(sig) {
+		return nil
+	}
+	a := cf.l.lowerSig(sig)
+	i := 0
+	if a.sret {
+		i++
+	}
+	if a.region {
+		i++
+	}
+	var out []Arg
+	for _, p := range a.params {
+		n := len(p.leaves)
+		if p.byRef {
+			n = 1
+		}
+		if i >= len(flat) || n == 0 {
+			out = append(out, Arg{Leaves: n, ByRef: p.byRef})
+			i += n
+			continue
+		}
+		out = append(out, Arg{Shape: argShape(flat[i]), Leaves: n, ByRef: p.byRef})
+		i += n
+	}
+	return out
+}
+
+// argShape classifies a scalar argument (argShape's constants).
+func argShape(v *ssa.Value) ArgShape {
+	for range 64 {
+		switch v.Op {
+		case ssa.OpCopy, ssa.OpOffPtr, ssa.OpAddPtr, ssa.OpRegion:
+			v = v.Args[0] // an offset keeps the nature of its base
+			continue
+		case ssa.OpSlotAddr:
+			return ArgFrameAddr
+		case ssa.OpSymAddr, ssa.OpFuncAddr:
+			return ArgStaticAddr
+		case ssa.OpLoad:
+			// Lowering evaluates arguments into temporaries: a load of
+			// one that a store just filled is what was stored.
+			if w := storedValue(v); w != nil {
+				v = w
+				continue
+			}
+			return ArgLoaded
+		case ssa.OpConst, ssa.OpConstFloat:
+			return ArgConst
+		case ssa.OpArg, ssa.OpClosurePtr:
+			return ArgInput
+		}
+		return ArgOther
+	}
+	return ArgOther
+}
+
+// storedValue returns the value the store that last wrote load v's slot
+// stored, when that store is on v's memory chain within a few steps and
+// writes the same stack slot at the same offset, or nil.
+func storedValue(v *ssa.Value) *ssa.Value {
+	slot, off := slotOf(v.Args[0])
+	if slot == nil || len(v.Args) < 2 {
+		return nil
+	}
+	mem := v.Args[1]
+	for range 32 {
+		if mem.Op != ssa.OpStore {
+			return nil
+		}
+		if s, o := slotOf(mem.Args[0]); s == slot && o == off {
+			return mem.Args[1]
+		} else if s == slot || s == nil {
+			return nil // another part of the slot, or a store anywhere: stop
+		}
+		mem = mem.Args[2]
+	}
+	return nil
+}
+
+// slotOf returns the stack slot a pointer addresses and its offset, or nil.
+func slotOf(p *ssa.Value) (any, int64) {
+	var off int64
+	for range 16 {
+		switch p.Op {
+		case ssa.OpOffPtr:
+			off += p.AuxInt
+			p = p.Args[0]
+			continue
+		case ssa.OpCopy:
+			p = p.Args[0]
+			continue
+		case ssa.OpSlotAddr:
+			return p.Aux, off
+		}
+		return nil, 0
+	}
+	return nil, 0
+}
+
+// containsTypeParams reports whether sig mentions a type parameter, whose
+// layout lowering cannot compute.
+func containsTypeParams(sig *types2.Signature) bool {
+	var has func(t types2.Type, depth int) bool
+	has = func(t types2.Type, depth int) bool {
+		if depth > 8 {
+			return true
+		}
+		switch t := types2.Unalias(t).(type) {
+		case *types2.TypeParam:
+			return true
+		case *types2.Pointer:
+			return has(t.Elem(), depth+1)
+		case *types2.Slice:
+			return has(t.Elem(), depth+1)
+		case *types2.Array:
+			return has(t.Elem(), depth+1)
+		case *types2.Named:
+			if ta := t.TypeArgs(); ta != nil {
+				for i := 0; i < ta.Len(); i++ {
+					if has(ta.At(i), depth+1) {
+						return true
+					}
+				}
+			}
+		}
+		return false
+	}
+	vars := []*types2.Var{}
+	if r := sig.Recv(); r != nil {
+		vars = append(vars, r)
+	}
+	for i := 0; i < sig.Params().Len(); i++ {
+		vars = append(vars, sig.Params().At(i))
+	}
+	for i := 0; i < sig.Results().Len(); i++ {
+		vars = append(vars, sig.Results().At(i))
+	}
+	for _, v := range vars {
+		if has(v.Type(), 0) {
+			return true
+		}
+	}
+	return false
 }

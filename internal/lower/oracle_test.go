@@ -47,6 +47,8 @@ func main() {
 	for v := range seq {
 		println(v)
 	}
+	var t2 T
+	t2.M(&x)
 }
 `
 	dir := t.TempDir()
@@ -124,6 +126,29 @@ func main() {
 	}
 	if names, kinds := reach(main, lineOf("for v := range seq")); !names["seq"] || !kinds[lower.CallStatic] {
 		t.Errorf("range seq: reaches %v by %v, want seq, statically", names, kinds)
+	}
+	// Argument shapes: the address of a frame variable, a constant, and a
+	// frame variable's address as the receiver of its pointer method.
+	shapes := func(f *ssa.Func, line int, kind lower.CallKind) [][]lower.Arg {
+		var out [][]lower.Arg
+		for _, c := range cf.Calls(f) {
+			if c.Pos.IsValid() && cf.Position(c.Pos).Line == line && c.Kind == kind && c.Params != nil {
+				out = append(out, c.Params)
+			}
+		}
+		return out
+	}
+	if ps := shapes(main, lineOf("i.M(&x)"), lower.CallIface); len(ps) != 1 || len(ps[0]) != 2 || ps[0][0].Shape != lower.ArgLoaded || ps[0][1].Shape != lower.ArgFrameAddr {
+		t.Errorf("i.M(&x): params %v, want the data word loaded from i, then the address of x", ps)
+	}
+	if ps := shapes(main, lineOf("apply(double, 2)"), lower.CallStatic); len(ps) == 0 || len(ps[0]) != 2 || ps[0][1].Shape != lower.ArgConst {
+		t.Errorf("apply(double, 2): params %v, want a constant second", ps)
+	}
+	if ps := shapes(main, lineOf("t2.M(&x)"), lower.CallStatic); len(ps) != 1 || len(ps[0]) != 2 || ps[0][0].Shape != lower.ArgFrameAddr || ps[0][1].Shape != lower.ArgFrameAddr {
+		t.Errorf("t2.M(&x): params %v, want the addresses of t2 and x", ps)
+	}
+	if lower.ArgFrameAddr.String() != "frame address" {
+		t.Errorf("ArgFrameAddr.String() = %q", lower.ArgFrameAddr.String())
 	}
 	if o := cf.Origin(main.Sym); o.Obj == nil || o.Decl == nil || !o.Source() || o.Extern {
 		t.Errorf("Origin(main.main) = %+v, want a declared function", o)
