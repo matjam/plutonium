@@ -39,6 +39,11 @@ const (
 	// into something that is not one call: a ring's built-in methods, the
 	// runtime's call of the panic handler.
 	Special
+	// Trusted is a function the lowerer calls as it calls any other, whose
+	// body the analysis cannot see (assembly) or must not trust: its
+	// effects are the entry's (plan invariant I7). A call of it is a
+	// CallContract in EIR.
+	Trusted
 )
 
 // A Ref names a pointer an expansion is passed: argument Arg (the receiver
@@ -147,6 +152,30 @@ func init() {
 	// its own (lower/errorsnew.go): static memory.
 	add(Inline, "", Effect{Heap: []bool{true}}, "pluto/errors.New")
 
+	// The atomic pointer operations of pluto/sync/atomic, in assembly.
+	// //pu:noescape says less than they do: LoadPointer returns what *addr
+	// holds, not addr.
+	add(Trusted, "", Effect{Results: [][]Ref{{load(0)}}}, "pluto/sync/atomic.LoadPointer")
+	add(Trusted, "", Effect{Stores: []Store{{self(1), self(0), "val in *addr"}}}, "pluto/sync/atomic.StorePointer")
+	add(Trusted, "", Effect{Stores: []Store{{self(1), self(0), "new in *addr"}}, Results: [][]Ref{{load(0)}}}, "pluto/sync/atomic.SwapPointer")
+	add(Trusted, "", Effect{Stores: []Store{{self(2), self(0), "new in *addr"}}, Results: [][]Ref{nil}}, "pluto/sync/atomic.CompareAndSwapPointer")
+
+	// The built-in maps' operations (pluto/rt map.p), which the lowerer
+	// calls for map expressions: they copy keys and elements in and out
+	// of the table through unsafe pointers the analysis cannot follow.
+	// The table is heap memory; a key or element stored in it is stored
+	// in the heap, and what comes out of it was stored there, so is heap
+	// memory too.
+	heap1 := Effect{Heap: []bool{true}}
+	add(Trusted, "", Effect{Stores: []Store{{self(1), self(0), "the key in the map"}, {self(2), self(0), "the element in the map"}}}, "pluto/rt.mapAssign")
+	add(Trusted, "", Effect{Stores: []Store{{self(1), self(0), "the key in the map"}}, Heap: []bool{true}}, "pluto/rt.mapAssignPtr")
+	add(Trusted, "", heap1, "pluto/rt.mapAccess")
+	add(Trusted, "", Effect{Heap: []bool{true, false}}, "pluto/rt.mapAccessOk")
+	add(Trusted, "", none, "pluto/rt.mapDelete", "pluto/rt.mapLen", "pluto/rt.mapClear")
+	add(Trusted, "", Effect{Stores: []Store{{self(1), self(0), "the table in the iterator"}}}, "pluto/rt.MapIter.Start")
+	add(Trusted, "", Effect{Heap: []bool{true, true, false}}, "pluto/rt.MapIter.Next")
+	add(Trusted, "", Effect{Heap: []bool{true, false}}, "pluto/rt.MapIter.NextKey")
+
 	add(Special, "", Effect{Stores: []Store{{self(1), self(0), "an element in the ring"}}, Results: [][]Ref{{self(0), load(0)}}}, RingMethod)
 	add(Special, "", none, PanicHook)
 
@@ -212,6 +241,13 @@ func IsInline(name string) bool {
 func IsRuntime(name string) bool {
 	e, ok := table[name]
 	return ok && e.Kind == Runtime
+}
+
+// IsTrusted reports whether a function's effects come from the table
+// although the lowerer calls it.
+func IsTrusted(name string) bool {
+	e, ok := table[name]
+	return ok && e.Kind == Trusted
 }
 
 // Names returns the names of every entry, sorted.

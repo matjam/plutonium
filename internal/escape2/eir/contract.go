@@ -41,7 +41,7 @@ func (b *builder) inlineContract(fn *types2.Func, e *ast.CallExpr) (string, bool
 			return "", false
 		}
 	}
-	if contract.IsInline(name) {
+	if contract.IsInline(name) || contract.IsTrusted(name) {
 		return name, true
 	}
 	return "", false

@@ -349,9 +349,9 @@ func (fb *fnb) methodExprFunc(e *ast.SelectorExpr, sel *types2.Selection) FuncID
 		return fb.b.synth(Synth{Kind: SynthMethodExpr, Recv: R, Method: fn, Path: path})
 	}
 	fb.noteMethodInstance(fn, e)
-	full := fn.Type().(*types2.Signature)
-	if len(path) == 1 && types2.Identical(full.Recv().Type(), R) {
-		return fb.b.funcOf(fn)
-	}
+	// Even where the lowerer uses the method itself (R is its receiver
+	// type), EIR's func value is a wrapper whose signature takes the
+	// receiver first, the type of the value, so that a call through it
+	// finds it among the func values of that type.
 	return fb.b.synth(Synth{Kind: SynthMethodExpr, Recv: R, Method: fn, Path: path})
 }

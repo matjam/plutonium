@@ -879,7 +879,16 @@ func (fb *fnb) mapCall(name string, m *types2.Map, args []Reg, pos token.Pos, im
 	}
 	fb.f.Facts.Instances = append(fb.f.Facts.Instances, Instance{Obj: fn, Args: []types2.Type{m.Key(), m.Elem()}})
 	sig := fn.Type().(*types2.Signature)
-	return fb.emitCall(&Call{Kind: CallStatic, Callee: fb.b.funcOf(fn), Sig: sig, Args: args, Implicit: impl}, pos)
+	if q := "pluto/rt." + name; contract.IsTrusted(q) {
+		return fb.emitCall(&Call{Kind: CallContract, Contract: q, Sig: sig, Args: args, Implicit: impl}, pos)
+	}
+	res := fb.emitCall(&Call{Kind: CallStatic, Callee: fb.b.funcOf(fn), Sig: sig, Args: args, Implicit: impl}, pos)
+	if name == "mapMake" || name == "mapMakeWith" {
+		// A new table, made from the allocator's memory through unsafe
+		// pointers: a counted reference to heap memory.
+		return []Reg{fb.heap(HeapCounted)}
+	}
+	return res
 }
 
 // methodOn calls method name of T on the T at recv.
@@ -900,6 +909,9 @@ func (fb *fnb) methodOn(T types2.Type, name string, recv Reg, args []Reg, pos to
 			targs = append(targs, n.TypeArgs().At(i))
 		}
 		fb.f.Facts.Instances = append(fb.f.Facts.Instances, Instance{Obj: fn.Origin(), Args: targs})
+		if q := fn.Pkg().Path() + "." + n.Obj().Name() + "." + name; contract.IsTrusted(q) {
+			return fb.emitCall(&Call{Kind: CallContract, Contract: q, Sig: sig, Args: append([]Reg{recv}, args...), Implicit: impl}, pos)
+		}
 	}
 	return fb.emitCall(&Call{Kind: CallStatic, Callee: fb.b.funcOf(fn), Sig: sig, Args: append([]Reg{recv}, args...), Implicit: impl}, pos)
 }
