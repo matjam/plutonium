@@ -84,6 +84,11 @@ func TestMeasure(t *testing.T) {
 	}
 	// Programs are loaded for each pass and dropped: the corpus does not
 	// fit in memory at once.
+	root := repoRoot(t)
+	var progs []corpusProgram
+	if what == "corpus" {
+		progs = corpus(t)
+	}
 	each := func(fn func(*load.Program)) {
 		if what != "corpus" {
 			cfg := &load.Config{
@@ -91,14 +96,14 @@ func TestMeasure(t *testing.T) {
 				Stdlib: plutonium.Stdlib(),
 				Sizes:  types2.SizesFor("gc", "amd64"),
 			}
-			prog, err := load.Load(cfg, filepath.Join(repoRoot(t), what))
+			prog, err := load.Load(cfg, filepath.Join(root, what))
 			if err != nil {
 				t.Fatal(err)
 			}
 			fn(prog)
 			return
 		}
-		for _, cp := range corpus(t) {
+		for _, cp := range progs {
 			if prog, ok := cp.load(t); ok {
 				fn(prog)
 			}
