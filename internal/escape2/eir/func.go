@@ -251,8 +251,17 @@ func (fb *fnb) seal(b *bblock) {
 		return
 	}
 	b.sealed = true
+	// In the order the phis were made, not the map's: filling a phi may
+	// make others, and the registers they get must be the same in every
+	// build (D44's cache digests the EIR).
+	vars := make([]*types2.Var, len(b.phis))
 	for v, k := range b.incomplete {
-		fb.fillPhi(v, b, k)
+		vars[k] = v
+	}
+	for k, v := range vars {
+		if v != nil {
+			fb.fillPhi(v, b, k)
+		}
 	}
 	b.incomplete = nil
 }
