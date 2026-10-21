@@ -168,7 +168,7 @@ func (fb *fnb) varLV(v *types2.Var) lval {
 	if fb.isGlobal(v) {
 		return lval{kind: lvMem, addr: fb.heap(HeapStatic), T: v.Type()}
 	}
-	if fb.locals[v] {
+	if fb.isLocal(v) {
 		return lval{kind: lvVar, v: v, T: v.Type()}
 	}
 	if a := fb.varAddr(v); a != 0 {
@@ -184,7 +184,7 @@ func (fb *fnb) addrIfPlace(e ast.Expr) (Reg, bool) {
 	switch x := ast.Unparen(e).(type) {
 	case *ast.Ident:
 		v, ok := fb.b.uses[x].(*types2.Var)
-		if !ok || fb.locals[v] {
+		if !ok || fb.isLocal(v) {
 			return 0, false
 		}
 	case *ast.SelectorExpr:
@@ -231,7 +231,7 @@ func (fb *fnb) fieldBaseCheck(x ast.Expr) (Reg, types2.Type, bool) {
 	switch y := ast.Unparen(x).(type) {
 	case *ast.Ident:
 		v, ok := fb.b.uses[y].(*types2.Var)
-		return 0, xt, ok && !fb.locals[v]
+		return 0, xt, ok && !fb.isLocal(v)
 	case *ast.SelectorExpr:
 		sel := fb.b.selections[y]
 		if sel == nil {

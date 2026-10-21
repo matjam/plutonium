@@ -1,6 +1,7 @@
 package eir
 
 import (
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -19,15 +20,65 @@ import (
 
 // addressedIn returns the addressed local variables of a declaration or
 // expression tree.
+//
+// A variable that function literals or range bodies capture, whose address
+// nothing else needs, and that is never assigned after its declaration (nor
+// is an owner, a scope, or a named result), is captured by value (byValue):
+// its closure records hold its value, which is what every read through the
+// address would find, and it stays a register variable. The record still
+// lives as the variable does (fnb.finish), so a closure kept past the
+// iteration of the variable's loop is E3006 as before.
 func (b *builder) addressedIn(root ast.Node) map[*types2.Var]bool {
-	a := &addrScan{b: b, out: map[*types2.Var]bool{}}
+	a := &addrScan{b: b, out: map[*types2.Var]bool{}, captured: map[*types2.Var]bool{}, assigned: map[*types2.Var]bool{}}
 	ast.Inspect(root, a.visit)
+	for v := range a.captured {
+		if a.out[v] {
+			continue
+		}
+		if a.assigned[v] || b.needsDrop(v.Type()) || scoped.IsScopeType(v.Type()) {
+			a.out[v] = true
+			continue
+		}
+		if b.byValue == nil {
+			b.byValue = map[*types2.Var]bool{}
+		}
+		b.byValue[v] = true
+	}
 	return a.out
 }
 
 type addrScan struct {
-	b   *builder
-	out map[*types2.Var]bool
+	b        *builder
+	out      map[*types2.Var]bool
+	captured map[*types2.Var]bool // used by a nested literal or range body
+	assigned map[*types2.Var]bool // assigned after their declaration
+}
+
+// assign records an assignment to e, a plain identifier, that is not its
+// declaration.
+func (a *addrScan) assign(e ast.Expr) {
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	if !ok {
+		return
+	}
+	if v := a.b.localVar(id); v != nil && a.b.defs[id] != v {
+		a.assigned[v] = true
+	}
+}
+
+// results records the named results of a function type: a return assigns
+// them.
+func (a *addrScan) results(ft *ast.FuncType) {
+	if ft == nil || ft.Results == nil {
+		return
+	}
+	for _, f := range ft.Results.List {
+		for _, id := range f.Names {
+			if v, ok := a.b.defs[id].(*types2.Var); ok {
+				a.assigned[v] = true
+			}
+		}
+	}
 }
 
 // localVar returns the local variable an identifier names, or nil.
@@ -83,18 +134,26 @@ func (a *addrScan) visit(n ast.Node) bool {
 		for _, l := range n.Lhs {
 			if _, ok := ast.Unparen(l).(*ast.Ident); !ok {
 				a.mark(l)
+			} else {
+				a.assign(l)
 			}
 		}
 	case *ast.OrStmt:
 		for _, l := range n.Lhs {
 			if _, ok := ast.Unparen(l).(*ast.Ident); !ok {
 				a.mark(l)
+			} else {
+				a.assign(l)
 			}
 		}
 	case *ast.IncDecStmt:
 		if _, ok := ast.Unparen(n.X).(*ast.Ident); !ok {
 			a.mark(n.X)
+		} else {
+			a.assign(n.X)
 		}
+	case *ast.FuncDecl:
+		a.results(n.Type)
 	case *ast.SliceExpr:
 		a.mark(n.X)
 	case *ast.SelectorExpr:
@@ -118,6 +177,14 @@ func (a *addrScan) visit(n ast.Node) bool {
 			}
 		}
 	case *ast.RangeStmt:
+		// The loop's variables get a new value every iteration.
+		for _, k := range []ast.Expr{n.Key, n.Value} {
+			if id, ok := k.(*ast.Ident); ok {
+				if v := a.b.localVar(id); v != nil {
+					a.assigned[v] = true
+				}
+			}
+		}
 		if T := a.b.types[n.X].Type; T != nil && !a.b.types[n.X].IsType() {
 			if types2.RangesByMethod(T) {
 				a.mark(n.X)
@@ -134,6 +201,14 @@ func (a *addrScan) visit(n ast.Node) bool {
 			}
 		}
 	case *ast.FuncLit:
+		a.results(n.Type)
+		if a.b.scoped != nil && a.b.scoped.Lits[n] != nil {
+			// A scoped task's literal: its Scope holds the addresses of
+			// what it captures (scopedTask), for the lifetime checks.
+			for _, v := range a.b.scoped.Lits[n].Captures {
+				a.out[v] = true
+			}
+		}
 		a.captures(n, n.Body, nil)
 	}
 	return true
@@ -171,7 +246,7 @@ func (a *addrScan) captures(node ast.Node, body ast.Node, own map[*types2.Var]bo
 			return true
 		}
 		if v.Pos() < node.Pos() || v.Pos() >= node.End() {
-			a.out[v] = true
+			a.captured[v] = true
 		}
 		return true
 	})

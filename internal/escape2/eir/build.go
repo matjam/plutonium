@@ -76,9 +76,10 @@ type builder struct {
 	noRet     map[*types2.Func]int // noreturn.go
 	gx        *goexitInfo          // goexit.go
 
-	dropNeeds typeMap[bool] // needsDrop
-	countedT  typeMap[bool] // counted
-	itabs     itabState     // itabs.go
+	dropNeeds typeMap[bool]        // needsDrop
+	byValue   map[*types2.Var]bool // variables closures capture by value (addressed.go)
+	countedT  typeMap[bool]        // counted
+	itabs     itabState            // itabs.go
 
 	errs diag.List
 }

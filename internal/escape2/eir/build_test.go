@@ -195,7 +195,9 @@ func main() {
 		if !strings.Contains(s, `closure func() int "closure" life=6`) {
 			t.Errorf("%s: the closure it returns is not in its caller's region:\n%s", fn, s)
 		}
-		if strings.Count(s, "life=6") < 2 {
+		// A captured variable assigned after the closure is made (later's
+		// v) is in the region too; the others are captured by value.
+		if fn == "main.later" && strings.Count(s, "life=6") < 2 {
 			t.Errorf("%s: the variable the closure captures is not in the region:\n%s", fn, s)
 		}
 	}

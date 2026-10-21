@@ -65,6 +65,9 @@ type fnb struct {
 	stmtEnded map[ObjID]bool // statement temporaries whose OpDrop is made (endStmtTemps)
 	// The objects each closure record captures (noteRecordCaps).
 	recordCaps map[ObjID][]ObjID
+	// The variables each closure record captures by value, for its
+	// lifetime (noteRecordCaps).
+	recordVars map[ObjID][]*types2.Var
 	boxViews   map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
 	varBlock   map[*types2.Var]*Block // the block that declares each local
 
@@ -192,13 +195,33 @@ func (fb *fnb) varAddr(v *types2.Var) Reg {
 	if o, ok := fb.objs[v]; ok {
 		return fb.addr(o)
 	}
-	if fb.locals[v] {
+	if fb.isLocal(v) {
 		return 0
 	}
 	if fb.parent != nil && fb.parent.owns(v) {
 		return fb.captured(v)
 	}
 	return 0
+}
+
+// isLocal reports whether v is a register variable of fb. A variable of an
+// enclosing function that closures capture by value (addressed.go) becomes
+// one the first time fb uses it: its value, loaded from the closure record
+// in the prologue, which every read finds since nothing assigns it.
+func (fb *fnb) isLocal(v *types2.Var) bool {
+	if fb.locals[v] {
+		return true
+	}
+	if !fb.b.byValue[v] || fb.parent == nil || !fb.parent.owns(v) {
+		return false
+	}
+	if _, own := fb.objs[v]; own {
+		return false
+	}
+	r := fb.captured(v)
+	fb.locals[v] = true
+	fb.blocks[0].defs[v] = r
+	return true
 }
 
 // owns reports whether v is a local of fb or of a function enclosing it.
@@ -248,6 +271,10 @@ func (fb *fnb) outerAddr(key any) Reg {
 		if o, ok := fb.objs[k]; ok {
 			return fb.addr(o)
 		}
+		if fb.b.byValue[k] && fb.isLocal(k) {
+			// Captured by value: the record holds the variable's value.
+			return fb.readVar(k)
+		}
 	case outerObj:
 		if k.fn == fb {
 			return fb.addr(k.obj)
@@ -271,7 +298,7 @@ func (fb *fnb) readLocal(v *types2.Var) Reg {
 		fb.touch(v)
 		return 0
 	}
-	if fb.locals[v] {
+	if fb.isLocal(v) {
 		return fb.readVar(v)
 	}
 	if a := fb.varAddr(v); a != 0 {
@@ -284,7 +311,7 @@ func (fb *fnb) readLocal(v *types2.Var) Reg {
 // touch records a use of a variable of an enclosing function, whatever its
 // type: the closure record holds its address, a pointer into that frame.
 func (fb *fnb) touch(v *types2.Var) {
-	if _, own := fb.objs[v]; own || fb.locals[v] || fb.parent == nil || !fb.parent.owns(v) {
+	if _, own := fb.objs[v]; own || fb.isLocal(v) || fb.parent == nil || !fb.parent.owns(v) {
 		return
 	}
 	fb.captured(v)
@@ -295,7 +322,7 @@ func (fb *fnb) assignVar(v *types2.Var, r Reg) {
 	if !hasPointers(v.Type()) {
 		fb.touch(v)
 	}
-	if fb.locals[v] {
+	if fb.isLocal(v) {
 		if hasPointers(v.Type()) {
 			fb.writeVar(v, r)
 		}
@@ -370,6 +397,15 @@ func (fb *fnb) finish() {
 				loop = l
 			}
 		}
+		for _, v := range fb.recordVars[obj] {
+			// A variable captured by value: its loop is its declaring
+			// block's.
+			if b := fb.varBlock[v]; b != nil && live[b] {
+				if l := b.Loop; l >= 0 && loopDepth(fb.f, l) > loopDepth(fb.f, loop) {
+					loop = l
+				}
+			}
+		}
 		o.Loop = loop
 		o.Life = LifeFrame
 		if loop >= 0 {
@@ -388,6 +424,11 @@ func (fb *fnb) noteRecordCaps(obj ObjID, caps []any) {
 		case *types2.Var:
 			if o, ok := fb.objs[k]; ok {
 				objs = append(objs, o)
+			} else if fb.b.byValue[k] {
+				if fb.recordVars == nil {
+					fb.recordVars = map[ObjID][]*types2.Var{}
+				}
+				fb.recordVars[obj] = append(fb.recordVars[obj], k)
 			}
 		case outerObj:
 			if k.fn == fb {
