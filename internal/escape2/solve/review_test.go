@@ -50,10 +50,7 @@ var knownGaps = map[string]string{
 }
 
 // knownFalseRejections are controls this analysis rejects, with the reason.
-var knownFalseRejections = map[string]string{
-	"review3/p03_pkg_init_closure_from_call": "the region of a call in a package initializer is static memory (lower/regions.go regionStatics), but Reg(s) has the initializer's frame lifetime",
-	"review3/p05_pkg_init_iter_seq":          "stage 2 unions every func value of the iterator's signature at a call through a package variable, and one of them keeps its argument (D47 settles calls through func values)",
-}
+var knownFalseRejections = map[string]string{}
 
 func loadFile(t *testing.T, path string) *load.Program {
 	t.Helper()

@@ -29,7 +29,11 @@ package solve
 // its place <Reg(s), Root, true> starts with what the callee may have stored
 // there: <t, Root, true> for every t in reach(v) over the values v of the
 // call's Args and of its Target (when it has one, whatever the binding),
-// Obj(Reg(s), Root, true) itself, and <Heap, Root, true>.
+// Obj(Reg(s), Root, true) itself, and <Heap, Root, true>. In a package's
+// initialization (Func.Key.Init) the region of a call is static memory
+// (section 15.2): Results[r] gets <Heap, Root, true> instead, and the values
+// of the call's Args and Target are kept there: sink(reach(v), E3002) at
+// the call.
 //
 // An object o with Objects[o].Life == LifeHeap is Heap: every rule that
 // would make a token Obj(o, ...) of it (OpAddr, OpConv, OpClosure,

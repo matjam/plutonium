@@ -145,6 +145,14 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		if r >= len(c.Results) || c.Results[r] == 0 {
 			continue
 		}
+		if s.f.Key.Init != nil {
+			// A package's initialization gives the closures of its calls
+			// static memory (section 15.2): what the callee may have put
+			// there is kept there, and the closures are static.
+			s.staticRegion(in)
+			s.addTok(uint32(c.Results[r]), tok{kind: tHeap, tagGE: true})
+			continue
+		}
 		reg := s.region(c)
 		s.addTok(uint32(c.Results[r]), tok{kind: tObj, base: reg, ge: true, tagGE: true})
 	}
@@ -185,6 +193,19 @@ func (s *solver) applyDefault(in *eir.Instr, bind []uint64, cand eir.FuncID) {
 		if res != 0 {
 			// Res Heap Root, applied as any summary's (rules.go, OpCall).
 			s.addTok(uint32(res), tok{kind: tHeap, tagGE: true})
+		}
+	}
+}
+
+// staticRegion keeps what a call of a package's initialization may have put
+// in the region of its closures, which is static memory: reach of its Args
+// and Target, as a store into package memory (E3002 at the call).
+func (s *solver) staticRegion(in *eir.Instr) {
+	c := in.Call
+	w := s.why(in.Pos, whyOwn, 0, 0, 0, 0)
+	for _, a := range append(c.Args[:len(c.Args):len(c.Args)], c.Target) {
+		if a != 0 {
+			s.addCons(s.reachNode(uint32(a)), cSink, cE3002, w)
 		}
 	}
 }

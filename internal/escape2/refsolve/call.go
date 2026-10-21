@@ -164,6 +164,18 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 		}
 	}
 	for _, r := range sm.Region.OuterResults { // Results[r] ⊇ <Obj(Reg(site), Root, true), Root, true>
+		if r < len(c.Results) && c.Results[r] != 0 && s.f.Key.Init != nil {
+			// A package's initialization: the region is static memory.
+			held := value{}
+			for _, a := range append(append([]eir.Reg{}, c.Args...), c.Target) {
+				if a != 0 {
+					held.addAll(s.reach(s.val(a)))
+				}
+			}
+			s.sink(held, diag.StoreFrameView, 0, in.Pos, own)
+			s.def(c.Results[r], single(tv{t: tok{kind: kHeap}, tag: domain.Root, g: true}))
+			continue
+		}
 		if r < len(c.Results) && c.Results[r] != 0 {
 			t := tok{kind: kObj, id: s.regObj(c.Site), ge: true}
 			s.def(c.Results[r], single(tv{t: t, tag: domain.Root, g: true}))

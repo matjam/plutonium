@@ -224,3 +224,20 @@ func TestRegionNested(t *testing.T) {
 	r = e.solve(t, b.f)
 	wantFindings(t, r, "E3001@5")
 }
+
+// In a package's initialization the closures a call returns are built in
+// static memory (section 15.2): keeping them in package memory is allowed,
+// and what the callee captured from the initialization's frame is kept
+// there (E3002).
+func TestRegionStaticInInit(t *testing.T) {
+	e := newEnv()
+	g := regionCallee(t, e)
+	b := e.fn("init", 0, 0)
+	b.f.Key.Init = types2.NewPackage("p", "p")
+	res := b.static(g.f, 1, b.heap())
+	b.at(3).sink(eir.SinkGlobal, res[0])
+	x := b.obj("x", eir.LifeFrame, -1)
+	b.at(4).static(g.f, 1, b.addr(x))
+	r := e.solve(t, b.f)
+	wantFindings(t, r, "E3002@4")
+}
