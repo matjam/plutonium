@@ -619,10 +619,12 @@ func (fb *fnb) ifStmt(st *ast.IfStmt) {
 }
 
 func (fb *fnb) forStmt(st *ast.ForStmt, label *types2.Label) {
+	fb.headerMark = len(fb.f.Objects)
 	if st.Init != nil {
 		fb.stmt(st.Init)
 	}
 	head := fb.newBlock()
+	fb.headerVars(head)
 	body := fb.newBlock()
 	post := fb.newBlock()
 	done := fb.newBlock()
@@ -657,6 +659,20 @@ func (fb *fnb) forStmt(st *ast.ForStmt, label *types2.Label) {
 	fb.startBlock(done)
 }
 
+// headerVars makes the variables declared since headerMark variables of
+// the loop whose header is head.
+func (fb *fnb) headerVars(head *bblock) {
+	if fb.headerMark < 0 {
+		return
+	}
+	for o := fb.headerMark; o < len(fb.f.Objects); o++ {
+		if fb.f.Objects[o].Kind == ObjVar {
+			fb.iterHead[ObjID(o)] = head.b
+		}
+	}
+	fb.headerMark = -1
+}
+
 // dropOnEdges drops a condition's temporaries at the start of both blocks
 // it branches to.
 func (fb *fnb) dropOnEdges(sc *scope, blocks ...*bblock) {
@@ -672,6 +688,7 @@ func (fb *fnb) dropOnEdges(sc *scope, blocks ...*bblock) {
 // break and continue.
 func (fb *fnb) loop(label *types2.Label, header func(body, done *bblock), body func()) {
 	head := fb.newBlock()
+	fb.headerVars(head)
 	bodyB := fb.newBlock()
 	post := fb.newBlock()
 	done := fb.newBlock()

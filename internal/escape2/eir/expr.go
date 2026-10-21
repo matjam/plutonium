@@ -84,7 +84,7 @@ func (fb *fnb) conv(r Reg, from, I types2.Type, pos token.Pos) Reg {
 	fb.f.Facts.Converted = append(fb.f.Facts.Converted, from)
 	fb.noteItab(from, I)
 	in := Instr{Op: OpConv, X: r, Type: from, To: I, Obj: NoObj, Pos: pos}
-	if !fb.isDirect(from) && hasPointers(from) {
+	if !fb.isDirect(from) {
 		in.Obj = fb.newObj(Object{Kind: ObjBox, Type: from, Name: "interface box", Pos: pos})
 	}
 	return fb.emitDst(in)

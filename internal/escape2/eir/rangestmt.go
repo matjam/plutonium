@@ -46,6 +46,8 @@ type branchExitKey struct {
 type gotoExitKey struct{ label *types2.Label }
 
 func (fb *fnb) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
+	fb.headerMark = len(fb.f.Objects)
+	defer func() { fb.headerMark = -1 }()
 	tv := fb.b.types[st.X]
 	if tv.IsType() {
 		// A range over an enum type's members.

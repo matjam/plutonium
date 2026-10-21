@@ -35,8 +35,6 @@ var knownGaps = map[string]string{
 	"review3/b17_scope_loop_body_ptr_via_helper":           untriaged,
 	"review3/b18_scope_loop_body_slice_in_struct":          untriaged,
 	"review3/g09_generic_method_through_iface_type_param":  untriaged,
-	"review3/l26_loop_iface_copy_kept":                     untriaged,
-	"review3/l27_loop_range_array_value_addr":              untriaged,
 	"review3/o14_drop_in_vec_of_owners_local":              untriaged,
 	"review3/o17_shared_field_view_returned":               untriaged,
 	"review3/o18_owned_field_view_returned":                untriaged,

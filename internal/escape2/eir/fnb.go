@@ -54,6 +54,11 @@ type fnb struct {
 	dropRecv        bool     // a Drop method, whose receiver its drop glue destroys
 	resultsInMemory bool     // results are frame objects (a range body returns)
 	objBlock        []*Block // the block each object is made in, by ObjID
+	// The variables a loop's header declares are the loop's (section
+	// 18.4): iterHead gives their loop's header block; headerMark is the
+	// first object of a header being built, or -1.
+	iterHead   map[ObjID]*Block
+	headerMark int
 
 	// The closures this function builds in its caller's region, and the
 	// variables they capture (regions.go).
@@ -80,6 +85,9 @@ func (b *builder) newFnb(f *Func, pkg *load.Package, parent *fnb) *fnb {
 		capPtr:   map[any]Reg{},
 		labels:   map[*types2.Label]*labelInfo{},
 		pos:      f.Pos,
+
+		iterHead:   map[ObjID]*Block{},
+		headerMark: -1,
 	}
 	fb.root = fb
 	if parent != nil {
@@ -317,6 +325,9 @@ func (fb *fnb) finish() {
 		o := &fb.f.Objects[i]
 		o.Loop = -1
 		b := fb.objBlock[i]
+		if h := fb.iterHead[ObjID(i)]; h != nil {
+			b = h // a variable of the loop's header
+		}
 		if b == nil || !live[b] || b.Loop < 0 {
 			continue
 		}
