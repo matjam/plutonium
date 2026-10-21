@@ -1,0 +1,3 @@
+$DIR/main.p:16:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
+$DIR/main.p:24:2: cannot pass &y to vec.(*Vec).Push, which keeps it after returning
+$DIR/main.p:39:2: cannot store &z in b.p[0], which outlives z

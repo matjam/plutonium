@@ -28,6 +28,23 @@ b19_scope_task_stores_to_outer_var: main.p:19:3: cannot keep &y in p after this 
 b20_scope_or_continue_before_wait: accepted
 b21_scope_panic_select_break_before_wait: accepted
 b25_task_from_rangefunc_body: main.p:17:2: cannot pass &x to yield (which may call the loop body at main.p:22), which keeps it after returning
+c01_vec_append_global: main.p:13:2: cannot pass &x to vec.(*Vec).Append, which keeps it after returning
+c02_vec_insert_global: main.p:13:2: cannot pass &x to vec.(*Vec).Insert, which keeps it after returning
+c03_vec_set_global: main.p:13:2: cannot pass &x to vec.(*Vec).Set, which keeps it after returning
+c05_vec_push_param: main.p:13:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
+c06_vec_local_at_to_global: main.p:14:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
+c07_vec_local_returned_holding_frame_ptr: main.p:14:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
+c08_vec_of_struct_push: main.p:18:2: cannot pass H{...} to vec.(*Vec).Push, which keeps it after returning
+c09_vec_of_closure_push: main.p:13:2: cannot pass the function literal to vec.(*Vec).Push, which keeps it after returning
+c10_vec_of_any_push: main.p:13:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
+c11_vec_of_slices_push_local_array: main.p:13:2: cannot pass arr[:] to vec.(*Vec).Push, which keeps it after returning
+c12_vec_collect_seq: main.p:13:39: cannot pass &x to yield (which may call the loop body at vec.p:377), which keeps it after returning
+c13_rt_initvalue_direct: main.p:13:2: cannot pass &x to rt.InitValue, which keeps it after returning
+c14_rt_copyvalue_direct: main.p:14:2: cannot store rt.CopyValue(&p) in package variable g, which outlives x
+c15_rt_movevalues_direct: main.p:14:2: cannot pass &p to rt.MoveValues, which keeps it after returning
+c16_hashmap_set_global: main.p:13:2: cannot pass &x to hash.(*Map).Set, which keeps it after returning
+c17_hashmap_key_global: main.p:13:2: cannot pass &x to hash.(*Map).Set, which keeps it after returning
+c21_strings_builder_like: main.p:13:2: cannot pass unsafe.Pointer(&x) to vec.(*Vec).Push, which keeps it after returning
 d01_defer_sets_named_result: main.p:14:1: cannot return p, which points into x, a local variable of g
 d06_defer_sets_named_result_struct: main.p:16:1: cannot return r, which points into x, a local variable of g
 d07_defer_call_sets_result_via_ptr: main.p:16:1: cannot return p, which points into x, a local variable of g
@@ -40,6 +57,7 @@ d15_copy_into_param_slice: main.p:13:2: cannot store &x in the backing array of 
 e06_map_value_frame_ptr: main.p:12:2: cannot store &x in gm[1], which outlives x
 e07_local_map_returned: main.p:13:2: cannot store &x in m[1], which outlives x
 e08_map_key_frame_ptr: main.p:12:2: cannot store &x in a key of gm, which outlives x
+e12_vec_push: main.p:13:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
 g01_generic_box_to_any_large: main.p:9:35: cannot return any(v), an interface holding a copy of a T in box's frame
 g02_generic_box_func_value_large: main.p:9:35: cannot return any(v), an interface holding a copy of a T in box's frame
 g03_generic_method_box_large: main.p:11:34: cannot return any(w.v), an interface holding a copy of a T in (W).Any's frame
@@ -156,6 +174,7 @@ v13_variant_value_struct_payload: main.p:22:9: cannot return mk(S{...}), which p
 v14_variant_value_via_iface_method: main.p:21:9: cannot return m.Make(&x), which points into x, a local variable of g
 v15_variant_value_into_any_result: main.p:18:9: cannot return any(mk(&x)), an interface holding a copy of an U in g's frame
 v16_variant_two_params_wrapped: main.p:21:9: cannot return hook(U.P, &x), which points into x, a local variable of g
+v17_variant_value_of_pointer_union_payload_in_vec: main.p:18:2: cannot pass U.P(&x) to vec.(*Vec).Push, which keeps it after returning
 x01_region_closure_then_ptr_into_region: main.p:9:34: cannot return &c, a pointer to a local variable
 x02_region_refill_in_loop: main.p:9:34: cannot return &c, a pointer to a local variable
 x03_region_closure_called_after_second_call: main.p:16:3: cannot keep mk(42 + i) in fs[i] after this iteration: the loop at line 15 makes it in the same memory in every iteration

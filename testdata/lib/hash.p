@@ -11,6 +11,14 @@ import (
 
 var seed uint64 = 99
 
+// The keys of the maps below that are views live in package variables: a
+// map's table is heap memory, which may not hold views of a frame (language
+// spec section 18.3).
+var (
+	store [1 << 16]byte
+	objs  [10]int
+)
+
 func rnd() uint64 {
 	seed = seed*6364136223846793005 + 1442695040888963407
 	return seed >> 33
@@ -95,7 +103,6 @@ func main() {
 	fmt.Printf("freed live=%d\n", ca.live)
 
 	// String keys built in a buffer.
-	var store [1 << 16]byte
 	used := 0
 	sm := hash.NewMap[string, int](16, ca)
 	for i := 0; i < 2000; i++ {
@@ -145,7 +152,6 @@ func main() {
 	bm.Free()
 
 	// Pointer keys.
-	var objs [10]int
 	pm := hash.NewMap[*int, int](0, ca)
 	for i := range objs {
 		pm.Set(&objs[i], i*10)

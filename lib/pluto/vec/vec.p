@@ -424,21 +424,26 @@ func (v *Vec[T]) realloc(c int) {
 	if p == nil {
 		panic("vec: out of memory")
 	}
-	nd := unsafe.Slice((*T)(p), c)[:len(v.data)]
-	if len(v.data) > 0 {
-		// The elements move: their strings keep their counts, and the old
-		// array is freed without releasing them.
-		rt.MoveValues(&nd[0], &v.data[0], len(v.data))
+	old := v.data
+	v.data = unsafe.Slice((*T)(p), c)[:len(old)]
+	if len(old) > 0 {
+		// The elements move within v, from its old storage to its new: their
+		// strings keep their counts, and the old array is freed without
+		// releasing them. (Moving into v.data, not into the new array before
+		// it is v's, shows the escape analysis that nothing leaves v.)
+		rt.MoveValues(&v.data[0], &old[0], len(old))
 	}
-	v.release()
-	v.data = nd
+	v.free(old)
 }
 
 // release frees v's storage, if any, without changing v.data.
-func (v *Vec[T]) release() {
-	if cap(v.data) > 0 {
+func (v *Vec[T]) release() { v.free(v.data) }
+
+// free returns storage of v to v's allocator, if it has any.
+func (v *Vec[T]) free(data []T) {
+	if cap(data) > 0 {
 		var tp *T
-		v.a.Free(unsafe.Pointer(unsafe.SliceData(v.data)), storageSize[T](cap(v.data)), unsafe.Alignof(*tp))
+		v.a.Free(unsafe.Pointer(unsafe.SliceData(data)), storageSize[T](cap(data)), unsafe.Alignof(*tp))
 	}
 }
 

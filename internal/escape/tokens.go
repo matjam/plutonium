@@ -690,6 +690,13 @@ type summary struct {
 	// (applyEscapes).
 	escLog []escLog
 
+	// heapStores are the places reached from parameters that the function
+	// stores heap memory in: a caller's memory there then holds heap
+	// pointers, through which storing a view of its frame keeps that view
+	// (an element stored into a vector the callee allocated).
+	heapStores    map[pkey]bool
+	heapStoreKeys []pkey
+
 	// ver counts the changes to what other functions read of this one: the
 	// summary and the facts kept beside it (function.builds and
 	// outerResults), for deps.go.
@@ -739,6 +746,43 @@ type heapResult struct {
 type rkey struct {
 	pkey
 	tag string
+}
+
+// addHeapStore records that the function stores heap memory in the place k
+// names. The place is what matters, not what the pointer to it is known to
+// be of: the key keeps its path only, and past the first load, which leads
+// out of the memory the parameter points to, it stands for anything there,
+// so that a function has a few such keys for each parameter, not one for
+// every way of reaching a place.
+func (s *summary) addHeapStore(k pkey) bool {
+	path, ge := k.path, k.ge
+	if i := strings.IndexByte(path, '*'); i >= 0 {
+		path, ge = path[:i+1], true
+	}
+	k = pkey{idx: k.idx, path: path, ge: ge}
+	if s.heapStores[k] {
+		return false
+	}
+	if s.heapStores == nil {
+		s.heapStores = map[pkey]bool{}
+	}
+	s.heapStores[k] = true
+	s.ver++
+	s.heapStoreKeys = nil
+	return true
+}
+
+// sortedHeapStores returns the keys of heapStores in order.
+func (s *summary) sortedHeapStores() []pkey {
+	if s.heapStoreKeys == nil && len(s.heapStores) > 0 {
+		keys := make([]pkey, 0, len(s.heapStores))
+		for k := range s.heapStores {
+			keys = append(keys, k)
+		}
+		sort.Slice(keys, func(i, j int) bool { return lessKey(keys[i], keys[j]) })
+		s.heapStoreKeys = keys
+	}
+	return s.heapStoreKeys
 }
 
 func (s *summary) addStore(e edge, r *reason) bool {

@@ -373,6 +373,9 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		}
 		w.store(arg(e.dst), v, pos, d)
 	}
+	for _, k := range f.sum.sortedHeapStores() {
+		w.store(arg(k), tset{heapTok}, pos, dest{callee: label})
+	}
 	for i := 0; i < nres && i < len(f.sum.results); i++ {
 		rs := &f.sum.results[i]
 		var out tbuf

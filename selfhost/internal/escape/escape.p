@@ -223,6 +223,10 @@ func newAnalyzer(prog *load.Program, userResultHolds bool) *analyzer {
 				a.applyDirectives(fn)
 				if fn.bodyless {
 					fn.sum = bodylessSummary(fn)
+				} else if s, ok := a.intrinsicSummary(fn); ok {
+					// Expanded inline: the body is a placeholder, which
+					// the analysis does not walk (intrinsics.go).
+					fn.sum, fn.bodyless = s, true
 				}
 				a.funcs[obj] = fn
 				a.order = compat.Append(a.order, fn)

@@ -1452,6 +1452,12 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 				switch v.kind {
 				case tFrame:
 					frameErr(v, storeParam, t.sc.fn.paramName(t.idx), t.sc)
+				case tHeap:
+					// The caller's memory there holds heap pointers from now
+					// on (summary.heapStores).
+					if t.sc.fn.sum.addHeapStore(keyOf(t)) {
+						w.a.grew = true
+					}
 				case tParam:
 					if v.sc != t.sc {
 						escape(v)

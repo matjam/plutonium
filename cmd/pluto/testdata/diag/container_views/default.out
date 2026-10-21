@@ -1,0 +1,44 @@
+$DIR/main.p:16:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning
+    &x is a pointer to x. x is a local variable of Global (declared at
+    main.p:15). vec.(*Vec).Push passes it to rt.InitValue (vec.p:152), which
+    stores x in *p (str.p:522), so &x would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If vec.(*Vec).Push should keep its own copy of x, change it to take the
+    value, not a pointer, or an owner it can keep: an owned[int] from new, a
+    shared[int], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:24:2: cannot pass &y to vec.(*Vec).Push, which keeps it after returning
+    &y is a pointer to y. y is a local variable of Local (declared at
+    main.p:21). vec.(*Vec).Push passes it to rt.InitValue (vec.p:152), which
+    stores x in *p (str.p:522), so &y would outlive y.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If vec.(*Vec).Push should keep its own copy of y, change it to take the
+    value, not a pointer, or an owner it can keep: an owned[int] from new, a
+    shared[int], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:39:2: cannot store &z in b.p[0], which outlives z
+    &z is a pointer to z. z is a local variable of Through (declared at
+    main.p:38). When Through returns, z's memory is reclaimed, but b.p[0] may be
+    on the heap and live longer, so it would be left pointing at reclaimed
+    memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value instead of a pointer to it, changing the type of b.p[0] to
+    match. This copies z, or moves it if it is an owner:
+        b.p[0] = z
+    Or allocate z and store its owner, an owned[int], which moves into b.p[0]:
+        b.p[0] = new(int)
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

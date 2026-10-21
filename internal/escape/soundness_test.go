@@ -118,6 +118,81 @@ func f() {
 	}
 }
 func main() { f() }`, "cannot pass &local to yield"},
+	// The third adversarial review: the functions the compiler expands inline
+	// have summaries of what the expansion does, not of their placeholder
+	// bodies.
+	{"vec.Vec Push into a package variable", `
+import "pluto/vec"
+var gv vec.Vec[*int]
+func f() {
+	x := 42
+	gv.Push(&x)
+}
+func main() { f() }`, "cannot pass &x to vec.(*Vec).Push"},
+	{"rt.InitValue into a package variable", `
+import "pluto/rt"
+var g *int
+func f() {
+	x := 42
+	rt.InitValue(&g, &x)
+}
+func main() { f() }`, "cannot pass &x to rt.InitValue"},
+	{"rt.CopyValue of a pointer to a frame pointer", `
+import "pluto/rt"
+var g *int
+func f() {
+	x := 42
+	p := &x
+	g = rt.CopyValue(&p)
+}
+func main() { f() }`, "cannot store rt.CopyValue(&p) in package variable g"},
+	{"rt.MoveValues into a package array", `
+import "pluto/rt"
+var g [1]*int
+func f() {
+	x := 42
+	p := &x
+	rt.MoveValues(&g[0], &p, 1)
+}
+func main() { f() }`, "cannot pass &p to rt.MoveValues"},
+	{"strings.Slice of a view of the frame", `
+import (
+	"pluto/strings"
+	"unsafe"
+)
+func f() string {
+	b := [2]byte{'o', 'k'}
+	return strings.Slice(unsafe.String(&b[0], 2), 0, 1)
+}
+func main() { println(f()) }`, "cannot return strings.Slice"},
+	// A callee that stores heap memory into its caller's memory: what the
+	// caller then stores through it is stored in the heap.
+	{"vec.Vec Push on a local vector", `
+import "pluto/vec"
+var keep *int
+func f() {
+	x := 42
+	v := vec.New[*int]()
+	v.Push(&x)
+	keep = v.At(0)
+}
+func main() { f() }`, "cannot pass &x to vec.(*Vec).Push"},
+	{"store through a field a callee set to heap memory", `
+var heapArr [1]*int
+type B struct{ p *[1]*int }
+func (b *B) init() { b.p = &heapArr }
+func f() {
+	var b B
+	b.init()
+	x := 42
+	b.p[0] = &x
+}
+func g() int {
+	var arr [1]*int
+	b := B{&arr}
+	return len(b.p)
+}
+func main() { f(); println(g()) }`, "cannot store &x in b.p[0]"},
 	{"element of an array as a pointer in an interface", `
 type S struct{ n int }
 var keepS *S
@@ -680,6 +755,19 @@ func TestKeepsFrameWays(t *testing.T) {
 // type is not a receiver of another type's method that keeps it, and an
 // interface holding a value that holds no such pointer calls no such method.
 var staysExact = []struct{ name, src string }{
+	{"a local vector of pointers to package variables", `
+import "pluto/vec"
+var a, b int
+func f() int {
+	v := vec.New[*int]()
+	v.Push(&a)
+	v.Push(&b)
+	p := v.At(1)
+	x := 3
+	q := &x
+	return *p + *q + v.Len()
+}
+func main() { println(f()) }`},
 	{"a loop body that keeps what a vector yields in a variable of its function", `
 import "pluto/vec"
 var a, b int

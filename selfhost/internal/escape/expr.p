@@ -1454,6 +1454,12 @@ func (w *walker) store(targets, vals tset, pos token.Pos, d dest) {
 				switch v.kind {
 				case tFrame:
 					frameErr(v, storeParam, t.sc.fn.paramName(t.idx), t.sc)
+				case tHeap:
+					// The caller's memory there holds heap pointers from now
+					// on (summary.heapStores).
+					if t.sc.fn.sum.addHeapStore(keyOf(t)) {
+						w.a.grew = true
+					}
 				case tParam:
 					if v.sc != t.sc {
 						escape(v)
@@ -1554,7 +1560,7 @@ func (goSelf *goClosure_store_1) Call() string {
 	return goSelf.d.why(goSelf.v.sc.fn.paramDesc(keyOf(goSelf.v)), goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_store_2 is the function literal at expr.go:1466, converted to a struct
+// goClosure_store_2 is the function literal at expr.go:1472, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_store_2 struct {
 	d   dest
@@ -1566,7 +1572,7 @@ func (goSelf *goClosure_store_2) Call() string {
 	return goSelf.d.why("it", goSelf.w.a.fset.Position(goSelf.pos))
 }
 
-// goClosure_sink_1 is the function literal at expr.go:1499, converted to a struct
+// goClosure_sink_1 is the function literal at expr.go:1505, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sink_1 struct {
 	tail string
@@ -1580,7 +1586,7 @@ type goFn1 interface {
 	Call() string
 }
 
-// goClosure_sinkTail_1 is the function literal at expr.go:1514, converted to a struct
+// goClosure_sinkTail_1 is the function literal at expr.go:1520, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_sinkTail_1 struct {
 	act  string
