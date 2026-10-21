@@ -21,9 +21,6 @@ type bblock struct {
 	incomplete map[*types2.Var]int // index in phis
 }
 
-// emptyBlock reports whether nothing has been put in b yet.
-func (bb *bblock) emptyBlock() bool { return len(bb.b.Instrs) == 0 && len(bb.phis) == 0 }
-
 // newBlock makes a block with no predecessors yet.
 func (fb *fnb) newBlock() *bblock {
 	b := &Block{ID: BlockID(len(fb.f.Blocks)), Loop: -1}
@@ -144,17 +141,6 @@ func (fb *fnb) elem(x Reg) Reg {
 		return 0
 	}
 	return fb.emitDst(Instr{Op: OpElem, X: x})
-}
-
-// sel returns x.path of a struct value.
-func (fb *fnb) sel(x Reg, path ...int) Reg {
-	if x == 0 {
-		return 0
-	}
-	if len(path) == 0 {
-		return x
-	}
-	return fb.emitDst(Instr{Op: OpSelect, X: x, Path: path})
 }
 
 // heap returns a pointer to heap or static memory.

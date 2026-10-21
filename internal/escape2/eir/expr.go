@@ -298,6 +298,16 @@ func (fb *fnb) binary(e *ast.BinaryExpr, T types2.Type) Reg {
 	return 0
 }
 
+// firstType returns the type of e, or of its first value when it has two
+// (a comma-ok form).
+func (fb *fnb) firstType(e ast.Expr) types2.Type {
+	T := fb.typeOf(e)
+	if tup, ok := T.(*types2.Tuple); ok && tup.Len() > 0 {
+		return tup.At(0).Type()
+	}
+	return T
+}
+
 // isNilType reports whether T is the type of nil.
 func isNilType(T types2.Type) bool {
 	b, ok := T.(*types2.Basic)
@@ -338,7 +348,18 @@ func (fb *fnb) typeAssert(e *ast.TypeAssertExpr, commaOk bool) Reg {
 		// A union's payload.
 		return x
 	}
-	return fb.emitDst(Instr{Op: OpAssert, X: x, Type: T, Pos: e.Pos()})
+	return fb.assertTo(x, T, e.Pos())
+}
+
+// assertTo asserts the interface value x to T: the data word, and for a
+// concrete type that is not its own data word, the value loaded from the
+// box.
+func (fb *fnb) assertTo(x Reg, T types2.Type, pos token.Pos) Reg {
+	r := fb.emitDst(Instr{Op: OpAssert, X: x, Type: T, Pos: pos})
+	if !isInterface(T) && !fb.isDirect(T) {
+		return fb.load(r, T)
+	}
+	return r
 }
 
 // funcValue is a declared function used as a value: a static closure

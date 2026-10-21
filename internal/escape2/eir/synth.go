@@ -124,6 +124,9 @@ func (b *builder) buildSynth(f *Func) {
 // wrapperCall calls method fn, with the receiver first in args, from a
 // synthesized wrapper.
 func (fb *fnb) wrapperCall(fn *types2.Func, args []Reg) []Reg {
+	if fb.isRingMethod(fn) {
+		return fb.emitCall(&Call{Kind: CallContract, Contract: contract.RingMethod, Sig: fn.Type().(*types2.Signature), Args: args, Implicit: ImplWrapper}, token.NoPos)
+	}
 	id := fb.b.funcOf(fn)
 	if id == NoFunc {
 		fb.b.errorf(token.NoPos, "method %s has no source", fn.Name())
@@ -276,6 +279,9 @@ func (fb *fnb) receiverFromValue(v Reg, R types2.Type, fn *types2.Func, path []i
 func (fb *fnb) methodValue(e *ast.SelectorExpr, sel *types2.Selection) Reg {
 	fn := sel.Obj().(*types2.Func)
 	recvT := fb.typeOf(e.X)
+	if isImplicitDrop(fn) {
+		return 0 // no code to call: the lowerer makes a nil func value
+	}
 	if isInterface(recvT) && len(sel.Index()) == 1 {
 		iv := fb.expr(e.X)
 		return fb.boundValue(SynthIfaceMethodValue, recvT, fn, iv, recvT, e.Pos())

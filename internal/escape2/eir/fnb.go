@@ -40,17 +40,16 @@ type fnb struct {
 	prologue []Instr // instructions of the entry block that come first
 
 	results []*types2.Var // the result variables, named or not
-	exit    *bblock       // where returns go: deferred calls, then the results
 
 	scopes  []*scope
 	defers  []*deferred // root only
 	labels  map[*types2.Label]*labelInfo
 	targets []*jumpTarget // the enclosing loops, switches and selects
 
-	curStmt    ast.Stmt     // the statement being built
-	bodyNode   ast.Node     // the body of the declaration or literal, for goto
-	frameSlots []dropSlot   // owners the function holds as a whole: its owner parameters
-	switchDrop *switchDrop  // the value a type switch drops when no clause takes it
+	curStmt    ast.Stmt    // the statement being built
+	bodyNode   ast.Node    // the body of the declaration or literal, for goto
+	frameSlots []dropSlot  // owners the function holds as a whole: its owner parameters
+	switchDrop *switchDrop // the value a type switch drops when no clause takes it
 
 	dropRecv        bool // a Drop method, whose receiver its drop glue destroys
 	resultsInMemory bool // results are frame objects (a range body returns)
@@ -114,7 +113,7 @@ func (fb *fnb) setupParams(sig *types2.Signature, hasRecord bool) {
 		// Parameters that are owners belong to the function, which drops
 		// them when it returns; a Drop method's receiver is the value
 		// being destroyed, whose fields the drop glue destroys after it.
-		owner := fb.b.needsDrop(v.Type()) && !(i == 0 && sig.Recv() != nil && fb.dropRecv)
+		owner := fb.b.needsDrop(v.Type()) && (i != 0 || sig.Recv() == nil || !fb.dropRecv)
 		if owner {
 			fb.addressed[v] = true
 		}
@@ -133,7 +132,7 @@ func (fb *fnb) setupParams(sig *types2.Signature, hasRecord bool) {
 		if v.Name() == "" || v.Name() == "_" {
 			v = types2.NewVar(v.Pos(), v.Pkg(), "", v.Type())
 		}
-		if fb.resultsInMemory {
+		if fb.resultsInMemory || fb.b.needsDrop(v.Type()) {
 			fb.addressed[v] = true
 		}
 		fb.results = append(fb.results, v)

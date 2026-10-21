@@ -101,6 +101,17 @@ func (fb *fnb) lvalue(e ast.Expr) lval {
 			k := fb.exprAs(e.Index, m.Key())
 			return lval{kind: lvMap, T: m.Elem(), c: &contRef{T: xt, x: e.X, at: e, mapT: m, mapV: mv, key: k, keyT: m.Key()}}
 		}
+		if coreType(unwrap(xt)) == nil && isTypeParam(unwrap(xt)) {
+			// A type parameter whose type set has no core type (string |
+			// []byte, []int | [5]int): its element is the result type.
+			x := fb.expr(e.X)
+			fb.expr(e.Index)
+			T := fb.typeOf(e)
+			if !hasPointers(T) {
+				return lval{kind: lvMem, T: T}
+			}
+			return lval{kind: lvMem, addr: fb.elem(x), T: T}
+		}
 		switch u := coreType(unwrap(xt)).(type) {
 		case *types2.Array:
 			addr, ok := fb.addrIfPlace(e.X)
@@ -286,6 +297,12 @@ func (fb *fnb) fieldPath(addr Reg, T types2.Type, path []int) (Reg, types2.Type)
 				st, ok = coreType(unwrap(T)).(*types2.Struct)
 			}
 			if !ok {
+				if p, isPacked := unwrap(T).Underlying().(*types2.Packed); isPacked && idx < p.NumFields() {
+					// A field of a packed type: bits of the same word,
+					// which hold no pointers.
+					T = p.Field(idx).Var().Type()
+					continue
+				}
 				fb.b.errorf(fb.pos, "field path through %s", T)
 				return addr, T
 			}

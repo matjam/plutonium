@@ -44,7 +44,6 @@ type jumpTarget struct {
 // A labelInfo is a label's block.
 type labelInfo struct {
 	block *bblock
-	node  ast.Node // the block whose scope holds the labeled statement
 }
 
 func (fb *fnb) pushScope(node ast.Node, vars bool) *scope {
@@ -325,16 +324,16 @@ func (fb *fnb) multiValue(e ast.Expr, n int) ([]Reg, []types2.Type) {
 			// An enum conversion with ok.
 			r := fb.expr(x.Args[0])
 			_ = r
-			return make([]Reg, n), []types2.Type{fb.typeOf(x), types2.Typ[types2.Bool]}
+			return make([]Reg, n), []types2.Type{fb.firstType(x), types2.Typ[types2.Bool]}
 		}
 		return fb.callResults(x)
 	case *ast.TypeAssertExpr:
 		v := fb.typeAssert(x, true)
-		return []Reg{v, 0}, []types2.Type{fb.typeOf(x), types2.Typ[types2.Bool]}
+		return []Reg{v, 0}, []types2.Type{fb.firstType(x), types2.Typ[types2.Bool]}
 	case *ast.UnaryExpr:
 		if x.Op == token.ARROW {
 			v := fb.recv(x)
-			return []Reg{v, 0}, []types2.Type{fb.typeOf(x), types2.Typ[types2.Bool]}
+			return []Reg{v, 0}, []types2.Type{fb.firstType(x), types2.Typ[types2.Bool]}
 		}
 	case *ast.IndexExpr:
 		if fb.isContainerIndex(x) || fb.isMapIndex(x) {
@@ -447,11 +446,46 @@ func (fb *fnb) permutes(st *ast.AssignStmt) bool {
 // assignment of its results but the error, and the clause, which runs when
 // the error is not nil.
 func (fb *fnb) orStmt(st *ast.OrStmt) {
+	stmtScope := fb.scopes[len(fb.scopes)-1] // pushed by stmt for st
 	res, types := fb.callResults(st.Call)
-	n := len(res) - 1
-	if n < 0 {
-		n = 0
+	if fb.cur == nil || len(res) == 0 {
+		return
 	}
+	n := len(res) - 1
+	errR, errT := res[n], types[n]
+
+	// The clause, where the call failed: in its own block, which declares
+	// err; the other results and the statement's temporaries are dropped
+	// first.
+	fail := fb.newBlock()
+	ok := fb.newBlock()
+	fb.branchBoth(fail, ok)
+	fb.seal(fail)
+	fb.startBlock(fail)
+	sc := fb.pushScope(st.Clause, true)
+	errVar, _ := fb.b.implicits[st].(*types2.Var)
+	if errVar != nil {
+		fb.declareLocal(errVar)
+		fb.assignVar(errVar, fb.convertReg(errR, errT, errVar.Type(), st.Pos()))
+	}
+	for i := 0; i < n; i++ {
+		if fb.b.needsDrop(types[i]) {
+			o := fb.newObj(Object{Kind: ObjTemp, Type: types[i], Name: "drop"})
+			fb.store(fb.addr(o), res[i], types[i])
+			fb.dropAt(fb.addr(o), types[i], st.Pos())
+		}
+	}
+	fb.releaseSlots(stmtScope.slots, nil)
+	if r, isRet := st.Clause.(*ast.ReturnStmt); isRet && fb.orReturn(st, r, errVar) {
+		fb.popScope(sc)
+	} else {
+		fb.stmt(st.Clause)
+		fb.popScope(sc)
+	}
+	fb.jump(ok)
+
+	fb.seal(ok)
+	fb.startBlock(ok)
 	if len(st.Lhs) > 0 {
 		for i, lhs := range st.Lhs {
 			if i >= n {
@@ -479,17 +513,41 @@ func (fb *fnb) orStmt(st *ast.OrStmt) {
 			fb.ownerTemp(res[i], types[i])
 		}
 	}
-	then := fb.newBlock()
-	done := fb.newBlock()
-	fb.edge(fb.ensureBlock(), then)
-	fb.edge(fb.cur, done)
-	fb.cur = nil
-	fb.seal(then)
-	fb.startBlock(then)
-	fb.stmt(st.Clause)
-	fb.jump(done)
-	fb.seal(done)
-	fb.startBlock(done)
+}
+
+// orReturn builds a short form of return in the clause of an or statement
+// (section 11.27): the last result is err, or E, and the others are zero
+// if unnamed and keep their values if named. It reports false for a plain
+// return.
+func (fb *fnb) orReturn(st *ast.OrStmt, r *ast.ReturnStmt, errVar *types2.Var) bool {
+	root := fb.root
+	sig := root.f.Sig
+	if root.f.Key.Range != nil || sig == nil {
+		return false
+	}
+	form := types2.OrReturnForm(sig.Results(), r, fb.b.types)
+	if form == types2.OrReturnPlain {
+		return false
+	}
+	n := len(root.results)
+	if n == 0 {
+		return false
+	}
+	T := root.results[n-1].Type()
+	var v Reg
+	if form == types2.OrReturnExpr {
+		v = fb.exprAs(r.Results[0], T)
+	} else if errVar != nil {
+		v = fb.readLocal(errVar)
+	}
+	fb.setResult(root, n-1, v)
+	if fb.rng != nil {
+		pos := r.Pos()
+		fb.exitTo(root, returnExitKey{}, fb.b.moves.Empty[r], func(p *fnb) { p.emitReturn(pos, nil) })
+		return true
+	}
+	fb.emitReturn(r.Pos(), fb.b.moves.Empty[r])
+	return true
 }
 
 // cond builds a condition with its two exits.
@@ -790,7 +848,7 @@ func (fb *fnb) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 			case isInterface(T) && types2.Identical(T, I):
 				fb.assignVar(v, iv)
 			default:
-				fb.assignVar(v, fb.emitDst(Instr{Op: OpAssert, X: iv, Type: T, Pos: cc.Pos()}))
+				fb.assignVar(v, fb.assertTo(iv, T, cc.Pos()))
 			}
 		}
 		fb.stmtList(cc.Body)
@@ -1134,7 +1192,7 @@ func chanElem(T types2.Type) types2.Type {
 // lets out of a frame, heap memory.
 func (fb *fnb) recv(e *ast.UnaryExpr) Reg {
 	fb.expr(e.X)
-	if !hasPointers(fb.typeOf(e)) {
+	if !hasPointers(fb.firstType(e)) {
 		return 0
 	}
 	return fb.heap(HeapAlloc)
@@ -1183,11 +1241,11 @@ func (fb *fnb) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 		sc := fb.pushScope(c.cc, true)
 		if as, ok := c.cc.Comm.(*ast.AssignStmt); ok && c.recv != nil {
 			var v Reg
-			if hasPointers(fb.typeOf(c.recv)) {
+			if hasPointers(fb.firstType(c.recv)) {
 				v = fb.heap(HeapAlloc)
 			}
 			vals := []Reg{v, 0}
-			types := []types2.Type{fb.typeOf(c.recv), types2.Typ[types2.Bool]}
+			types := []types2.Type{fb.firstType(c.recv), types2.Typ[types2.Bool]}
 			for j, lhs := range as.Lhs {
 				if id, ok := lhs.(*ast.Ident); ok && id.Name == "_" {
 					fb.ownerTemp(vals[j], types[j])
@@ -1205,8 +1263,8 @@ func (fb *fnb) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 			}
 		} else if es, ok := c.cc.Comm.(*ast.ExprStmt); ok && c.recv != nil {
 			_ = es
-			if hasPointers(fb.typeOf(c.recv)) {
-				fb.ownerTemp(fb.heap(HeapAlloc), fb.typeOf(c.recv))
+			if hasPointers(fb.firstType(c.recv)) {
+				fb.ownerTemp(fb.heap(HeapAlloc), fb.firstType(c.recv))
 			}
 		}
 		fb.stmtList(c.cc.Body)

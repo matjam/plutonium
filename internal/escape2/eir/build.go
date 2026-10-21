@@ -136,7 +136,7 @@ func newBuilder(prog *load.Program, opt Options) *builder {
 // errorf records an internal compiler error: a construct the desugarer
 // does not know.
 func (b *builder) errorf(pos token.Pos, format string, args ...any) {
-	b.errs = append(b.errs, diag.New(b.fset.Position(pos), diag.InternalError, "internal compiler error: escape2: %s", fmt.Sprintf(format, args...)))
+	b.errs = append(b.errs, diag.New(b.fset.Position(pos), diag.InternalError, "internal compiler error: escape2: %s: %s", b.fset.Position(pos), fmt.Sprintf(format, args...)))
 }
 
 // newFunc adds a function to the program, with no body yet.
@@ -246,7 +246,37 @@ func (b *builder) funcOf(fn *types2.Func) FuncID {
 	if fn == nil {
 		return NoFunc
 	}
-	return b.p.Lookup(FuncKey{Obj: fn.Origin()})
+	fn = fn.Origin()
+	if id := b.p.Lookup(FuncKey{Obj: fn}); id != NoFunc {
+		return id
+	}
+	sig, _ := fn.Type().(*types2.Signature)
+	if sig == nil || fn.Pkg() == nil || sig.Recv() == nil || isInterface(sig.Recv().Type()) {
+		return NoFunc
+	}
+	// A method the type checker declares and the lowerer gives a body:
+	// the String method of an enum type, the Error method of an
+	// errors.New call site's type. Both return a constant string.
+	f := b.newFunc(FuncKey{Obj: fn}, funcName(fn), fn.Pkg(), sig, fn.Pos(), fn.Pos())
+	b.queue = append(b.queue, func() { b.buildConstMethod(f) })
+	return f.ID
+}
+
+// buildConstMethod builds a method that returns constants: static memory.
+func (b *builder) buildConstMethod(f *Func) {
+	fb := b.newFnb(f, nil, nil)
+	fb.addressed = map[*types2.Var]bool{}
+	if r := f.Sig.Recv(); r != nil {
+		f.Inputs = append(f.Inputs, Input{Var: r, Type: r.Type()})
+		fb.input(0)
+	}
+	for i := 0; i < f.Sig.Results().Len(); i++ {
+		if hasPointers(f.Sig.Results().At(i).Type()) {
+			fb.sink(SinkReturn, fb.heap(HeapStatic), i, f.Pos)
+		}
+	}
+	fb.cur = nil
+	fb.finish()
 }
 
 // synth returns the synthesized function s names, adding it, and queueing

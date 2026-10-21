@@ -108,8 +108,11 @@ func (fb *fnb) deferStmt(st *ast.DeferStmt) {
 				fb.mapCall("mapDelete", m, []Reg{fb.loadSaved(mv), fb.loadSaved(kv)}, pos, ImplDefer)
 			}
 		default:
-			fb.b.errorf(st.Pos(), "defer of builtin %s", name)
-			return
+			// The lowerer rejects it; its arguments are built.
+			for _, a := range call.Args {
+				fb.expr(a)
+			}
+			run = func(*fnb) {}
 		}
 	case fb.b.moves.DeferredDrops[call] || fb.implicitDropCall(call):
 		// defer x.Drop() on an owner variable: x's whole drop glue runs

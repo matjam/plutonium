@@ -227,7 +227,9 @@ func (fb *fnb) methodCallee(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.S
 		return &Call{Kind: CallIface, Method: fn, Iface: recvT, Target: iv, Sig: sig}, args, types, true
 	}
 	if isImplicitDrop(fn) {
-		return nil, nil, nil, false
+		// x.Drop() of an owner whose type declares none, not on the
+		// variable itself: there is no code to call.
+		return nil, nil, nil, true
 	}
 	if isTypeParam(recvT) || isTypeParam(pointerElem(recvT)) {
 		// A method of a type parameter's constraint: every method of that

@@ -232,7 +232,7 @@ func (fb *fnb) rangeContainer(st *ast.RangeStmt, label *types2.Label) {
 // rangeFunc builds a range over a function of signature sig: the value of
 // st.X, or iter when it is already evaluated (a container's All).
 func (fb *fnb) rangeFunc(st *ast.RangeStmt, label *types2.Label, sig *types2.Signature, iter *Reg) {
-	var static FuncID = NoFunc
+	static := NoFunc
 	var target Reg
 	if iter != nil {
 		target = *iter
