@@ -62,35 +62,118 @@ func holdsFunc(T types2.Type, seen map[types2.Type]bool) bool {
 	return false
 }
 
-// planRegion finds the closures a function with a region returns directly,
-// and the variables they capture, in its own frame (not in nested
-// literals).
+// planRegion finds the closures a function with a region builds that
+// reach its results, and the variables they capture, in its own frame (not
+// in nested literals). The closures are followed as the lowerer follows
+// them (lower/closureflow.go), but only through local variables (assigned
+// whole, or a field or element of them), named results, composite
+// literals and conversions, flow-insensitively: a subset of what the
+// lowerer puts in the region.
 func (fb *fnb) planRegion(sig *types2.Signature, body *ast.BlockStmt) {
 	if !regionSig(sig) || body == nil {
 		return
 	}
 	fb.regionNodes = map[ast.Node]bool{}
 	fb.regionVars = map[*types2.Var]bool{}
-	var mark func(e ast.Expr)
-	mark = func(e ast.Expr) {
+
+	// The closures each local variable may hold, from the assignments of
+	// the whole body.
+	held := map[*types2.Var]map[ast.Node]bool{}
+	var origins func(e ast.Expr, out map[ast.Node]bool)
+	origins = func(e ast.Expr, out map[ast.Node]bool) {
 		switch x := ast.Unparen(e).(type) {
 		case *ast.FuncLit:
-			fb.regionNodes[x] = true
-			ast.Inspect(x.Body, func(n ast.Node) bool {
-				if id, ok := n.(*ast.Ident); ok {
-					if v := fb.b.localVar(id); v != nil && (v.Pos() < x.Pos() || v.Pos() >= x.End()) && v.Pos() >= body.Pos() || isParamOf(sig, v) {
-						fb.regionVars[v] = true
-					}
-				}
-				return true
-			})
+			out[x] = true
 		case *ast.SelectorExpr:
 			if sel := fb.b.selections[x]; sel != nil && sel.Kind() == types2.MethodVal {
-				fb.regionNodes[x] = true
+				out[x] = true
+			}
+		case *ast.Ident:
+			if v := fb.b.localVar(x); v != nil {
+				for n := range held[v] {
+					out[n] = true
+				}
 			}
 		case *ast.CallExpr:
 			if tv := fb.b.types[x.Fun]; tv.IsType() && len(x.Args) == 1 {
-				mark(x.Args[0])
+				origins(x.Args[0], out)
+			}
+		case *ast.CompositeLit:
+			for _, elt := range x.Elts {
+				if kv, ok := elt.(*ast.KeyValueExpr); ok {
+					elt = kv.Value
+				}
+				origins(elt, out)
+			}
+		}
+	}
+	// rootVar returns the local variable x, x.f, x[i] (on an array or
+	// struct, no load) is part of, or nil.
+	var rootVar func(e ast.Expr) *types2.Var
+	rootVar = func(e ast.Expr) *types2.Var {
+		switch x := ast.Unparen(e).(type) {
+		case *ast.Ident:
+			return fb.b.localVar(x)
+		case *ast.SelectorExpr:
+			if sel := fb.b.selections[x]; sel != nil && sel.Kind() == types2.FieldVal && !sel.Indirect() {
+				return rootVar(x.X)
+			}
+		case *ast.IndexExpr:
+			if _, ok := coreType(unwrap(fb.typeOf(x.X))).(*types2.Array); ok {
+				return rootVar(x.X)
+			}
+		}
+		return nil
+	}
+	flow := func(lhs ast.Expr, rhs ast.Expr) bool {
+		v := rootVar(lhs)
+		if v == nil {
+			return false
+		}
+		got := map[ast.Node]bool{}
+		origins(rhs, got)
+		changed := false
+		for n := range got {
+			if held[v] == nil {
+				held[v] = map[ast.Node]bool{}
+			}
+			if !held[v][n] {
+				held[v][n] = true
+				changed = true
+			}
+		}
+		return changed
+	}
+	for changed := true; changed; {
+		changed = false
+		ast.Inspect(body, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.AssignStmt:
+				if len(n.Lhs) == len(n.Rhs) {
+					for i := range n.Lhs {
+						if flow(n.Lhs[i], n.Rhs[i]) {
+							changed = true
+						}
+					}
+				}
+			case *ast.ValueSpec:
+				if len(n.Names) == len(n.Values) {
+					for i := range n.Names {
+						if flow(n.Names[i], n.Values[i]) {
+							changed = true
+						}
+					}
+				}
+			}
+			return true
+		})
+	}
+
+	results := map[ast.Node]bool{}
+	for i := 0; i < sig.Results().Len(); i++ {
+		if v := sig.Results().At(i); v.Name() != "" && v.Name() != "_" {
+			for n := range held[v] {
+				results[n] = true
 			}
 		}
 	}
@@ -104,11 +187,55 @@ func (fb *fnb) planRegion(sig *types2.Signature, body *ast.BlockStmt) {
 			}
 		case *ast.ReturnStmt:
 			for _, r := range n.Results {
-				mark(r)
+				origins(r, results)
 			}
 		}
 		return true
 	})
+	for n := range results {
+		if !fb.madeHere(n, body) {
+			continue
+		}
+		fb.regionNodes[n] = true
+		if x, ok := n.(*ast.FuncLit); ok {
+			ast.Inspect(x.Body, func(n ast.Node) bool {
+				if id, ok := n.(*ast.Ident); ok {
+					if v := fb.b.localVar(id); v != nil && (v.Pos() < x.Pos() || v.Pos() >= x.End()) && v.Pos() >= body.Pos() || isParamOf(sig, v) {
+						fb.regionVars[v] = true
+					}
+				}
+				return true
+			})
+		}
+	}
+}
+
+// madeHere reports whether the closure node n is built by the function
+// whose body is body itself: not inside a nested literal or range body,
+// which build their own.
+func (fb *fnb) madeHere(n ast.Node, body *ast.BlockStmt) bool {
+	here := true
+	ast.Inspect(body, func(m ast.Node) bool {
+		if !here || m == nil {
+			return false
+		}
+		if m.Pos() > n.Pos() || m.End() < n.End() {
+			return false // does not contain n
+		}
+		if m == n {
+			return false
+		}
+		switch m := m.(type) {
+		case *ast.FuncLit:
+			here = false
+		case *ast.RangeStmt:
+			if fb.b.isRangeFunc(m) {
+				here = false
+			}
+		}
+		return true
+	})
+	return here
 }
 
 // isParamOf reports whether v is a parameter or the receiver of sig.

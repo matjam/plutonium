@@ -139,6 +139,58 @@ func main() { f() }
 	}
 }
 
+// TestBuildRegions checks that the closures a function returns through a
+// variable, a named result or a composite literal are built in the
+// region its caller provides (section 11.5; testdata/run/closureregions.p,
+// closureregions2.p, closureifacechain.p), with the variables they
+// capture.
+func TestBuildRegions(t *testing.T) {
+	out := dumpMain(t, `package main
+
+type V struct{ f func() int }
+
+func later() func() int {
+	v := 1
+	f := func() int { return v * 10 }
+	v = 7
+	return f
+}
+
+func named() (f func() int) {
+	x := 5
+	f = func() int { return x }
+	return
+}
+
+func composite(x int) V {
+	return V{f: func() int { return x * 10 }}
+}
+
+func main() {
+	_ = later()
+	_ = named()
+	_ = composite(1)
+}
+`)
+	for _, fn := range []string{"main.later", "main.named", "main.composite"} {
+		i := strings.Index(out, "func "+fn+"\n")
+		if i < 0 {
+			t.Fatalf("no %s in\n%s", fn, out)
+		}
+		s := out[i+1:]
+		if k := strings.Index(s, "func "); k >= 0 {
+			s = s[:k]
+		}
+		// LifeCaller is 6.
+		if !strings.Contains(s, `closure func() int "closure" life=6`) {
+			t.Errorf("%s: the closure it returns is not in its caller's region:\n%s", fn, s)
+		}
+		if strings.Count(s, "life=6") < 2 {
+			t.Errorf("%s: the variable the closure captures is not in the region:\n%s", fn, s)
+		}
+	}
+}
+
 // TestBuildInterfaceValues checks the forms of interface values: a
 // zero-sized value has no box (testdata/plutonium/tp_cons.p returns one);
 // a type parameter's is the box or the value, which the instance decides
