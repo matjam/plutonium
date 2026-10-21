@@ -143,9 +143,11 @@ package solve
 //	                    o2 LifeIter             E3006
 //	                    o2 LifeStmt             E3009
 //	                    otherwise               E3002
-//	d = In(i,P,kg)    for each <u,T,g> in v, with D' = off(d, T), GE also
-//	                  when g (the place of the field T of what d points to;
-//	                  a kg key stays as it is):
+//	d = In(i,P,kg)    for each <u,T,g> in v, with D' = off(d, T) (the place
+//	                  of the field T of what d points to), FieldsGE when g
+//	                  (that place or any under it by field and element steps,
+//	                  not past a load; domain.Key.FieldsGE), a kg key staying
+//	                  GE:
 //	                    u = Obj (frame)     finding E3002 (E3003 when why is a call)
 //	                    u = In(j,Q,kq)      summary Store pair (u's key, D''s key)
 //	                    u = Heap, CHeap     summary HeapStore D''s key
@@ -264,8 +266,13 @@ package solve
 //	                                  a frame token of a sync.WaitGroup
 //	                                  object is E3004 (section 12.12), and
 //	                                  the entry it makes keeps SinkTask
-//	               Store (a, b)       store(val(b, β), val(a, β), call)
-//	               HeapStore k        store(val(k, β), <Heap>, call)
+//	               Store (a, b)       store(val(b, β), val(a, β), call);
+//	                                  b FieldsGE: val(b, β) as for b exact,
+//	                                  and the stored value's tags made
+//	                                  (Root, GE)
+//	               HeapStore k        store(val(k, β), <Heap>, call); k
+//	                                  FieldsGE: as for k exact, with
+//	                                  <Heap, Root, true>
 //	               Res[r].From (k,F,G) Results[r] ⊇ pre(val(k, β), F), tags
 //	                                  GE when G (FieldGE)
 //	               Res[r].Heap F      Results[r] ⊇ <Heap, F, true>

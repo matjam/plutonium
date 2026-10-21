@@ -159,6 +159,52 @@ func main() {
 `, "main.p:", "",
 	},
 	{
+		// A recursive As stores what it finds into *target: a store through
+		// a value whose pointers sit somewhere in it lands anywhere in the
+		// target's place, not past another load (domain.Key.FieldsGE), so
+		// the frame target's contents are no heap destination
+		// (testdata/run/errpatterns.p, testdata/lib/errors.p).
+		"as_target_fields", `package main
+
+type wrapped struct {
+	op  string
+	err error
+}
+
+func (w *wrapped) Error() string { return w.op }
+func (w *wrapped) Unwrap() error { return w.err }
+
+type multi struct{ errs []error }
+
+func (m *multi) Error() string { return "multi" }
+
+type plain struct{}
+
+func (plain) Error() string { return "plain" }
+
+var errPlain error = plain{}
+
+func as[E any](err error, target *E) bool {
+	if err != nil {
+		if e, ok := any(err).(E); ok {
+			*target = e
+			return true
+		}
+		if x, ok := err.(interface{ Unwrap() error }); ok {
+			return as(x.Unwrap(), target)
+		}
+	}
+	return false
+}
+
+func main() {
+	top := &wrapped{op: "a", err: &wrapped{op: "b", err: &multi{errs: []error{errPlain}}}}
+	var m *multi
+	println(as(top, &m), len(m.errs))
+}
+`, "main.p:", "",
+	},
+	{
 		// An assertion to an interface fails on a box whose dynamic type
 		// does not implement it: the string's frame box is not kept.
 		"assert_iface_box", `package main

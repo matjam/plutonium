@@ -58,6 +58,17 @@ func ptr(t tok) tv { return tv{t: t, tag: domain.Root} }
 
 func single(x tv) value { return value{x: true} }
 
+// anywhere is v with every tag made (Root, GE): stored through a FieldsGE
+// key, it lands anywhere under the places the key's pointers point at.
+func anywhere(v value) value {
+	w := value{}
+	for x := range v {
+		x.tag, x.g = domain.Root, true
+		w.add(x)
+	}
+	return w
+}
+
 // place is <o, p, pg>: a place in frame object o.
 type place struct {
 	obj  int

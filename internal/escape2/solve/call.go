@@ -212,12 +212,19 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		dst, ok1 := val(p.Dst)
 		src, ok2 := val(p.Src)
 		if ok1 && ok2 {
+			if p.Dst.FieldsGE() {
+				src = s.retagNode(src)
+			}
 			s.addCons(dst, cStore, uint64(src), why(len(sum.Esc)+j))
 		}
 	}
 	for _, k := range sum.HeapStore {
 		if dst, ok := val(k); ok {
-			s.addCons(dst, cStore, uint64(s.heapNode), why(-1))
+			src := s.heapNode
+			if k.FieldsGE() {
+				src = s.retagNode(src)
+			}
+			s.addCons(dst, cStore, uint64(src), why(-1))
 		}
 	}
 	for r, res := range sum.Res {
@@ -257,6 +264,19 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		reg := s.region(c)
 		s.addTok(uint32(c.Results[r]), tok{kind: tObj, base: reg, ge: true, tagGE: true})
 	}
+}
+
+// retagNode is node n with every tag made (Root, GE): stored through a
+// FieldsGE destination key, a value lands anywhere under the place the
+// key's pointers point at, by field and element steps (rules.go, OpCall).
+func (s *solver) retagNode(n uint32) uint32 {
+	if m, ok := s.derived.get(dRetag|uint64(n), 0); ok {
+		return uint32(m)
+	}
+	m := s.newNode(nkPinned)
+	s.derived.put(s.a, dRetag|uint64(n), 0, uint64(m))
+	s.addEdge(n, m, xw(xRetag, 0, false), 0)
+	return m
 }
 
 // fieldPath is a summary's result field as a tag: a path with a load step

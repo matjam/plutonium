@@ -82,9 +82,10 @@ func (s *solver) store(d, v value, pos token.Pos, c callCtx) {
 			}
 		case kIn:
 			for x := range v {
-				// D' = off(d, T): a GE key stays as it is.
+				// D' = off(d, T), FieldsGE when the tag is GE: a GE key
+				// stays as it is.
 				d2 := s.off(dt, x.tag, false)
-				dk := domain.MakeKey(d2.id, d2.path, domain.KeyFlags{GE: d2.ge || x.g})
+				dk := domain.MakeKey(d2.id, d2.path, domain.KeyFlags{GE: d2.ge, FieldsGE: x.g && !d2.ge})
 				s.storeInto(dk, x.t, pos, c)
 			}
 		case kHeap, kCHeap:

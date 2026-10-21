@@ -165,12 +165,20 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 		entry++
 	}
 	for _, p := range sm.Store { // Store (a, b): store(val(b, β), val(a, β), call)
-		s.store(s.valueOfKey(p.Dst, bind), s.valueOfKey(p.Src, bind), in.Pos, ctx(entry))
+		v := s.valueOfKey(p.Src, bind)
+		if p.Dst.FieldsGE() {
+			v = anywhere(v)
+		}
+		s.store(s.valueOfKey(p.Dst, bind), v, in.Pos, ctx(entry))
 		entry++
 	}
 	heap := single(ptr(tok{kind: kHeap}))
 	for _, k := range sm.HeapStore { // HeapStore k: store(val(k, β), <Heap>, call)
-		s.store(s.valueOfKey(k, bind), heap, in.Pos, ctx(-1))
+		v := heap
+		if k.FieldsGE() {
+			v = anywhere(v)
+		}
+		s.store(s.valueOfKey(k, bind), v, in.Pos, ctx(-1))
 	}
 	for r, res := range sm.Res {
 		if r >= len(c.Results) || c.Results[r] == 0 {

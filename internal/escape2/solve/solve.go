@@ -489,6 +489,7 @@ const (
 	dTok    = 2
 	dShared = 1 << 62 // in the first word: a shared subscription node
 	dJoin   = 1 << 61 // in the first word: a node joining two receivers
+	dRetag  = 1 << 60 // in the first word: a node with its tags made (Root, GE)
 )
 
 // valNode returns the node of val(k) for an input bound to node base
@@ -606,17 +607,9 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		case tObj:
 			s.report(s.storeCode(b), t.base, b)
 		case tIn:
-			dst := s.off(d, s.ps.Steps(t.tag))
-			if t.tagGE {
-				dst.ge = true
-			}
-			s.addStorePair(key(asPointer(t)), key(dst), b)
+			s.addStorePair(key(asPointer(t)), s.storeDst(d, t), b)
 		default:
-			dst := s.off(d, s.ps.Steps(t.tag))
-			if t.tagGE {
-				dst.ge = true
-			}
-			s.addHeapStore(key(dst))
+			s.addHeapStore(s.storeDst(d, t))
 		}
 	case cSink:
 		switch t.kind {
@@ -688,6 +681,19 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			s.report(cE3009, t.base, b)
 		}
 	}
+}
+
+// storeDst is the key of the place a store through In token d writes a
+// token t of the value into: off(d, T) for t's tag T, and when the tag is
+// GE, anywhere under it by field and element steps (FieldsGE), not past
+// another load; a GE d stays GE (rules.go, "The store check").
+func (s *solver) storeDst(d, t tok) domain.Key {
+	dst := s.off(d, s.ps.Steps(t.tag))
+	k := key(dst)
+	if t.tagGE && !k.GE() {
+		k = k.WithFieldsGE()
+	}
+	return k
 }
 
 // storeCode is the code of a frame pointer stored where it outlives the
