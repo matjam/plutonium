@@ -6,21 +6,31 @@
 // starts to swap. A test binary calls Run from TestMain, which
 //
 //   - lowers -parallel so that the slots, at an assumed memory budget each,
-//     fit in the memory the machine has available (unless -parallel was
-//     given explicitly), and
+//     fit in the memory available (unless -parallel was given explicitly),
+//     and
 //   - starts a watchdog that samples the process's resident memory and, past
 //     a cap, stops the run with the names of the tests in flight.
 //
+// The memory available is the lesser of MemAvailable and what the process's
+// cgroup v2 limits (memory.max and memory.high, of its cgroup and its
+// ancestors) leave it, so a run confined by systemd-run -p MemoryMax=...
+// sizes itself to the confinement rather than to the machine.
+//
 // Tests call Parallel instead of t.Parallel so that the watchdog knows which
-// tests are running. Two environment variables adjust the limits:
+// tests are running. A test step that needs far more than a slot (a build of
+// a translated compiler takes GB) calls Reserve with its estimate first: the
+// reservations share a budget the size of the watchdog's cap, so two such
+// steps do not start together unless both fit. Two environment variables
+// adjust the limits:
 //
 //	PLUTO_TEST_SLOT_MB   memory budget of one parallel slot in MB (default
 //	                     256); 0 turns the -parallel reduction off
 //	PLUTO_TEST_RSS_MB    resident memory cap of the test binary in MB
 //	                     (default: 80% of what was available at start, but
-//	                     at most 12 GB); 0 turns the watchdog off
+//	                     at most 12 GB); 0 turns the watchdog off, and
+//	                     with it the limit on reservations
 //
-// Both rely on /proc and do nothing where it is missing.
+// All of this relies on /proc and does nothing where it is missing.
 package testguard
 
 import (
@@ -59,7 +69,8 @@ const (
 // parallel slots the run will use, so the caller can size its own limits.
 func Run(m *testing.M, tune func(parallel int)) int {
 	flag.Parse()
-	avail, haveAvail := availableMemory()
+	mem := availableMemory()
+	avail, haveAvail := mem.avail, mem.ok
 	parallel := 0
 	if f := flag.Lookup("test.parallel"); f != nil {
 		if g, ok := f.Value.(flag.Getter); ok {
@@ -68,8 +79,8 @@ func Run(m *testing.M, tune func(parallel int)) int {
 		if haveAvail && !flagSet("test.parallel") {
 			slot, on := envMB("PLUTO_TEST_SLOT_MB", DefaultSlotMB)
 			if n := capParallel(parallel, avail, slot, on); n != parallel {
-				fmt.Fprintf(os.Stderr, "testguard: -parallel lowered from %d to %d: %s available at %d MB per slot (set -parallel to choose, PLUTO_TEST_SLOT_MB to change the budget)\n",
-					parallel, n, mbString(avail), slot>>20)
+				fmt.Fprintf(os.Stderr, "testguard: -parallel lowered from %d to %d: %s at %d MB per slot (set -parallel to choose, PLUTO_TEST_SLOT_MB to change the budget)\n",
+					parallel, n, mem, slot>>20)
 				parallel = n
 				_ = f.Value.Set(strconv.Itoa(n))
 			}
@@ -80,6 +91,7 @@ func Run(m *testing.M, tune func(parallel int)) int {
 	}
 	if capBytes, on := rssCap(avail, haveAvail); on {
 		if _, ok := readRSS(); ok {
+			budget = newPool(capBytes)
 			go watch(capBytes, sampleInterval, exit)
 		}
 	}
@@ -137,14 +149,51 @@ func mbString(b uint64) string {
 	return fmt.Sprintf("%d MB", b>>20)
 }
 
-// availableMemory returns MemAvailable from /proc/meminfo in bytes.
-func availableMemory() (uint64, bool) {
-	f, err := os.Open("/proc/meminfo")
-	if err != nil {
-		return 0, false
+// memory is the memory a test run may use.
+type memory struct {
+	avail   uint64      // bytes
+	ok      bool        // avail is known
+	cgroup  cgroupLimit // the cgroup's limits, if inGroup
+	inGroup bool        // the cgroup's headroom is less than MemAvailable
+}
+
+// String says how much is available and where the figure comes from.
+func (m memory) String() string {
+	if !m.inGroup {
+		return mbString(m.avail) + " available"
 	}
-	defer func() { _ = f.Close() }()
-	return parseMemAvailable(f)
+	swap := "swap unlimited"
+	switch {
+	case m.cgroup.swapLimited && m.cgroup.swap == 0:
+		swap = "no swap"
+	case m.cgroup.swapLimited:
+		swap = "swap at most " + mbString(m.cgroup.swap)
+	}
+	return fmt.Sprintf("%s available in the cgroup (limit %s, %s)", mbString(m.avail), mbString(m.cgroup.limit), swap)
+}
+
+// availableMemory returns the memory the process may use: the lesser of
+// MemAvailable from /proc/meminfo and the headroom its cgroup v2 limits
+// (memory.max and memory.high of its cgroup and of every ancestor) leave it.
+func availableMemory() memory {
+	var m memory
+	if f, err := os.Open("/proc/meminfo"); err == nil {
+		m.avail, m.ok = parseMemAvailable(f)
+		_ = f.Close()
+	}
+	return withCgroup(m, cgroupMemory)
+}
+
+// withCgroup lowers m to the headroom of the cgroup that read returns.
+func withCgroup(m memory, read func() (cgroupLimit, bool)) memory {
+	cl, ok := read()
+	if !ok {
+		return m
+	}
+	if !m.ok || cl.avail < m.avail {
+		m.avail, m.ok, m.inGroup, m.cgroup = cl.avail, true, true, cl
+	}
+	return m
 }
 
 // parseMemAvailable reads the MemAvailable line of a /proc/meminfo.
@@ -228,6 +277,12 @@ func report(rss, limit uint64) string {
 	}
 	if len(names) == 0 {
 		fmt.Fprintf(&b, "\t(no parallel test registered)\n")
+	}
+	if held := budget.holders(); len(held) > 0 {
+		fmt.Fprintf(&b, "Tests holding memory reservations (testguard.Reserve):\n")
+		for _, h := range held {
+			fmt.Fprintf(&b, "\t%s\n", h)
+		}
 	}
 	if fns := stackTests(); len(fns) > 0 {
 		fmt.Fprintf(&b, "Test functions running on goroutine stacks:\n")

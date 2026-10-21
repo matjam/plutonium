@@ -125,7 +125,14 @@ End-to-end tests live in `internal/build`:
 - Memory guard (`internal/testguard`, used by `TestMain` in `internal/build`
   and `tools/go2pu`): unless `-parallel` is given, it lowers the parallelism
   so that slots at `PLUTO_TEST_SLOT_MB` each (default 256; 0 turns this
-  off) fit in `MemAvailable`, and says so on stderr. A watchdog samples the
+  off) fit in the memory available, and says so on stderr. The memory
+  available is the lesser of `MemAvailable` and the headroom under the
+  process's cgroup v2 limits (`memory.max`, `memory.high`, of its cgroup and
+  its ancestors), so a run under `systemd-run -p MemoryMax=11G` sizes itself
+  to 11 GB. A step that needs far more than a slot (a build of a translated
+  compiler) calls `testguard.Reserve(t, mb)` with its measured peak first;
+  reservations share a budget the size of the watchdog's cap, so two 5 GB
+  builds do not start together in an 11 GB cgroup. A watchdog samples the
   test binary's resident memory every second and, past `PLUTO_TEST_RSS_MB`
   (default: 80% of the memory available at start, at most 12288; 0 turns it
   off), prints the tests in flight and exits with status 2. A run killed
