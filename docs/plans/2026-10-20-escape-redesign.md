@@ -9,13 +9,20 @@ bind it (recorded in the project decision log):
   for it.
 - **D44**: analysis summaries may be cached in a file and checked (never trusted) in one pass; no
   annotations, ever.
-- **Open**: whether the language gets a rule for dynamic calls (a view passed through an interface method
-  or a func value may not be kept by the callee; the research report's "rank 2"). The owner decides after
-  reading this plan and `docs/research/2026-10-20-scalable-sound-escape-analysis.md`. Stages 0 to 2 below
-  do not depend on the answer; stage 3 (tags, deferred dispatch, obligations) does, and waits for it.
+- **D47 (provisional, 2026-10-21, made under the owner's delegation)**: the language gets a rule for
+  dynamic calls (the research report's "rank 2"). A view passed as an argument through an interface method
+  call or a call of a function value may not be kept by the callee; each implementation (method or func
+  literal) is checked locally, and keeping such a parameter is a compile error at the implementation; heap
+  pointers, owners and counted values are unaffected. Provisional until measured: stage 0 counts the
+  implementations in `lib/pluto`, the corpus and the translated compiler that keep a parameter received
+  through a dynamic call. If that is rare, stage 3 is built for the rule (a fixed summary per signature, no
+  deferred dispatch and no obligations: section (c) below is then replaced), and the specification text
+  (sections 18.3 and 11.5) is written after the measurement. Until then, builders design for the rule and
+  keep the candidate machinery behind `sched.Facts.Candidates`, so that either outcome plugs in.
 - **Open**: whether the precision paragraph of section 18.3 needs rewording (section (h), "Spec text").
 
-Build status: stages 0 to 2 are being built in `internal/escape2`, off by default.
+Build status: stages 0 to 2 are being built in `internal/escape2`, off by default, by several builders in
+parallel; the shared interfaces are the files named in `internal/escape2/doc.go`.
 
 The original study's status line follows. Design study, no code. Written against `cd87595c` (this worktree), the four adversarial
 reviews (REVIEW.md to REVIEW4.md in the worktrees named in the brief), the selfSafe notes of
