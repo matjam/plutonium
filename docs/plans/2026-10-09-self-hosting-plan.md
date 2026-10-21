@@ -1102,10 +1102,11 @@ memory that can be reclaimed).
   compiler built before. Update (2026-10-21): the directory's hash chains are gone. It is a two-level radix
   table (`lib/pluto/rt/gen_directory_on.p`), so a lookup costs the same whatever the size of the heap, and the
   check's fast path, now inlined in the check helpers, is near its floor. What remains is how many checks run:
-  accesses through one base in a block share one check (`opt.GenCheck`, abi.md section 1.3), but every
-  element of a loop over a slice is still checked on its own. On the `ssaback` demo (the printf example,
-  `-O2`) the checked build runs 8.8 times the unchecked one's instructions (13.2 before these changes) and
-  takes about 5.6 times its cycles (8.5 before).
+  accesses through one base in a block share one check, and a counted loop over an array with no call in it
+  gets one range check before it (`opt.GenCheck`, abi.md section 1.3). On the `ssaback` demo (the printf
+  example, `-O2`) the checked build runs 8.8 times the unchecked one's instructions (13.2 before these
+  changes) and takes about 5.6 times its cycles (8.5 before). Its loops call functions, so most of its
+  checks still run in every iteration.
 - Why the other fixes considered do not fit in 22 GB:
   - Scratch reuse alone (above) halves the allocation.
   - A per-function scratch arena only for the token sets and indexes (75%) leaves about 170 GB of other
