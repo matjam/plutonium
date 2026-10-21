@@ -316,6 +316,11 @@ const (
 	HeapStatic                      // static memory: a package variable's address, a constant, a string's bytes
 	HeapUintptr                     // a pointer made from a uintptr (section 18.3)
 	HeapCounted                     // a counted reference: owned/shared/synced box, map, channel
+	// HeapCurrent is a fresh allocation from the current allocator
+	// (alloc.Default(), or the alloc.Use override): new(T) and make
+	// without an allocator argument, and the runtime's implicit
+	// allocations (string building, conversions).
+	HeapCurrent
 )
 
 // SinkKind says where a value goes that outlives the frame or leaves it.
