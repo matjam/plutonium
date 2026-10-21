@@ -84,7 +84,7 @@ func (fb *fnb) callResults(e *ast.CallExpr) ([]Reg, []types2.Type) {
 		return fb.builtin(e)
 	}
 	if t := fb.b.scoped.Tasks[e]; t != nil && t.Lit != nil {
-		fb.scopedTask(e, t.Lit)
+		fb.scopedTask(e, t)
 		return nil, nil
 	}
 	fun := ast.Unparen(e.Fun)
@@ -833,6 +833,15 @@ func (fb *fnb) copyElems(dst, src Reg, et types2.Type, pos token.Pos) {
 // if destroying it runs any (section 18.6).
 func (fb *fnb) dropAt(addr Reg, T types2.Type, pos token.Pos) {
 	if T == nil || !fb.b.needsDrop(T) {
+		return
+	}
+	if isTypeParam(T) {
+		// The drop of a T: each instantiation's drop glue (a call with
+		// no method on the type parameter, which sched resolves).
+		fb.drops++
+		p := types2.NewVar(token.NoPos, nil, "p", types2.NewPointer(T))
+		sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
+		fb.emitCall(&Call{Kind: CallTypeParam, Iface: T, Sig: sig, Args: []Reg{addr}, Implicit: ImplDrop}, pos)
 		return
 	}
 	id := fb.b.synth(Synth{Kind: SynthDropGlue, Recv: T})

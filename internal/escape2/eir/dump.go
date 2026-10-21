@@ -135,7 +135,11 @@ func (p *Program) callString(c *Call) string {
 		}
 		callee = fmt.Sprintf("iface r%d.%s (%s)", c.Target, m, typeStr(c.Iface))
 	case CallTypeParam:
-		callee = fmt.Sprintf("tparam %s.%s", typeStr(c.Iface), c.Method.Name())
+		m := "drop"
+		if c.Method != nil {
+			m = c.Method.Name()
+		}
+		callee = fmt.Sprintf("tparam %s.%s", typeStr(c.Iface), m)
 	case CallFunc:
 		callee = fmt.Sprintf("func r%d", c.Target)
 	case CallContract:

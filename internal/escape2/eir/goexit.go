@@ -461,6 +461,9 @@ func (fb *fnb) callMayExit(c *Call) bool {
 		}
 		return gx.mayMethod(c.Method.Name(), c.Method.Type().(*types2.Signature))
 	case CallTypeParam:
+		if c.Method == nil {
+			return false
+		}
 		return gx.mayMethod(c.Method.Name(), c.Method.Type().(*types2.Signature))
 	case CallFunc:
 		return gx.maySig(c.Sig)

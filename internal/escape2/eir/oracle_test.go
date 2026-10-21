@@ -469,6 +469,9 @@ func (o *oracle) eirKeys(c *eir.Call, active map[eir.FuncID]bool) []oracleKey {
 		}
 		return []oracleKey{{what: "iface:" + c.Method.Name()}}
 	case eir.CallTypeParam:
+		if c.Method == nil {
+			return []oracleKey{{what: "tpdrop"}}
+		}
 		return []oracleKey{{what: "tp:" + c.Method.Name()}}
 	case eir.CallFunc:
 		return []oracleKey{{what: "func"}}

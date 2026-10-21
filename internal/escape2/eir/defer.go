@@ -1,8 +1,8 @@
 package eir
 
 import (
+	"github.com/matjam/plutonium/internal/scoped"
 	"github.com/matjam/plutonium/internal/syntax/ast"
-	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -229,9 +229,27 @@ func (fb *fnb) taskStmt(st *ast.TaskStmt) {
 
 // scopedTask builds s.Task(lit) on a local sync.Scope (section 19.4): the
 // literal runs as a task that the Scope waits for before its block ends,
-// so it may use the frame; the call is a call of the literal.
-func (fb *fnb) scopedTask(e *ast.CallExpr, lit *ast.FuncLit) {
+// so it may use the frame; the call is a call of the literal. The task runs
+// until the Scope's block ends, not only until the call returns: what its
+// record carries (the address of a variable it shares, the value of one it
+// takes) is stored into the Scope variable, which keeps the task, so that
+// a view the task keeps past the iteration of a loop that made it is the
+// store check's E3006.
+func (fb *fnb) scopedTask(e *ast.CallExpr, t *scoped.Task) {
+	lit := t.Lit
 	clo, id := fb.funcLit(lit)
+	if a := fb.varAddr(t.Scope.Var); a != 0 {
+		if lf := fb.b.litFns[lit]; lf != nil {
+			ptr := types2.Typ[types2.UnsafePointer]
+			for _, k := range lf.caps {
+				addr := fb.outerAddr(k)
+				if v, ok := k.(*types2.Var); ok && t.Taken[v] {
+					fb.store(a, fb.load(addr, v.Type()), v.Type())
+					continue
+				}
+				fb.store(a, addr, ptr)
+			}
+		}
+	}
 	fb.emitCall(&Call{Kind: CallStatic, Callee: id, Sig: fb.b.types[lit].Type.(*types2.Signature), Args: []Reg{clo}, Implicit: ImplTask}, e.Pos())
-	_ = token.NoPos
 }
