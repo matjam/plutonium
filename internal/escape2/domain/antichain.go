@@ -4,36 +4,39 @@ import "slices"
 
 // Antichains of keys. A summary keeps its key sets as antichains under
 // Covers, sorted by key (summary package comment). These functions keep them
-// so without a quadratic scan: the keys that can cover k are k's GE twin and
-// the GE keys on the prefixes of k's path, at most MaxSteps+1 of them, each
-// found by a binary search.
+// so without a quadratic scan: the keys that can cover k are the GE keys on
+// the prefixes of k's path (its own included) and, unless k is GE, the
+// FieldsGE keys on the prefixes with as many loads as k's path; at most
+// 2*(MaxSteps+1) of them, each found by a binary search.
 
 // CoveredBy reports whether some key of the sorted set keys covers k
 // (k itself included).
 func CoveredBy(ps Paths, keys []Key, k Key) bool {
-	if hasKey(keys, k) || hasKey(keys, k.WithPath(k.Path(), true)) {
-		return true
-	}
-	return coveredByPrefix(ps, keys, k)
+	return hasKey(keys, k) || coveredByOther(ps, keys, k)
 }
 
-// coveredByPrefix reports whether keys holds a GE key on a proper prefix of
-// k's path.
-func coveredByPrefix(ps Paths, keys []Key, k Key) bool {
+// coveredByOther reports whether keys holds a key other than k that covers
+// k.
+func coveredByOther(ps Paths, keys []Key, k Key) bool {
+	loads := ps.Loads(k.Path())
 	steps := ps.Steps(k.Path())
-	if len(steps) == 0 {
-		return false
-	}
 	// Walk the prefixes from Root; Extend within the limits only re-finds
 	// interned paths.
 	p := Root
-	for _, s := range steps[:len(steps)-1] {
-		if hasKey(keys, k.WithPath(p, true)) {
+	for i := 0; ; i++ {
+		if g := k.WithPath(p, true); g != k && hasKey(keys, g) {
 			return true
 		}
-		p = prefixChild(ps, p, s)
+		if !k.GE() && ps.Loads(p) == loads {
+			if g := k.WithPath(p, false).WithFieldsGE(); g != k && hasKey(keys, g) {
+				return true
+			}
+		}
+		if i == len(steps) {
+			return false
+		}
+		p = prefixChild(ps, p, steps[i])
 	}
-	return hasKey(keys, k.WithPath(p, true))
 }
 
 // prefixChild returns the child of p by s, a prefix of an interned path, so
@@ -70,11 +73,7 @@ func Antichain(ps Paths, keys []Key) []Key {
 	}
 	removed := false
 	for i, k := range keys {
-		covered := !k.GE() && hasKey(keys, k.WithPath(k.Path(), true))
-		if !covered {
-			covered = coveredByPrefix(ps, keys, k)
-		}
-		if covered {
+		if coveredByOther(ps, keys, k) {
 			removed = true
 			if marks == nil {
 				small |= 1 << uint(i)

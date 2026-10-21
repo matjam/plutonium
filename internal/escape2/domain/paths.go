@@ -22,19 +22,16 @@ package domain
 // loads, rather than the first load alone, keeps a cut key from standing for
 // the pointer the first load reads.
 
-// Proposed changes to api.go (piece C to piece A; api.go is shared):
+// Proposed change to api.go (piece C to piece A; api.go is shared): since the
+// revert of e21eeef8, the comment of Paths.Extend describes the reverted
+// behavior ("returns p itself"); Extend cuts to the prefix through the
+// second load, with GE, which is not monotone under Covers (the SCC-level
+// Join of the scheduler keeps termination).
 //
-//   - The comments of Extend and Cut: Extend cuts to the prefix through the
-//     second load (not "the first load plus one more load", which without the
-//     fields between them would not cover the path), and absorbs an offset
-//     step past MaxFieldNest without a cut; Extend ignores GE, so a key is
-//     extended with ExtendKey. Cut, the cap's widening, is the prefix through
-//     the first load, or the path itself when it has no load.
-//   - MakeKey truncates an input of MaxInputs or more to its low byte, which
-//     would make a key name another input; it should panic instead.
-//   - The helpers of this package that the solver and the reference solver
-//     need (ExtendKey, AppendKey, PathMatches, CoveredBy, Antichain,
-//     JoinKeys, CoversAll, NewCheckedArena) could be declared in api.go.
+// Note: this unit also builds FieldsGE ("GE within the object", bit 44 of a
+// Key), asked for by the solver: Key.FieldsGE, Key.WithFieldsGE,
+// KeyFlags.FieldsGE and the Covers cases in api.go; ExtendKey, AppendTail,
+// KeyMatches and the antichain functions here.
 
 // stepChunk is the number of steps in one chunk of the step store. Chunks are
 // never moved, so the slices Steps returns stay valid.
@@ -247,13 +244,54 @@ func PathBytes(ps Paths) int {
 
 // ExtendKey returns k with its path followed by s. A GE key is returned
 // unchanged: it already stands for every extension, and extending its path
-// would narrow it.
+// would narrow it. A FieldsGE key is returned unchanged by an offset step,
+// which it already stands for; a load through it becomes GE on its path,
+// unless its last segment is full, when the key is exact and extended as one.
 func ExtendKey(ps Paths, k Key, s Step) Key {
 	if k.GE() {
 		return k
 	}
+	if k.FieldsGE() {
+		if s != StepLoad {
+			return k
+		}
+		if !segmentFull(ps, k.Path()) {
+			return k.WithPath(k.Path(), true)
+		}
+	}
 	q, cut := ps.Extend(k.Path(), s)
 	return k.WithPath(q, cut)
+}
+
+// segmentFull reports whether the last segment of p holds MaxFieldNest offset
+// steps, so that p stands for its extensions by offsets.
+func segmentFull(ps Paths, p PathID) bool {
+	if x, ok := ps.(*paths); ok {
+		return x.info[p].segment() == MaxFieldNest
+	}
+	st := ps.Steps(p)
+	n := 0
+	for i := len(st) - 1; i >= 0 && st[i] != StepLoad; i-- {
+		n++
+	}
+	return n == MaxFieldNest
+}
+
+// AppendTail returns k with its path followed by tail's, and tail's GE or
+// FieldsGE: the re-rooting of a callee's key tail on the caller's key k.
+// tail's input and its other flags are not read.
+func AppendTail(ps Paths, k Key, tail Key) Key {
+	k = AppendKey(ps, k, tail.Path(), tail.GE())
+	if tail.FieldsGE() {
+		k = k.WithFieldsGE()
+	}
+	return k
+}
+
+// KeyMatches reports whether the concrete access path w is one of those key
+// k stands for, by its path and its GE or FieldsGE bit (see PathMatches).
+func KeyMatches(ps Paths, k Key, w []Step) bool {
+	return pathMatches(ps, k.Path(), k.GE(), k.FieldsGE(), w)
 }
 
 // AppendKey returns k with its path followed by the steps of p, and GE if k
@@ -278,6 +316,12 @@ func AppendKey(ps Paths, k Key, p PathID, ge bool) Key {
 // concretization the property tests and the reference solver hold the
 // domain to.
 func PathMatches(ps Paths, p PathID, ge bool, w []Step) bool {
+	return pathMatches(ps, p, ge, false, w)
+}
+
+// pathMatches is PathMatches, and with fieldsGE the path followed by any
+// number of offset steps.
+func pathMatches(ps Paths, p PathID, ge, fieldsGE bool, w []Step) bool {
 	j := 0   // position in w
 	seg := 0 // offset steps of p since its last load
 	for _, s := range ps.Steps(p) {
@@ -291,6 +335,9 @@ func PathMatches(ps Paths, p PathID, ge bool, w []Step) bool {
 			return false
 		}
 		j++
+	}
+	if fieldsGE {
+		seg = MaxFieldNest
 	}
 	j = skipOffsets(w, j, seg)
 	return j == len(w) || ge
