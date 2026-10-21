@@ -80,22 +80,39 @@ func TestScaleTranslated(t *testing.T) {
 			instrs += len(b.Instrs)
 		}
 	}
+	// Stage B alone, for its time (RunWith computes it again).
+	start = time.Now()
+	sched.StageB(p)
+	stageBTime := time.Since(start)
+
 	var sizes []int
 	var biggest sched.SCCStats
+	solves, workspace := 0, 0
 	start = time.Now()
 	last := start
-	res := sched.RunWith(p, sched.Options{OnSCC: func(scc []eir.FuncID, st sched.SCCStats) {
-		sizes = append(sizes, len(scc))
-		if st.Funcs > biggest.Funcs {
-			biggest = st
-		}
-		// Progress, as it goes: every large SCC, and every 500th.
-		if len(scc) >= 50 || len(sizes)%500 == 0 || time.Since(last) > time.Minute {
-			t.Logf("  SCC %d: %d functions, %d solves, workspace %d MB; %v since the start of the analysis, heap %d MB",
-				len(sizes), len(scc), st.Solves, (st.ArenaBytes+st.SetBytes)>>20, time.Since(start).Round(time.Second), peak.Load()>>20)
-			last = time.Now()
-		}
-	}})
+	var res *sched.Result
+	var stopped any
+	func() {
+		// A function past the solver's limits stops the analysis (it is
+		// an error of that function); report what was measured until then.
+		defer func() { stopped = recover() }()
+		res = sched.RunWith(p, sched.Options{OnSCC: func(scc []eir.FuncID, st sched.SCCStats) {
+			sizes = append(sizes, len(scc))
+			solves += st.Solves
+			if st.Funcs > biggest.Funcs {
+				biggest = st
+			}
+			if w := st.ArenaBytes + st.SetBytes; w > workspace {
+				workspace = w
+			}
+			// Progress, as it goes: every large SCC, and every 500th.
+			if len(scc) >= 50 || len(sizes)%500 == 0 || time.Since(last) > time.Minute {
+				t.Logf("  SCC %d: %d functions, %d solves, workspace %d MB; %v since the start of the analysis, heap %d MB",
+					len(sizes), len(scc), st.Solves, (st.ArenaBytes+st.SetBytes)>>20, time.Since(start).Round(time.Second), peak.Load()>>20)
+				last = time.Now()
+			}
+		}})
+	}()
 	runTime := time.Since(start)
 	close(done)
 	<-finished
@@ -113,10 +130,14 @@ func TestScaleTranslated(t *testing.T) {
 			hist[">100"]++
 		}
 	}
-	t.Logf("EIR: %d functions, %d instructions, built in %v", len(p.Funcs), instrs, buildTime.Round(time.Millisecond))
-	t.Logf("analysis: %v; %d SCCs %v, largest %d functions (%d solves); %d solves in all",
-		runTime.Round(time.Millisecond), res.Stats.SCCs, hist, res.Stats.LargestSCC, biggest.Solves, res.Stats.Iterations)
-	t.Logf("memory: peak SCC workspace %d MB; summaries %d MB; heap in use %d MB after loading, %d MB at the peak of EIR and analysis",
-		res.Stats.PeakArena>>20, res.Stats.SummaryBytes>>20, base.HeapInuse>>20, peak.Load()>>20)
-	t.Logf("findings: %d", len(res.Findings))
+	t.Logf("EIR: %d functions, %d instructions, built in %v; stage B %v", len(p.Funcs), instrs, buildTime.Round(time.Millisecond), stageBTime.Round(time.Millisecond))
+	t.Logf("analysis: %v; %d SCCs done %v, largest %d functions (%d solves); %d solves in all",
+		runTime.Round(time.Millisecond), len(sizes), hist, biggest.Funcs, biggest.Solves, solves)
+	t.Logf("memory: peak SCC workspace %d MB; heap in use %d MB after loading, %d MB at the peak of EIR and analysis",
+		workspace>>20, base.HeapInuse>>20, peak.Load()>>20)
+	if stopped != nil {
+		t.Logf("stopped after %d of the program's SCCs: %v", len(sizes), stopped)
+		return
+	}
+	t.Logf("summaries %d MB; findings: %d", res.Stats.SummaryBytes>>20, len(res.Findings))
 }
