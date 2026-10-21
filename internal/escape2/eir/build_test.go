@@ -46,8 +46,9 @@ func dumpMain(t *testing.T, src string) string {
 		t.Fatalf("build: %v", err)
 	}
 	var b strings.Builder
+	also := os.Getenv("EIR_DUMP_FUNC") // and the functions whose names contain it
 	for _, f := range p.Funcs {
-		if f.Pkg == prog.Main.Types {
+		if f.Pkg == prog.Main.Types || (also != "" && strings.Contains(f.Name, also)) {
 			p.Dump(&b, prog.Fset, f)
 		}
 	}

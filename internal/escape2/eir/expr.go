@@ -87,7 +87,12 @@ func (fb *fnb) conv(r Reg, from, I types2.Type, pos token.Pos) Reg {
 	if !fb.isDirect(from) {
 		in.Obj = fb.newObj(Object{Kind: ObjBox, Type: from, Name: "interface box", Pos: pos})
 	}
-	return fb.emitDst(in)
+	d := fb.emitDst(in)
+	if isTypeParam(from) {
+		// The instance decides: a direct type is its own data word.
+		return fb.either(d, r)
+	}
+	return d
 }
 
 // isDirect reports whether a value of T is its own interface data word
@@ -356,6 +361,11 @@ func (fb *fnb) typeAssert(e *ast.TypeAssertExpr, commaOk bool) Reg {
 // box.
 func (fb *fnb) assertTo(x Reg, T types2.Type, pos token.Pos) Reg {
 	r := fb.emitDst(Instr{Op: OpAssert, X: x, Type: T, Pos: pos})
+	if isTypeParam(unwrap(T)) {
+		// The instance decides: the data word is the value (a direct
+		// type) or a box holding it.
+		return fb.either(r, fb.load(r, T))
+	}
 	if !isInterface(T) && !fb.isDirect(T) {
 		return fb.load(r, T)
 	}

@@ -268,11 +268,7 @@ func (fb *fnb) methodCallee(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.S
 			// The instance's method may take the operand's address (a
 			// pointer method of a struct type) or its value (any method of
 			// a pointer type): the receiver is either.
-			both := fb.newObj(Object{Kind: ObjTemp, Type: types2.Typ[types2.UnsafePointer], Name: "receiver"})
-			ptr := types2.Typ[types2.UnsafePointer]
-			fb.store(fb.addr(both), a, ptr)
-			fb.store(fb.addr(both), fb.load(a, recvT), ptr)
-			recv = fb.load(fb.addr(both), ptr)
+			recv = fb.either(a, fb.load(a, recvT))
 		} else {
 			recv = fb.expr(se.X)
 		}

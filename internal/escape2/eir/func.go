@@ -148,6 +148,36 @@ func (fb *fnb) elem(x Reg) Reg {
 	return fb.emitDst(Instr{Op: OpElem, X: x})
 }
 
+// either returns a register holding a or b, either one: a phi at the join
+// of two empty blocks the current one branches to. Generic code uses it
+// where the instance decides which value a form has (a type parameter's
+// value is its interface data word, or a box holding it).
+func (fb *fnb) either(a, b Reg) Reg {
+	if a == 0 || a == b {
+		return b
+	}
+	if b == 0 {
+		return a
+	}
+	from := fb.ensureBlock()
+	join := fb.newBlock()
+	for _, r := range []Reg{a, b} {
+		arm := fb.newBlock()
+		fb.edge(from, arm)
+		fb.seal(arm)
+		arm.defs[eitherVar] = r
+		fb.edge(arm, join)
+	}
+	fb.seal(join)
+	fb.startBlock(join)
+	r := fb.readVar(eitherVar)
+	delete(join.defs, eitherVar)
+	return r
+}
+
+// eitherVar is the variable either joins.
+var eitherVar = types2.NewVar(token.NoPos, nil, "either", types2.Typ[types2.UnsafePointer])
+
 // heap returns a pointer to heap or static memory.
 func (fb *fnb) heap(k HeapKind) Reg { return fb.emitDst(Instr{Op: OpHeap, Heap: k}) }
 
