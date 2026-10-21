@@ -1,0 +1,81 @@
+package cache
+
+import (
+	"encoding/binary"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/matjam/plutonium/internal/escape2/domain"
+	"github.com/matjam/plutonium/internal/escape2/summary"
+)
+
+// Hooks for the external tests, which run the whole analysis through
+// internal/escape2 (which imports this package).
+
+// EncodeSummary is appendSummary.
+func EncodeSummary(ps domain.Paths, s *summary.Summary) []byte { return appendSummary(nil, ps, s) }
+
+// DecodeSummary is decodeSummary for a function of the given shape.
+func DecodeSummary(b []byte, ps domain.Paths, inputs, results int) (*summary.Summary, error) {
+	return decodeSummary(b, ps, shape{inputs, results})
+}
+
+// Entry is an entry of a file, for tests that rewrite files.
+type Entry struct {
+	ID  string
+	Sum []byte
+	e   entry
+}
+
+// Key returns the entry's digests, printed.
+func (e Entry) Key() string { return fmt.Sprintf("%x %x %x", e.e.eir, e.e.ctx, e.e.read) }
+
+// Files returns the package files in dir.
+func Files(dir string) []string {
+	names, _ := filepath.Glob(filepath.Join(dir, "*.pesc"))
+	return names
+}
+
+// ReadEntries decodes a file, returning its package path and entries.
+func ReadEntries(name string) (string, []Entry, error) {
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return "", nil, err
+	}
+	r := &reader{b: data[len(magic):]}
+	_ = r.uvarint()
+	pkg := r.str()
+	es, err := decodeFile(pkg, data)
+	if err != nil {
+		return "", nil, err
+	}
+	out := make([]Entry, len(es))
+	for i, e := range es {
+		out[i] = Entry{ID: e.id, Sum: e.sum, e: e}
+	}
+	return pkg, out, nil
+}
+
+// WriteEntries writes a file with a valid checksum: what someone who knows
+// the format can write.
+func WriteEntries(name, pkg string, es []Entry) error {
+	out := make([]entry, len(es))
+	for i, e := range es {
+		out[i] = e.e
+		out[i].sum = e.Sum
+	}
+	return os.WriteFile(name, encodeFile(pkg, out), 0o644)
+}
+
+// DecodeAny decodes an entry's summary for a function of the shape the
+// summary itself claims, into ps.
+func DecodeAny(b []byte, ps domain.Paths) (*summary.Summary, int, error) {
+	inputs := 0
+	if len(b) > 1 && b[0] == 1 {
+		v, _ := binary.Uvarint(b[1:])
+		inputs = int(v)
+	}
+	s, err := decodeSummary(b, ps, shape{inputs, 1 << 20})
+	return s, inputs, err
+}

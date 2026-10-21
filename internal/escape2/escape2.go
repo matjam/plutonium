@@ -10,6 +10,7 @@ import (
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/escape"
+	"github.com/matjam/plutonium/internal/escape2/cache"
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/report"
 	"github.com/matjam/plutonium/internal/escape2/sched"
@@ -78,9 +79,22 @@ func CheckWith(prog *load.Program, opts sched.Options) (res *sched.Result, err e
 			err = &diag.Diagnostic{Code: diag.InternalError, Msg: fmt.Sprintf("internal compiler error: escape2: %v", r)}
 		}
 	}()
+	var c *cache.Cache
+	if dir := os.Getenv(cache.EnvVar); dir != "" && opts.Cache == nil {
+		if c, err = cache.Open(dir, cache.Config{}); err != nil {
+			fmt.Fprintf(os.Stderr, "escape2: %v\n", err) // no cache: costs time only
+		} else {
+			opts.Cache = c
+		}
+	}
 	p, res, err := Run(prog, opts)
 	if err != nil {
 		return nil, err
+	}
+	if c != nil {
+		if err := c.Save(res); err != nil {
+			fmt.Fprintf(os.Stderr, "escape2: %v\n", err)
+		}
 	}
 	return res, Diagnostics(prog, p, res)
 }

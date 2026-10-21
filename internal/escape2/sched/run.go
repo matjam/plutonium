@@ -109,6 +109,137 @@ func RunWith(p *eir.Program, opts Options) *Result {
 	// readers[g] are the functions of g's SCC that read g's summary.
 	readers := make([][]eir.FuncID, len(p.Funcs))
 	findings := make([][]solve.Finding, len(p.Funcs))
+
+	// solveOne solves one function against the current summaries, with its
+	// reads recorded for the cache when there is one.
+	solveOne := func(id eir.FuncID) (solve.Result, Recorder) {
+		if opts.Cache == nil {
+			return solveFunc(p.Funcs[id], env, ws), nil
+		}
+		rec := opts.Cache.Recorder(id)
+		return solveFunc(p.Funcs[id], recordingEnv{env, rec}, ws), rec
+	}
+	// measure notes the workspace a solve used and resets it.
+	measure := func(st *SCCStats) {
+		if b := arena.Bytes(); b > st.ArenaBytes {
+			st.ArenaBytes = b
+		}
+		if b := ws.Sets.Bytes(); b > st.SetBytes {
+			st.SetBytes = b
+		}
+		ws.Sets.Reset()
+		arena.Reset()
+	}
+
+	// iterate solves an SCC from bottom to a post-fixed point.
+	iterate := func(comp []eir.FuncID, st *SCCStats) {
+		work := append([]eir.FuncID(nil), comp...)
+		queued := map[eir.FuncID]bool{}
+		for _, id := range comp {
+			queued[id] = true
+		}
+		solves := map[eir.FuncID]int{}
+		for len(work) > 0 {
+			id := work[0]
+			work = work[1:]
+			queued[id] = false
+			solves[id]++
+			if solves[id] > maxSolvesPerFunc {
+				panic(fmt.Sprintf("internal compiler error: escape2: %s did not converge in its SCC of %d functions", p.Funcs[id].Name, len(comp)))
+			}
+			r, rec := solveOne(id)
+			if rec != nil {
+				opts.Cache.Solved(id, rec)
+			}
+			st.Solves++
+			findings[id] = r.Findings
+			prev := env.sums[id]
+			// Nothing a solve builds outlives it but its result: copy the
+			// summary out and reset the workspace, so that memory is that
+			// of the largest solve, not the sum of an SCC's iterations.
+			// The new summary is joined with the previous one: solving is
+			// not monotone in the summaries it reads where paths are cut
+			// (summary.Join), and the join makes the iteration climb, so it
+			// stops at a post-fixed point.
+			if prev == nil {
+				env.sums[id] = clone(r.Summary)
+			} else {
+				env.sums[id] = joinSums(env.paths, prev, r.Summary)
+			}
+			env.virt.changed()
+			measure(st)
+			if prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev) {
+				continue
+			}
+			for _, rd := range readers[id] {
+				if !queued[rd] {
+					queued[rd] = true
+					work = append(work, rd)
+				}
+			}
+		}
+	}
+
+	// check solves each function of an SCC once against summaries loaded
+	// from the cache, installed as the SCC's, and reports whether they are
+	// a post-fixed point read from unchanged inputs (D44). The findings
+	// are those of the checking solves.
+	check := func(comp []eir.FuncID, loaded []*summary.Summary, st *SCCStats) bool {
+		for i, id := range comp {
+			env.sums[id] = loaded[i]
+		}
+		env.virt.changed()
+		ok := true
+		for i, id := range comp {
+			// A loaded summary the decoder accepted may still be one no
+			// solver makes; if solving against it fails, the check fails
+			// (solving from bottom then shows whether the solver itself
+			// does).
+			func() {
+				defer func() {
+					if recover() != nil {
+						ok = false
+					}
+				}()
+				r, rec := solveOne(id)
+				findings[id] = r.Findings
+				if !leq(env.paths, r.Summary, loaded[i]) || !opts.Cache.Matches(id, rec) {
+					ok = false
+					return
+				}
+				opts.Cache.Solved(id, rec)
+			}()
+			st.Solves++
+			measure(st)
+			if !ok {
+				break
+			}
+		}
+		if !ok {
+			for _, id := range comp {
+				env.sums[id] = nil
+				findings[id] = nil
+			}
+			env.virt.changed()
+		}
+		return ok
+	}
+
+	view := cacheView{env: env, g: g}
+	// fromFile[ci]: SCC ci was accepted from the cache.
+	var fromFile []bool
+	if opts.Cache != nil {
+		fromFile = make([]bool, len(comps))
+	}
+	finish := func(comp []eir.FuncID, st *SCCStats) {
+		res.Stats.Iterations += st.Solves
+		if b := st.ArenaBytes + st.SetBytes; b > res.Stats.PeakArena {
+			res.Stats.PeakArena = b
+		}
+		if opts.OnSCC != nil {
+			opts.OnSCC(comp, *st)
+		}
+	}
 	for ci, comp := range comps {
 		if len(comp) > res.Stats.LargestSCC {
 			res.Stats.LargestSCC = len(comp)
@@ -127,69 +258,47 @@ func RunWith(p *eir.Program, opts Options) *Result {
 
 		var st SCCStats
 		st.Funcs = len(comp)
-		work := append([]eir.FuncID(nil), comp...)
-		queued := map[eir.FuncID]bool{}
-		for _, id := range comp {
-			queued[id] = true
-		}
-		solves := map[eir.FuncID]int{}
-		for len(work) > 0 {
-			id := work[0]
-			work = work[1:]
-			queued[id] = false
-			solves[id]++
-			if solves[id] > maxSolvesPerFunc {
-				panic(fmt.Sprintf("internal compiler error: escape2: %s did not converge in its SCC of %d functions", p.Funcs[id].Name, len(comp)))
+		if opts.Cache != nil {
+			loaded := opts.Cache.Begin(view, comp, true)
+			switch {
+			case loaded == nil:
+				st.Cache = CacheMissed
+				res.Stats.CacheMissed++
+			case check(comp, loaded, &st):
+				st.Cache = CacheAccepted
+				res.Stats.CacheAccepted++
+				fromFile[ci] = true
+			default:
+				st.Cache = CacheRejected
+				res.Stats.CacheRejected++
 			}
-			r := solveFunc(p.Funcs[id], env, ws)
-			st.Solves++
-			findings[id] = r.Findings
-			prev := env.sums[id]
-			// Nothing a solve builds outlives it but its result: copy the
-			// summary out and reset the workspace, so that memory is that
-			// of the largest solve, not the sum of an SCC's iterations.
-			// The new summary is joined with the previous one: solving is
-			// not monotone in the summaries it reads where paths are cut
-			// (summary.Join), and the join makes the iteration climb, so it
-			// stops at a post-fixed point.
-			if prev == nil {
-				env.sums[id] = clone(r.Summary)
-			} else {
-				env.sums[id] = joinSums(env.paths, prev, r.Summary)
+		}
+		if st.Cache != CacheAccepted {
+			iterate(comp, &st)
+		}
+		finish(comp, &st)
+	}
+	if opts.Cache != nil {
+		for _, ci := range redoSCCs(comps, g, env.inSCC, fromFile, findings) {
+			comp := comps[ci]
+			env.current = int32(ci)
+			for _, id := range comp {
+				env.sums[id] = nil
+				findings[id] = nil
 			}
 			env.virt.changed()
-			if b := arena.Bytes(); b > st.ArenaBytes {
-				st.ArenaBytes = b
-			}
-			if b := ws.Sets.Bytes(); b > st.SetBytes {
-				st.SetBytes = b
-			}
-			ws.Sets.Reset()
-			arena.Reset()
-			if prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev) {
-				continue
-			}
-			for _, rd := range readers[id] {
-				if !queued[rd] {
-					queued[rd] = true
-					work = append(work, rd)
-				}
-			}
+			opts.Cache.Begin(view, comp, false)
+			st := SCCStats{Funcs: len(comp), Cache: CacheRedone}
+			res.Stats.CacheRedone++
+			iterate(comp, &st)
+			finish(comp, &st)
 		}
-
-		// The SCC is final: report its findings.
+		env.current = int32(len(comps) - 1)
+	}
+	for _, comp := range comps {
 		for _, id := range comp {
 			res.Findings = append(res.Findings, findings[id]...)
-			findings[id] = nil
-			readers[id] = nil
 			res.Stats.SummaryBytes += summaryBytes(env.sums[id])
-		}
-		res.Stats.Iterations += st.Solves
-		if b := st.ArenaBytes + st.SetBytes; b > res.Stats.PeakArena {
-			res.Stats.PeakArena = b
-		}
-		if opts.OnSCC != nil {
-			opts.OnSCC(comp, st)
 		}
 	}
 	sort.SliceStable(res.Findings, func(i, j int) bool {

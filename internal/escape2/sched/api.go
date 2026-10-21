@@ -53,6 +53,13 @@ type Stats struct {
 	PeakArena    int // bytes, the most one SCC's arena held
 	SummaryBytes int // bytes, all final summaries
 	Iterations   int // solves of functions, over all SCCs
+
+	// The D44 cache (Options.Cache), counted in SCCs: accepted from the
+	// file after one checking solve each; missed (no entry for every
+	// function); rejected (the check failed, so the SCC was solved from
+	// bottom); redone (solved again from bottom because a function in or
+	// above it has a finding and it depends on a summary from the file).
+	CacheAccepted, CacheMissed, CacheRejected, CacheRedone int
 }
 
 // Result is the outcome of the analysis of a program.
@@ -73,6 +80,10 @@ type Options struct {
 	// OnSCC, if set, is called after each SCC is final, with its
 	// functions and measurements, before its arena is reset.
 	OnSCC func(scc []eir.FuncID, st SCCStats)
+	// Cache, if set, is the checked summary cache of decision D44
+	// (internal/escape2/cache, cache.go here): it offers summaries from a
+	// file, which the driver checks and never trusts.
+	Cache Cache
 }
 
 // SCCStats are the measurements of one SCC.
@@ -85,4 +96,6 @@ type SCCStats struct {
 	// more than every solve before it: the largest is the peak.
 	ArenaBytes int
 	SetBytes   int
+	// Cache is what the D44 cache did for the SCC.
+	Cache CacheOutcome
 }
