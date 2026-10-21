@@ -95,8 +95,15 @@ type Counter owner struct {
 	done chan bool
 }
 
+// counterDropped is released by Counter's Drop. Whichever task holds the
+// last synced reference runs the Drop, and a task releases its reference
+// after its last send on done, so main cannot tell when "drop counter" is
+// printed by itself; it waits here instead (as gobox.p does).
+var counterDropped sync.WaitGroup
+
 func (c *Counter) Drop() {
 	println("drop counter") // then its channel is released
+	counterDropped.Done()
 }
 
 func bump(c synced[Counter], k int) {
@@ -178,6 +185,7 @@ func main() {
 	// synced crosses tasks.
 	c := alloc.Synced[Counter]()
 	c.done = make(chan bool)
+	counterDropped.Add(1)
 	for i := 1; i <= 3; i++ {
 		task bump(c, i)
 		<-c.done
@@ -185,7 +193,8 @@ func main() {
 	c.mu.Lock()
 	println("counter", c.n)
 	c.mu.Unlock()
-	c = nil // the last reference: drops the Counter
+	c = nil               // main's reference; the last one drops the Counter
+	counterDropped.Wait() // the drop is printed, by main or by a task, before main goes on
 
 	leaving.Add(1)
 	task leave()

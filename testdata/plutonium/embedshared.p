@@ -49,9 +49,14 @@ func use(w Widget) int {
 	return w.size
 }
 
+// work releases its counted copy before it sends, so the release happens
+// before main's receive: main's own copy is then certainly the last one, and
+// "drop res 2" is printed by main's exit, never by this task.
 func work(s SWidget, done chan int) {
 	s.Grow()
-	done <- s.size
+	n := s.size
+	s = SWidget{}
+	done <- n
 }
 
 func main() {
