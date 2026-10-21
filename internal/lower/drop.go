@@ -143,8 +143,21 @@ func (s *fnState) dropFields(ptr *ssa.Value, T types2.Type) {
 	}
 	switch u := unwrap(T).Underlying().(type) {
 	case *types2.Wrapper:
-		if u.Kind() == types2.WrapOwned {
+		switch u.Kind() {
+		case types2.WrapOwned:
 			s.dropOwned(ptr, u)
+		case types2.WrapRing:
+			// Dropping a ring of owners drops the elements it holds,
+			// oldest first (language spec section 7.17).
+			et := u.Elem()
+			if !s.l.needsDrop(et) {
+				return
+			}
+			tail := s.load(ssa.TI64, s.offPtr(ptr, 8))
+			n := s.newValue(ssa.OpSub, ssa.TI64, s.load(ssa.TI64, ptr), tail)
+			s.countedLoop(n, nil, func(i *ssa.Value) {
+				s.destroyAt(s.ringSlot(ptr, u, s.newValue(ssa.OpAdd, ssa.TI64, tail, i)), et)
+			})
 		}
 	case *types2.Interface:
 		s.dropIface(ptr, u)

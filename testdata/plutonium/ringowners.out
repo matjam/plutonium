@@ -1,0 +1,14 @@
+all 0 1 2
+all 1 2 2
+values 1 2
+values 2 2
+popped 10
+drop 10 2
+leaving views
+drop 2 2
+drop 3 1
+drop 4 1
+after reset 0
+leaving reset
+drop 5 1
+end

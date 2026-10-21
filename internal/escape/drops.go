@@ -135,8 +135,12 @@ func (w *walker) dropGlue(ptr tset, T types2.Type, v string, cs *callSite, seen 
 	}
 	switch u := underlying(T).(type) {
 	case *types2.Wrapper:
-		if u.Kind() == types2.WrapOwned {
+		switch u.Kind() {
+		case types2.WrapOwned:
 			w.dropGlue(w.load(ptr), u.Elem(), v, cs, seen)
+		case types2.WrapRing:
+			// A ring of owners drops the elements it holds, in place.
+			w.dropGlue(intoSet(ptr, shapeElement), u.Elem(), v, cs, seen)
 		}
 	case *types2.Interface:
 		// An owning interface drops its dynamic value: the Drop methods of

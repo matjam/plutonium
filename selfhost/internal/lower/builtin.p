@@ -732,7 +732,14 @@ func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []va
 		eq := s.newValue(ssa.OpEq, ssa.TBool, s.load(ssa.TI64, headPtr), s.load(ssa.TI64, tailPtr))
 		return compat.Clone([]value{scalarValue(eq, boolT)})
 	case "Reset":
-		if counted {
+		if s.l.needsDrop(et) {
+			// Drop the owners it holds (section 7.17), oldest first.
+			tail := s.load(ssa.TI64, tailPtr)
+			live := s.newValue(ssa.OpSub, ssa.TI64, s.load(ssa.TI64, headPtr), tail)
+			s.countedLoop(live, nil, func(i *ssa.Value) {
+				s.destroyAt(slot(s.newValue(ssa.OpAdd, ssa.TI64, tail, i)), et)
+			})
+		} else if counted {
 			// Drop the live elements and leave their slots zero.
 			data := s.ringSlot(p, w, s.constInt(ssa.TI64, 0))
 			s.releaseAt(data, types2.NewArray(et, n))
@@ -754,7 +761,25 @@ func (s *fnState) ringOp(name string, p *ssa.Value, w *types2.Wrapper, args []va
 			s.store(ssa.TBool, res, s.constBool(true))
 		})
 		return compat.Clone([]value{scalarValue(s.load(ssa.TBool, res), boolT)})
-	case "Pop", "Peek":
+	case "Peek":
+		if types2.IsOwner(et) {
+			// A view of the oldest owner element (section 7.17): its
+			// address, or nil when the ring is empty.
+			pt := types2.NewPointer(et)
+			out := s.temp(pt, "view")
+			s.store(ssa.TPtr, out, s.constInt(ssa.TPtr, 0))
+			res := s.temp(boolT, "ok")
+			s.store(ssa.TBool, res, s.constBool(false))
+			tail := s.load(ssa.TI64, tailPtr)
+			nonEmpty := s.newValue(ssa.OpNe, ssa.TBool, s.load(ssa.TI64, headPtr), tail)
+			s.ifThen(nonEmpty, func() {
+				s.store(ssa.TPtr, out, slot(tail))
+				s.store(ssa.TBool, res, s.constBool(true))
+			})
+			return compat.Clone([]value{scalarValue(s.load(ssa.TPtr, out), pt), scalarValue(s.load(ssa.TBool, res), boolT)})
+		}
+		fallthrough
+	case "Pop":
 		out := s.temp(et, "elem")
 		s.zero(out, s.l.sizeof(et))
 		res := s.temp(boolT, "ok")
@@ -876,7 +901,12 @@ func (goSelf *goClosure_ringIterFunc_1) Call(s *fnState) {
 	// counted one is held for the call (strcount.go), in an entry of
 	// its own that releases it each time round.
 	step := s.pushCleanup(nil, false)
-	args = compat.Append(args, s.hold(s.loadFrom(s.ringSlot(p, goSelf.w, cur), et)))
+	if types2.IsOwner(et) {
+		// A view of an owner element (section 7.17): its address.
+		args = compat.Append(args, scalarValue(s.ringSlot(p, goSelf.w, cur), types2.NewPointer(et)))
+	} else {
+		args = compat.Append(args, s.hold(s.loadFrom(s.ringSlot(p, goSelf.w, cur), et)))
+	}
 	code := s.load(ssa.TPtr, yield)
 	res := s.emitCall(callee{code: code, ctx: yield}, yieldSig, nil, args, token.NoPos)
 	more := res[0].v

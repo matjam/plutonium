@@ -131,6 +131,14 @@ func (w *Wrapper) ringMethod(name string, foldCase bool) (int, *Func) {
 	if w.methods == nil {
 		recv := NewVar(nopos, nil, "r", NewPointer(w))
 		elem := func(name string) *Var { return NewParam(nopos, nil, name, w.elem) }
+		// Peek, All and Values yield views (*T) of an owner element
+		// (language spec sections 7.17 and 12.10): a copy would be a
+		// second holder of what the ring owns.
+		viewType := w.elem
+		if IsOwner(w.elem) {
+			viewType = NewPointer(w.elem)
+		}
+		view := func(name string) *Var { return NewParam(nopos, nil, name, viewType) }
 		boolean := func(name string) *Var { return NewParam(nopos, nil, name, Typ[Bool]) }
 		integer := NewParam(nopos, nil, "", Typ[Int])
 		sig := func(params, results []*Var) *Signature {
@@ -146,14 +154,14 @@ func (w *Wrapper) ringMethod(name string, foldCase bool) (int, *Func) {
 		sigs := map[string]*Signature{
 			"Push":   sig(compat.Clone([]*Var{elem("v")}), compat.Clone([]*Var{boolean("")})),
 			"Pop":    sig(nil, compat.Clone([]*Var{elem("v"), boolean("ok")})),
-			"Peek":   sig(nil, compat.Clone([]*Var{elem("v"), boolean("ok")})),
+			"Peek":   sig(nil, compat.Clone([]*Var{view("v"), boolean("ok")})),
 			"Len":    sig(nil, compat.Clone([]*Var{integer})),
 			"Cap":    sig(nil, compat.Clone([]*Var{integer})),
 			"Full":   sig(nil, compat.Clone([]*Var{boolean("")})),
 			"Empty":  sig(nil, compat.Clone([]*Var{boolean("")})),
 			"Reset":  sig(nil, nil),
-			"All":    sig(nil, compat.Clone([]*Var{seq(compat.Clone([]*Var{integer, elem("")})...)})),
-			"Values": sig(nil, compat.Clone([]*Var{seq(compat.Clone([]*Var{elem("")})...)})),
+			"All":    sig(nil, compat.Clone([]*Var{seq(compat.Clone([]*Var{integer, view("")})...)})),
+			"Values": sig(nil, compat.Clone([]*Var{seq(compat.Clone([]*Var{view("")})...)})),
 		}
 		for _, m := range RingMethods {
 			f := NewFunc(nopos, nil, m, sigs[m])
@@ -708,7 +716,7 @@ func (check *Checker) positiveConst(e ast.Expr, what string) int64 {
 	return 0
 }
 
-// goClosure_wrapperType_1 is the function literal at plutonium_types.go:628, converted to a struct
+// goClosure_wrapperType_1 is the function literal at plutonium_types.go:636, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_wrapperType_1 struct {
 	elem  Type
@@ -722,7 +730,7 @@ func (goSelf *goClosure_wrapperType_1) Call() {
 	}
 }
 
-// goClosure_wrapperType_2 is the function literal at plutonium_types.go:634, converted to a struct
+// goClosure_wrapperType_2 is the function literal at plutonium_types.go:642, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_wrapperType_2 struct {
 	check *Checker

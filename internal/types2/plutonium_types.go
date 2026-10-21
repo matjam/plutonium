@@ -128,6 +128,14 @@ func (w *Wrapper) ringMethod(name string, foldCase bool) (int, *Func) {
 	if w.methods == nil {
 		recv := NewVar(nopos, nil, "r", NewPointer(w))
 		elem := func(name string) *Var { return NewParam(nopos, nil, name, w.elem) }
+		// Peek, All and Values yield views (*T) of an owner element
+		// (language spec sections 7.17 and 12.10): a copy would be a
+		// second holder of what the ring owns.
+		viewType := w.elem
+		if IsOwner(w.elem) {
+			viewType = NewPointer(w.elem)
+		}
+		view := func(name string) *Var { return NewParam(nopos, nil, name, viewType) }
 		boolean := func(name string) *Var { return NewParam(nopos, nil, name, Typ[Bool]) }
 		integer := NewParam(nopos, nil, "", Typ[Int])
 		sig := func(params, results []*Var) *Signature {
@@ -143,14 +151,14 @@ func (w *Wrapper) ringMethod(name string, foldCase bool) (int, *Func) {
 		sigs := map[string]*Signature{
 			"Push":   sig([]*Var{elem("v")}, []*Var{boolean("")}),
 			"Pop":    sig(nil, []*Var{elem("v"), boolean("ok")}),
-			"Peek":   sig(nil, []*Var{elem("v"), boolean("ok")}),
+			"Peek":   sig(nil, []*Var{view("v"), boolean("ok")}),
 			"Len":    sig(nil, []*Var{integer}),
 			"Cap":    sig(nil, []*Var{integer}),
 			"Full":   sig(nil, []*Var{boolean("")}),
 			"Empty":  sig(nil, []*Var{boolean("")}),
 			"Reset":  sig(nil, nil),
-			"All":    sig(nil, []*Var{seq(integer, elem(""))}),
-			"Values": sig(nil, []*Var{seq(elem(""))}),
+			"All":    sig(nil, []*Var{seq(integer, view(""))}),
+			"Values": sig(nil, []*Var{seq(view(""))}),
 		}
 		for _, m := range RingMethods {
 			f := NewFunc(nopos, nil, m, sigs[m])

@@ -807,6 +807,56 @@ func f() {
 }
 func main() { f() }`, []string{"cannot store r.All() in package variable g", "r.All() points into r"}},
 
+	// A ring of owners yields views of its elements (section 7.17).
+	{"view of a local ring's owner element kept", `
+type Conn owner struct{ id int }
+func (c *Conn) Drop() {}
+var kept *Conn
+func f() {
+	var r ring[Conn, 4]
+	r.Push(Conn{id: 1})
+	if c, ok := r.Peek(); ok {
+		kept = c
+	}
+}
+func main() { f() }`, []string{"cannot store c in package variable kept", "points into r"}},
+
+	{"drop of a local ring's elements keeps them", `
+type Conn owner struct{ id int }
+var last *Conn
+func (c *Conn) Drop() { last = c }
+func f() {
+	var r ring[Conn, 4]
+	r.Push(Conn{id: 1})
+	r.Reset()
+}
+func main() { f() }`, []string{"which keeps it after returning", "stores c in package variable last"}},
+
+	{"range over a local ring of owners keeps a view", `
+type Conn owner struct{ id int }
+func (c *Conn) Drop() {}
+var kept *Conn
+func f() {
+	var r ring[Conn, 4]
+	r.Push(Conn{id: 1})
+	for c := range r.Values() {
+		kept = c
+	}
+}
+func main() { f() }`, []string{"cannot pass an element of r to the loop body, which keeps it"}},
+
+	{"range over a ring keeps the frame pointer an element holds", `
+var kept *int
+func f() {
+	x := 42
+	var r ring[*int, 4]
+	r.Push(&x)
+	for _, v := range r {
+		kept = v
+	}
+}
+func main() { f() }`, []string{"cannot pass an element of r to the loop body, which keeps it"}},
+
 	{"builder over a local arena returned", `
 import (
 	"pluto/arena"

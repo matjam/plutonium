@@ -97,6 +97,7 @@ func (w *walker) rangeFunc(st *ast.RangeStmt, label string, sig *types2.Signatur
 		cs.exprs = compat.Append(compat.Clone([]ast.Expr{t.recvExpr}), cs.exprs...)
 	}
 	w.applyTarget(call, t, args, cs, 0)
+	w.ringBody(st, body, ysig)
 
 	// The body, called with the values the iterator passes to yield.
 	w.loop(label, st, func() {
@@ -202,4 +203,43 @@ func (w *walker) carriesBody(ts tset) bool {
 		}
 	}
 	return false
+}
+
+// ringBody applies the loop body of a range over a ring, or over the All or
+// Values iterator of one, as the ring's built-in iterator calls it: with
+// each element, which for a ring of owners is a view of the element in the
+// ring (language spec sections 7.17 and 12.10), and otherwise a copy of it,
+// holding what the element holds.
+func (w *walker) ringBody(st *ast.RangeStmt, body *function, ysig *types2.Signature) {
+	x := ast.Unparen(st.X)
+	if c, ok := x.(*ast.CallExpr); ok {
+		se, ok := ast.Unparen(c.Fun).(*ast.SelectorExpr)
+		if !ok || ringElem(w.typeOf(se.X)) == nil || !types2.IsRingIterator(se.Sel.Name) {
+			return
+		}
+		x = se.X
+	}
+	el := ringElem(w.typeOf(x))
+	if el == nil {
+		return
+	}
+	var ring tset
+	if pointerElem(w.typeOf(x)) != nil {
+		ring = w.value(x)
+	} else {
+		ring = w.addrOf(x)
+	}
+	elem := w.load(ring)
+	if types2.IsOwner(el) {
+		elem = intoSet(ring, shapeElement)
+	}
+	n := ysig.Params().Len()
+	if n == 0 {
+		return
+	}
+	args := compat.Make[tset](n)
+	args[n-1] = elem
+	cs := &callSite{site: st, pos: st.X.Pos(), exprs: compat.Make[ast.Expr](n), sig: ysig}
+	cs.exprs[n-1] = pu.New(ast.Ident{NamePos: st.X.Pos(), Name: compat.Concat("an element of ", exprText(x))})
+	w.apply(body, args, cs, "the loop body", recvExact, ysig.Results().Len())
 }

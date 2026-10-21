@@ -192,6 +192,17 @@ func (w *walker) funcLabel(f *function, fn *types2.Func) string {
 	return fn.Name()
 }
 
+// ringElem returns the element type of a ring or pointer to a ring, or nil.
+func ringElem(T types2.Type) types2.Type {
+	if el := pointerElem(T); el != nil {
+		T = el
+	}
+	if w, ok := underlying(T).(*types2.Wrapper); ok && w.Kind() == types2.WrapRing {
+		return w.Elem()
+	}
+	return nil
+}
+
 func isRing(T types2.Type) bool {
 	if el := pointerElem(T); el != nil {
 		T = el
@@ -966,8 +977,21 @@ func (w *walker) ringCall(e *ast.CallExpr, t callTarget) []tset {
 			w.store(r, vals[0], e.Pos(), d)
 		}
 		return compat.Clone([]tset{nil})
-	case "Pop", "Peek":
+	case "Peek":
+		if el := ringElem(w.typeOf(t.ringX)); el != nil && types2.IsOwner(el) {
+			// A view of an owner element (section 7.17): a pointer into
+			// the ring.
+			return compat.Clone([]tset{intoSet(r, shapeElement), nil})
+		}
 		return compat.Clone([]tset{w.load(r), nil})
+	case "Pop":
+		return compat.Clone([]tset{w.load(r), nil})
+	case "Reset":
+		// Reset drops the owners the ring holds, in place.
+		if el := ringElem(w.typeOf(t.ringX)); el != nil {
+			w.dropAt(intoSet(r, shapeElement), el, compat.Concat(exprText(t.ringX), "'s elements"), e, e.Pos())
+		}
+		return nil
 	}
 	if types2.IsRingIterator(t.ring.Obj().Name()) && t.sig.Results().Len() == 1 {
 		// The iterator's closure record holds the ring's address: the
