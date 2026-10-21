@@ -35,6 +35,35 @@ func (fb *fnb) save(r Reg, T types2.Type) saved {
 	return saved{obj: o, T: T}
 }
 
+// keptObj adds the object o, storage that the value being built keeps (an
+// interface box, a closure or method value record), and returns the
+// function whose frame holds it: fb, or while a defer statement's
+// arguments are built in a range body, the root, which runs the deferred
+// call after the body has returned (internal/lower lastingTemp,
+// lastingFrame).
+func (fb *fnb) keptObj(o Object) (*fnb, ObjID) {
+	if fb.lasting && fb.root != fb {
+		return fb.root, fb.root.newObj(o)
+	}
+	return fb, fb.newObj(o)
+}
+
+// fillKept fills object obj of owner (keptObj), another function's, with
+// what an OpConv, OpClosure or OpMethodVal would store in it: Args[k] at
+// field k, or for a box (fields nil) X as a whole; and returns its
+// address, the value those instructions give.
+func (fb *fnb) fillKept(owner *fnb, obj ObjID, x Reg, xT types2.Type, args []Reg) Reg {
+	a := fb.objAddr(owner, obj)
+	if args == nil {
+		fb.store(a, x, xT)
+		return a
+	}
+	for k, r := range args {
+		fb.store(fb.field(a, k), r, types2.Typ[types2.UnsafePointer])
+	}
+	return a
+}
+
 // loadSaved reads a saved value in the root function.
 func (fb *fnb) loadSaved(s saved) Reg { return fb.load(fb.addr(s.obj), s.T) }
 
@@ -71,6 +100,10 @@ func (fb *fnb) runDefers() {
 
 func (fb *fnb) deferStmt(st *ast.DeferStmt) {
 	root := fb.root
+	if root != fb {
+		fb.lasting = true
+		defer func() { fb.lasting = false }()
+	}
 	call := st.Call
 	pos := call.Pos()
 	var run func(fb *fnb)

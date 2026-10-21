@@ -61,6 +61,7 @@ type fnb struct {
 	iterHead   map[ObjID]*Block
 	headerMark int
 
+	lasting  bool                   // building a range body's defer statement (keptObj)
 	boxViews map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
 	varBlock map[*types2.Var]*Block // the block that declares each local
 

@@ -92,7 +92,15 @@ func (fb *fnb) conv(r Reg, from, I types2.Type, pos token.Pos) Reg {
 	if !fb.isDirect(from) && !zeroSized(from) {
 		// (A box of no bytes holds nothing to read once its frame is
 		// gone.)
-		in.Obj = fb.newObj(Object{Kind: ObjBox, Type: from, Name: "interface box", Pos: pos})
+		owner, o := fb.keptObj(Object{Kind: ObjBox, Type: from, Name: "interface box", Pos: pos})
+		if owner != fb {
+			d := fb.fillKept(owner, o, r, from, nil)
+			if isTypeParam(from) {
+				return fb.either(d, r)
+			}
+			return d
+		}
+		in.Obj = o
 	}
 	d := fb.emitDst(in)
 	if isTypeParam(from) {
@@ -439,7 +447,11 @@ func (fb *fnb) funcLit(lit *ast.FuncLit) (Reg, FuncID) {
 		if fb.regionNodes[lit] {
 			life = LifeCaller // built in the caller's region (section 11.5)
 		}
-		obj = fb.newObj(Object{Kind: ObjClosure, Type: fb.b.types[lit].Type, Name: "closure", Pos: lit.Pos(), Life: life})
+		owner, o := fb.keptObj(Object{Kind: ObjClosure, Type: fb.b.types[lit].Type, Name: "closure", Pos: lit.Pos(), Life: life})
+		if owner != fb {
+			return fb.fillKept(owner, o, 0, nil, args), id
+		}
+		obj = o
 	}
 	return fb.emitDst(Instr{Op: OpClosure, Callee: id, Obj: obj, Args: args, Pos: lit.Pos()}), id
 }

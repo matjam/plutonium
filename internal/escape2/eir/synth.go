@@ -305,7 +305,7 @@ func (fb *fnb) methodValue(e *ast.SelectorExpr, sel *types2.Selection) Reg {
 	fb.noteMethodInstance(fn, e)
 	full := fn.Type().(*types2.Signature)
 	r := fb.boundValue(SynthMethodValue, full.Recv().Type(), fn, recv, full.Recv().Type(), e.Pos())
-	if fb.regionNodes[e] {
+	if fb.regionNodes[e] && (!fb.lasting || fb.root == fb) {
 		// Built in the caller's region (section 11.5).
 		fb.f.Objects[len(fb.f.Objects)-1].Life = LifeCaller
 	}
@@ -317,7 +317,10 @@ func (fb *fnb) methodValue(e *ast.SelectorExpr, sel *types2.Selection) Reg {
 func (fb *fnb) boundValue(k SynthKind, R types2.Type, fn *types2.Func, x Reg, T types2.Type, pos token.Pos) Reg {
 	id := fb.b.synth(Synth{Kind: k, Recv: R, Method: fn})
 	fb.f.Facts.FuncValues = append(fb.f.Facts.FuncValues, id)
-	o := fb.newObj(Object{Kind: ObjMethodVal, Type: T, Name: "method value", Pos: pos})
+	owner, o := fb.keptObj(Object{Kind: ObjMethodVal, Type: T, Name: "method value", Pos: pos})
+	if owner != fb {
+		return fb.fillKept(owner, o, 0, nil, []Reg{x})
+	}
 	return fb.emitDst(Instr{Op: OpMethodVal, X: x, Obj: o, Method: fn, Callee: id, Type: T, Pos: pos})
 }
 

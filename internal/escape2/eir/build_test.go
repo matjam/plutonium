@@ -94,6 +94,51 @@ func main() {
 	t.Log(out)
 }
 
+// TestBuildDeferInRangeBody checks that what a defer statement in a range
+// body keeps (a closure record, an interface box) is in the frame of the
+// function that runs the deferred call, not the body's, which is gone by
+// then (testdata/run/rangefuncdefer.p; internal/lower lastingFrame).
+func TestBuildDeferInRangeBody(t *testing.T) {
+	out := dumpMain(t, `package main
+
+func save(x int, v any) {}
+
+func each(yield func(int) bool) { _ = yield(1) }
+
+func f() {
+	x := 1
+	for i := range each {
+		if i == 1 {
+			defer func() { save(x, nil) }()
+			defer save(i, [2]int{i, x})
+			return
+		}
+	}
+}
+
+func main() { f() }
+`)
+	i := strings.Index(out, "func main.f\n")
+	j := strings.Index(out, "func main.f range body")
+	if i < 0 || j < 0 {
+		t.Fatalf("no f or its range body in\n%s", out)
+	}
+	root := out[i:]
+	if k := strings.Index(root[1:], "func "); k >= 0 {
+		root = root[:k+1]
+	}
+	body := out[j:]
+	if k := strings.Index(body[1:], "func "); k >= 0 {
+		body = body[:k+1]
+	}
+	if !strings.Contains(root, " closure func()") || !strings.Contains(root, " box [2]int") {
+		t.Errorf("the deferred call's closure record and box are not in f's frame:\n%s", root)
+	}
+	if strings.Contains(body, " closure func()") || strings.Contains(body, " box ") {
+		t.Errorf("the range body holds what its deferred call keeps:\n%s", body)
+	}
+}
+
 // TestBuildInterfaceValues checks the forms of interface values: a
 // zero-sized value has no box (testdata/plutonium/tp_cons.p returns one);
 // a type parameter's is the box or the value, which the instance decides
