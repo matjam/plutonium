@@ -99,6 +99,11 @@ func (fb *fnb) newObj(o Object) ObjID {
 	}
 	o.Loop = -1
 	fb.f.Objects = append(fb.f.Objects, o)
+	var at *Block
+	if fb.cur != nil {
+		at = fb.cur.b
+	}
+	fb.objBlock = append(fb.objBlock, at)
 	return ObjID(len(fb.f.Objects) - 1)
 }
 

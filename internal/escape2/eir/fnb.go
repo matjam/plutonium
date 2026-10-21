@@ -51,8 +51,9 @@ type fnb struct {
 	frameSlots []dropSlot  // owners the function holds as a whole: its owner parameters
 	switchDrop *switchDrop // the value a type switch drops when no clause takes it
 
-	dropRecv        bool // a Drop method, whose receiver its drop glue destroys
-	resultsInMemory bool // results are frame objects (a range body returns)
+	dropRecv        bool     // a Drop method, whose receiver its drop glue destroys
+	resultsInMemory bool     // results are frame objects (a range body returns)
+	objBlock        []*Block // the block each object is made in, by ObjID
 }
 
 // outerObj names a frame object of another function, for a closure record
@@ -238,6 +239,7 @@ func (fb *fnb) objAddr(owner *fnb, obj ObjID) Reg {
 // readLocal returns the value of local variable v.
 func (fb *fnb) readLocal(v *types2.Var) Reg {
 	if !hasPointers(v.Type()) {
+		fb.touch(v)
 		return 0
 	}
 	if fb.locals[v] {
@@ -250,8 +252,20 @@ func (fb *fnb) readLocal(v *types2.Var) Reg {
 	return 0
 }
 
+// touch records a use of a variable of an enclosing function, whatever its
+// type: the closure record holds its address, a pointer into that frame.
+func (fb *fnb) touch(v *types2.Var) {
+	if _, own := fb.objs[v]; own || fb.locals[v] || fb.parent == nil || !fb.parent.owns(v) {
+		return
+	}
+	fb.captured(v)
+}
+
 // assignVar gives local variable v the value r.
 func (fb *fnb) assignVar(v *types2.Var, r Reg) {
+	if !hasPointers(v.Type()) {
+		fb.touch(v)
+	}
 	if fb.locals[v] {
 		if hasPointers(v.Type()) {
 			fb.writeVar(v, r)
@@ -284,8 +298,24 @@ func (fb *fnb) finish() {
 	entry.Instrs = append(append([]Instr(nil), fb.prologue...), entry.Instrs...)
 	removeUnreachable(fb.f)
 	fb.f.Loops = findLoops(fb.f)
+	// An object made in a loop is made again by every iteration, in the
+	// same frame memory: it lives until the iteration ends (section 18.4).
+	live := map[*Block]bool{}
+	for _, b := range fb.f.Blocks {
+		live[b] = true
+	}
 	for i := range fb.f.Objects {
-		fb.f.Objects[i].Loop = -1
+		o := &fb.f.Objects[i]
+		o.Loop = -1
+		b := fb.objBlock[i]
+		if b == nil || !live[b] || b.Loop < 0 {
+			continue
+		}
+		o.Loop = b.Loop
+		switch o.Life {
+		case LifeBlock, LifeFrame:
+			o.Life = LifeIter
+		}
 	}
 }
 

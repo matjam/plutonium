@@ -336,7 +336,7 @@ func (fb *fnb) sliceExpr(e *ast.SliceExpr) Reg {
 // typeAssert builds x.(T).
 func (fb *fnb) typeAssert(e *ast.TypeAssertExpr, commaOk bool) Reg {
 	x := fb.expr(e.X)
-	T := fb.typeOf(e)
+	T := fb.firstType(e)
 	if fb.b.moves.AssertMoves[e] {
 		// The owner moves out of the interface variable.
 		_ = commaOk
