@@ -35,7 +35,11 @@ bind it (recorded in the project decision log):
   0 numbers below). Summaries stay cacheable per package (D44), but a summary that applied a join depends
   on the program-wide candidate set of that signature: the cache records the join's members and is
   invalidated when they change. `sched.Facts.Candidates` remains the single place candidates come from.
-- **Open**: whether the precision paragraph of section 18.3 needs rewording (section (h), "Spec text").
+- **Decided (2026-10-21, under the owner's delegation)**: the precision paragraph of section 18.3 is
+  reworded to state the guarantee rather than the mechanism, with the text in section (h), "Spec text";
+  it is applied to the specification at the cutover (stage 7), when the new analysis becomes the default,
+  and recorded in `docs/decisions.md` then. E3010 (a function too large for the analysis's limits is the
+  program's error, asking to split it; the analysis goes on with the worst-case summary) is confirmed.
 
 Build status: stages 0 to 2 are being built in `internal/escape2`, off by default, by several builders in
 parallel; the shared interfaces are the files named in `internal/escape2/doc.go`.
@@ -547,8 +551,25 @@ review programs and `soundness_test.go` cases to check the optimised solver.
   adds later (none should) would be invisible.
 - **Spec text.** 18.3's precision paragraph describes summaries in today's terms ("narrowed by type
   assertions on the way and by the dynamic type where the caller knows it"). The proposal keeps every
-  stated limit and is at least as precise in the cases named, but whether the paragraph needs rewording
-  is a user decision before stage 3.
+  stated limit and is at least as precise in the cases named. Decided: the paragraph states the
+  guarantee instead. At stage 7 the first bullet of "How precise the frame check is" becomes:
+
+  > - The check covers the whole program and needs no lifetime, borrow or region annotations. Each
+  >   function has a summary of which parameters it keeps, which it stores into memory another parameter
+  >   points to, and which it returns, field by field. A call is checked against its callee's summary.
+  >   A call through an interface or a func value is checked against every function that can run there:
+  >   every method of that name and signature on a type the program converts to an interface (or
+  >   reaches by walking a converted value, as `fmt` does), and every function, method value or literal
+  >   of that type whose value the program takes. Where the compiler knows which of them a value holds
+  >   (the value was converted or built in the same function), it may check against that one alone; it
+  >   never leaves one out because of the type of the memory a pointer points into.
+
+  The other bullets (path limits, flow sensitivity, generics, heap-only fields, pointer-shaped values)
+  stay as they are, and a new last bullet states E3010:
+
+  > - The check of one function uses bounded memory and work. A function that holds more distinct
+  >   pointers than the check can follow within them is an error (E3010) that names it; splitting it into
+  >   smaller functions brings each under the bound. The check never guesses past its bound.
 
 ## 4. Compared with improving the current design
 
