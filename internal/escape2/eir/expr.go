@@ -460,6 +460,9 @@ func (fb *fnb) funcLit(lit *ast.FuncLit) (Reg, FuncID) {
 			return fb.fillKept(owner, o, 0, nil, args), id
 		}
 		obj = o
+		if life == LifeFrame {
+			fb.noteRecordCaps(o, lf.caps)
+		}
 	}
 	return fb.emitDst(Instr{Op: OpClosure, Callee: id, Obj: obj, Args: args, Pos: lit.Pos()}), id
 }

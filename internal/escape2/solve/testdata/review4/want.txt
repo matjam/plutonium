@@ -10,3 +10,6 @@ s22_fromutf8lossy_local_bytes: accepted
 # s23: a Builder's buffer is heap memory; the string takes a counted
 # reference to it.
 s23_builder_string_kept: accepted
+# lv01: closures of variables outside the loop, or of the header's when the
+# loop is left at once, may be kept (section 18.4).
+lv01_closure_of_outer_vars_kept: accepted

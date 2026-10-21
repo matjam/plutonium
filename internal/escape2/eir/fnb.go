@@ -61,10 +61,12 @@ type fnb struct {
 	iterHead   map[ObjID]*Block
 	headerMark int
 
-	lasting   bool                   // building a range body's defer statement (keptObj)
-	stmtEnded map[ObjID]bool         // statement temporaries whose OpDrop is made (endStmtTemps)
-	boxViews  map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
-	varBlock  map[*types2.Var]*Block // the block that declares each local
+	lasting   bool           // building a range body's defer statement (keptObj)
+	stmtEnded map[ObjID]bool // statement temporaries whose OpDrop is made (endStmtTemps)
+	// The objects each closure record captures (noteRecordCaps).
+	recordCaps map[ObjID][]ObjID
+	boxViews   map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
+	varBlock   map[*types2.Var]*Block // the block that declares each local
 
 	// The closures this function builds in its caller's region, and the
 	// variables they capture (regions.go).
@@ -352,6 +354,60 @@ func (fb *fnb) finish() {
 			}
 		}
 	}
+	// A closure record holds the addresses of the variables its literal
+	// captures, the same on every iteration that builds it: it lives as
+	// long as the shortest-lived of them, LifeIter of the innermost loop
+	// among theirs, or the frame when none is a loop's (section 18.4: a
+	// closure of variables declared outside the loop may be kept).
+	for obj, caps := range fb.recordCaps {
+		o := &fb.f.Objects[obj]
+		if o.Life != LifeIter && o.Life != LifeFrame && o.Life != LifeBlock {
+			continue
+		}
+		loop := -1
+		for _, c := range caps {
+			if l := fb.f.Objects[c].Loop; l >= 0 && loopDepth(fb.f, l) > loopDepth(fb.f, loop) {
+				loop = l
+			}
+		}
+		o.Loop = loop
+		o.Life = LifeFrame
+		if loop >= 0 {
+			o.Life = LifeIter
+		}
+	}
+}
+
+// noteRecordCaps records the frame objects of fb whose addresses the
+// closure record obj holds (the captures caps of its literal), for its
+// lifetime (finish).
+func (fb *fnb) noteRecordCaps(obj ObjID, caps []any) {
+	var objs []ObjID
+	for _, k := range caps {
+		switch k := k.(type) {
+		case *types2.Var:
+			if o, ok := fb.objs[k]; ok {
+				objs = append(objs, o)
+			}
+		case outerObj:
+			if k.fn == fb {
+				objs = append(objs, k.obj)
+			}
+		}
+	}
+	if fb.recordCaps == nil {
+		fb.recordCaps = map[ObjID][]ObjID{}
+	}
+	fb.recordCaps[obj] = objs
+}
+
+// loopDepth returns the nesting depth of loop l of f (0 for none).
+func loopDepth(f *Func, l int) int {
+	d := 0
+	for ; l >= 0 && l < len(f.Loops); l = f.Loops[l].Parent {
+		d++
+	}
+	return d
 }
 
 // newSite returns a fresh call site.
