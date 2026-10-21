@@ -9,16 +9,32 @@ bind it (recorded in the project decision log):
   for it.
 - **D44**: analysis summaries may be cached in a file and checked (never trusted) in one pass; no
   annotations, ever.
-- **D47 (provisional, 2026-10-21, made under the owner's delegation)**: the language gets a rule for
-  dynamic calls (the research report's "rank 2"). A view passed as an argument through an interface method
-  call or a call of a function value may not be kept by the callee; each implementation (method or func
-  literal) is checked locally, and keeping such a parameter is a compile error at the implementation; heap
-  pointers, owners and counted values are unaffected. Provisional until measured: stage 0 counts the
-  implementations in `lib/pluto`, the corpus and the translated compiler that keep a parameter received
-  through a dynamic call. If that is rare, stage 3 is built for the rule (a fixed summary per signature, no
-  deferred dispatch and no obligations: section (c) below is then replaced), and the specification text
-  (sections 18.3 and 11.5) is written after the measurement. Until then, builders design for the rule and
-  keep the candidate machinery behind `sched.Facts.Candidates`, so that either outcome plugs in.
+- **D47 (revised 2026-10-21, made under the owner's delegation)**: **no language rule for dynamic calls.**
+  At a call through an interface method or a func value, the callee's summary is the join of the summaries
+  of every implementation callable there (per method name and signature, per func-value type, from the
+  candidate sets of stage B); a caller that passes a view of its frame into a call whose join keeps it is
+  rejected at the caller, as today. No specification change is needed. A provisional rule (a view passed
+  through a dynamic call may not be kept by the callee) was measured first and dropped:
+
+  | Program set | dynamically reached functions that keep a non-receiver parameter's own pointer | that keep the receiver |
+  |---|---|---|
+  | `lib/pluto` (over the corpus) | 1 func value, 0 methods (2 more keep a pointer loaded through a parameter) | 4 methods |
+  | corpus programs, outside the library | 9 func values, 1 method | 23 methods |
+  | translated front end (`selfhost/demo/diagdemo`, about 1,300 dynamically reachable functions) | 59 func values, 9 methods (71 and 12 counting loaded pointers) | 64 methods |
+
+  "Keep" is the current analysis's summary: stored in heap or package memory, or into memory another
+  parameter points to; restricted to the functions the lowered code reaches through an interface or
+  func-value call (`go run ./tools/escapeoracle -keepers`, `-translated`). The keeps in the translated
+  compiler are of heap (arena) pointers, which are safe, and a `*T` parameter cannot tell a frame view from
+  a heap pointer, so a per-parameter rule would reject ordinary Go-familiar code.
+
+  Consequences: stage 3 is per-signature joins over the candidate sets; there is no deferred dispatch and
+  there are no obligations (section (c)'s tags may still sharpen the join where a caller knows the dynamic
+  type, but nothing depends on them). Scheduling keeps the dynamic edges (dispatch nodes D(M) to every
+  candidate), so the largest SCC is the one measured with dynamic edges unioned (section (e) and the stage
+  0 numbers below). Summaries stay cacheable per package (D44), but a summary that applied a join depends
+  on the program-wide candidate set of that signature: the cache records the join's members and is
+  invalidated when they change. `sched.Facts.Candidates` remains the single place candidates come from.
 - **Open**: whether the precision paragraph of section 18.3 needs rewording (section (h), "Spec text").
 
 Build status: stages 0 to 2 are being built in `internal/escape2`, off by default, by several builders in
@@ -472,7 +488,7 @@ want.txt), `tools/escapedigest` on the corpus, `soundness_test.go`, the translat
 | 0 | Lowering oracle and SCC-size tool, run against the current analysis | 600 lines | lists every class A/B gap of today; reports the SCC size distribution of the translated compiler |
 | 1 | EIR and desugarer, shared contract table and itab/wrapper module with the lowerer | 2,500 | oracle green on corpus, reviews, translated compiler |
 | 2 | Domain, interner, solver, summaries, SCC scheduling, union-only dynamic calls, heap-only stage B | 3,000 | every review program rejected; corpus diff classified |
-| 3 | Tags, deferred dispatch, obligations, selfSafe edges | 1,500 | corpus accepted as by the current analysis, or each difference justified; the six `940e37f3` programs accepted |
+| 3 | Per-signature joins at dynamic calls (D47 revised: no deferred dispatch, no obligations), optional tags to sharpen joins, selfSafe edges | 1,500 | corpus accepted as by the current analysis, or each difference justified; the six `940e37f3` programs accepted |
 | 4 | Regions (11.5), loops, statement temporaries, arenas, scoped tasks, `Calls` facts for `internal/moves` | 2,000 | escapedigest identical on accepted programs; moves tests pass |
 | 5 | Messages and reasons at today's quality (`report.go`) | 800 | `cmd/pluto` diag goldens unchanged or reviewed |
 | 6 | D44 cache, per-package files | 800 | adversarial file review per D44 |
