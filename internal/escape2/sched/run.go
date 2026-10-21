@@ -114,10 +114,10 @@ func RunWith(p *eir.Program, opts Options) *Result {
 	// reads recorded for the cache when there is one.
 	solveOne := func(id eir.FuncID) (solve.Result, Recorder) {
 		if opts.Cache == nil {
-			return solveFunc(p.Funcs[id], env, ws), nil
+			return solveGuarded(p.Funcs[id], env, ws), nil
 		}
 		rec := opts.Cache.Recorder(id)
-		return solveFunc(p.Funcs[id], recordingEnv{env, rec}, ws), rec
+		return solveGuarded(p.Funcs[id], recordingEnv{env, rec}, ws), rec
 	}
 	// measure notes the workspace a solve used and resets it.
 	measure := func(st *SCCStats) {

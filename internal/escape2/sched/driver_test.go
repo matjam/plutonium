@@ -204,6 +204,59 @@ func TestDriver(t *testing.T) {
 	}
 }
 
+// TestDriverLimit checks a function past the solver's limits: it gets an
+// E3010 finding and the top summary, its callers are solved against that,
+// and the analysis goes on. A panic that is not a limit is not caught.
+func TestDriverLimit(t *testing.T) {
+	var order []eir.FuncID
+	withFakes(t, &order)
+	pkg := typecheck(t, `
+func big(p *int, q *int) *int { return p }
+func caller() {}
+`)
+	pr := newProg()
+	big := pr.decl(lookupFunc(t, pkg, "big"))
+	caller := pr.decl(lookupFunc(t, pkg, "caller"))
+	caller.callStatic(big, caller.heap(), caller.heap())
+	inner := fakeSolve(&order)
+	var callerSaw *summary.Summary
+	solveFunc = func(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
+		if f.ID == big.f.ID {
+			panic(&solve.LimitError{Func: f.Name, Bytes: 1 << 30})
+		}
+		callerSaw = env.Summary(big.f.ID)
+		return inner(f, env, ws)
+	}
+	res := RunWith(pr.p, Options{})
+	var lim []solve.Finding
+	for _, fd := range res.Findings {
+		if fd.Code == codeEscapeLimit {
+			lim = append(lim, fd)
+		}
+	}
+	if len(lim) != 1 || lim[0].Func != big.f.ID {
+		t.Fatalf("findings %+v, want one E3010 at big", res.Findings)
+	}
+	s := res.Summaries[big.f.ID]
+	if s == nil || s.Inputs != 2 || len(s.Esc) != 2 || !s.Esc[0].GE() || len(s.Res) != 1 || len(s.Res[0].From) != 2 || !s.Region.Builds {
+		t.Errorf("big's summary %+v, want the top summary", s)
+	}
+	if callerSaw == nil || len(callerSaw.Esc) != 2 {
+		t.Errorf("caller solved against %+v, want big's top summary", callerSaw)
+	}
+
+	// Any other panic goes on up.
+	solveFunc = func(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
+		panic("not a limit")
+	}
+	defer func() {
+		if r := recover(); r != "not a limit" {
+			t.Errorf("recovered %v, want the panic to go on up", r)
+		}
+	}()
+	RunWith(pr.p, Options{})
+}
+
 // TestDriverUnscheduledRead checks that a solver reading the summary of a
 // function the graph did not order first is an internal error, not a
 // silent bottom summary.
