@@ -15,19 +15,24 @@ package domain
 // and every extension. PathMatches is this definition, executable; the
 // property tests hold Extend, Cut and Covers to it.
 //
-// Extend cuts a path that would pass MaxLoads or MaxSteps back to its prefix
-// through the second load, with GE. Such a path has at least two loads, so
-// the prefix is a proper prefix of it, and GE makes the prefix cover it and
-// everything after it (invariant I8). Keeping the fields between the two
-// loads, rather than the first load alone, keeps a cut key from standing for
-// the pointer the first load reads.
+// When p followed by s would pass MaxLoads or MaxSteps, Extend returns p
+// itself with GE: p with GE stands for p+s and every extension (invariant
+// I8). It cuts no further back than p, for two reasons. Precision: the key
+// keeps every step the limits allow. Monotonicity: if a GE key g covers a key
+// k, g's path is a prefix of k's, so it is a prefix of k's path after a cut
+// too, and g (which ExtendKey leaves as it is) still covers ExtendKey(k, s).
+// A cut back to a shorter prefix, such as the one through the second load,
+// can drop below g's path, so that a summary that grew could lose coverage
+// and an SCC's iteration would not be monotone. The number of paths is not
+// changed by this: the result is a path already interned.
 
 // Proposed changes to api.go (piece C to piece A; api.go is shared):
 //
-//   - The comments of Extend and Cut: Extend cuts to the prefix through the
-//     second load (not "the first load plus one more load", which without the
-//     fields between them would not cover the path), and absorbs an offset
-//     step past MaxFieldNest without a cut; Extend ignores GE, so a key is
+//   - The comments of Extend and Cut: past the limits Extend returns p itself
+//     with the cut flag (not a cut back to the first load plus one more load,
+//     which is not monotone under Covers and, without the fields between the
+//     loads, would not even cover the path), and it absorbs an offset step
+//     past MaxFieldNest without a cut; Extend ignores GE, so a key is
 //     extended with ExtendKey. Cut, the cap's widening, is the prefix through
 //     the first load, or the path itself when it has no load.
 //   - MakeKey truncates an input of MaxInputs or more to its low byte, which
@@ -110,21 +115,6 @@ func (ps *paths) Cut(p PathID) PathID {
 	return ps.throughLoad(p, 1)
 }
 
-// cut returns the prefix of p through its second load, which with GE covers
-// p and every extension. Under the limits a path that overflows them has two
-// loads; should the limits be raised so that one has fewer, the cut is to its
-// last load, or to Root, which still covers it.
-func (ps *paths) cut(p PathID) PathID {
-	n := ps.info[p].loads()
-	if n > 2 {
-		n = 2
-	}
-	if n == 0 {
-		return Root
-	}
-	return ps.throughLoad(p, n)
-}
-
 // throughLoad returns the prefix of p that ends with its n-th load; p has at
 // least n loads.
 func (ps *paths) throughLoad(p PathID, n int) PathID {
@@ -145,7 +135,7 @@ func (ps *paths) Extend(p PathID, s Step) (PathID, bool) {
 	steps := i.depth() // every stored step counts
 	if s == StepLoad {
 		if i.loads()+1 > MaxLoads || steps+1 > MaxSteps {
-			return ps.cut(p), true
+			return p, true
 		}
 		return ps.child(p, s), false
 	}
@@ -153,7 +143,7 @@ func (ps *paths) Extend(p PathID, s Step) (PathID, bool) {
 		return p, false // the segment already stands for all its extensions by offsets
 	}
 	if steps+1 > MaxSteps {
-		return ps.cut(p), true
+		return p, true
 	}
 	return ps.child(p, s), false
 }

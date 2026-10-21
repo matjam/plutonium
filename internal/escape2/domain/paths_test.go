@@ -62,9 +62,9 @@ func TestExtendFieldNest(t *testing.T) {
 
 func TestExtendCut(t *testing.T) {
 	ps := NewPaths()
-	// A fourth load cuts back through the second load.
+	// A fourth load leaves the path as it is, with GE.
 	k := walk(ps, F(1), L, F(2), L, L, L)
-	if got, want := ps.Steps(k.Path()), []Step{F(1), L, F(2), L}; !slices.Equal(got, want) || !k.GE() {
+	if got, want := ps.Steps(k.Path()), []Step{F(1), L, F(2), L, L}; !slices.Equal(got, want) || !k.GE() {
 		t.Fatalf("steps %v ge %v, want %v and GE", got, k.GE(), want)
 	}
 	// So does a ninth step.
@@ -73,7 +73,7 @@ func TestExtendCut(t *testing.T) {
 		t.Fatal("eight steps were cut")
 	}
 	k = ExtendKey(ps, k, F(6))
-	if got, want := ps.Steps(k.Path()), []Step{F(1), L, F(2), F(3), L}; !slices.Equal(got, want) || !k.GE() {
+	if got, want := ps.Steps(k.Path()), []Step{F(1), L, F(2), F(3), L, F(4), F(5), L}; !slices.Equal(got, want) || !k.GE() {
 		t.Fatalf("ninth step: steps %v ge %v, want %v and GE", got, k.GE(), want)
 	}
 	// A GE key is not extended.
@@ -324,6 +324,67 @@ func TestPropCoversExact(t *testing.T) {
 	}
 	if covered < len(keys)*2 {
 		t.Fatalf("only %d covering pairs: the test does not exercise Covers", covered)
+	}
+}
+
+// coveringPair returns a random key k and a key g that covers it: k itself,
+// k's GE twin, or a GE key on a prefix of k's path.
+func coveringPair(r *rand.Rand, ps Paths) (g, k Key) {
+	k = walk(ps, randWord(r, 16)...)
+	if r.IntN(4) == 0 {
+		k = k.WithPath(k.Path(), true)
+	}
+	switch st := ps.Steps(k.Path()); r.IntN(3) {
+	case 0:
+		g = k
+	case 1:
+		g = k.WithPath(k.Path(), true)
+	default:
+		p := walk(ps, st[:r.IntN(len(st)+1)]...)
+		g = p.WithPath(p.Path(), true)
+	}
+	if !Covers(ps, g, k) {
+		panic("coveringPair: g does not cover k")
+	}
+	return g, k
+}
+
+// TestPropExtendMonotone: if g covers k, then after the same steps the
+// extension of g covers the extension of k, whatever the limits cut, and a
+// GE g covers every extension of k. The solver's iteration relies on it: a
+// callee summary that grows never makes a caller's keys lose coverage.
+func TestPropExtendMonotone(t *testing.T) {
+	r := rand.New(rand.NewPCG(13, 14))
+	ps := NewPaths()
+	show := func(k Key) string { return fmt.Sprintf("%v ge %v", ps.Steps(k.Path()), k.GE()) }
+	for range 50000 {
+		g, k := coveringPair(r, ps)
+		w := randWord(r, 10)
+		ge, ke := g, k
+		for _, s := range w {
+			ge, ke = ExtendKey(ps, ge, s), ExtendKey(ps, ke, s)
+			if !Covers(ps, ge, ke) {
+				t.Fatalf("%s covers %s, but after %v: %s does not cover %s", show(g), show(k), w, show(ge), show(ke))
+			}
+			if g.GE() && !Covers(ps, g, ke) {
+				t.Fatalf("GE %s does not cover %s extended by %v: %s", show(g), show(k), w, show(ke))
+			}
+		}
+		// AppendKey, the substitution, is monotone in its key and in the
+		// path appended.
+		h, q := coveringPair(r, ps)
+		a1 := AppendKey(ps, k, q.Path(), q.GE())
+		if a2 := AppendKey(ps, g, q.Path(), q.GE()); !Covers(ps, a2, a1) {
+			t.Fatalf("AppendKey not monotone in its key: %s + %s = %s, %s + it = %s", show(k), show(q), show(a1), show(g), show(a2))
+		}
+		if a3 := AppendKey(ps, k, h.Path(), h.GE()); !Covers(ps, a3, a1) {
+			t.Fatalf("AppendKey not monotone in its path: %s + %s = %s, + %s = %s", show(k), show(q), show(a1), show(h), show(a3))
+		}
+		// Cut, the cap's widening, is monotone and covers its key.
+		cg, ck := g.WithPath(ps.Cut(g.Path()), true), k.WithPath(ps.Cut(k.Path()), true)
+		if !Covers(ps, cg, ck) || !Covers(ps, ck, k) {
+			t.Fatalf("Cut not monotone: %s covers %s, cuts %s and %s", show(g), show(k), show(cg), show(ck))
+		}
 	}
 }
 
