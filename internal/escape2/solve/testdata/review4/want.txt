@@ -1,0 +1,12 @@
+# Controls: programs that keep no view of a dead frame, which the analysis
+# must accept. Every other program here must be rejected.
+#
+# e08: fmt.Sprint copies the error's text into a new string.
+e08_errorbuf_sprint_control: accepted
+# s21, s22: strings.FromUTF8 and FromUTF8Lossy copy the bytes into memory
+# from the allocator (rt.StringFromBytes).
+s21_fromutf8_local_bytes: accepted
+s22_fromutf8lossy_local_bytes: accepted
+# s23: a Builder's buffer is heap memory; the string takes a counted
+# reference to it.
+s23_builder_string_kept: accepted

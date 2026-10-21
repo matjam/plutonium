@@ -25,18 +25,16 @@ import (
 // the list stays true.
 
 // knownGaps are the programs not rejected yet, with the reason.
-// untriaged marks a program not yet looked at: the two examined of each
-// kind were gaps of the EIR builder (named in the entries below), not of
-// the solver.
-const untriaged = "untriaged: EIR builder, or a later stage (3: tags; 4: loops, owners, arenas)"
-
 var knownGaps = map[string]string{
-	"review2/f38_fmt_named_slice_type_string": untriaged,
-	"review3/o14_drop_in_vec_of_owners_local": untriaged,
-	"review4/e08_errorbuf_sprint_control":     untriaged,
-	"review4/s21_fromutf8_local_bytes":        untriaged,
-	"review4/s22_fromutf8lossy_local_bytes":   untriaged,
-	"review4/s23_builder_string_kept":         untriaged,
+	// As written, the field is unexported, so fmt never calls String (Go's
+	// CanInterface): internal/escape's rejection is a false one, and its
+	// want.txt is that analysis's. With the field exported this analysis
+	// misses the store: fmt reaches the field through unsafe.Add, which EIR
+	// does not offset yet (an "any offset" step, agreed).
+	"review2/f38_fmt_named_slice_type_string": "fmt: unexported field (a control as written); unsafe.Add offsets",
+	// The contract table gives rt.ReleaseValues and ZeroValues no effects,
+	// though they run the elements' Drop methods.
+	"review3/o14_drop_in_vec_of_owners_local": "contract: ReleaseValues/ZeroValues run element drops",
 }
 
 // knownFalseRejections are controls this analysis rejects, with the reason.
