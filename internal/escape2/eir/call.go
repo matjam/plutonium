@@ -598,6 +598,11 @@ func (fb *fnb) conversion(e *ast.CallExpr) Reg {
 	if !hasPointers(to) {
 		return 0
 	}
+	if !hasPointers(from) {
+		// A pointer made from a uintptr (or another number): heap memory
+		// by the rule of section 18.3.
+		return fb.heap(HeapUintptr)
+	}
 	if sl, ok := coreType(unwrap(from)).(*types2.Slice); ok {
 		if arr, ok := coreType(unwrap(to)).(*types2.Array); ok {
 			// A slice to an array: a copy of its elements.
