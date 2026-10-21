@@ -163,22 +163,24 @@ func normal(x tv) tv {
 // for that, as In tokens get kg).
 func (s *solver) reach(v value) value {
 	out := value{}
+	var work []tv
+	push := func(x tv) {
+		x = normal(x)
+		if out.add(x) {
+			work = append(work, x)
+		}
+	}
 	for x := range v {
-		out.add(normal(x))
+		push(x)
 	}
-	for {
-		grew := false
-		for x := range out {
-			for y := range s.load(single(x)) {
-				if out.add(normal(y)) {
-					grew = true
-				}
-			}
-		}
-		if !grew {
-			return out
+	for len(work) > 0 {
+		x := work[len(work)-1]
+		work = work[:len(work)-1]
+		for y := range s.load(single(x)) {
+			push(y)
 		}
 	}
+	return out
 }
 
 // valueOfKey is val(k, β): the value key k names at a call whose input i is
