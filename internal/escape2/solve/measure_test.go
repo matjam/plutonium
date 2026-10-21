@@ -119,6 +119,29 @@ func TestMeasure(t *testing.T) {
 		}
 	}
 	t.Logf("%d solves", len(recs))
+	// No solve may stop at a limit, on any pass of its SCC. The functions
+	// of watched once did on passes in the middle of their SCC's iteration
+	// (types2.(*Checker).builtin reached 318 MB on its fifth of fifteen
+	// passes, with 64 MB at the fixed point), so they must be measured.
+	watched := map[string]int{}
+	if mode == "all" || mode == "diagdemo" {
+		watched["selfhost/internal/types2.(*Checker).builtin"] = 0
+		watched["selfhost/internal/types2.(*unifier).nify"] = 0
+	}
+	for _, r := range recs {
+		if r.m.Limited {
+			t.Errorf("%s: %s stopped at a limit (arena %d, steps %d)", r.prog, r.fn, r.m.ArenaBytes, r.m.Steps)
+		}
+		if n, ok := watched[r.fn]; ok {
+			watched[r.fn] = n + 1
+			t.Logf("%s pass %d: arena %d, steps %d, tokens %d", r.fn, n+1, r.m.ArenaBytes, r.m.Steps, r.m.Tokens)
+		}
+	}
+	for fn, n := range watched {
+		if n == 0 {
+			t.Errorf("%s was not solved", fn)
+		}
+	}
 	top("arena bytes", func(m solve.Measurement) int { return m.ArenaBytes }, solve.MaxFuncArena)
 	top("steps", func(m solve.Measurement) int { return m.Steps }, solve.MaxFuncSteps)
 	top("tokens of one input", func(m solve.Measurement) int { return m.MaxInputTokens }, 0)
