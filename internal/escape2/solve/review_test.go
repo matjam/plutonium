@@ -41,9 +41,6 @@ var knownGaps = map[string]string{
 	"review4/s21_fromutf8_local_bytes":                    untriaged,
 	"review4/s22_fromutf8lossy_local_bytes":               untriaged,
 	"review4/s23_builder_string_kept":                     untriaged,
-	"review4/w01_local_waitgroup_task_no_wait":            untriaged,
-	"review4/w02_local_waitgroup_task_wait_in_branch":     untriaged,
-	"review4/w03_local_waitgroup_ptr_to_helper_task":      untriaged,
 }
 
 // knownFalseRejections are controls this analysis rejects, with the reason.

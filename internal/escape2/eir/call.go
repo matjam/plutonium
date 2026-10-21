@@ -296,7 +296,35 @@ func (fb *fnb) methodCallee(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.S
 	fb.noteMethodInstance(fn, se)
 	full := fn.Type().(*types2.Signature)
 	args, types := fb.args(e, sig, fn)
-	return &Call{Kind: CallStatic, Callee: fid, Sig: full}, append([]Reg{recv}, args...), append([]types2.Type{full.Recv().Type()}, types...), true
+	all, allTypes := append([]Reg{recv}, args...), append([]types2.Type{full.Recv().Type()}, types...)
+	if q := methodName(fn); contract.IsTrusted(q) {
+		c := &Call{Kind: CallContract, Contract: q, Sig: full}
+		if ent, _ := contract.Lookup(q); ent.Construct == contract.TaskStart {
+			// A function that starts a task with its arguments (section
+			// 12.12): what it keeps, it keeps in the task.
+			c.Implicit = ImplTask
+		}
+		return c, all, allTypes, true
+	}
+	return &Call{Kind: CallStatic, Callee: fid, Sig: full}, all, allTypes, true
+}
+
+// methodName names a method of a named type as the contract table does:
+// "path.Type.Method".
+func methodName(fn *types2.Func) string {
+	recv := fn.Type().(*types2.Signature).Recv()
+	if recv == nil || fn.Pkg() == nil {
+		return ""
+	}
+	T := recv.Type()
+	if p := pointerElem(T); p != nil {
+		T = p
+	}
+	n, ok := types2.Unalias(T).(*types2.Named)
+	if !ok {
+		return ""
+	}
+	return fn.Pkg().Path() + "." + n.Obj().Name() + "." + fn.Name()
 }
 
 // recvFieldType returns the type of the embedded field that holds a

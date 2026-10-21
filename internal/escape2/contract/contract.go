@@ -82,6 +82,10 @@ type Entry struct {
 	Construct string
 }
 
+// TaskStart is the Construct of a Trusted entry for a function that starts
+// a task with its arguments: EIR marks a call of it ImplTask.
+const TaskStart = "starts a task with its arguments"
+
 // Names of the Special entries EIR uses.
 const (
 	// RingMethod is a built-in method of ring[T, N], expanded inline: the
@@ -159,6 +163,13 @@ func init() {
 	add(Trusted, "", Effect{Stores: []Store{{self(1), self(0), "val in *addr"}}}, "pluto/sync/atomic.StorePointer")
 	add(Trusted, "", Effect{Stores: []Store{{self(1), self(0), "new in *addr"}}, Results: [][]Ref{{load(0)}}}, "pluto/sync/atomic.SwapPointer")
 	add(Trusted, "", Effect{Stores: []Store{{self(2), self(0), "new in *addr"}}, Results: [][]Ref{nil}}, "pluto/sync/atomic.CompareAndSwapPointer")
+
+	// sync.WaitGroup.Task starts a task that uses the WaitGroup until it
+	// calls Done, and calls f: its body hides the WaitGroup from the
+	// analysis (rt.Pinned). Section 12.12: passing the address of a local
+	// WaitGroup to something that starts a task is E3004; a sync.Scope is
+	// the checked form.
+	add(Trusted, TaskStart, Effect{Escapes: []Ref{self(0), self(1)}}, "pluto/sync.WaitGroup.Task")
 
 	// The built-in maps' operations (pluto/rt map.p), which the lowerer
 	// calls for map expressions: they copy keys and elements in and out

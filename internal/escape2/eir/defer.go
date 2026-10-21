@@ -219,7 +219,20 @@ func (fb *fnb) taskStmt(st *ast.TaskStmt) {
 	if c.Kind == CallFunc || c.Kind == CallIface {
 		fb.sink(SinkTask, c.Target, 0, call.Pos())
 	}
-	for _, a := range args {
+	packed := c.Sig != nil && c.Sig.Variadic() && !call.Ellipsis.IsValid() && len(args) > 0 && len(call.Args) >= c.Sig.Params().Len()
+	for i, a := range args {
+		if packed && i == len(args)-1 {
+			// Packed variadic arguments are copied into the new task with
+			// their array (section 12.12): each element crosses, not the
+			// array in this frame.
+			et := sliceElem(c.Sig.Params().At(c.Sig.Params().Len() - 1).Type())
+			v := fb.load(fb.elem(a), et)
+			fb.sink(SinkTask, v, 0, call.Pos())
+			copied := fb.heap(HeapAlloc)
+			fb.store(fb.elem(copied), v, et)
+			args[i] = copied
+			continue
+		}
 		fb.sink(SinkTask, a, 0, call.Pos())
 	}
 	c.Args = args
