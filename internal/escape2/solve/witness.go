@@ -99,7 +99,7 @@ func Explain(f *eir.Func, env Env, ws *Workspace, fd Finding) []token.Pos {
 
 // holdsObj reports whether node n holds a pointer into object o.
 func (s *solver) holdsObj(n, o uint32) bool {
-	for _, id := range s.sets.Elems(s.pts(n)) {
+	for _, id := range s.pts(n) {
 		if t := s.tokAt(id); t.kind == tObj && t.base == o {
 			return true
 		}

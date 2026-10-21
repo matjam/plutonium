@@ -97,11 +97,28 @@ func fakeLeq(_ domain.Paths, s, t *summary.Summary) bool {
 	return true
 }
 
+// fakeJoin is the union of two fake summaries' Esc keys.
+func fakeJoin(_ domain.Paths, a, b *summary.Summary) *summary.Summary {
+	have := map[domain.Key]bool{}
+	j := &summary.Summary{}
+	for _, s := range []*summary.Summary{a, b} {
+		for _, k := range s.Esc {
+			if !have[k] {
+				have[k] = true
+				j.Esc = append(j.Esc, k)
+			}
+		}
+	}
+	sort.Slice(j.Esc, func(i, k int) bool { return j.Esc[i] < j.Esc[k] })
+	return j
+}
+
 func withFakes(t *testing.T, order *[]eir.FuncID) *fakeArena {
 	arena := &fakeArena{}
-	saved := []any{solveFunc, leq, newPaths, newArena, newSets}
+	saved := []any{solveFunc, leq, newPaths, newArena, newSets, joinSums}
 	solveFunc = fakeSolve(order)
 	leq = fakeLeq
+	joinSums = fakeJoin
 	newPaths = func() domain.Paths { return fakePaths{} }
 	newArena = func() domain.Arena { return arena }
 	newSets = func(a domain.Arena) domain.Sets { return fakeSets{a: arena} }
@@ -111,6 +128,7 @@ func withFakes(t *testing.T, order *[]eir.FuncID) *fakeArena {
 		newPaths = saved[2].(func() domain.Paths)
 		newArena = saved[3].(func() domain.Arena)
 		newSets = saved[4].(func(domain.Arena) domain.Sets)
+		joinSums = saved[5].(func(domain.Paths, *summary.Summary, *summary.Summary) *summary.Summary)
 	})
 	return arena
 }

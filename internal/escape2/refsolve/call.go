@@ -117,6 +117,15 @@ func (s *solver) binder(c *eir.Call, cf *eir.Func) func(int) value {
 	return arg
 }
 
+// fieldPath is a summary's result field as a tag: a path with a load step is
+// no field path, and is taken as Root, anywhere (rules.go, OpCall).
+func (s *solver) fieldPath(f domain.PathID, ge bool) (domain.PathID, bool) {
+	if s.ps.Loads(f) > 0 {
+		return domain.Root, true
+	}
+	return f, ge
+}
+
 // applySummary applies every entry of sm at the call of in.
 func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int) value, callee eir.FuncID) {
 	c := in.Call
@@ -142,12 +151,15 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 		}
 		dst := c.Results[r]
 		for _, rk := range res.From { // Results[r] ⊇ pre(val(k, β), F)
-			s.def(dst, s.pre(s.valueOfKey(rk.Key, bind), rk.Field, false))
+			f, ge := s.fieldPath(rk.Field, rk.FieldGE)
+			s.def(dst, s.pre(s.valueOfKey(rk.Key, bind), f, ge))
 		}
 		for _, f := range res.Heap { // Results[r] ⊇ <Heap, F, true>
+			f, _ = s.fieldPath(f, true)
 			s.def(dst, single(tv{t: tok{kind: kHeap}, tag: f, g: true}))
 		}
 		for _, f := range res.CountedHeap { // Results[r] ⊇ <CHeap, F, true>
+			f, _ = s.fieldPath(f, true)
 			s.def(dst, single(tv{t: tok{kind: kCHeap}, tag: f, g: true}))
 		}
 	}

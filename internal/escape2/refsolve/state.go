@@ -47,12 +47,13 @@ type solver struct {
 	regs   []value
 	places map[place]value
 
-	esc    map[domain.Key]bool
-	stores map[summary.StorePair]bool
-	hstore map[domain.Key]bool
-	res    []resAcc
-	builds bool
-	outer  map[int]bool
+	esc      map[domain.Key]bool
+	stores   map[summary.StorePair]bool
+	storeCut [domain.MaxInputs]bool // inputs past summary.MaxRawStorePerInput
+	hstore   map[domain.Key]bool
+	res      []resAcc
+	builds   bool
+	outer    map[int]bool
 
 	findings map[findingKey]solve.Finding
 

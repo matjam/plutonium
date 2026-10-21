@@ -182,10 +182,11 @@ package solve
 //	                                                      E3001 (the region
 //	                                                      would outlive it)
 //	                 u = In                               Res[Index].From (u's
-//	                                                      key, T); with g the
-//	                                                      key is GE (T as it
-//	                                                      is, already within
-//	                                                      the limits)
+//	                                                      key, T, FieldGE g
+//	                                                      unless the key is
+//	                                                      GE, which is held
+//	                                                      anywhere under T
+//	                                                      already)
 //	                 u = Heap / CHeap                     Res[Index].Heap /
 //	                                                      CountedHeap T
 //	             SinkGlobal: sink(X, E3002); SinkSend: sink(X, E3005);
@@ -212,11 +213,14 @@ package solve
 //	               Esc k              sink(val(k, β), E3003)
 //	               Store (a, b)       store(val(b, β), val(a, β), call)
 //	               HeapStore k        store(val(k, β), <Heap>, call)
-//	               Res[r].From (k,F)  Results[r] ⊇ pre(val(k, β), F)
+//	               Res[r].From (k,F,G) Results[r] ⊇ pre(val(k, β), F), tags
+//	                                  GE when G (FieldGE)
 //	               Res[r].Heap F      Results[r] ⊇ <Heap, F, true>
 //	               Res[r].CountedHeap Results[r] ⊇ <CHeap, F, true>
 //	                                  (true: the summary keeps no depth
 //	                                  under F)
+//	             A result field F with a load step is no field path: it is
+//	             taken as Root with GE.
 //	               Region.OuterResults r  Results[r] ⊇ <Obj(Reg(site), Root, true), Root, true>
 //
 // Input binding β at a call: CallStatic and CallContract bind input i to
@@ -247,7 +251,10 @@ package solve
 //
 // The summary collects, over the fixed point: Esc keys, Store pairs and
 // HeapStore keys from the store check and sinks, Res from SinkReturn, and
-// Region facts; then summary.Widen applies the caps and makes every set an
+// Region facts. Past summary.MaxRawStorePerInput distinct Store pairs of one
+// input (by its source), that input's pairs are cut (summary.CutKey on both
+// keys), those collected and those to come; so a store of n keys through m
+// pointers does not hold n*m pairs. Then summary.Widen applies the caps and makes every set an
 // antichain (the reference solver calls the same Widen, so the two agree on
 // the reduction). Store pairs with both keys of one input are kept (I4(b)).
 // Paths are those of Env.Paths, shared by both solvers.

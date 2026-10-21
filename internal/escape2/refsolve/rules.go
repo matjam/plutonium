@@ -317,10 +317,7 @@ func (s *solver) ruleReturn(in *eir.Instr, x value) {
 			s.finding(diag.ReturnFrameView, in.Pos, u.id, in.Sink, own)
 		case u.kind == kIn:
 			k, f := keyOf(u), v.tag
-			if v.g {
-				k = k.WithPath(k.Path(), true)
-			}
-			if rk := (summary.ResultKey{Key: k, Field: f}); !r.from[rk] {
+			if rk := (summary.ResultKey{Key: k, Field: f, FieldGE: v.g && !k.GE()}); !r.from[rk] {
 				r.from[rk] = true
 				s.changed = true
 			}

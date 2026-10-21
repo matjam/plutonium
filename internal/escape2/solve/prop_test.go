@@ -235,3 +235,52 @@ func TestPropSinkReported(t *testing.T) {
 		}
 	}
 }
+
+// realPathsEnv is a test environment on the domain's own path interner,
+// whose cuts are what make solving non-monotone (summary.Join).
+type realPathsEnv struct {
+	*testEnv
+	ps domain.Paths
+}
+
+func (e realPathsEnv) Paths() domain.Paths { return e.ps }
+
+// maxSCCIterations bounds the iteration of a recursive function's summary.
+// The order Join climbs is finite; the bound is what the property checks
+// against, far above what the random functions need.
+const maxSCCIterations = 200
+
+// The SCC iteration s = Join(s, Solve(f with s)) reaches a post-fixed point
+// within a bound, on recursive functions, with the domain's own paths. This
+// is the iteration the scheduler runs (sched.RunWith).
+func TestPropSCCFixedPoint(t *testing.T) {
+	for seed := range uint64(300) {
+		rng := rand.New(rand.NewPCG(seed, 4))
+		e := newEnv()
+		env := realPathsEnv{e, domain.NewPaths()}
+		g := e.fn("g", 2, 1)
+		b := randFunc(rng, e, g.f)
+		// Make every call of g a call of the function itself.
+		for _, blk := range b.f.Blocks {
+			for i := range blk.Instrs {
+				if c := blk.Instrs[i].Call; c != nil && c.Callee == g.f.ID {
+					c.Callee = b.f.ID
+				}
+			}
+		}
+		var s *summary.Summary
+		n := 0
+		for ; n < maxSCCIterations; n++ {
+			e.sums[b.f.ID] = s
+			arena := domain.NewArena()
+			r := Solve(b.f, env, &Workspace{Arena: arena, Sets: domain.NewSets(arena)})
+			if s != nil && summary.Leq(env.ps, r.Summary, s) {
+				break
+			}
+			s = summary.Join(env.ps, s, r.Summary)
+		}
+		if n == maxSCCIterations {
+			t.Fatalf("seed %d: no fixed point in %d iterations", seed, n)
+		}
+	}
+}

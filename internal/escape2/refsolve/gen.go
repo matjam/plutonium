@@ -110,9 +110,11 @@ func Random(seed int64, ps domain.Paths) *Case {
 	return &Case{Seed: seed, F: g.b.F, Env: g.env}
 }
 
-func (g *gen) randPath(max int) domain.PathID {
+// randFieldPath is a random field path of a result: fields and elements,
+// never a load (a struct value's fields are not behind pointers).
+func (g *gen) randFieldPath(max int) domain.PathID {
 	p := domain.Root
-	steps := []domain.Step{domain.StepLoad, domain.StepElem, 0, 1}
+	steps := []domain.Step{domain.StepElem, 0, 1}
 	for i := g.rng.Intn(max + 1); i > 0; i-- {
 		p, _ = g.ps.Extend(p, steps[g.rng.Intn(len(steps))])
 	}
@@ -143,13 +145,13 @@ func (g *gen) randSummary(inputs, results int) *summary.Summary {
 	}
 	for r := range sm.Res {
 		for i := g.rng.Intn(3); i > 0; i-- {
-			sm.Res[r].From = append(sm.Res[r].From, summary.ResultKey{Key: g.randKey(inputs), Field: g.randPath(2)})
+			sm.Res[r].From = append(sm.Res[r].From, summary.ResultKey{Key: g.randKey(inputs), Field: g.randFieldPath(2), FieldGE: g.rng.Intn(4) == 0})
 		}
 		if g.rng.Intn(4) == 0 {
-			sm.Res[r].Heap = []domain.PathID{g.randPath(1)}
+			sm.Res[r].Heap = []domain.PathID{g.randFieldPath(1)}
 		}
 		if g.rng.Intn(6) == 0 {
-			sm.Res[r].CountedHeap = []domain.PathID{g.randPath(1)}
+			sm.Res[r].CountedHeap = []domain.PathID{g.randFieldPath(1)}
 		}
 	}
 	if results > 0 && g.rng.Intn(5) == 0 {

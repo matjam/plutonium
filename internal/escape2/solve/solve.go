@@ -38,7 +38,8 @@ type solver struct {
 	toks   vec // two words per tagged token
 	tokIdx table
 
-	nodeSets, nodeRep, nodeEdges, nodeCons, nodeInfo, nodeInfo2, nodeNext, inWork vec
+	lists, bits                                                               []vec // per node: the tokens it holds, and their bitset
+	done, nodeRep, nodeEdges, nodeCons, nodeInfo, nodeInfo2, nodeNext, inWork vec
 
 	edges, cons vec
 	work        vec
@@ -65,10 +66,11 @@ type solver struct {
 	findings                []Finding
 	drops                   vec // block<<32 | instr, of drops of statement temporaries
 	heapNode                uint32
-	scratch1                [1]uint64
 	buf                     vec
 	merged                  int
 	noCollapse              bool // tests: solve without cycle collapse
+	storeRaw                [domain.MaxInputs]int
+	storeCut                [domain.MaxInputs]bool
 	tjIndex, tjLow, tjStack vec
 	tjSeen                  table
 	tjCounter               uint64
@@ -550,11 +552,8 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 				s.report(cE3001, t.base, b)
 			}
 		case tIn:
-			k := key(asPointer(t))
-			if t.tagGE {
-				k = k.WithPath(k.Path(), true)
-			}
-			s.addRes(r, k, t.tag)
+			// A GE key is anywhere under its field already (resultCovers).
+			s.addRes(r, key(asPointer(t)), t.tag, t.tagGE && !t.ge)
 		case tHeap:
 			s.addResHeap(r, false, t.tag)
 		case tCHeap:
@@ -607,6 +606,7 @@ const (
 	sRes
 	sResHeap
 	sOuter
+	sCutStore = 7 // in the top bits, as sStore
 )
 
 func (s *solver) addEsc(k domain.Key, why uint64) {
@@ -617,7 +617,40 @@ func (s *solver) addEsc(k domain.Key, why uint64) {
 }
 
 func (s *solver) addStorePair(src, dst domain.Key, why uint64) {
-	if s.storeSeenAdd(src, dst) {
+	in := src.Input()
+	if s.storeCut[in] {
+		s.addCutPair(src, dst, why)
+		return
+	}
+	if !s.storeSeenAdd(src, dst) {
+		return
+	}
+	s.store.push(s.a, uint64(src))
+	s.store.push(s.a, uint64(dst))
+	s.store.push(s.a, why)
+	s.storeRaw[in]++
+	if s.storeRaw[in] > summary.MaxRawStorePerInput {
+		// Cut the input's pairs from now on, and those collected so far.
+		s.storeCut[in] = true
+		old := s.store.s
+		s.store = vec{}
+		for i := 0; i < len(old); i += 3 {
+			a, b := domain.Key(old[i]), domain.Key(old[i+1])
+			if a.Input() == in {
+				s.addCutPair(a, b, old[i+2])
+			} else {
+				s.store.push(s.a, old[i])
+				s.store.push(s.a, old[i+1])
+				s.store.push(s.a, old[i+2])
+			}
+		}
+	}
+}
+
+// addCutPair adds a store pair of an input past MaxRawStorePerInput, cut.
+func (s *solver) addCutPair(src, dst domain.Key, why uint64) {
+	src, dst = summary.CutKey(s.ps, src), summary.CutKey(s.ps, dst)
+	if s.sumSeen.add(s.a, uint64(src)|sCutStore<<60, uint64(dst)) {
 		s.store.push(s.a, uint64(src))
 		s.store.push(s.a, uint64(dst))
 		s.store.push(s.a, why)
@@ -636,11 +669,15 @@ func (s *solver) addHeapStore(k domain.Key) {
 	}
 }
 
-func (s *solver) addRes(r int, k domain.Key, field domain.PathID) {
-	if s.sumSeen.add(s.a, sRes|uint64(r)<<8|uint64(field)<<28, uint64(k)) {
+func (s *solver) addRes(r int, k domain.Key, field domain.PathID, fieldGE bool) {
+	f := uint64(field)
+	if fieldGE {
+		f |= 1 << 32
+	}
+	if s.sumSeen.add(s.a, sRes|uint64(r)<<8|f<<27, uint64(k)) {
 		s.res.push(s.a, uint64(r))
 		s.res.push(s.a, uint64(k))
-		s.res.push(s.a, uint64(field))
+		s.res.push(s.a, f)
 	}
 }
 
@@ -691,7 +728,8 @@ func (s *solver) summary() *summary.Summary {
 		if r >= len(sum.Res) {
 			panic("internal compiler error: escape2/solve: return of result past the function's results")
 		}
-		sum.Res[r].From = append(sum.Res[r].From, summary.ResultKey{Key: domain.Key(s.res.s[i+1]), Field: domain.PathID(s.res.s[i+2])})
+		f := s.res.s[i+2]
+		sum.Res[r].From = append(sum.Res[r].From, summary.ResultKey{Key: domain.Key(s.res.s[i+1]), Field: domain.PathID(uint32(f)), FieldGE: f>>32 != 0})
 	}
 	for i := 0; i < len(s.resHeap.s); i += 2 {
 		w, field := s.resHeap.s[i], domain.PathID(s.resHeap.s[i+1])

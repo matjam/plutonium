@@ -7,8 +7,12 @@ import (
 // The constraint graph. Nodes are the registers (node r for register r,
 // node 0 the empty register), the places of frame objects, and nodes the
 // solver derives for call application (the values of summary keys). Each
-// node has a set of tagged tokens (pts) and the part of it already
-// propagated (done): difference propagation sends only pts \ done.
+// node has the tagged tokens it holds as an append-only list, with a bitset
+// over token numbers for membership, and the length of the list already
+// propagated (done): difference propagation sends only the list's tail. A
+// node's memory is linear in what it holds; hash-consed sets would keep
+// every intermediate set of a node that grows one token at a time, which is
+// quadratic (seed 5401 of the differential test passed 256 MB that way).
 //
 // Simple constraints are edges with a transform (xform); complex ones
 // (loads, stores, sinks, summary keys) are attached to the node whose tokens
@@ -16,7 +20,7 @@ import (
 // derived nodes are collapsed (lazy cycle detection: an identity edge whose
 // two ends have equal sets after propagation starts a search).
 
-// Node words: nodeSets (pts | done<<32), nodeRep (union-find parent),
+// Node words: lists, bits and done (per node, above), nodeRep (union-find parent),
 // nodeEdges, nodeCons (list heads, index+1), nodeInfo (kind and the place's
 // object and path), nodeNext (next place of the same object, +1).
 const (
@@ -68,8 +72,10 @@ const (
 )
 
 func (s *solver) newNode(kind uint64) uint32 {
-	n := uint32(len(s.nodeSets.s))
-	s.nodeSets.push(s.a, 0)
+	n := uint32(len(s.nodeRep.s))
+	s.lists = append(s.lists, vec{})
+	s.bits = append(s.bits, vec{})
+	s.done.push(s.a, 0)
 	s.nodeRep.push(s.a, uint64(n))
 	s.nodeEdges.push(s.a, 0)
 	s.nodeCons.push(s.a, 0)
@@ -92,35 +98,55 @@ func (s *solver) find(n uint32) uint32 {
 	}
 }
 
-func (s *solver) pts(n uint32) domain.SetID  { return domain.SetID(uint32(s.nodeSets.s[n])) }
-func (s *solver) done(n uint32) domain.SetID { return domain.SetID(uint32(s.nodeSets.s[n] >> 32)) }
+// pts is the list of the tokens node n holds. The slice stays valid (and
+// unchanged below its length) while the node grows.
+func (s *solver) pts(n uint32) []uint64 { return s.lists[n].s }
 
-func (s *solver) setSets(n uint32, pts, done domain.SetID) {
-	s.nodeSets.s[n] = uint64(pts) | uint64(done)<<32
+// has reports whether node n holds token id.
+func (s *solver) has(n uint32, id uint64) bool {
+	b := s.bits[n].s
+	w := int(id / 64)
+	return w < len(b) && b[w]&(1<<(id%64)) != 0
+}
+
+// addID adds token id to node n and reports whether it was new.
+func (s *solver) addID(n uint32, id uint64) bool {
+	if s.has(n, id) {
+		return false
+	}
+	w := int(id / 64)
+	if w >= len(s.bits[n].s) {
+		s.bits[n].resize(s.a, max(w+1, 2*len(s.bits[n].s)))
+	}
+	s.bits[n].s[w] |= 1 << (id % 64)
+	s.lists[n].push(s.a, id)
+	return true
 }
 
 func (s *solver) nodeKind(n uint32) int { return int(s.nodeInfo.s[n] & 0xff) }
 
-// addTokens adds a set to node n and queues it if it grew.
-func (s *solver) addTokens(n uint32, set domain.SetID) bool {
+// addTokens adds tokens to node n and queues it if it grew.
+func (s *solver) addTokens(n uint32, ids []uint64) bool {
 	n = s.find(n)
-	if set == domain.Empty {
-		return false
+	grew := false
+	for _, id := range ids {
+		if s.addID(n, id) {
+			grew = true
+		}
 	}
-	old := s.pts(n)
-	u := s.sets.Union(old, set)
-	if u == old {
-		return false
+	if grew {
+		s.enqueue(n)
 	}
-	s.setSets(n, u, s.done(n))
-	s.enqueue(n)
-	return true
+	return grew
 }
 
 func (s *solver) addTok(n uint32, t tok) bool {
-	id := s.intern(t)
-	s.scratch1[0] = id
-	return s.addTokens(n, s.sets.Intern(s.scratch1[:]))
+	n = s.find(n)
+	if !s.addID(n, s.intern(t)) {
+		return false
+	}
+	s.enqueue(n)
+	return true
 }
 
 func (s *solver) enqueue(n uint32) {
@@ -175,15 +201,15 @@ func (s *solver) addCons(n uint32, kind int, a, b uint64) {
 	s.cons.push(s.a, b)
 	s.cons.push(s.a, s.nodeCons.s[n])
 	s.nodeCons.s[n] = c + 1
-	for _, id := range s.sets.Elems(s.pts(n)) {
-		s.fire(n, c, id)
+	for i := 0; i < len(s.lists[n].s); i++ {
+		s.fire(n, c, s.lists[n].s[i])
 	}
 }
 
 // sendAlong applies edge e to the token set d and adds the result to its
 // target.
-func (s *solver) sendAlong(e uint64, d domain.SetID) {
-	if d == domain.Empty {
+func (s *solver) sendAlong(e uint64, d []uint64) {
+	if len(d) == 0 {
 		return
 	}
 	w := s.edges.s[e*edgeWords : e*edgeWords+edgeWords]
@@ -195,7 +221,7 @@ func (s *solver) sendAlong(e uint64, d domain.SetID) {
 		return
 	}
 	s.buf.s = s.buf.s[:0]
-	for _, id := range s.sets.Elems(d) {
+	for _, id := range d {
 		s.transform(x, s.tokAt(id))
 	}
 	if why != 0 && s.nodeKind(m) == nkPlace {
@@ -204,7 +230,7 @@ func (s *solver) sendAlong(e uint64, d domain.SetID) {
 		}
 	}
 	if len(s.buf.s) > 0 {
-		s.addTokens(m, s.sets.Intern(s.buf.s))
+		s.addTokens(m, s.buf.s)
 	}
 }
 
@@ -281,13 +307,13 @@ func (s *solver) run() {
 
 func (s *solver) process(n uint32) {
 	pts := s.pts(n)
-	d := s.sets.Diff(pts, s.done(n))
-	if d == domain.Empty {
+	d := pts[s.done.s[n]:]
+	if len(d) == 0 {
 		return
 	}
-	s.setSets(n, pts, pts)
+	s.done.s[n] = uint64(len(pts))
 	for c := s.nodeCons.s[n]; c != 0; c = s.cons.s[(c-1)*consWords+3] {
-		for _, id := range s.sets.Elems(d) {
+		for _, id := range d {
 			s.fire(n, c-1, id)
 		}
 		if s.find(n) != n {
@@ -311,11 +337,24 @@ func (s *solver) lazyCycle(n uint32, e uint64) {
 		return
 	}
 	m := s.find(uint32(w[0]))
-	if s.noCollapse || m == n || s.nodeKind(n) != nkReg || s.nodeKind(m) != nkReg || s.pts(n) != s.pts(m) {
+	if s.noCollapse || m == n || s.nodeKind(n) != nkReg || s.nodeKind(m) != nkReg || !s.sameSet(n, m) {
 		return
 	}
 	w[4] |= 1
 	s.collapseFrom(m)
+}
+
+// sameSet reports whether nodes n and m hold the same tokens.
+func (s *solver) sameSet(n, m uint32) bool {
+	if len(s.lists[n].s) != len(s.lists[m].s) {
+		return false
+	}
+	for _, id := range s.lists[n].s {
+		if !s.has(m, id) {
+			return false
+		}
+	}
+	return true
 }
 
 // collapseFrom runs Tarjan's algorithm over the identity edges between
@@ -395,7 +434,10 @@ func (s *solver) merge(a, b uint32) {
 		return
 	}
 	s.nodeRep.s[b] = uint64(a)
-	s.setSets(a, s.sets.Union(s.pts(a), s.pts(b)), domain.Empty)
+	for _, id := range s.lists[b].s {
+		s.addID(a, id)
+	}
+	s.done.s[a] = 0
 	s.nodeEdges.s[a] = s.appendList(s.nodeEdges.s[a], s.nodeEdges.s[b], s.edges.s, edgeWords)
 	s.nodeCons.s[a] = s.appendList(s.nodeCons.s[a], s.nodeCons.s[b], s.cons.s, consWords)
 	s.merged++

@@ -55,7 +55,11 @@ func canonSummary(b *strings.Builder, ps domain.Paths, s *summary.Summary) {
 	}
 	for i, r := range s.Res {
 		for _, rk := range r.From {
-			res = append(res, fmt.Sprintf("%d: %s at %s", i, CanonKey(ps, rk.Key), CanonPath(ps, rk.Field)))
+			ge := ""
+			if rk.FieldGE {
+				ge = "+"
+			}
+			res = append(res, fmt.Sprintf("%d: %s at %s%s", i, CanonKey(ps, rk.Key), CanonPath(ps, rk.Field), ge))
 		}
 		for _, p := range r.Heap {
 			res = append(res, fmt.Sprintf("%d: heap at %s", i, CanonPath(ps, p)))

@@ -16,6 +16,8 @@
 package refsolve
 
 import (
+	"fmt"
+
 	"sort"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
@@ -29,12 +31,38 @@ import (
 // summary.Widen exists.
 var widen = summary.Widen
 
+// The bounds of one reference solve: a case past them is a defect (of the
+// rules, the generator or the solver) to be reported with its seed, never a
+// reason to grow without end.
+const (
+	MaxPasses = 10000
+	MaxValues = 200_000
+)
+
+// size is the number of tagged tokens the state holds.
+func (s *solver) size() int {
+	n := 0
+	for _, v := range s.regs {
+		n += len(v)
+	}
+	for _, v := range s.places {
+		n += len(v)
+	}
+	return n
+}
+
 // Solve has the signature of solve.Solve, without the workspace: the
 // reference solver allocates freely. It applies every rule to every
 // instruction until a whole pass adds nothing.
 func Solve(f *eir.Func, env solve.Env) solve.Result {
 	s := newSolver(f, env)
-	for {
+	for pass := 0; ; pass++ {
+		if pass > MaxPasses {
+			panic(fmt.Sprintf("escape2/refsolve: no fixed point after %d passes", MaxPasses))
+		}
+		if n := s.size(); n > MaxValues {
+			panic(fmt.Sprintf("escape2/refsolve: %d tagged tokens, past %d", n, MaxValues))
+		}
 		s.changed = false
 		for _, b := range f.Blocks {
 			for i := range b.Instrs {

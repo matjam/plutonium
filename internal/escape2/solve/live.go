@@ -67,10 +67,10 @@ func (s *solver) checkDrops() {
 
 // holds reports whether register r may hold a pointer into object o.
 func (s *solver) holds(r, o uint32) bool {
-	if r == 0 || int(r) >= len(s.nodeSets.s) {
+	if r == 0 || int(r) >= len(s.nodeRep.s) {
 		return false
 	}
-	for _, id := range s.sets.Elems(s.pts(s.find(r))) {
+	for _, id := range s.pts(s.find(r)) {
 		if t := s.tokAt(id); t.kind == tObj && t.base == o {
 			return true
 		}

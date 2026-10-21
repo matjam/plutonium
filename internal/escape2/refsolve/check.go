@@ -138,8 +138,33 @@ func (s *solver) addEsc(k domain.Key) {
 }
 
 func (s *solver) addStore(p summary.StorePair) {
-	if !s.stores[p] {
-		s.stores[p] = true
-		s.changed = true
+	in := p.Src.Input()
+	if s.storeCut[in] {
+		p = summary.StorePair{Src: summary.CutKey(s.ps, p.Src), Dst: summary.CutKey(s.ps, p.Dst)}
+	}
+	if s.stores[p] {
+		return
+	}
+	s.stores[p] = true
+	s.changed = true
+	if s.storeCut[in] {
+		return
+	}
+	n := 0
+	for q := range s.stores {
+		if q.Src.Input() == in {
+			n++
+		}
+	}
+	if n > summary.MaxRawStorePerInput {
+		// rules.go, "The summary": past the raw cap, the input's pairs
+		// are cut, those so far and those to come.
+		s.storeCut[in] = true
+		for q := range s.stores {
+			if q.Src.Input() == in {
+				delete(s.stores, q)
+				s.stores[summary.StorePair{Src: summary.CutKey(s.ps, q.Src), Dst: summary.CutKey(s.ps, q.Dst)}] = true
+			}
+		}
 	}
 }

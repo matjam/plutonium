@@ -98,15 +98,19 @@ func coveredPair(ps domain.Paths, p StorePair, by []StorePair) bool {
 	return false
 }
 
-// resultCovers reports whether result key a covers b.
+// resultCovers reports whether result key a covers b: a's key covers b's,
+// and a's field holds b's (the same field, a FieldGE b does not exceed, or a
+// prefix of it with FieldGE). A GE key stands anywhere under its field too:
+// what it leads to is placed with GE tags (rules.go, reach).
 func resultCovers(ps domain.Paths, a, b ResultKey) bool {
 	if !domain.Covers(ps, a.Key, b.Key) {
 		return false
 	}
+	anywhere := a.FieldGE || a.Key.GE()
 	if a.Field == b.Field {
-		return true
+		return anywhere || !b.FieldGE
 	}
-	return a.Key.GE() && ps.HasPrefix(b.Field, a.Field)
+	return anywhere && ps.HasPrefix(b.Field, a.Field)
 }
 
 func coveredResult(ps domain.Paths, rk ResultKey, by []ResultKey) bool {
@@ -151,10 +155,20 @@ func Widen(ps domain.Paths, s *Summary) {
 	}
 }
 
-// cutKey is the widening of one key: its path cut, GE set.
-func cutKey(ps domain.Paths, k domain.Key) domain.Key {
+// MaxRawStorePerInput bounds the distinct store pairs of one input (by its
+// source) a solver collects before Widen: past it, the input's pairs are
+// cut (CutKey on both keys) as they are collected. A store of a value of n
+// keys through m pointers makes n*m pairs, which Widen would cut anyway;
+// cutting them as they come keeps a solve's memory bounded (rules.go, "The
+// summary").
+const MaxRawStorePerInput = 8 * MaxStorePerInput
+
+// CutKey is the widening of one key: its path cut, GE set.
+func CutKey(ps domain.Paths, k domain.Key) domain.Key {
 	return k.WithPath(ps.Cut(k.Path()), true)
 }
+
+func cutKey(ps domain.Paths, k domain.Key) domain.Key { return CutKey(ps, k) }
 
 // rootKey covers every key of k's input with k's flags.
 func rootKey(k domain.Key) domain.Key {
@@ -343,13 +357,17 @@ func antichainResults(ps domain.Paths, from []ResultKey) []ResultKey {
 		if c := cmpU64(uint64(a.Key), uint64(b.Key)); c != 0 {
 			return c
 		}
-		return cmpU64(uint64(a.Field), uint64(b.Field))
+		if c := cmpU64(uint64(a.Field), uint64(b.Field)); c != 0 {
+			return c
+		}
+		return cmpBool(a.FieldGE, b.FieldGE)
 	})
 	var out []ResultKey
 	for i, rk := range sorted {
 		covered := false
 		for j, o := range sorted {
-			if j != i && resultCovers(ps, o, rk) && (o != rk || j < i) {
+			// o covers rk strictly, or they cover each other and o comes first.
+			if j != i && resultCovers(ps, o, rk) && (!resultCovers(ps, rk, o) || j < i) {
 				covered = true
 				break
 			}
@@ -369,6 +387,16 @@ func sortedPaths(ps []domain.PathID) []domain.PathID {
 func sortedInts(xs []int) []int {
 	slices.Sort(xs)
 	return slices.Compact(xs)
+}
+
+func cmpBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case b:
+		return -1
+	}
+	return 1
 }
 
 func cmpU64(a, b uint64) int {

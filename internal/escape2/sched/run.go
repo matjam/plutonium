@@ -16,6 +16,7 @@ import (
 var (
 	solveFunc = solve.Solve
 	leq       = summary.Leq
+	joinSums  = summary.Join
 	newPaths  = domain.NewPaths
 	newArena  = domain.NewArena
 	newSets   = domain.NewSets
@@ -147,7 +148,15 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			// Nothing a solve builds outlives it but its result: copy the
 			// summary out and reset the workspace, so that memory is that
 			// of the largest solve, not the sum of an SCC's iterations.
-			env.sums[id] = clone(r.Summary)
+			// The new summary is joined with the previous one: solving is
+			// not monotone in the summaries it reads where paths are cut
+			// (summary.Join), and the join makes the iteration climb, so it
+			// stops at a post-fixed point.
+			if prev == nil {
+				env.sums[id] = clone(r.Summary)
+			} else {
+				env.sums[id] = joinSums(env.paths, prev, r.Summary)
+			}
 			env.virt.changed()
 			if b := arena.Bytes(); b > st.ArenaBytes {
 				st.ArenaBytes = b

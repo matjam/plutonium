@@ -222,7 +222,11 @@ func (e *testEnv) describe(s *summary.Summary) string {
 	}
 	for r, res := range s.Res {
 		for _, rk := range res.From {
-			parts = append(parts, fmt.Sprintf("res%d%s %s", r, e.paths.String(rk.Field), e.keyString(rk.Key)))
+			ge := ""
+			if rk.FieldGE {
+				ge = "~"
+			}
+			parts = append(parts, fmt.Sprintf("res%d%s%s %s", r, e.paths.String(rk.Field), ge, e.keyString(rk.Key)))
 		}
 		if len(res.Heap) > 0 {
 			parts = append(parts, fmt.Sprintf("res%d heap", r))

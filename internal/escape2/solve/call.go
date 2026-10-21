@@ -126,15 +126,18 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		dst := uint32(c.Results[r])
 		for _, rk := range res.From {
 			if v, ok := val(rk.Key); ok {
-				s.addEdge(v, dst, xw(xPre, rk.Field, false), 0)
+				f, ge := s.fieldPath(rk.Field, rk.FieldGE)
+				s.addEdge(v, dst, xw(xPre, f, ge), 0)
 			}
 		}
 		// Heap at field F, anywhere under it: the summary does not say
 		// how deep the callee's heap pointer sat.
 		for _, f := range res.Heap {
+			f, _ = s.fieldPath(f, true)
 			s.addTok(dst, tok{kind: tHeap, tag: f, tagGE: true})
 		}
 		for _, f := range res.CountedHeap {
+			f, _ = s.fieldPath(f, true)
 			s.addTok(dst, tok{kind: tCHeap, tag: f, tagGE: true})
 		}
 	}
@@ -145,6 +148,15 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		reg := s.region(c)
 		s.addTok(uint32(c.Results[r]), tok{kind: tObj, base: reg, ge: true, tagGE: true})
 	}
+}
+
+// fieldPath is a summary's result field as a tag: a path with a load step
+// is no field path, and is taken as Root, anywhere (rules.go, OpCall).
+func (s *solver) fieldPath(f domain.PathID, ge bool) (domain.PathID, bool) {
+	if s.ps.Loads(f) > 0 {
+		return domain.Root, true
+	}
+	return f, ge
 }
 
 // applyDefault applies the default of a bodyless function without a

@@ -1,9 +1,11 @@
 package refsolve
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 )
@@ -52,10 +54,42 @@ func TestDifferential(t *testing.T) {
 	if !Available() {
 		t.Skip("solve.Solve or domain is not built yet")
 	}
-	for seed := int64(0); seed < int64(cases()); seed++ {
+	from := int64(0)
+	if v, err := strconv.Atoi(os.Getenv("REFSOLVE_FROM")); err == nil {
+		from = int64(v)
+	}
+	trace := os.Getenv("REFSOLVE_TRACE") != ""
+	for seed := from; seed < from+int64(cases()); seed++ {
+		if trace {
+			fmt.Fprintln(os.Stderr, "seed", seed)
+		}
 		c := Random(seed, domain.NewPaths())
-		if d := Compare(c); d != "" {
+		if d := compareBounded(c); d != "" {
 			t.Fatalf("solve and refsolve differ on seed %d:\n%s\n%s", seed, d, c.Dump())
 		}
+	}
+}
+
+// caseTime bounds one case of the differential test.
+const caseTime = 20 * time.Second
+
+// compareBounded is Compare, with a bound passed (a panic of either solver
+// or of the capped arena, or caseTime) reported as a difference, so the seed
+// is named. A case past caseTime is left running; the test fails at once.
+func compareBounded(c *Case) string {
+	done := make(chan string, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Sprintf("bound or panic: %v", r)
+			}
+		}()
+		done <- Compare(c)
+	}()
+	select {
+	case d := <-done:
+		return d
+	case <-time.After(caseTime):
+		return fmt.Sprintf("time bound: the case ran past %v", caseTime)
 	}
 }

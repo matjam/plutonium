@@ -136,3 +136,15 @@ func TestReviews(t *testing.T) {
 		})
 	}
 }
+
+// main.(*Tree).Insert of testdata/run/gentypes.p, recursive through its
+// left and right subtrees, did not converge in its SCC: its store pairs grew
+// past the load limit, were cut back, and the solve against the cut summary
+// lost what the cut covered, so the summary went back and forth. The
+// scheduler now joins each new summary with the previous one (summary.Join).
+func TestTreeInsertConverges(t *testing.T) {
+	prog := loadFile(t, "../../../testdata/run/gentypes.p")
+	if err := escape2.Check(prog); err != nil && strings.Contains(err.Error(), "internal compiler error") {
+		t.Fatal(err)
+	}
+}
