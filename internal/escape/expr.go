@@ -85,7 +85,7 @@ func (w *walker) argumentHolders(v tset, x ast.Expr, T types2.Type, identity str
 		}
 		out.add(t)
 	}
-	return out.set
+	return out.done()
 }
 
 func (w *walker) argumentHolder(x ast.Expr, T types2.Type, path string) *loc {
@@ -148,7 +148,7 @@ func borrowHolders(v tset) tset {
 		}
 		out.add(t)
 	}
-	return out.set
+	return out.done()
 }
 
 // varLoc returns the location of a local variable, creating it at the
@@ -352,7 +352,7 @@ func (w *walker) reach(ts tset) tset {
 		}
 		next = w.load(out.set[from:])
 	}
-	return out.set
+	return out.done()
 }
 
 // ----------------------------------------------------------------------------
@@ -808,7 +808,7 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 				}
 				out.add(t)
 			}
-			v = out.set
+			v = out.done()
 		}
 	}
 	if x, ok := node.(ast.Expr); ok && (isBoxPtr(from) || refNoun(from) != "") && !types2.IsOwner(to) && !countedError {
@@ -835,7 +835,7 @@ func (w *walker) conv(v tset, from, to types2.Type, node ast.Node) tset {
 			for _, t := range v {
 				out.add(t.untag().as(shapeOther))
 			}
-			return out.set
+			return out.done()
 		}
 		return v
 	}
@@ -924,7 +924,7 @@ func countedHeap(v tset) tset {
 		}
 		out.add(t)
 	}
-	return out.set
+	return out.done()
 }
 
 // countedErrorResult reports whether every instance of T keeps its own

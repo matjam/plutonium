@@ -152,7 +152,7 @@ func asShape(ts tset, s ptrShape) tset {
 	for _, t := range ts {
 		out.add(t.as(s))
 	}
-	return out.set
+	return out.done()
 }
 
 // valueType returns the type of what the location holds, as a whole.
@@ -244,7 +244,7 @@ func intoSet(ts tset, s ptrShape) tset {
 	for _, t := range ts {
 		out.add(t.into(s))
 	}
-	return out.set
+	return out.done()
 }
 
 // untag drops the field tag: the token as a pointer in its own right.
@@ -260,7 +260,7 @@ func tagField(ts tset, i int) tset {
 		t.tag = capFields(compat.Concat(fieldStep(i), t.tag))
 		out.add(t)
 	}
-	return out.set
+	return out.done()
 }
 
 // retag marks every token in ts with field path tag.
@@ -273,7 +273,7 @@ func retag(ts tset, tag string) tset {
 		t.tag = tag
 		out.add(t)
 	}
-	return out.set
+	return out.done()
 }
 
 // selectField returns the tokens of struct value ts that field i may hold.
@@ -289,7 +289,7 @@ func selectField(ts tset, i int) tset {
 			out.add(t)
 		}
 	}
-	return out.set
+	return out.done()
 }
 
 // capFields cuts a field path to maxFieldNest fields.
@@ -393,7 +393,7 @@ func (s *tset) addAll(u tset) bool {
 	}
 	b := tbuf{set: *s}
 	grew := b.addAll(u)
-	*s = b.set
+	*s = b.done()
 	return grew
 }
 
@@ -402,7 +402,7 @@ func union(sets ...tset) tset {
 	for _, s := range sets {
 		out.addAll(s)
 	}
-	return out.set
+	return out.done()
 }
 
 // A tbuf builds a tset: add keeps a hash index of the tokens once there are
@@ -424,7 +424,7 @@ func (b *tbuf) add(t tok) bool {
 			b.set = tset(compat.Append(b.set, t))
 			return true
 		}
-		b.idx = make(map[tok]struct{}, 4*len(b.set))
+		b.idx = newIndex(4 * len(b.set))
 		for _, u := range b.set {
 			b.idx[u] = struct{}{}
 		}
@@ -435,6 +435,58 @@ func (b *tbuf) add(t tok) bool {
 	b.idx[t] = struct{}{}
 	b.set = tset(compat.Append(b.set, t))
 	return true
+}
+
+// done returns the set the buffer built and gives its hash index back for
+// another buffer to reuse; the buffer must not be used again. Without the
+// reuse, the indexes were most of what the analysis allocated: a map for
+// every set of indexMin tokens or more, built and dropped (the translated
+// compiler frees nothing, self-hosting plan section 3.4).
+func (b *tbuf) done() tset {
+	if b.idx != nil {
+		putIndex(b.idx)
+		b.idx = nil
+	}
+	return b.set
+}
+
+// indexPool holds hash indexes given back by tbuf.done, cleared.
+var indexPool struct {
+	mu   compat.Mutex
+	maps []map[tok]struct{}
+}
+
+// indexPoolMax bounds the pool, and indexKeepMax the size of an index
+// worth keeping: clearing a map takes time in proportion to its capacity,
+// so a large one is left to the collector.
+const (
+	indexPoolMax = 64
+	indexKeepMax = 4096
+)
+
+// newIndex returns an empty index for n tokens or more.
+func newIndex(n int) map[tok]struct{} {
+	indexPool.mu.Lock()
+	defer indexPool.mu.Unlock()
+	if k := len(indexPool.maps); k > 0 {
+		m := indexPool.maps[k-1]
+		indexPool.maps = indexPool.maps[:k-1]
+		return m
+	}
+	return make(map[tok]struct{}, n)
+}
+
+// putIndex gives an index back to the pool.
+func putIndex(m map[tok]struct{}) {
+	if len(m) > indexKeepMax {
+		return
+	}
+	clear(m)
+	indexPool.mu.Lock()
+	defer indexPool.mu.Unlock()
+	if len(indexPool.maps) < indexPoolMax {
+		indexPool.maps = compat.Append(indexPool.maps, m)
+	}
 }
 
 // addAll adds every token of u and reports whether any was new.
@@ -622,7 +674,7 @@ func (l *loc) get(p string) tset {
 			out.add(t)
 		}
 	}
-	return out.set
+	return out.done()
 }
 
 // A scope is the body of a declared function, a function literal inside

@@ -43,7 +43,7 @@ func (w *walker) call(e *ast.CallExpr) []tset {
 		for _, a := range e.Args {
 			out.addAll(w.conv(w.value(a), w.typeOf(a), v.Payload(), a))
 		}
-		return []tset{out.set}
+		return []tset{out.done()}
 	}
 	if tv.IsBuiltin() {
 		return w.builtin(e)
@@ -301,7 +301,7 @@ func (e *argEval) of(k pkey, raw tset) tset {
 				}
 				out.add(t)
 			}
-			v = out.set
+			v = out.done()
 		}
 	}
 	return v
@@ -418,7 +418,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		for _, key := range keys {
 			out.add(tok{kind: tHeap, tag: key.tag, counted: key.counted})
 		}
-		res[i] = out.set
+		res[i] = out.done()
 	}
 	return res
 }
@@ -577,7 +577,7 @@ func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []t
 func bufSets(bs []tbuf) []tset {
 	out := make([]tset, len(bs))
 	for i := range bs {
-		out[i] = bs[i].set
+		out[i] = bs[i].done()
 	}
 	return out
 }
@@ -615,7 +615,7 @@ func filterRecv(ts tset, f *function) tset {
 		}
 		out.add(t)
 	}
-	return out.set
+	return out.done()
 }
 
 // recvBase returns the type a method is declared on, without the pointer of a
@@ -670,7 +670,7 @@ func markRecv(a *analyzer, ts tset, f *function) tset {
 		}
 		out.add(t)
 	}
-	return out.set
+	return out.done()
 }
 
 // filterBoundRecv drops from what a closure record holds the pointers to
@@ -692,7 +692,7 @@ func filterBoundRecv(ts tset, T types2.Type) tset {
 		}
 		out.add(t)
 	}
-	return out.set
+	return out.done()
 }
 
 // dynFuncCall applies a call through a func value: the union of the

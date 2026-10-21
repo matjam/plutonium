@@ -23,7 +23,7 @@ func (w *walker) load(ts tset) tset {
 	for _, t := range ts {
 		loadTok(t, &out)
 	}
-	return out.set
+	return out.done()
 }
 
 // loadTok adds to out what the memory t points to may hold.
@@ -52,7 +52,7 @@ func offset(ts tset, i int) tset {
 	for _, t := range ts {
 		out.add(offsetTok(t, i))
 	}
-	return out.set
+	return out.done()
 }
 
 // offsetTok returns the pointer to field i of what t points to.
@@ -176,7 +176,7 @@ func (a *analyzer) filterDyn(ts tset, I types2.Type, _ int) tset {
 			out.add(t)
 		}
 	}
-	return out.set
+	return out.done()
 }
 
 // walkKey follows k's path from the pointers in ts, applying its type
@@ -194,9 +194,9 @@ func (w *walker) walkKey(ts tset, k pkey) tset {
 		w.walkTok(t, k, &d, 0, &out)
 	}
 	if !k.ge {
-		return out.set
+		return out.done()
 	}
-	return w.reach(out.set)
+	return w.reach(out.done())
 }
 
 // deriveKey follows a key from a pointer to a parameter of the caller and

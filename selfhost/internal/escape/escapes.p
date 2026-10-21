@@ -71,6 +71,9 @@ func (w *walker) applyEscapes(f *function, args []tset, cs *callSite, pos token.
 	var st *siteState
 	var base *viewErr
 	act := ""
+	// The buffer of fastKey, whose key is used before the next is derived.
+	// Declared once per call, not for every key: Go moves it to the heap.
+	buf := pu.Alloc[[64]byte]()
 	for i := range sum.escLog {
 		keys := &sum.escLog[i]
 		if i >= len(args) || keys.len() == 0 || len(args[i]) == 0 {
@@ -112,7 +115,6 @@ func (w *walker) applyEscapes(f *function, args []tset, cs *callSite, pos token.
 				if t.kind == tParam && !e.k.counts {
 					// A pointer to a parameter of the caller leads to one
 					// pointer or none, and only its key is needed.
-					buf := pu.Alloc[[64]byte]()
 					key, ok, once := w.fastKey(f, i, mode, structParam, t, e.k, buf)
 					if checkFast {
 						w.checkFastKey(argOf, e.k, (*one)[:], key, ok)
@@ -298,7 +300,7 @@ func (w *walker) checkFastKey(argOf *argEval, k pkey, one tset, key pkey, ok boo
 	}
 }
 
-// goClosure_reportEscapes_1 is the function literal at escapes.go:285, converted to a struct
+// goClosure_reportEscapes_1 is the function literal at escapes.go:287, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_reportEscapes_1 struct {
 	r *reason
