@@ -63,7 +63,7 @@ func corpus(t *testing.T) []corpusProgram {
 		files, _ := filepath.Glob(filepath.Join(root, "internal", d, "*.p"))
 		d := filepath.Base(d)
 		for _, f := range files {
-			out = append(out, corpusProgram{name: d + "/" + strings.TrimSuffix(filepath.Base(f), ".p"), file: f, rejected: true})
+			out = append(out, corpusProgram{name: d + "/" + strings.TrimSuffix(filepath.Base(f), ".p"), file: f, rejected: true, diag: true}) // some of review4 do not type-check
 		}
 	}
 	return out
