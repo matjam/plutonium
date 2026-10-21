@@ -97,6 +97,50 @@ func main() {
 }
 `, "quote.p:", "",
 	},
+	{
+		// testdata/run/gentypes.p: Insert's recursive store into t.left is
+		// cut at the limits to a GE destination, which in main also covers
+		// the key field's string. A string constant carries no pointer
+		// (eir's constReg), so its bytes are no heap destination for a
+		// frame pointer (with int keys it was accepted already).
+		"tree_string_keys", `package main
+
+type Tree[K interface{ ~int | ~string }, V any] struct {
+	left, right *Tree[K, V]
+	key         K
+	val         V
+}
+
+func (t *Tree[K, V]) Insert(k K, v V, store []Tree[K, V], n *int) *Tree[K, V] {
+	if t == nil {
+		node := &store[*n]
+		*n++
+		node.key, node.val = k, v
+		return node
+	}
+	switch {
+	case k < t.key:
+		t.left = t.left.Insert(k, v, store, n)
+	case k > t.key:
+		t.right = t.right.Insert(k, v, store, n)
+	default:
+		t.val = v
+	}
+	return t
+}
+
+func main() {
+	var storeArr [8]Tree[string, int]
+	store := storeArr[:]
+	var root *Tree[string, int]
+	n := 0
+	for i, k := range []string{"m", "c", "x"} {
+		root = root.Insert(k, i, store, &n)
+	}
+	println(n, root != nil)
+}
+`, "main.p:", "",
+	},
 }
 
 func TestLibraryControls(t *testing.T) {

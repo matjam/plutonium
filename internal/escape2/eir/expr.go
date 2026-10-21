@@ -51,13 +51,12 @@ func (fb *fnb) exprAs(e ast.Expr, T types2.Type) Reg {
 	return fb.convertReg(r, fb.typeOf(e), T, e.Pos())
 }
 
-// constReg is a constant's value: static memory for a string.
+// constReg is a constant's value: no pointer, a string's included. A string
+// constant's bytes are static and read-only: nothing can be stored in them,
+// they hold no pointer to load, and they outlive everything, so the
+// analysis has nothing to follow (a pointer to them would only be a heap
+// destination a widened store could reach, which no store can).
 func (fb *fnb) constReg(T types2.Type) Reg {
-	if T != nil {
-		if b, ok := unwrap(T).Underlying().(*types2.Basic); ok && b.Info()&types2.IsString != 0 {
-			return fb.heap(HeapStatic)
-		}
-	}
 	return 0
 }
 

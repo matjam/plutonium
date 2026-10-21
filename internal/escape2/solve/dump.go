@@ -166,7 +166,12 @@ func (s *solver) dump(res *summary.Summary) {
 			if k == 16 {
 				break
 			}
-			fmt.Fprintf(&b, "    esc %s\n", ks(e))
+			why := ""
+			if k < len(res.Reasons) {
+				r := res.Reasons[k]
+				why = fmt.Sprintf(" (site %d, callee %d, entry %d)", int32(r.Site), int32(r.Callee), int32(r.Entry))
+			}
+			fmt.Fprintf(&b, "    esc %s%s\n", ks(e), why)
 		}
 	} else {
 		fmt.Fprintf(&b, "  stopped at its limits\n")
