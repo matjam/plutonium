@@ -303,6 +303,10 @@ func isRegionDrop(c lower.Call) bool {
 // the program (drop glue, adapters, wrappers, the entry).
 func (o *oracle) owner(f *ssa.Func) (eir.FuncID, bool) {
 	origin := o.cf.Origin(f.Sym)
+	if eir.IsFmtWalk(origin.Obj) {
+		// Its EIR body is its contract (fmtwalk.go), not its source.
+		return eir.NoFunc, false
+	}
 	switch {
 	case origin.Lit != nil:
 		return o.p.Lookup(eir.FuncKey{Lit: origin.Lit}), true

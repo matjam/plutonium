@@ -648,6 +648,12 @@ func (fb *fnb) conversion(e *ast.CallExpr) Reg {
 			return fb.emitDst(Instr{Op: OpCompose, Args: []Reg{fb.load(fb.elem(v), arr.Elem())}, Fields: [][]int{{ElemStep}}, Type: to, Pos: e.Pos()})
 		}
 	}
+	if isUnsafePointer(from) && pointerElem(to) != nil {
+		// An unsafe.Pointer made a *T: it may point anywhere in the object
+		// (an offset made with unsafe.Add, or a reinterpretation, such as
+		// a slice header read as a struct).
+		return fb.field(v, AnyStep)
+	}
 	return v
 }
 
@@ -738,6 +744,10 @@ func (fb *fnb) builtin(e *ast.CallExpr) ([]Reg, []types2.Type) {
 		p := fb.expr(e.Args[0])
 		for _, a := range e.Args[1:] {
 			fb.expr(a)
+		}
+		if bi.Name() == "Add" {
+			// An offset that is not known: anywhere in the object.
+			p = fb.field(p, AnyStep)
 		}
 		return one(p)
 	case "complex", "real", "imag":

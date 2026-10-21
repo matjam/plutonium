@@ -11,6 +11,10 @@ import (
 
 // buildDecl builds a declared function's body.
 func (b *builder) buildDecl(f *Func, d *declRef) {
+	if IsFmtWalk(f.Key.Obj) {
+		b.fmtWalkBody(f, d) // its contract (fmtwalk.go)
+		return
+	}
 	fb := b.newFnb(f, d.pkg, nil)
 	fb.addressed = b.addressedIn(d.decl)
 	fb.bodyNode = d.decl.Body

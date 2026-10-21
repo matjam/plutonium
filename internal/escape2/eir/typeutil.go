@@ -82,6 +82,16 @@ func isTypeParam(T types2.Type) bool {
 	return ok
 }
 
+// isUnsafePointer reports whether T is unsafe.Pointer (or a type defined
+// from it).
+func isUnsafePointer(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	b, ok := unwrap(T).Underlying().(*types2.Basic)
+	return ok && b.Kind() == types2.UnsafePointer
+}
+
 // isInterface reports whether T's underlying type is an interface (a type
 // parameter is not).
 func isInterface(T types2.Type) bool {

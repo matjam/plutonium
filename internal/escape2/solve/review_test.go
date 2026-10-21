@@ -26,12 +26,6 @@ import (
 
 // knownGaps are the programs not rejected yet, with the reason.
 var knownGaps = map[string]string{
-	// As written, the field is unexported, so fmt never calls String (Go's
-	// CanInterface): internal/escape's rejection is a false one, and its
-	// want.txt is that analysis's. With the field exported this analysis
-	// misses the store: fmt reaches the field through unsafe.Add, which EIR
-	// does not offset yet (an "any offset" step, agreed).
-	"review2/f38_fmt_named_slice_type_string": "fmt: unexported field (a control as written); unsafe.Add offsets",
 	// The contract table gives rt.ReleaseValues and ZeroValues no effects,
 	// though they run the elements' Drop methods.
 	"review3/o14_drop_in_vec_of_owners_local": "contract: ReleaseValues/ZeroValues run element drops",
