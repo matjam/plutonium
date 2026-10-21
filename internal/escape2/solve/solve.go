@@ -899,7 +899,7 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		p, cut := s.pathOf(s.steps(in.Path))
 		s.addTok(dst, tok{kind: tObj, base: o, path: p, ge: cut})
 	case eir.OpHeap:
-		if in.Heap == eir.HeapCounted {
+		if in.Heap == eir.HeapCounted || in.Heap == eir.HeapCountedCurrent {
 			s.addTok(dst, tok{kind: tCHeap})
 		} else {
 			s.addTok(dst, heapTok)

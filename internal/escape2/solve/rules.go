@@ -176,7 +176,8 @@ package solve
 // # One rule per instruction
 //
 //	OpAddr       Dst ⊇ <Obj(Obj, Path, cut), Root, false> (Heap if LifeHeap)
-//	OpHeap       Dst ⊇ <Heap, Root, false>; <CHeap, ...> for HeapCounted
+//	OpHeap       Dst ⊇ <Heap, Root, false>; <CHeap, ...> for HeapCounted and
+//	             HeapCountedCurrent (HeapCurrent is Heap)
 //	OpInput      Dst ⊇ <In(Index, Root, false), Root, false>
 //	OpLoad       Dst ⊇ load(X), or, when the location read is a heap-only
 //	             field, Dst ⊇ <Heap, Root, false> whatever X holds (the field class comes from X's definition:

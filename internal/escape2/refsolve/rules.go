@@ -98,10 +98,10 @@ func (s *solver) ruleAddr(in *eir.Instr) {
 	s.def(in.Dst, single(ptr(tok{kind: kObj, id: int(in.Obj), path: p, ge: cut})))
 }
 
-// OpHeap: Dst ⊇ <Heap, Root, false>; <CHeap, ...> for HeapCounted.
+// OpHeap: Dst ⊇ <Heap, Root, false>; <CHeap, ...> for HeapCounted and HeapCountedCurrent.
 func (s *solver) ruleHeap(in *eir.Instr) {
 	k := kHeap
-	if in.Heap == eir.HeapCounted {
+	if in.Heap == eir.HeapCounted || in.Heap == eir.HeapCountedCurrent {
 		k = kCHeap
 	}
 	s.def(in.Dst, single(ptr(tok{kind: k})))
