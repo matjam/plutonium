@@ -843,7 +843,7 @@ Sizes are in lines written or changed, not in time.
 | 5 | `lower` (closure conversion for `funcJob`, intrinsics table, constants) | 22,644 translated (the 5,766 of the inventory predates the counted-error, region, shutdown and C ABI work), ~400 by hand | mechanical plus conversion | high | constant package, go2pu closure conversion, and the packages lower imports: `types2`, `diag`, `directive`, `scoped`, `load`, `moves`, `escape` (about 55,000 more lines) | go2pu closure conversion and the move to `internal/constant` done; the translation builds (`selfhost/demo/lowerdemo`) and lowers the programs of the repository to the SSA the Go lowerer writes (Update 2026-10-20, below) |
 | 6 | Constant package | 2,500-3,500 | hand | medium | - | done in Go (`internal/constant`, 2,800 lines, differential against go/constant; roadmap item 56); the quoting prerequisite is complete; translated and differentially tested (2026-10-19; below) |
 | 7 | `types2` (constants, `later` conversion, sync stubs, iterators, hashing) | 30,055 translated, 300-500 by hand | mechanical plus conversion | high (size, recursion depth, performance) | 5, 6, itab lookup | the translation builds and type-checks the repository's packages with the same results as the Go build (`TestTypeCheck`; Update 2026-10-20, below) |
-| 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 | not started |
+| 8 | `load`, `build`, `cmd/pluto`; stage 1, 2, 3 on Linux; bootstrap check in CI; cutover | 1,900 by hand | hand | medium | 1, 7 | the driver and stage 1 are done (pluto1 builds the corpus byte-identically); stage 2 needs about 1.4 TB and waits for the escape analysis redesign (Phase 8 status, below) |
 | 9 | PlutoniumOS: target and OS layer, integrated assembler and linker, cross-built seed, on-system rebuild | 5,000+ | hand | high | 8, kernel system calls | not started |
 | later | Formatter (`printer`, `format`, `diff`, `tabwriter`, `go/doc/comment`); idiomatic cleanup replacing compat; performance | 4,534 translated + 2,100 library | mixed | low | 8 | not started |
 
@@ -1043,6 +1043,82 @@ where it counts, so a closure that a function passes to another, or stores in a 
 functions "keep" it. The translation works around it by turning such closures into structs go2pu and by hand; a
 second kind of fix (flow-sensitive tracking of region records in `lower`'s closure analysis) would make the Go
 sources freer of such changes.
+
+Phase 8 status (2026-10-20). **The driver and stage 1 are done; stage 2 does not fit in memory and waits for the
+escape analysis redesign** (owner decision: bottom-up summaries per strongly connected component, with bounded
+memory that can be reclaimed).
+
+- The driver. `internal/build` is translated by go2pu (`test.go`, `pluto test`'s main, is left out). The
+  operating-system code that the library does differently is in files of its own, each with a hand-written
+  Plutonium counterpart: `tool.go`/`tool.p` runs `as`, `cc` and `ld` with `pluto/os/exec`, and
+  `percpu.go`/`percpu.p` reads the kernel's ELF symbol table. `debuginfo.Table` names files through a
+  `FileNamer` interface, not a func field the translation could not store. `tools/go2pu/testdata/pluto` is the
+  driver without cobra: `build`, `run` and `version`, with `cmd/pluto`'s flags, usage text and errors
+  (`TestDriverMatchesCmd` compares the two on flag errors, help, a compile error and a build and run). It is
+  translated into `selfhost/cmd/pluto`. The hand-written `stdlib.p` uses `$PLUTOROOT`, or a `lib` beside the
+  executable or one level above it, because Plutonium cannot embed a directory. The hand-written `sys.p` runs
+  the built program and holds the listing file.
+- Stage 1. `go run ./tools/bootstrap -stages 1 -corpus` builds `selfhost/cmd/pluto` with the Go-hosted compiler
+  into `pluto1`. It then requires pluto1 and the Go-hosted compiler to give byte-identical executables,
+  diagnostics and exit statuses on 398 programs: the examples, `testdata/run` and `trace`, a third of
+  `testdata/lib`, the kernel and C ABI programs, and the diagnostics programs, each at -O0 and -O2, with
+  `--brief` added for the diagnostics. Result: 942 builds, identical. One known difference remains: the owner
+  fix of `diag/owners` is printed as source only where the printer exists (`knownDifferences`). The port found
+  one difference and fixed it: a string literal whose escapes are not valid UTF-8 was reported as a malformed
+  constant. `TestStage1` (`tools/bootstrap`, `GO2PU_SLOW=1`) runs the stage and the check. pluto1 takes on
+  average 13 s a build (Go: about 1 s).
+- Building the compiler. The Go-hosted compiler builds `selfhost/cmd/pluto` (126,562 lines of compiler source,
+  plus the library) at -O2 in 1,176 to 1,426 s, with a peak resident size of 19.5 to 19.7 GB. Under an 11 GB
+  cap (`GOGC=50 GOMEMLIMIT=10000MiB`) it takes 1,711 s, of which 10,464 s is CPU time, most of it collection,
+  with a 10.3 GB peak. The phases (stack samples): load and type checking under 0.1%, escape analysis 88 to 91%,
+  moves, race and lowering 7 to 10% (lowering's `searchSpawn` and `mayHoldFunc` stand out), optimisation, code
+  generation and linking about 2%. The resident size peaks at the end of the escape analysis, then falls to
+  about 2 GB.
+- Where the memory goes. That build allocates **1.72 TB** in all (pprof `alloc_space`). Of this,
+  `escape.(*tbuf).add` is 1.29 TB (75%): 600 GB are the hash indexes of token sets past 12 tokens, built and
+  dropped for every set, and 718 GB are the growth of the sets themselves (from `borrowHolders`, `walkTok`,
+  `reach`, `loadTok` and `selectField`). `applyEscapes` allocated 267 GB (15%): a 64-byte key buffer moved to
+  the heap for every key it applied. The live heap is under about 9 GB.
+- pluto1's memory. The translation allocates as Go does, and the arena frees only what the program frees
+  itself. pluto1's peak is therefore 0.78 to 0.82 times the total the Go-hosted compiler allocates for the
+  same program, measured with -O2 and `--gencheck=false`, output byte-identical:
+
+  | Program | Lines of compiler source | Go-hosted: wall, peak, total allocated | pluto1: wall, peak |
+  |---|---:|---|---|
+  | `constdemo` | 4,570 | 2.7 s, 0.19 GB, 1.7 GB | 11.8 s, 1.35 GB |
+  | `parsecheck` | 10,388 | 4.2 s, 0.27 GB, 2.4 GB | 18.8 s, 1.9 GB |
+  | `ssaback` | 19,132 | 10 s, 0.43 GB, 5.3 GB | 125 s, 4.4 GB |
+  | `typecheck` | 56,228 | 199 s, 3.9 GB, 248 GB | killed at 11 GB after 80 s |
+  | `cmd/pluto` | 126,562 | 1,176-1,711 s, 10-20 GB, 1.72 TB | stage 2: about 1.4 TB predicted |
+
+  Uncapped attempts confirm it: stage 2 passed 20 GB after 400 s, all of it in the escape analysis.
+- Allocation fixes so far (exact; escapedigest gives the same digest for the 962 builds of the corpus). Token
+  set indexes are reused from a pool (`tbuf.done`), and `applyEscapes` declares its key buffer once per call.
+  Building `typecheck` now allocates 139 GB instead of 248 GB and takes 152 s instead of 199 s. That is about
+  half, nowhere near enough for stage 2.
+- Generation checks. A checked pluto1 is about 9 times slower than an unchecked one (`hello` at -O2: 52 s
+  against 6 s; the Go-hosted compiler takes 1.4 s). The runtime's generation directory (`genPage`,
+  `lib/pluto/rt/gen_directory_on.p`) finds a 64 KiB interval through a chain in one of 4,096 hash buckets, so
+  each checked access costs more as the heap grows: about 6 entries a chain at 1.6 GB, about 75 at 20 GB. The
+  bootstrap stages build with `--gencheck=false` (`tools/bootstrap -flags "-O2 --gencheck=false"`), and
+  `-pluto1 file` starts the later stages from a stage 1 compiler built before.
+- Why the other fixes considered do not fit in 22 GB:
+  - Scratch reuse alone (above) halves the allocation.
+  - A per-function scratch arena only for the token sets and indexes (75%) leaves about 170 GB of other
+    allocation in Go terms, about 135 GB in pluto1.
+  - A per-function arena for the whole walk would bound memory. But the summaries keep reasons whose text is
+    built later, by closures that capture the walker's objects (`viewErr`, locations, scopes); `siteState`
+    keys hold token path strings; and functions, filters and `f.tracked` are created during the walk. Every
+    such lasting write, about 140 sites and what they reference, would have to copy into lasting memory, in
+    soundness-critical code.
+  - Writing the summaries in stage 1 and only checking them in stage 2 (D44) removes the repeated passes of
+    the fixed point (22, later ones partial). That leaves a single pass of about 35 to 150 GB.
+  - A conservative collector as the self-hosted compiler's allocator was prototyped and worked on a stress
+    test, but was declined by the owner.
+
+  The redesign of the escape analysis (bottom-up summaries per component, memory reclaimed per component) is
+  the next step. Stage 2 then reruns with `tools/bootstrap -pluto1 ... -stages 3 -flags "-O2
+  --gencheck=false" -limit-mb 22000`.
 
 Phase 3 status (2026-10-19). The Go front end (`build.Frontend`) lowers a program and `internal/ssawrite` writes
 its SSA as text; `internal/ssatext` (reader, translated by go2pu) reads it back; the back end is now a Go package
