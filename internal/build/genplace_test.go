@@ -237,6 +237,14 @@ func release(n *Node, a alloc.Allocator) {
 }
 
 //pu:noinline
+func fields(n *Node) int {
+	if n.left == n.right {
+		return n.val
+	}
+	return 0
+}
+
+//pu:noinline
 func rows(m [][]int) int {
 	t := 0
 	for i := 0; i < len(m); i++ {
@@ -252,7 +260,7 @@ func main() {
 	a := alloc.Default()
 	n := build(3, a)
 	m := [][]int{{1, 2}, {3}}
-	println(sum([]int{1, 2, 3}), walk(n), rows(m[:]))
+	println(sum([]int{1, 2, 3}), walk(n), rows(m[:]), fields(n))
 	release(n, a)
 }
 `
@@ -262,10 +270,11 @@ func main() {
 		why  string
 	}{
 		{"main.sum", 1, "each indexed access checks its actual byte extent"},
-		{"main.walk", 4, "each accessed field and extent is checked, including both val accesses"},
-		{"main.build", 3, "each new allocation field store checks its actual extent"},
+		{"main.walk", 4, "n.left, n.val on each path, and n.right: each is in another block or after a call"},
+		{"main.build", 3, "each new allocation field store comes after a call or in another block"},
 		{"main.release", 2, "release frees: n is checked again after the first call"},
-		{"main.rows", 3, "each row pointer, row length and indexed element checks its actual extent"},
+		{"main.rows", 2, "a row's pointer and length are adjacent words loaded in one block with nothing between: one check of their 16 bytes; the indexed element has its own"},
+		{"main.fields", 2, "n.left and n.right share one check of their 16 bytes; n.val, in another block, has its own"},
 	} {
 		asm := listGenFunc(t, src, c.fn)
 		if n := strings.Count(asm, "call pluto/rt.panicStale"); n != c.want {

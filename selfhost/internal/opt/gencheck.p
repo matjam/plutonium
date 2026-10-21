@@ -3,6 +3,7 @@
 package opt
 
 import (
+	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
@@ -29,10 +30,22 @@ import (
 // a call to a function that may free, an indirect call, an intrinsic, a
 // volatile access. Where checks go:
 //
-//   - An access needs no check of its own if p was checked on every path
-//     to it since the last such barrier (a forward dataflow over the
-//     whole function). Accesses through the same p in one block share the
-//     first one's check.
+//   - Accesses through the same base pointer in one block share one check
+//     (genPlacer.runs): the base is the address with its constant offsets
+//     taken off, and the check, placed before the first of them, covers
+//     the union of their byte extents. Only accesses with no call and no
+//     barrier between them share a check, and only extents that together
+//     form one interval, so the shared check reads exactly the bytes the
+//     separate checks would have read, a little earlier: the range check
+//     is defined byte by byte (abi.md section 1.3), so it fails exactly
+//     when one of the separate checks would have, and nothing between the
+//     first access and the last can free, end the task, or let it see
+//     another task's free.
+//   - An access needs no check of its own if every byte of its extent was
+//     checked, through the same base, on every path to it since the last
+//     such barrier (a forward dataflow over the whole function): a check
+//     covered by earlier checks, of the same extent or of larger ones, is
+//     removed.
 //   - In a loop without barriers, the accesses through a p defined outside
 //     the loop are checked once, before the loop, if the loop surely
 //     reaches one of them on its first iteration once its header lets it
@@ -63,7 +76,7 @@ func GenCheck(f *ssa.Func) {
 	}
 	g := &genPlacer{
 		f:     f,
-		roots: map[genExtent]int{},
+		exts:  map[genExtent]int{},
 		parts: map[*ssa.Value]*genParts{},
 		at:    map[*ssa.Value][]*genSite{},
 		kind:  map[*ssa.Value]uint8{},
@@ -82,14 +95,13 @@ type genParts struct {
 	addr  *ssa.Value // the same, as a pointer
 }
 
-// A genSite is a place where a pointer may need its check: an access
-// through it, or the end of a loop's preheader a check was hoisted to.
+// A genSite is a place where a pointer may need its check: before the
+// first of the accesses that share it, or at the end of a loop's preheader
+// a check was hoisted to.
 type genSite struct {
-	v     *ssa.Value // the access (for a hoisted check, the one it was hoisted from)
-	arg   int        // the address argument of v; -1 for a hoisted check
-	steps []*ssa.Value
-	root  *ssa.Value
-	size  int64
+	v     *ssa.Value // the first access (for a hoisted check, the one it was hoisted from)
+	arg   int        // 0 for a check before v; -1 for a hoisted check
+	ext   int        // the extent checked: an index of genPlacer.extOf
 	block *ssa.Block // v's block, or the preheader
 	// guard, for a hoisted check, is the condition under which the check
 	// runs (nil: always); mem is the memory state at the end of block.
@@ -98,10 +110,20 @@ type genSite struct {
 	need       bool // a check is emitted here
 }
 
-// Equal addresses can share a check only for the same byte extent.
+// A genExtent is the bytes [root+off, root+off+size): root is a base
+// pointer, an address with its constant offsets taken off (genOffsetRoot).
 type genExtent struct {
+	root      *ssa.Value
+	off, size int64
+}
+
+// A genAccess is an address an access goes through, which emit replaces
+// by the same address without its tag.
+type genAccess struct {
+	v    *ssa.Value
+	arg  int
 	root *ssa.Value
-	size int64
+	off  int64
 }
 
 type genPlacer struct {
@@ -109,11 +131,15 @@ type genPlacer struct {
 	dom    *ssa.DomTree
 	ln     *ssa.LoopNest
 	sites  []*genSite
-	at     map[*ssa.Value][]*genSite // access sites by access
+	access []genAccess
+	at     map[*ssa.Value][]*genSite // checks by the access they go before
 	hoists map[*ssa.Block][]*genSite // hoisted sites by preheader
-	roots  map[genExtent]int         // actual addresses and extents, numbered
-	rootOf []genExtent
-	parts  map[*ssa.Value]*genParts
+	exts   map[genExtent]int         // the extents checked, numbered
+	extOf  []genExtent
+	// over is, by extent, the extents through the same root that overlap
+	// it, by offset: those whose checks may cover it (genPlacer.covered).
+	over  [][]int
+	parts map[*ssa.Value]*genParts
 	// barrier and reset are, by block ID, whether the block holds a
 	// barrier, and one that may reset (isReset).
 	barrier, reset    []bool
@@ -157,7 +183,7 @@ func (g *genPlacer) run() {
 		g.unsplit()
 		return
 	}
-	g.words = (len(g.rootOf) + 63) / 64
+	g.words = (len(g.extOf) + 63) / 64
 	g.holds()
 	g.hoists = map[*ssa.Block][]*genSite{}
 	g.cond = map[*ssa.Loop]*genCond{}
@@ -270,43 +296,174 @@ func (g *genPlacer) unsplit() {
 	g.f.InvalidateCFG()
 }
 
-// collect finds the accesses that need a check and the blocks that hold
-// barriers.
+// A genMember is an access that may share a check with others through the
+// same root in its block (genPlacer.runs).
+type genMember struct {
+	v         *ssa.Value
+	idx       int // v's place in its block
+	off, size int64
+}
+
+// genGroup names the accesses through one root in one stretch of a block
+// with no call or barrier.
+type genGroup struct {
+	root *ssa.Value
+	seg  int
+}
+
+// genMergeLimit bounds the extents through one root that coverage looks
+// through; past it, only an equal extent covers another.
+const genMergeLimit = 64
+
+// collect finds the accesses that need a check, the checks they share, and
+// the blocks that hold barriers.
 func (g *genPlacer) collect() {
 	g.barrier = compat.Make[bool](g.f.NumBlocks())
 	g.reset = compat.Make[bool](g.f.NumBlocks())
 	for _, b := range g.f.Blocks {
-		for _, v := range compat.Append([]*ssa.Value(nil), b.Values...) {
+		var order []genGroup
+		groups := map[genGroup][]genMember{}
+		seg := 0
+		for idx, v := range b.Values {
+			// A check may cover the accesses after it only up to the next
+			// call or barrier: nothing that can free memory, end the task
+			// or the program, or synchronize with another task comes between
+			// a shared check and the accesses it covers.
+			bound := v.Op == ssa.OpCall || v.Op == ssa.OpCallInd
 			if g.isReset(v) {
 				g.reset[b.ID] = true
 				g.barrier[b.ID] = true
 				g.kind[v] = genReset
+				bound = true
 			} else if g.isBarrier(v) {
 				g.barrier[b.ID] = true
 				g.kind[v] = genFree
+				bound = true
 			}
-			addrArgs := genAddrArgs(v)
-			for _, ai := range addrArgs {
+			if bound {
+				seg++
+			}
+			for _, ai := range genAddrArgs(v) {
 				base, _ := addrRoot(v.Args[ai])
 				if isStaticAddr(base) || isUntagPattern(base) {
 					continue
 				}
-				root := v.Args[ai]
 				size := genAccessSize(v)
 				if size == 0 {
 					continue
 				}
-				extent := genExtent{root, size}
-				if _, ok := g.roots[extent]; !ok {
-					g.roots[extent] = len(g.rootOf)
-					g.rootOf = compat.Append(g.rootOf, extent)
+				root, off := genOffsetRoot(v.Args[ai])
+				g.access = compat.Append(g.access, genAccess{v: v, arg: ai, root: root, off: off})
+				k := genGroup{root, seg}
+				if groups[k] == nil {
+					order = compat.Append(order, k)
 				}
-				s := pu.New(genSite{v: v, arg: ai, root: root, block: b, size: size})
-				g.sites = compat.Append(g.sites, s)
-				g.at[v] = compat.Append(g.at[v], s)
+				groups[k] = compat.Append(groups[k], genMember{v: v, idx: idx, off: off, size: size})
+			}
+			if bound {
+				seg++
+			}
+		}
+		for _, k := range order {
+			g.runs(b, k.root, groups[k])
+		}
+	}
+	g.overlaps()
+}
+
+// genOffsetRoot returns the pointer p is p plus constant offsets of, and
+// the sum of the offsets.
+func genOffsetRoot(p *ssa.Value) (*ssa.Value, int64) {
+	off := int64(0)
+	for p.Op == ssa.OpOffPtr {
+		off += p.AuxInt
+		p = p.Args[0]
+	}
+	return p, off
+}
+
+// runs gives the accesses ms, through root in one stretch of block b with
+// no call or barrier, their checks: one for each run of extents that
+// together form one interval, before the first access of the run. Extents
+// with a gap between them are checked separately, since a check of the gap
+// could fail where the accesses would not.
+func (g *genPlacer) runs(b *ssa.Block, root *ssa.Value, ms []genMember) {
+	sorted := compat.Append([]genMember(nil), ms...)
+	sort.SortStableFunc(sorted, func(a, b genMember) bool { return a.off < b.off })
+	for i := 0; i < len(sorted); {
+		first := sorted[i]
+		lo, hi := first.off, first.off+first.size
+		j := i + 1
+		for ; j < len(sorted) && sorted[j].off <= hi; j++ {
+			if sorted[j].idx < first.idx {
+				first = sorted[j]
+			}
+			hi = max(hi, sorted[j].off+sorted[j].size)
+		}
+		s := pu.New(genSite{v: first.v, ext: g.extent(genExtent{root, lo, hi - lo}), block: b})
+		g.sites = compat.Append(g.sites, s)
+		g.at[first.v] = compat.Append(g.at[first.v], s)
+		i = j
+	}
+}
+
+// extent returns x's number, giving it one the first time.
+func (g *genPlacer) extent(x genExtent) int {
+	if i, ok := g.exts[x]; ok {
+		return i
+	}
+	g.exts[x] = len(g.extOf)
+	g.extOf = compat.Append(g.extOf, x)
+	return len(g.extOf) - 1
+}
+
+// overlaps finds, for each extent, the extents through the same root that
+// overlap it.
+func (g *genPlacer) overlaps() {
+	g.over = compat.Make[[]int](len(g.extOf))
+	byRoot := map[*ssa.Value][]int{}
+	for i, x := range g.extOf {
+		byRoot[x.root] = compat.Append(byRoot[x.root], i)
+	}
+	for _, ids := range byRoot {
+		if len(ids) > genMergeLimit {
+			for _, i := range ids {
+				g.over[i] = compat.Clone([]int{i})
+			}
+			continue
+		}
+		sort.SortStableFunc(ids, func(a, b int) bool { return g.extOf[a].off < g.extOf[b].off })
+		for _, i := range ids {
+			x := g.extOf[i]
+			for _, j := range ids {
+				if y := g.extOf[j]; y.off < x.off+x.size && x.off < y.off+y.size {
+					g.over[i] = compat.Append(g.over[i], j)
+				}
 			}
 		}
 	}
+}
+
+// covered reports whether every byte of extent e is in an extent avail
+// says has been checked: the separate checks then say what a check of e
+// would (a range check is defined byte by byte, abi.md section 1.3).
+func (g *genPlacer) covered(e int, avail []uint64) bool {
+	x := g.extOf[e]
+	pos, end := x.off, x.off+x.size
+	for _, j := range g.over[e] {
+		if avail[j/64]&(1<<(j%64)) == 0 {
+			continue
+		}
+		y := g.extOf[j]
+		if y.off > pos {
+			return false // over is by offset: none later starts at pos
+		}
+		pos = max(pos, y.off+y.size)
+		if pos >= end {
+			return true
+		}
+	}
+	return false
 }
 
 // hoist moves the checks of pointers defined outside loop l to l's
@@ -335,19 +492,20 @@ func (g *genPlacer) hoist(l *ssa.Loop) {
 	if pre == nil || len(pre.Succs) != 1 || !g.dom.Reachable(pre) {
 		return
 	}
-	// The sites in l, by invariant root, in the order first seen.
-	var order []genExtent
-	byRoot := map[genExtent][]*genSite{}
+	// The sites in l, by extent of an invariant root, in the order first
+	// seen.
+	var order []int
+	byRoot := map[int][]*genSite{}
 	for _, s := range g.sites {
-		if s.covered || !l.Contains(g.ln, s.block) || l.Contains(g.ln, s.root.Block) ||
-			!g.dom.Dominates(s.root.Block, pre) || barriers && !g.heldIn(l, pre, s) {
+		root := g.extOf[s.ext].root
+		if s.covered || !l.Contains(g.ln, s.block) || l.Contains(g.ln, root.Block) ||
+			!g.dom.Dominates(root.Block, pre) || barriers && !g.heldIn(l, pre, s) {
 			continue
 		}
-		extent := genExtent{s.root, s.size}
-		if byRoot[extent] == nil {
-			order = compat.Append(order, extent)
+		if byRoot[s.ext] == nil {
+			order = compat.Append(order, s.ext)
 		}
-		byRoot[extent] = compat.Append(byRoot[extent], s)
+		byRoot[s.ext] = compat.Append(byRoot[s.ext], s)
 	}
 	for _, r := range order {
 		sites := byRoot[r]
@@ -413,7 +571,7 @@ func (g *genPlacer) hoist(l *ssa.Loop) {
 
 // addHoist adds a check of from's root at the end of pre.
 func (g *genPlacer) addHoist(pre *ssa.Block, from *genSite, guard *ssa.Value) {
-	s := pu.New(genSite{v: from.v, arg: -1, root: from.root, block: pre, guard: guard, mem: g.memOut(pre), size: from.size})
+	s := pu.New(genSite{v: from.v, arg: -1, ext: from.ext, block: pre, guard: guard, mem: g.memOut(pre)})
 	g.sites = compat.Append(g.sites, s)
 	g.hoists[pre] = compat.Append(g.hoists[pre], s)
 }
@@ -569,7 +727,7 @@ func (g *genPlacer) memOut(b *ssa.Block) *ssa.Value {
 // heldIn reports whether the function holds root r from the end of pre
 // throughout loop l.
 func (g *genPlacer) heldIn(l *ssa.Loop, pre *ssa.Block, s *genSite) bool {
-	i := g.roots[genExtent{s.root, s.size}]
+	i := s.ext
 	out := g.heldOut[pre.ID]
 	if out == nil || out[g.words+i/64]&(1<<(i%64)) == 0 {
 		return false
@@ -682,11 +840,13 @@ func (g *genPlacer) transfer(b *ssa.Block, cur []uint64, decide bool) {
 		if s.covered {
 			return
 		}
-		i := g.roots[genExtent{s.root, s.size}]
-		have := avail[i/64]&(1<<(i%64)) != 0
+		i := s.ext
+		have := g.covered(i, avail)
 		if decide {
 			s.need = !have
 		}
+		// Checked here or covered before, every byte of the extent is
+		// checked from here on.
 		if s.guard == nil {
 			avail[i/64] |= 1 << (i % 64)
 		}
@@ -732,9 +892,10 @@ func (g *genPlacer) holds() {
 		owner[a] = true
 	}
 	var cands []int
-	for i, extent := range g.rootOf {
-		r := extent.root
-		if r.Op == ssa.OpSelectN && r.AuxInt == 1 && genFreshCall(r.Args[0]) || r.Op == ssa.OpArg && owner[r.AuxInt] {
+	for i, x := range g.extOf {
+		r := x.root
+		if (r.Op == ssa.OpSelectN && r.AuxInt == 1 && genFreshCall(r.Args[0]) || r.Op == ssa.OpArg && owner[r.AuxInt]) &&
+			genHeldExtent(x) {
 			cands = compat.Append(cands, i)
 		}
 	}
@@ -753,9 +914,19 @@ func (g *genPlacer) holds() {
 			ctl[c] = compat.Append(ctl[c], b)
 		}
 	}
+	type escaped struct {
+		esc []*ssa.Value
+		ok  bool
+	}
+	memo := map[*ssa.Value]escaped{}
 	for _, i := range cands {
-		r := g.rootOf[i].root
-		esc, ok := escapes(r, users, ctl)
+		r := g.extOf[i].root
+		e, seen := memo[r]
+		if !seen {
+			e.esc, e.ok = escapes(r, users, ctl)
+			memo[r] = e
+		}
+		esc, ok := e.esc, e.ok
 		if !ok {
 			continue
 		}
@@ -769,6 +940,16 @@ func (g *genPlacer) holds() {
 			g.escBlocks[i] = compat.Append(g.escBlocks[i], u.Block)
 		}
 	}
+}
+
+// genHeldExtent reports whether extent x, through a pointer to an
+// allocation the function holds, is memory of that allocation, which only
+// a reset can free while it is held: x starts at the pointer, or lies in
+// its first granule, which belongs to that allocation alone (allocations
+// start on a granule, abi.md section 1.3). Field accesses past the first
+// granule of a new allocation are checked as accesses through any pointer.
+func genHeldExtent(x genExtent) bool {
+	return x.off == 0 || x.off > 0 && x.off+x.size <= 16
 }
 
 // escapes returns the values at which root r, or a pointer derived from
@@ -829,8 +1010,8 @@ func equalBits(a, b []uint64) bool {
 // emit inserts the checks decided on and gives every access the address
 // without its tag.
 func (g *genPlacer) emit() {
-	for _, r := range g.rootOf {
-		g.partsOf(r.root)
+	for _, x := range g.extOf {
+		g.partsOf(x.root)
 	}
 	// Hoisted checks first: an access's check splits the block before
 	// it, which leaves the end of the block where it was.
@@ -844,11 +1025,20 @@ func (g *genPlacer) emit() {
 			g.check(s.v.Block, s.v, s)
 		}
 	}
-	for _, s := range g.sites {
-		if s.arg >= 0 {
-			s.v.SetArg(s.arg, g.rebuild(s.v.Block, s.v, g.parts[s.root].addr, s.steps))
-		}
+	for _, a := range g.access {
+		a.v.SetArg(a.arg, g.offset(a.v.Block, a.v, g.parts[a.root].addr, a.off))
 	}
+}
+
+// offset returns p plus off, computed before v in b.
+func (g *genPlacer) offset(b *ssa.Block, v, p *ssa.Value, off int64) *ssa.Value {
+	if off == 0 {
+		return p
+	}
+	q := b.NewValueBefore(v, ssa.OpOffPtr, ssa.TPtr, p)
+	q.AuxInt = off
+	q.CopyPos(v)
+	return q
 }
 
 // genAddrArgs returns the arguments of v that are addresses it accesses
@@ -974,11 +1164,11 @@ func (g *genPlacer) rebuild(b *ssa.Block, v, m *ssa.Value, steps []*ssa.Value) *
 	return m
 }
 
-// check splits b before at (at its end if at is nil) to check s's root.
+// check splits b before at (at its end if at is nil) to check s's extent.
 func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	f := g.f
-	p := s.root
-	parts := g.parts[p]
+	x := g.extOf[s.ext]
+	parts := g.parts[x.root]
 	pos := s.v
 	mem := s.mem
 	if at != nil {
@@ -1012,6 +1202,13 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 		b.Succs = b.Succs[1:]
 	}
 
+	// The tagged address of the extent's first byte: an offset keeps the
+	// tag of the pointer it is applied to.
+	p := x.root
+	if x.off != 0 {
+		p = g.newValue(b, pos, ssa.OpOffPtr, ssa.TPtr, p)
+		p.AuxInt = x.off
+	}
 	tag := g.newValue(b, pos, ssa.OpShrL, ssa.TI64, parts.bits, i64(genTagShift))
 	tagged := g.newValue(b, pos, ssa.OpNe, ssa.TBool, tag, i64(0))
 	if s.guard != nil {
@@ -1031,8 +1228,8 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	// metadata; the original memory state remains valid for the payload
 	// access, whose block is reached only after the lookup succeeds.
 	args, sym := []*ssa.Value{p}, f.GenLive
-	if s.size > 1 {
-		args, sym = compat.Append(args, i64(s.size)), f.GenRange
+	if x.size > 1 {
+		args, sym = compat.Append(args, i64(x.size)), f.GenRange
 	}
 	args = compat.Append(args, mem)
 	live := g.newValue(chk, pos, ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem, ssa.TBool})...), args...)
@@ -1046,8 +1243,8 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	chk.AddEdgeTo(fail)
 
 	panicArgs, panicSym := []*ssa.Value{p}, f.GenPanic
-	if s.size > 1 {
-		panicArgs, panicSym = compat.Append(panicArgs, i64(s.size)), f.GenRangePanic
+	if x.size > 1 {
+		panicArgs, panicSym = compat.Append(panicArgs, i64(x.size)), f.GenRangePanic
 	}
 	panicArgs = compat.Append(panicArgs, mem)
 	call := g.newValue(fail, pos, ssa.OpCall, ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TMem})...), panicArgs...)

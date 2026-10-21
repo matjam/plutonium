@@ -90,7 +90,10 @@ func TestGenerationDirectoryExtentReuse(t *testing.T) {
 	}{
 		{"equal extent", ssa.TI64, 0, "", 1},
 		{"owned extent", ssa.TI64, 0, "", 1},
-		{"different extent", ssa.TI8, 0, "", 2},
+		// Accesses through one pointer in one block, with nothing between
+		// them, share a check of the union of their extents: the byte and
+		// the word are one check of 8 bytes.
+		{"different extent", ssa.TI8, 0, "", 1},
 		{"different address", ssa.TI64, 16, "", 2},
 		{"custom free", ssa.TI64, 0, "pluto/rt.GenAfterCustomFree", 2},
 		{"unknown call", ssa.TI64, 0, "external.unknown", 2},
