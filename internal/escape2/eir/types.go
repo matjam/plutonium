@@ -398,6 +398,13 @@ type Call struct {
 	Results  []Reg // one per result; 0 for a result not used
 	Implicit Implicit
 	Site     SiteID
+	// RecvAddr, for a CallTypeParam on an addressable operand, is the
+	// operand's address; Args[0] is then its value. The solver binds the
+	// receiver per candidate: RecvAddr when the candidate's method has a
+	// pointer receiver and the instance's type argument is not a pointer
+	// (the call takes &operand), Args[0] otherwise. 0 when the operand is
+	// not addressable or is itself a pointer.
+	RecvAddr Reg
 }
 
 // Facts are what stage B reads of a function, collected while it is built
