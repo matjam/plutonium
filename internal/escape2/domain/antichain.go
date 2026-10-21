@@ -1,0 +1,122 @@
+package domain
+
+import "slices"
+
+// Antichains of keys. A summary keeps its key sets as antichains under
+// Covers, sorted by key (summary package comment). These functions keep them
+// so without a quadratic scan: the keys that can cover k are k's GE twin and
+// the GE keys on the prefixes of k's path, at most MaxSteps+1 of them, each
+// found by a binary search.
+
+// CoveredBy reports whether some key of the sorted set keys covers k
+// (k itself included).
+func CoveredBy(ps Paths, keys []Key, k Key) bool {
+	if hasKey(keys, k) || hasKey(keys, k.WithPath(k.Path(), true)) {
+		return true
+	}
+	return coveredByPrefix(ps, keys, k)
+}
+
+// coveredByPrefix reports whether keys holds a GE key on a proper prefix of
+// k's path.
+func coveredByPrefix(ps Paths, keys []Key, k Key) bool {
+	steps := ps.Steps(k.Path())
+	if len(steps) == 0 {
+		return false
+	}
+	// Walk the prefixes from Root; Extend within the limits only re-finds
+	// interned paths.
+	p := Root
+	for _, s := range steps[:len(steps)-1] {
+		if hasKey(keys, k.WithPath(p, true)) {
+			return true
+		}
+		p = prefixChild(ps, p, s)
+	}
+	return hasKey(keys, k.WithPath(p, true))
+}
+
+// prefixChild returns the child of p by s, a prefix of an interned path, so
+// within the limits and already interned.
+func prefixChild(ps Paths, p PathID, s Step) PathID {
+	q, _ := ps.Extend(p, s)
+	return q
+}
+
+func hasKey(keys []Key, k Key) bool {
+	_, ok := slices.BinarySearch(keys, k)
+	return ok
+}
+
+// SortKeys sorts keys and removes duplicates, in place, and returns the
+// result.
+func SortKeys(keys []Key) []Key {
+	slices.Sort(keys)
+	return slices.Compact(keys)
+}
+
+// Antichain sorts keys and removes every key another one covers, in place,
+// and returns the result. The keys left cover exactly what keys covered:
+// Covers is a partial order, so every key removed is covered by one that is
+// kept.
+func Antichain(ps Paths, keys []Key) []Key {
+	keys = SortKeys(keys)
+	// Mark the covered keys against the whole sorted set, then compact.
+	// Up to 64 keys (the common case) the marks fit in a word.
+	var small uint64
+	var marks []uint64
+	if len(keys) > 64 {
+		marks = make([]uint64, (len(keys)+63)/64)
+	}
+	removed := false
+	for i, k := range keys {
+		covered := !k.GE() && hasKey(keys, k.WithPath(k.Path(), true))
+		if !covered {
+			covered = coveredByPrefix(ps, keys, k)
+		}
+		if covered {
+			removed = true
+			if marks == nil {
+				small |= 1 << uint(i)
+			} else {
+				marks[i/64] |= 1 << uint(i%64)
+			}
+		}
+	}
+	if !removed {
+		return keys
+	}
+	n := 0
+	for i := range keys {
+		var m bool
+		if marks == nil {
+			m = small&(1<<uint(i)) != 0
+		} else {
+			m = marks[i/64]&(1<<uint(i%64)) != 0
+		}
+		if !m {
+			keys[n] = keys[i]
+			n++
+		}
+	}
+	return keys[:n]
+}
+
+// JoinKeys returns the antichain of a ∪ b, for antichains a and b, appended
+// to dst[:0]. dst must not share memory with a or b.
+func JoinKeys(ps Paths, dst, a, b []Key) []Key {
+	dst = append(dst[:0], a...)
+	dst = append(dst, b...)
+	return Antichain(ps, dst)
+}
+
+// CoversAll reports whether every key of b is covered by a key of the sorted
+// set a: the order of key sets that summary.Leq checks.
+func CoversAll(ps Paths, a, b []Key) bool {
+	for _, k := range b {
+		if !CoveredBy(ps, a, k) {
+			return false
+		}
+	}
+	return true
+}
