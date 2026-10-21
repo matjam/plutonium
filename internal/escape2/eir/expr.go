@@ -553,9 +553,9 @@ func (fb *fnb) compositeLitOf(e *ast.CompositeLit, T types2.Type) Reg {
 			}
 			return p
 		}
-		o := fb.root.newObj(Object{Kind: ObjSliceLit, Type: arrT, Name: "slice literal", Pos: e.Pos()})
+		owner, o := fb.keptObj(Object{Kind: ObjSliceLit, Type: arrT, Name: "slice literal", Pos: e.Pos()})
 		args, _ := fb.elems(e.Elts, u.Elem())
-		base := fb.objAddr(fb.root, o)
+		base := fb.objAddr(owner, o)
 		for _, a := range args {
 			fb.store(fb.elem(base), a, u.Elem())
 		}
@@ -630,8 +630,8 @@ func (fb *fnb) addrOfLit(e *ast.CompositeLit, T types2.Type) Reg {
 		fb.store(p, v, T)
 		return p
 	}
-	o := fb.root.newObj(Object{Kind: ObjTemp, Type: T, Name: "&T{...}", Pos: e.Pos()})
-	a := fb.objAddr(fb.root, o)
+	owner, o := fb.keptObj(Object{Kind: ObjTemp, Type: T, Name: "&T{...}", Pos: e.Pos()})
+	a := fb.objAddr(owner, o)
 	fb.store(a, v, T)
 	return a
 }

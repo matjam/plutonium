@@ -105,9 +105,12 @@ func save(x int, v any) {}
 
 func each(yield func(int) bool) { _ = yield(1) }
 
+func keepAll(ps ...*int) {}
+
 func f() {
 	x := 1
 	for i := range each {
+		keepAll(&i, &i)
 		if i == 1 {
 			defer func() { save(x, nil) }()
 			defer save(i, [2]int{i, x})
@@ -136,6 +139,11 @@ func main() { f() }
 	}
 	if strings.Contains(body, " closure func()") || strings.Contains(body, " box ") {
 		t.Errorf("the range body holds what its deferred call keeps:\n%s", body)
+	}
+	// An ordinary call's variadic array is the body's own
+	// (testdata/run/slicespkg.p).
+	if !strings.Contains(body, "variadic arguments") {
+		t.Errorf("the variadic array of a call in the range body is not the body's:\n%s", body)
 	}
 }
 

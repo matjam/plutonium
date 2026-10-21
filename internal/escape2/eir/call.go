@@ -502,8 +502,9 @@ func (fb *fnb) args(e *ast.CallExpr, sig *types2.Signature, fn *types2.Func) ([]
 			if fb.f.Key.Init != nil {
 				base = fb.heap(HeapStatic)
 			} else {
-				o := fb.root.newObj(Object{Kind: ObjVarargs, Type: arrT, Name: "variadic arguments", Pos: e.Pos()})
-				base = fb.objAddr(fb.root, o)
+				// In this frame, or a range body's defer's root (keptObj).
+				owner, o := fb.keptObj(Object{Kind: ObjVarargs, Type: arrT, Name: "variadic arguments", Pos: e.Pos()})
+				base = fb.objAddr(owner, o)
 			}
 			for _, a := range extra {
 				fb.store(fb.elem(base), eval(a, et), et)
