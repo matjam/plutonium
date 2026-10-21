@@ -91,6 +91,7 @@ type oracleDiff struct {
 	invented []string // calls of EIR that no generated code makes
 	noEIR    []string // lowered source functions EIR has no function for
 	generic  []string // calls of generic bodies that no instance makes
+	shapes   []string // arguments lowering passes as a frame address that EIR passes as a loaded value
 }
 
 // isGeneric reports whether f is, or is nested in, a generic function or a
@@ -721,10 +722,81 @@ func (o *oracle) compare() oracleDiff {
 			}
 		}
 	}
+	d.shapes = o.compareShapes()
 	sort.Strings(d.missing)
 	sort.Strings(d.invented)
 	sort.Strings(d.noEIR)
+	sort.Strings(d.shapes)
 	return d
+}
+
+// compareShapes compares the arguments of the static calls of source
+// functions: where the generated code passes the address of a place in the
+// frame, EIR must pass an address too, not a value loaded from memory that
+// is not a pointer (review 5: a ring's value passed for its address lost
+// every pointer stored into the ring).
+func (o *oracle) compareShapes() []string {
+	var out []string
+	for _, f := range o.cf.Funcs() {
+		id, ok := o.owner(f)
+		if !ok || id == eir.NoFunc {
+			continue
+		}
+		ef := o.p.Funcs[id]
+		defs := map[eir.Reg]*eir.Instr{}
+		byPos := map[token.Pos][]*eir.Call{}
+		for _, b := range ef.Blocks {
+			for i := range b.Instrs {
+				in := &b.Instrs[i]
+				if in.Dst != 0 {
+					defs[in.Dst] = in
+				}
+				if in.Op == eir.OpCall && in.Call.Kind == eir.CallStatic && in.Call.Implicit == eir.ImplNone {
+					byPos[in.Pos] = append(byPos[in.Pos], in.Call)
+				}
+			}
+		}
+		for _, c := range o.cf.Calls(f) {
+			if c.Kind != lower.CallStatic || c.Implicit || c.Params == nil || c.Static == nil {
+				continue
+			}
+			k, ok := o.sourceKey(c.Static)
+			if !ok || k.obj == nil {
+				continue
+			}
+			for _, ec := range byPos[c.Pos] {
+				g := o.p.Funcs[ec.Callee].Key.Obj
+				if g == nil || g.Origin() != k.obj.Origin() || len(ec.Args) != len(c.Params) {
+					continue
+				}
+				for i, a := range c.Params {
+					if a.Shape != lower.ArgFrameAddr || a.ByRef || a.Leaves != 1 {
+						continue
+					}
+					d := defs[ec.Args[i]]
+					if d == nil || d.Op != eir.OpLoad || d.Type == nil || pointerLike(d.Type) {
+						continue
+					}
+					out = append(out, fmt.Sprintf("%s: argument %d of %s: lowering passes a frame address, EIR a loaded %s @ %s", ef.Name, i, k, d.Type, o.where(c.Pos)))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// pointerLike reports whether a value of T is a pointer (or a word that
+// may be one).
+func pointerLike(T types2.Type) bool {
+	switch u := T.Underlying().(type) {
+	case *types2.Pointer, *types2.Signature, *types2.Map, *types2.Chan, *types2.Interface, *types2.TypeParam:
+		return true
+	case *types2.Basic:
+		return u.Kind() == types2.UnsafePointer || u.Kind() == types2.Uintptr
+	case *types2.Wrapper:
+		return u.IsPointer()
+	}
+	return types2.PointerShaped(T)
 }
 
 // TestOracle compares the calls of EIR with those internal/lower emits
@@ -783,6 +855,9 @@ func TestOracle(t *testing.T) {
 			for _, m := range d.noEIR {
 				report = append(report, "noeir "+m)
 			}
+			for _, m := range d.shapes {
+				report = append(report, "shape "+m)
+			}
 			for _, m := range d.generic {
 				report = append(report, "generic "+m)
 			}
@@ -795,6 +870,9 @@ func TestOracle(t *testing.T) {
 			}
 			for _, m := range d.noEIR {
 				t.Errorf("no EIR function: %s", m)
+			}
+			for _, m := range d.shapes {
+				t.Errorf("argument shape: %s", m)
 			}
 		})
 	}
