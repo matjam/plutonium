@@ -50,8 +50,17 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 	}
 }
 
-// objPtr is the pointer value Obj(o, Root).
-func objPtr(o eir.ObjID) value { return single(ptr(tok{kind: kObj, id: int(o)})) }
+// objPtr is the pointer value Obj(o, Root), or Heap for an object of
+// LifeHeap (rules.go, "Abstract values").
+func (s *solver) objPtr(o eir.ObjID) value { return s.objAt(o, domain.Root, false) }
+
+// objAt is the pointer value Obj(o, p, ge), or Heap for an object of LifeHeap.
+func (s *solver) objAt(o eir.ObjID, p domain.PathID, ge bool) value {
+	if s.objs[o].life == eir.LifeHeap {
+		return single(ptr(tok{kind: kHeap}))
+	}
+	return single(ptr(tok{kind: kObj, id: int(o), path: p, ge: ge}))
+}
 
 // OpAddr: Dst ⊇ <Obj(Obj, Path, cut), Root, false> (Heap if LifeHeap).
 func (s *solver) ruleAddr(in *eir.Instr) {
@@ -231,8 +240,8 @@ func (s *solver) ruleConv(in *eir.Instr) {
 		s.def(in.Dst, s.val(in.X))
 		return
 	}
-	s.store(objPtr(in.Obj), s.val(in.X), in.Pos, own)
-	s.def(in.Dst, objPtr(in.Obj))
+	s.store(s.objPtr(in.Obj), s.val(in.X), in.Pos, own)
+	s.def(in.Dst, s.objPtr(in.Obj))
 }
 
 // OpClosure: store(Obj(Obj, [k]), Args[k], own) for each k;
@@ -240,18 +249,17 @@ func (s *solver) ruleConv(in *eir.Instr) {
 func (s *solver) ruleClosure(in *eir.Instr) {
 	for k, a := range in.Args {
 		p, c := s.ps.Extend(domain.Root, domain.Step(k))
-		d := single(ptr(tok{kind: kObj, id: int(in.Obj), path: p, ge: c}))
-		s.store(d, s.val(a), in.Pos, own)
+		s.store(s.objAt(in.Obj, p, c), s.val(a), in.Pos, own)
 	}
-	s.def(in.Dst, objPtr(in.Obj))
+	s.def(in.Dst, s.objPtr(in.Obj))
 }
 
 // OpMethodVal: store(Obj(Obj, [0]), X, own); Dst ⊇ <Obj(Obj, Root), Root,
 // false>.
 func (s *solver) ruleMethodVal(in *eir.Instr) {
 	p, c := s.ps.Extend(domain.Root, domain.Step(0))
-	s.store(single(ptr(tok{kind: kObj, id: int(in.Obj), path: p, ge: c})), s.val(in.X), in.Pos, own)
-	s.def(in.Dst, objPtr(in.Obj))
+	s.store(s.objAt(in.Obj, p, c), s.val(in.X), in.Pos, own)
+	s.def(in.Dst, s.objPtr(in.Obj))
 }
 
 // OpSink: see ruleReturn for SinkReturn; SinkGlobal: sink(X, E3002); SinkSend:
@@ -293,13 +301,24 @@ func (s *solver) ruleReturn(in *eir.Instr, x value) {
 				s.builds, s.outer[in.Index] = true, true
 				s.changed = true
 			}
+			// The regions of calls held in it get the check of Reg(s).
+			held := value{}
+			for pl, v := range s.places {
+				if pl.obj == u.id {
+					held.addAll(v)
+				}
+			}
+			for y := range s.reach(held) {
+				if y.t.kind == kObj && s.objs[y.t.id].isReg {
+					s.regionOutlives(y.t.id, in)
+				}
+			}
 		case u.kind == kObj && s.objs[u.id].life != eir.LifeHeap:
 			s.finding(diag.ReturnFrameView, in.Pos, u.id, in.Sink, own)
 		case u.kind == kIn:
 			k, f := keyOf(u), v.tag
 			if v.g {
 				k = k.WithPath(k.Path(), true)
-				f = s.ps.Cut(f)
 			}
 			if rk := (summary.ResultKey{Key: k, Field: f}); !r.from[rk] {
 				r.from[rk] = true
@@ -307,9 +326,6 @@ func (s *solver) ruleReturn(in *eir.Instr, x value) {
 			}
 		case u.kind == kHeap || u.kind == kCHeap:
 			f := v.tag
-			if v.g {
-				f = s.ps.Cut(f)
-			}
 			set := r.heap
 			if u.kind == kCHeap {
 				set = r.cheap

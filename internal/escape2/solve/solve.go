@@ -287,21 +287,6 @@ func (s *solver) place(o uint32, p domain.PathID, pg bool) uint32 {
 	s.places.put(s.a, k1, uint64(p), uint64(n))
 	s.nodeInfo.s[n] = nkPlace | k1<<8
 	s.nodeInfo2.s[n] = uint64(p)
-	// Link with the other places of o: a prefix's value holds this one's.
-	for q := s.objPlaces.s[o]; q != 0; q = s.nodeNext.s[q-1] {
-		m := uint32(q - 1)
-		r := domain.PathID(s.nodeInfo2.s[m])
-		switch {
-		case s.ps.HasPrefix(p, r):
-			R := s.rel(p, r)
-			s.addEdge(m, n, xw(xSel, R, false), 0)
-			s.addEdge(n, m, xw(xPre, R, false), 0)
-		case s.ps.HasPrefix(r, p):
-			R := s.rel(r, p)
-			s.addEdge(n, m, xw(xSel, R, false), 0)
-			s.addEdge(m, n, xw(xPre, R, false), 0)
-		}
-	}
 	s.nodeNext.s[n] = s.objPlaces.s[o]
 	s.objPlaces.s[o] = uint64(n) + 1
 	for sb := s.objSubs.s[o]; sb != 0; sb = s.subs.s[(sb-1)*4+3] {
@@ -353,7 +338,12 @@ func (s *solver) linkSub(m uint32, r domain.PathID, rg bool, dst uint32, p domai
 		return
 	}
 	if kind == subReach {
-		s.addEdge(m, dst, xw(xGe, 0, false), 0)
+		// reach is the closure under load, geified (rules.go, reach).
+		if under {
+			s.addEdge(m, dst, xw(xGe, 0, false), 0)
+		} else {
+			s.addEdge(m, dst, xw(xSelGe, s.rel(p, r), false), 0)
+		}
 		return
 	}
 	if under {
@@ -563,9 +553,9 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			}
 			s.addRes(r, k, t.tag)
 		case tHeap:
-			s.addResHeap(r, false)
+			s.addResHeap(r, false, t.tag)
 		case tCHeap:
-			s.addResHeap(r, true)
+			s.addResHeap(r, true, t.tag)
 		}
 	case cRegionWalk:
 		if t.kind == tObj && s.isRegion(t.base) {
@@ -651,13 +641,14 @@ func (s *solver) addRes(r int, k domain.Key, field domain.PathID) {
 	}
 }
 
-func (s *solver) addResHeap(r int, counted bool) {
+func (s *solver) addResHeap(r int, counted bool, field domain.PathID) {
 	c := uint64(0)
 	if counted {
 		c = 1
 	}
-	if s.sumSeen.add(s.a, sResHeap|uint64(r)<<8, c) {
+	if s.sumSeen.add(s.a, sResHeap|uint64(r)<<8, c|uint64(field)<<1) {
 		s.resHeap.push(s.a, uint64(r)<<1|c)
+		s.resHeap.push(s.a, uint64(field))
 	}
 }
 
@@ -699,12 +690,13 @@ func (s *solver) summary() *summary.Summary {
 		}
 		sum.Res[r].From = append(sum.Res[r].From, summary.ResultKey{Key: domain.Key(s.res.s[i+1]), Field: domain.PathID(s.res.s[i+2])})
 	}
-	for _, w := range s.resHeap.s {
+	for i := 0; i < len(s.resHeap.s); i += 2 {
+		w, field := s.resHeap.s[i], domain.PathID(s.resHeap.s[i+1])
 		r := int(w >> 1)
 		if w&1 != 0 {
-			sum.Res[r].CountedHeap = append(sum.Res[r].CountedHeap, domain.Root)
+			sum.Res[r].CountedHeap = append(sum.Res[r].CountedHeap, field)
 		} else {
-			sum.Res[r].Heap = append(sum.Res[r].Heap, domain.Root)
+			sum.Res[r].Heap = append(sum.Res[r].Heap, field)
 		}
 	}
 	sum.Region.Builds = s.builds
@@ -769,11 +761,11 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		if in.X == 0 || dst == 0 {
 			return
 		}
-		ho := uint64(0)
 		if s.heapOnlyLoad(in.X) {
-			ho = 1
+			s.addTok(dst, heapTok) // whatever X holds (rules.go, OpLoad)
+			return
 		}
-		s.addCons(uint32(in.X), cLoad, uint64(dst), ho)
+		s.addCons(uint32(in.X), cLoad, uint64(dst), 0)
 	case eir.OpStore:
 		if in.X == 0 || in.Y == 0 {
 			return

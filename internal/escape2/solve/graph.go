@@ -38,6 +38,7 @@ const (
 	xRetag          // the tag made (Root, GE) only (loads through a cut pointer)
 	xPreLoad        // a load link: pre(path), GE when flag
 	xSelLoad        // a load link: sel(path), tags GE when flag
+	xSelGe          // a reach link: sel(path), then geify
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -221,7 +222,7 @@ func (s *solver) transform(x uint64, t tok) {
 	case xPre:
 		s.buf.push(s.a, s.intern(s.pre(t, path, flag)))
 	case xOff:
-		u := s.off(t, s.ps.Steps(path))
+		u := asPointer(s.off(t, s.ps.Steps(path))) // the result is a pointer
 		if flag && (u.kind == tObj || u.kind == tIn) {
 			u.ge = true // the path was cut: anywhere under it
 		}
@@ -230,7 +231,7 @@ func (s *solver) transform(x uint64, t tok) {
 		if u, ok := s.sel(t, path); ok {
 			s.buf.push(s.a, s.intern(u))
 		}
-		if t.kind == tObj && t.tag == domain.Root {
+		if t.kind == tObj && t.tag == domain.Root && !t.tagGE {
 			s.buf.push(s.a, s.intern(s.off(asPointer(t), s.ps.Steps(path))))
 		}
 		if t.kind == tObj && t.tagGE {
@@ -252,6 +253,10 @@ func (s *solver) transform(x uint64, t tok) {
 				u.tag, u.tagGE = domain.Root, true
 			}
 			s.buf.push(s.a, s.intern(u))
+		}
+	case xSelGe:
+		if u, ok := s.sel(t, path); ok {
+			s.buf.push(s.a, s.intern(geify(u)))
 		}
 	}
 }

@@ -27,11 +27,14 @@ package solve
 // innermost loop of the call's block, or LifeFrame outside loops; its tokens
 // are Obj(Reg(s), p, pg). What the callee put in it is not in the summary, so
 // its place <Reg(s), Root, true> starts with what the callee may have stored
-// there: <t, Root, true> for every t in reach(β(i)) over the call's inputs,
-// Obj(Reg(s), Root, true) itself, and Heap.
+// there: <t, Root, true> for every t in reach(v) over the values v of the
+// call's Args and of its Target (when it has one, whatever the binding),
+// Obj(Reg(s), Root, true) itself, and <Heap, Root, true>.
 //
-// An object o with Objects[o].Life == LifeHeap is Heap: OpAddr of it makes
-// the token Heap. An object with Life == LifeCaller (a region the caller
+// An object o with Objects[o].Life == LifeHeap is Heap: every rule that
+// would make a token Obj(o, ...) of it (OpAddr, OpConv, OpClosure,
+// OpMethodVal) makes Heap instead, and every rule that would store into a
+// place of it stores into Heap (store, the case d = Heap). An object with Life == LifeCaller (a region the caller
 // provides, eir.ObjRegion) is the caller's memory: it is never reported as a
 // frame of this function, and returning a pointer to it sets Region facts.
 //
@@ -52,39 +55,52 @@ package solve
 // # Operations on values
 //
 //	off(t, Q)    pointer t offset by field path Q:
-//	             Obj(o,p,pg) -> Obj(o, p+Q, pg or cut); In(i,P,kg) ->
-//	             In(i, P+Q, kg or cut) (unchanged when kg); Heap -> Heap.
-//	sel(v, Q)    field Q of the struct value v, for each <t,T,g> in v:
+//	             Obj(o,p,pg) -> Obj(o, p+Q, pg or cut) (unchanged when pg);
+//	             In(i,P,kg) -> In(i, P+Q, kg or cut) (unchanged when kg);
+//	             Heap -> Heap; CHeap -> CHeap. Tags are kept.
+//	sel(v, Q)    field Q of the struct value v, for each <t,T,g> in v, the
+//	             first case that applies, in this order (Q = Root: v):
 //	             Q prefix of T          -> <t, T-Q, g>
 //	             g and T prefix of Q    -> <t, Root, true>
 //	             t = In(i,P,kg), T=Root, not g -> <off(t,Q), Root, false>
-//	             t = Heap or CHeap      -> <t, Root, false>
+//	             t = Heap/CHeap, T=Root, not g -> <t, Root, false> (a whole
+//	                                       value of heap pointers)
 //	             otherwise              -> nothing (another field)
 //	pre(v, Q)    v placed at field Q of a struct value: <t, Q+T, g or cut>.
+//	             Heap and CHeap tokens carry tags like any other, so that a
+//	             heap pointer in one field is not taken for every field.
 //	step(v, s)   one step s of a key path applied to v (a callee's step,
 //	             which was a field offset of a pointer or a field selection
 //	             of a value; tags tell which): for a field or element step,
-//	             sel(v, s) plus off(t, s) for every <t,Root,_> in v that is
-//	             not an In token (In tokens are covered by sel); for a load,
-//	             load(v).
+//	             sel(v, s), plus for each Obj token <t,T,g> in v: with T = Root
+//	             and not g, <off(t, s), Root, false>; with g,
+//	             <off(t, s), Root, true> (In tokens are covered by sel); for a
+//	             load, load(v).
 //	load(v)      for each token t in v (whatever its tag):
 //	             Obj(o,p,pg): for each place q = <o,r,rg> of o:
 //	                 r = p+R        -> pre(pt(q), R), g set if rg or pg
 //	                 p = r+R        -> sel(pt(q), R), g set if pg
 //	                 (any other r: not the same memory)
-//	             In(i,P,kg): <In(i, P+load, kg or cut), Root, false>
+//	             In(i,P,false): <In(i, P+load, cut), Root, false>;
+//	             In(i,P,true): <In(i,P,true), Root, false> (it covers P+load)
 //	             Heap, CHeap: <Heap, Root, false>
+//	             With pg, every token of every place with r = p+R or p = r+R
+//	             gets the tag <_, Root, true> instead.
 //	             A load of a heap-only field (Env.HeapOnly, invariant I6) is
 //	             <Heap, Root, false> instead, whatever t is.
-//	reach(v)     the closure of v under load and every field step, every
-//	             tag made <_, Root, true> and every In token made kg.
+//	reach(v)     the closure of v under load, every token of the result
+//	             geified: tag made <_, Root, true>, an In token made kg; Obj
+//	             tokens keep their path and pg. (Field steps add nothing: a load through an offset
+//	             pointer reads a subset of what the load through the pointer
+//	             reads, and kg covers the extensions of In tokens.)
 //	val(k, β)    the value key k = (i, P, kg) names at a call with input
 //	             binding β: step(...step(β(i), P[0])..., P[n-1]), then reach
 //	             if kg.
 //
 // # The store check (one check for E3002, E3003, E3006, E3009, E3101)
 //
-// store(D, v, why) stores value v through every pointer token d of D:
+// store(D, v, why) stores value v through every pointer token d of D,
+// whatever d's own tag:
 //
 //	d = Obj(o,p,pg)   pt(<o,p,pg>) gets v, and for each Obj(o2,..) token in
 //	                  v: o2 must live at least as long as o (outlives
@@ -122,13 +138,14 @@ package solve
 //	OpAddr       Dst ⊇ <Obj(Obj, Path, cut), Root, false> (Heap if LifeHeap)
 //	OpHeap       Dst ⊇ <Heap, Root, false>; <CHeap, ...> for HeapCounted
 //	OpInput      Dst ⊇ <In(Index, Root, false), Root, false>
-//	OpLoad       Dst ⊇ load(X), or <Heap> when the location read is a
-//	             heap-only field (the field class comes from X's definition:
+//	OpLoad       Dst ⊇ load(X), or, when the location read is a heap-only
+//	             field, Dst ⊇ <Heap, Root, false> whatever X holds (the field class comes from X's definition:
 //	             OpAddr by Objects[o].Type along Path, OpField by its Type,
 //	             the type of what its X points to, along Path)
 //	OpStore      store(X, Y, own)
-//	OpField      Dst ⊇ off(t, Path) for each token t of X
-//	OpElem       Dst ⊇ off(t, [ElemStep]) for each token t of X
+//	OpField      Dst ⊇ <off(t, Path), Root, false> for each token t of X
+//	             (whatever t's tag: the result is a pointer)
+//	OpElem       Dst ⊇ <off(t, [ElemStep]), Root, false> likewise
 //	OpSelect     Dst ⊇ sel(X, Path)
 //	OpCompose    Dst ⊇ pre(Args[i], Fields[i]) for each i
 //	OpCopy       Dst ⊇ X
@@ -159,8 +176,9 @@ package solve
 //	                                                      would outlive it)
 //	                 u = In                               Res[Index].From (u's
 //	                                                      key, T); with g the
-//	                                                      key is GE and the
-//	                                                      field is T cut
+//	                                                      key is GE (T as it
+//	                                                      is, already within
+//	                                                      the limits)
 //	                 u = Heap / CHeap                     Res[Index].Heap /
 //	                                                      CountedHeap T
 //	             SinkGlobal: sink(X, E3002); SinkSend: sink(X, E3005);
@@ -170,7 +188,16 @@ package solve
 //	             drop (a place that holds it is found by the store check)
 //	OpCall       for each candidate c (CallStatic: Callee; CallIface,
 //	             CallTypeParam, CallFunc: Env.Candidates, all of them, by
-//	             union; CallContract: Env.Contract), with s its summary
+//	             union; CallContract: Env.Contract), with s its summary.
+//	             A callee eir.NoFunc is bodyless with as many inputs as
+//	             Args and as many results as Results (the default below);
+//	             otherwise the default's inputs and results are the
+//	             function's (Inputs, Results), and the binding gives the
+//	             values of its inputs.
+//	             A candidate ID at or past len(Program.Funcs) is a virtual
+//	             function the environment defines by its summary alone (a
+//	             rule for dynamic calls that fixes one summary per signature,
+//	             D47, plugs in this way): its inputs are s.Inputs
 //	             (Env.Summary; nil is the bottom summary, except for a
 //	             bodyless function, whose default keeps every input:
 //	             Esc (i, Root, GE) and Res (i, Root, GE) for every input i,
@@ -179,8 +206,10 @@ package solve
 //	               Store (a, b)       store(val(b, β), val(a, β), call)
 //	               HeapStore k        store(val(k, β), <Heap>, call)
 //	               Res[r].From (k,F)  Results[r] ⊇ pre(val(k, β), F)
-//	               Res[r].Heap F      Results[r] ⊇ <Heap, F, false>
-//	               Res[r].CountedHeap Results[r] ⊇ <CHeap, F, false>
+//	               Res[r].Heap F      Results[r] ⊇ <Heap, F, true>
+//	               Res[r].CountedHeap Results[r] ⊇ <CHeap, F, true>
+//	                                  (true: the summary keeps no depth
+//	                                  under F)
 //	               Region.OuterResults r  Results[r] ⊇ <Obj(Reg(site), Root, true), Root, true>
 //
 // Input binding β at a call: CallStatic and CallContract bind input i to
@@ -200,11 +229,18 @@ package solve
 // for LifeStmt) at the phi.
 //
 // Every instruction the rules do not name, and every operand register 0, is
-// the empty value. A finding is reported once per (code, object, position).
+// the empty value. A finding is reported once per (code, object, position); two solvers
+// agree when they report the same (code, position, function, object) set.
+// Findings: a finding about a region Reg(s) has Obj eir.NoObj and Site s;
+// any other has the object, and for a finding through a call the call's
+// Site, Callee and the summary entry (Esc entries first, then Store; -1 for
+// HeapStore and the bodyless default).
 //
 // # The summary (plan invariant I4)
 //
 // The summary collects, over the fixed point: Esc keys, Store pairs and
 // HeapStore keys from the store check and sinks, Res from SinkReturn, and
-// Region facts; then summary.Widen applies the caps. Store pairs with both
-// keys of one input are kept (I4(b)).
+// Region facts; then summary.Widen applies the caps and makes every set an
+// antichain (the reference solver calls the same Widen, so the two agree on
+// the reduction). Store pairs with both keys of one input are kept (I4(b)).
+// Paths are those of Env.Paths, shared by both solvers.

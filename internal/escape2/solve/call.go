@@ -38,16 +38,24 @@ func (s *solver) applyCandidate(in *eir.Instr, cand eir.FuncID) {
 	c := in.Call
 	inputs := len(c.Args)
 	bodyless := cand == eir.NoFunc
-	if !bodyless {
+	var sum *summary.Summary
+	switch {
+	case bodyless:
+	case int(cand) < len(s.prog.Funcs):
 		fn := s.prog.Funcs[cand]
 		inputs = len(fn.Inputs)
 		bodyless = fn.Bodyless
+		sum = s.env.Summary(cand)
+	default:
+		// A virtual function, defined by its summary alone (rules.go,
+		// OpCall): a rule for dynamic calls plugs in this way.
+		sum = s.env.Summary(cand)
+		if sum == nil {
+			panic("internal compiler error: escape2/solve: a virtual candidate without a summary")
+		}
+		inputs = sum.Inputs
 	}
 	bind := s.binding(c, inputs, cand)
-	var sum *summary.Summary
-	if cand != eir.NoFunc {
-		sum = s.env.Summary(cand)
-	}
 	if sum == nil {
 		if bodyless {
 			s.applyDefault(in, bind, cand)
@@ -121,18 +129,20 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 				s.addEdge(v, dst, xw(xPre, rk.Field, false), 0)
 			}
 		}
-		if len(res.Heap) > 0 {
-			s.addTok(dst, heapTok)
+		// Heap at field F, anywhere under it: the summary does not say
+		// how deep the callee's heap pointer sat.
+		for _, f := range res.Heap {
+			s.addTok(dst, tok{kind: tHeap, tag: f, tagGE: true})
 		}
-		if len(res.CountedHeap) > 0 {
-			s.addTok(dst, tok{kind: tCHeap})
+		for _, f := range res.CountedHeap {
+			s.addTok(dst, tok{kind: tCHeap, tag: f, tagGE: true})
 		}
 	}
 	for _, r := range sum.Region.OuterResults {
 		if r >= len(c.Results) || c.Results[r] == 0 {
 			continue
 		}
-		reg := s.region(c.Site, bind)
+		reg := s.region(c)
 		s.addTok(uint32(c.Results[r]), tok{kind: tObj, base: reg, ge: true, tagGE: true})
 	}
 }
@@ -143,37 +153,45 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 func (s *solver) applyDefault(in *eir.Instr, bind []uint64, cand eir.FuncID) {
 	c := in.Call
 	w := s.why(in.Pos, whyCall, 0, c.Site, cand, -1)
+	results := c.Results
+	if cand != eir.NoFunc {
+		results = results[:min(len(results), s.prog.Funcs[cand].Results)]
+	}
 	for _, n := range bind {
 		if n == 0 {
 			continue
 		}
 		r := s.reachNode(uint32(n))
 		s.addCons(r, cSink, cE3003, w)
-		for _, res := range c.Results {
+		for _, res := range results {
 			if res != 0 {
 				s.addEdge(r, uint32(res), xw(xID, 0, false), 0)
 			}
 		}
 	}
-	for _, res := range c.Results {
+	for _, res := range results {
 		if res != 0 {
-			s.addTok(uint32(res), heapTok)
+			// Res Heap Root, applied as any summary's (rules.go, OpCall).
+			s.addTok(uint32(res), tok{kind: tHeap, tagGE: true})
 		}
 	}
 }
 
-// region returns the object of the region the function provides at call
-// site site, seeding it once with what the callee may have put there
-// (rules.go, Reg(s)).
-func (s *solver) region(site eir.SiteID, bind []uint64) uint32 {
-	o := uint32(len(s.f.Objects)) + uint32(site)
+// region returns the object of the region the function provides at call c,
+// seeding it with what the callee may have put there (rules.go, Reg(s)).
+func (s *solver) region(c *eir.Call) uint32 {
+	o := uint32(len(s.f.Objects)) + uint32(c.Site)
 	pn := s.place(o, domain.Root, true)
 	s.addTok(pn, tok{kind: tObj, base: o, ge: true, tagGE: true})
-	s.addTok(pn, heapTok)
-	for _, n := range bind {
-		if n != 0 {
-			s.addEdge(s.reachNode(uint32(n)), pn, xw(xID, 0, false), 0)
+	s.addTok(pn, tok{kind: tHeap, tagGE: true})
+	seed := func(r eir.Reg) {
+		if r != 0 {
+			s.addEdge(s.reachNode(uint32(r)), pn, xw(xID, 0, false), 0)
 		}
 	}
+	for _, a := range c.Args {
+		seed(a)
+	}
+	seed(c.Target)
 	return o
 }

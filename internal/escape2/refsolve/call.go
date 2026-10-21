@@ -14,9 +14,7 @@ func (s *solver) ruleCall(in *eir.Instr) {
 	s.initRegion(in)
 	switch c.Kind {
 	case eir.CallStatic:
-		if c.Callee != eir.NoFunc {
-			s.applyCandidate(in, c.Callee)
-		}
+		s.applyCandidate(in, c.Callee)
 	case eir.CallContract:
 		sm, ok := s.env.Contract(c.Contract)
 		if !ok {
@@ -33,8 +31,28 @@ func (s *solver) ruleCall(in *eir.Instr) {
 // applyCandidate applies the summary of function id at the call of in: nil is
 // the bottom summary, except for a bodyless function, whose default keeps
 // every input.
+//
+// A callee the program does not have (eir.NoFunc) is bodyless, with as many
+// inputs as arguments. An ID past Program.Funcs is a virtual function the
+// environment defines by its summary alone (rules.go, OpCall).
 func (s *solver) applyCandidate(in *eir.Instr, id eir.FuncID) {
-	cf := s.env.Program().Funcs[id]
+	funcs := s.env.Program().Funcs
+	if id == eir.NoFunc {
+		c := in.Call
+		cf := &eir.Func{Inputs: make([]eir.Input, len(c.Args)), Results: len(c.Results), Bodyless: true}
+		s.applySummary(in, bodylessSummary(cf), s.binder(c, nil), id)
+		return
+	}
+	if int(id) >= len(funcs) {
+		sm := s.env.Summary(id)
+		if sm == nil {
+			panic("internal compiler error: escape2: a virtual candidate without a summary")
+		}
+		cf := &eir.Func{Inputs: make([]eir.Input, sm.Inputs)}
+		s.applySummary(in, sm, s.binder(in.Call, cf), id)
+		return
+	}
+	cf := funcs[id]
 	sm := s.env.Summary(id)
 	if sm == nil {
 		if !cf.Bodyless {
@@ -116,8 +134,7 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 	}
 	heap := single(ptr(tok{kind: kHeap}))
 	for _, k := range sm.HeapStore { // HeapStore k: store(val(k, β), <Heap>, call)
-		s.store(s.valueOfKey(k, bind), heap, in.Pos, ctx(entry))
-		entry++
+		s.store(s.valueOfKey(k, bind), heap, in.Pos, ctx(-1))
 	}
 	for r, res := range sm.Res {
 		if r >= len(c.Results) || c.Results[r] == 0 {
@@ -127,11 +144,11 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 		for _, rk := range res.From { // Results[r] ⊇ pre(val(k, β), F)
 			s.def(dst, s.pre(s.valueOfKey(rk.Key, bind), rk.Field, false))
 		}
-		for _, f := range res.Heap { // Results[r] ⊇ <Heap, F, false>
-			s.def(dst, single(tv{t: tok{kind: kHeap}, tag: f}))
+		for _, f := range res.Heap { // Results[r] ⊇ <Heap, F, true>
+			s.def(dst, single(tv{t: tok{kind: kHeap}, tag: f, g: true}))
 		}
-		for _, f := range res.CountedHeap { // Results[r] ⊇ <CHeap, F, false>
-			s.def(dst, single(tv{t: tok{kind: kCHeap}, tag: f}))
+		for _, f := range res.CountedHeap { // Results[r] ⊇ <CHeap, F, true>
+			s.def(dst, single(tv{t: tok{kind: kCHeap}, tag: f, g: true}))
 		}
 	}
 	for _, r := range sm.Region.OuterResults { // Results[r] ⊇ <Obj(Reg(site), Root, true), Root, true>

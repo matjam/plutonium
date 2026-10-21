@@ -58,7 +58,7 @@ var heapTok = tok{kind: tHeap}
 // intern returns the number of a tagged token.
 func (s *solver) intern(t tok) uint64 {
 	if t.kind == tHeap || t.kind == tCHeap {
-		t = tok{kind: t.kind}
+		t.base, t.path, t.ge = 0, domain.Root, false // heap tokens keep their tag only
 	}
 	w0, w1 := t.words()
 	if id, ok := s.tokIdx.get(w0, w1); ok {
@@ -142,8 +142,6 @@ func (s *solver) sel(t tok, q domain.PathID) (tok, bool) {
 		return t, true
 	}
 	switch {
-	case t.kind == tHeap || t.kind == tCHeap:
-		return t, true
 	case s.ps.HasPrefix(t.tag, q):
 		t.tag, _ = s.pathOf(s.suffix(t.tag, q))
 		return t, true
@@ -152,15 +150,14 @@ func (s *solver) sel(t tok, q domain.PathID) (tok, bool) {
 		return t, true
 	case t.kind == tIn && t.tag == domain.Root && !t.tagGE:
 		return s.off(t, s.ps.Steps(q)), true
+	case (t.kind == tHeap || t.kind == tCHeap) && t.tag == domain.Root && !t.tagGE:
+		return t, true // a whole value of heap pointers
 	}
 	return t, false
 }
 
 // pre places t at field Q of a struct value (rules.go, pre).
 func (s *solver) pre(t tok, q domain.PathID, ge bool) tok {
-	if t.kind == tHeap || t.kind == tCHeap {
-		return t
-	}
 	if q != domain.Root {
 		p, cut := s.extendAll(q, s.ps.Steps(t.tag))
 		t.tag = p
@@ -173,9 +170,6 @@ func (s *solver) pre(t tok, q domain.PathID, ge bool) tok {
 // geify makes a token's tag unknown and an In token cover its extensions
 // (rules.go, reach).
 func geify(t tok) tok {
-	if t.kind == tHeap || t.kind == tCHeap {
-		return t
-	}
 	t.tag, t.tagGE = domain.Root, true
 	if t.kind == tIn {
 		t.ge = true

@@ -74,8 +74,8 @@ func (s *solver) sel(v value, q domain.PathID, qcut bool) value {
 			out.add(tv{x.t, domain.Root, true})
 		case x.t.kind == kIn && x.tag == domain.Root && !x.g:
 			out.add(ptr(s.off(x.t, q, qcut)))
-		case x.t.kind == kHeap || x.t.kind == kCHeap:
-			out.add(ptr(x.t))
+		case (x.t.kind == kHeap || x.t.kind == kCHeap) && x.tag == domain.Root && !x.g:
+			out.add(ptr(x.t)) // a whole value of heap pointers
 		}
 	}
 	return out
@@ -99,7 +99,13 @@ func (s *solver) step(v value, st domain.Step) value {
 	q, qc := s.ps.Extend(domain.Root, st)
 	out := s.sel(v, q, qc)
 	for x := range v {
-		if x.tag == domain.Root && x.t.kind != kIn {
+		if x.t.kind != kObj {
+			continue // In tokens are covered by sel, heap by both
+		}
+		switch {
+		case x.g:
+			out.add(tv{s.off(x.t, q, qc), domain.Root, true})
+		case x.tag == domain.Root:
 			out.add(ptr(s.off(x.t, q, qc)))
 		}
 	}
@@ -114,8 +120,12 @@ func (s *solver) load(v value) value {
 		case kObj:
 			s.loadObj(out, x.t)
 		case kIn:
+			if x.t.ge {
+				out.add(ptr(x.t)) // kg covers every extension
+				continue
+			}
 			p, c := s.ps.Extend(x.t.path, domain.StepLoad)
-			out.add(ptr(tok{kind: kIn, id: x.t.id, path: p, ge: x.t.ge || c}))
+			out.add(ptr(tok{kind: kIn, id: x.t.id, path: p, ge: c}))
 		default:
 			out.add(ptr(tok{kind: kHeap}))
 		}
@@ -151,7 +161,7 @@ func (s *solver) loadObj(out value, t tok) {
 // token itself covering every extension.
 func normal(x tv) tv {
 	x.tag, x.g = domain.Root, true
-	if x.t.kind == kIn || x.t.kind == kObj {
+	if x.t.kind == kIn {
 		x.t.ge = true
 	}
 	return x

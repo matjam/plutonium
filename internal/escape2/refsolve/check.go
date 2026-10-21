@@ -35,6 +35,9 @@ func (s *solver) outlives(o2, o int) bool {
 		return true
 	}
 	a, b := s.objs[o2], s.objs[o]
+	if a.isReg && a.life == eir.LifeFrame && b.life == eir.LifeCaller {
+		return true // section 11.5: the caller's region holds the call's
+	}
 	switch {
 	case a.life == eir.LifeIter && b.life == eir.LifeIter:
 		return s.nestedIn(b.loop, a.loop)
@@ -64,9 +67,6 @@ func (s *solver) storeCode(o2 int) diag.Code {
 // through every pointer token of D.
 func (s *solver) store(d, v value, pos token.Pos, c callCtx) {
 	for dx := range d {
-		if dx.tag != domain.Root {
-			continue
-		}
 		switch dt := dx.t; dt.kind {
 		case kObj:
 			s.putPlace(place{dt.id, dt.path, dt.ge}, v)

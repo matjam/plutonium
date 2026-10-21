@@ -12,7 +12,15 @@ func uses(in *eir.Instr, r eir.Reg) bool {
 			return true
 		}
 	}
-	return in.Call != nil && in.Call.Target == r
+	if in.Call != nil {
+		for _, a := range in.Call.Args {
+			if a == r {
+				return true
+			}
+		}
+		return in.Call.Target == r
+	}
+	return false
 }
 
 // defines reports whether in defines register r.

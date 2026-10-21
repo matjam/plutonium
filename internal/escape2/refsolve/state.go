@@ -151,10 +151,16 @@ func (s *solver) finding(code diag.Code, pos token.Pos, obj int, sink eir.SinkKi
 	if _, ok := s.findings[k]; ok {
 		return
 	}
-	s.findings[k] = solve.Finding{
+	fd := solve.Finding{
 		Code: code, Pos: pos, Func: s.f.ID, Obj: eir.ObjID(obj), Sink: sink,
 		Site: c.site, Callee: c.callee, Entry: c.entry,
 	}
+	if obj >= len(s.f.Objects) {
+		// A region Reg(s) is no object of the function: Obj is NoObj and
+		// Site names its call (rules.go, "Findings").
+		fd.Obj, fd.Site = eir.NoObj, eir.SiteID(obj-len(s.f.Objects))
+	}
+	s.findings[k] = fd
 	s.changed = true
 }
 
