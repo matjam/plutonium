@@ -15,7 +15,6 @@ import (
 	"github.com/matjam/plutonium/internal/backend"
 	"github.com/matjam/plutonium/internal/debuginfo"
 	"github.com/matjam/plutonium/internal/diag"
-	"github.com/matjam/plutonium/internal/escape"
 	"github.com/matjam/plutonium/internal/load"
 	"github.com/matjam/plutonium/internal/lower"
 	"github.com/matjam/plutonium/internal/moves"
@@ -185,7 +184,7 @@ func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 	// errors of both lifetime checks are reported together. The move
 	// checker uses what the escape analysis finds about calls, to follow
 	// views of local owners (spec section 18.3).
-	calls, escErr := escape.Analyze(prog)
+	calls, escErr := analyzeEscapes(prog)
 	info, moveErr := moves.AnalyzeWith(prog, calls)
 	// The race check runs before lowering, which makes the checks it
 	// leaves to run time (spec section 19.4), but its errors are reported
