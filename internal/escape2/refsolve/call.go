@@ -4,6 +4,7 @@ import (
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
+	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/escape2/summary"
 )
 
@@ -88,7 +89,19 @@ func bodylessSummary(cf *eir.Func) *summary.Summary {
 // more than Args, the last input to Target. An input with no argument binds
 // to the empty value.
 func (s *solver) binder(c *eir.Call, cf *eir.Func) func(int) value {
+	recv := solve.RecvValue
+	if cf != nil && c.Target == 0 {
+		recv = solve.RecvChoice(s.env, s.env.Program(), c, cf.ID)
+	}
 	arg := func(i int) value {
+		if i == 0 && recv != solve.RecvValue {
+			v := value{}
+			v.addAll(s.val(c.RecvAddr))
+			if recv == solve.RecvBoth && len(c.Args) > 0 {
+				v.addAll(s.val(c.Args[0]))
+			}
+			return v
+		}
 		if i >= 0 && i < len(c.Args) {
 			return s.val(c.Args[i])
 		}

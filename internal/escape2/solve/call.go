@@ -4,6 +4,7 @@ import (
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/summary"
+	"github.com/matjam/plutonium/internal/types2"
 )
 
 // call applies the summaries of a call's candidates (rules.go, OpCall).
@@ -91,7 +92,75 @@ func (s *solver) binding(c *eir.Call, n int, cand eir.FuncID) []uint64 {
 	for i, r := range bind {
 		bind[i] = uint64(s.canonBase(eir.Reg(r)))
 	}
+	if n > 0 && c.Target == 0 && len(args) > 0 {
+		switch RecvChoice(s.env, s.prog, c, cand) {
+		case RecvAddr:
+			bind[0] = uint64(s.canonBase(c.RecvAddr))
+		case RecvBoth:
+			bind[0] = uint64(s.joinNode(s.canonBase(c.RecvAddr), uint32(bind[0])))
+		}
+	}
 	return bind
+}
+
+// joinNode returns a node holding what nodes a and b hold.
+func (s *solver) joinNode(a, b uint32) uint32 {
+	if n, ok := s.derived.get(dJoin|uint64(a)<<20, uint64(b)); ok {
+		return uint32(n)
+	}
+	n := s.newNode(nkPinned)
+	s.derived.put(s.a, dJoin|uint64(a)<<20, uint64(b), uint64(n))
+	s.addEdge(a, n, xw(xID, 0, false), 0)
+	s.addEdge(b, n, xw(xID, 0, false), 0)
+	return n
+}
+
+// The receivers a CallTypeParam candidate may be given (eir.Call.RecvAddr).
+const (
+	RecvValue = iota // Args[0]
+	RecvAddr         // the operand's address
+	RecvBoth         // either, by instance
+)
+
+// RecvChoice is the receiver a candidate of a call takes: RecvAddr when the
+// candidate's method has a pointer receiver and the type parameter's
+// instances are not pointers (the call takes &operand), Args[0] when they
+// are pointers or the method has a value receiver, and both when the
+// instances are unknown or mixed (rules.go, "Input binding").
+func RecvChoice(env Env, p *eir.Program, c *eir.Call, cand eir.FuncID) int {
+	if c.Kind != eir.CallTypeParam || c.RecvAddr == 0 || cand == eir.NoFunc || int(cand) >= len(p.Funcs) {
+		return RecvValue
+	}
+	fn := p.Funcs[cand]
+	if len(fn.Inputs) == 0 || fn.Inputs[0].Type == nil {
+		return RecvBoth
+	}
+	if _, ptr := fn.Inputs[0].Type.Underlying().(*types2.Pointer); !ptr {
+		return RecvValue
+	}
+	tp, ok := types2.Unalias(c.Iface).(*types2.TypeParam)
+	if !ok {
+		return RecvBoth
+	}
+	insts, known := env.Instantiated(tp)
+	if !known {
+		return RecvBoth
+	}
+	pointers, values := false, false
+	for _, T := range insts {
+		if _, ptr := T.Underlying().(*types2.Pointer); ptr {
+			pointers = true
+		} else {
+			values = true
+		}
+	}
+	switch {
+	case pointers && values:
+		return RecvBoth
+	case values:
+		return RecvAddr
+	}
+	return RecvValue
 }
 
 // canonBase is the node a call binds to argument register r. A register

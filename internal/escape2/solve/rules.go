@@ -273,7 +273,12 @@ package solve
 //	               Region.OuterResults r  Results[r] ⊇ <Obj(Reg(site), Root, true), Root, true>
 //
 // Input binding β at a call: CallStatic and CallContract bind input i to
-// Args[i] (receiver first). CallIface and CallTypeParam bind input 0 to
+// Args[i] (receiver first). A CallTypeParam with RecvAddr binds its
+// receiver, per candidate, to RecvAddr when the candidate's method has a
+// pointer receiver and every instance of the type parameter is a value
+// type, to Args[0] when the method has a value receiver or every instance
+// is a pointer, and to both when the instances are unknown or mixed
+// (solve.RecvChoice). CallIface and CallTypeParam bind input 0 to
 // Target (the interface value's data word: a box pointer, or the direct
 // value) and input i+1 to Args[i]; when Target is 0 the receiver is Args[0]
 // and inputs bind as for a static call. CallFunc binds input i to Args[i]

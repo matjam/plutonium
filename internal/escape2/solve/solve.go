@@ -487,6 +487,7 @@ const (
 	dReach  = 1
 	dTok    = 2
 	dShared = 1 << 62 // in the first word: a shared subscription node
+	dJoin   = 1 << 61 // in the first word: a node joining two receivers
 )
 
 // valNode returns the node of val(k) for an input bound to node base
