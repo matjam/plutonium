@@ -152,6 +152,26 @@ func genBucket(i uintptr, create bool) *uint64 {
 	return (*uint64)(unsafe.Pointer(leaf + (i&(genLeafSize-1))*8))
 }
 
+// genSlot is genBucket for readers, which never create a leaf. It neither
+// allocates nor panics (no index check either), so the lookups that use it
+// call nothing that comes back to a lookup. genBucket can: it allocates
+// metadata, which may panic, and printing the panic checks its strings.
+// That cycle kept genFirstLive, which the inliner does not inline within a
+// cycle, out of line in GenRegisteredLive and GenRegisteredRangeLive, so
+// every check made a second call.
+//
+//pu:inline
+func genSlot(i uintptr) *uint64 {
+	if i>>16 >= genLeafSize {
+		return nil
+	}
+	leaf := uintptr(vload64((*uint64)(unsafe.Add(unsafe.Pointer(&genTop), i>>16*8))))
+	if leaf == 0 {
+		return nil
+	}
+	return (*uint64)(unsafe.Pointer(leaf + (i&(genLeafSize-1))*8))
+}
+
 // genPage returns the interval i's node. Creating one needs the writer
 // lock; readers see a node only after its fields are initialized.
 func genPage(i uintptr, create bool) *genInterval {
@@ -312,7 +332,7 @@ func GenRegisteredLive(p unsafe.Pointer) bool {
 //
 //pu:inline
 func genReadLive(a, end uintptr, tag uint16) bool {
-	slot := genBucket(a>>16, false)
+	slot := genSlot(a >> 16)
 	if slot == nil {
 		return false
 	}
@@ -390,7 +410,7 @@ func GenRegisteredRangeLive(p unsafe.Pointer, n uintptr) bool {
 //
 //pu:inline
 func genFirstLive(a, end uintptr, tag uint16) bool {
-	slot := genBucket(a>>16, false)
+	slot := genSlot(a >> 16)
 	if slot == nil {
 		return false
 	}
@@ -410,12 +430,17 @@ func genFirstLive(a, end uintptr, tag uint16) bool {
 		}
 	}
 	v := vload64(&r.version)
-	active, lo, hi := r.active, r.lo, uintptr(vload64((*uint64)(unsafe.Pointer(&r.hi))))
-	parent, table, origin, capacity := r.parent, r.table, r.origin, r.capacity
-	if parent != nil {
+	if r.parent != nil {
 		return genLive(r, a, end, tag)
 	}
-	if v&1 != 0 || v != vload64(&r.version) || !genCovers(active, lo, hi, origin, capacity, a, end) {
+	// genCovers, with each field compared as soon as it is read, so that
+	// few values are live at once and the lookup saves fewer registers. The
+	// fields read between two equal even versions are one snapshot, in
+	// whatever order they are read; the table is dereferenced only after the
+	// version is confirmed.
+	ok := v&1 == 0 && r.active && a >= r.lo && end <= uintptr(vload64((*uint64)(unsafe.Pointer(&r.hi))))
+	origin, table := r.origin, r.table
+	if !ok || a < origin || (end-1-origin)>>4 >= r.capacity || v != vload64(&r.version) {
 		return false
 	}
 	return genTableMatch(table, origin, a, end, tag) && v == vload64(&r.version)
