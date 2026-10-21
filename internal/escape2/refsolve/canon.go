@@ -13,6 +13,9 @@ import (
 // Canon renders a result in a form that does not depend on how paths are
 // numbered or on the order of entries, so two solvers with separate path
 // interners can be compared by string equality, and a difference can be read.
+// A finding is compared by code, position, function and object: the rules
+// report each (code, object, position) once, and which call or entry is named
+// when several reach it is not fixed by the table.
 func Canon(ps domain.Paths, r solve.Result) string {
 	var b strings.Builder
 	if r.Summary == nil {
@@ -22,8 +25,7 @@ func Canon(ps domain.Paths, r solve.Result) string {
 	}
 	fs := make([]string, 0, len(r.Findings))
 	for _, f := range r.Findings {
-		fs = append(fs, fmt.Sprintf("finding %v pos=%d func=%d obj=%d sink=%d site=%d callee=%d entry=%d",
-			f.Code, f.Pos, f.Func, f.Obj, f.Sink, f.Site, f.Callee, f.Entry))
+		fs = append(fs, fmt.Sprintf("finding %v pos=%d func=%d obj=%d", f.Code, f.Pos, f.Func, f.Obj))
 	}
 	sort.Strings(fs)
 	for _, s := range fs {
