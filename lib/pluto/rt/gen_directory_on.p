@@ -20,14 +20,16 @@ type genLink struct {
 	reg  uint64
 }
 
+// The fields a lookup reads come first, within 64 bytes.
 type genRecord struct {
 	version     uint64
-	incarnation uint64
+	active      bool
 	lo, hi      uintptr
 	origin      uintptr
 	table       *uint16
 	capacity    uintptr
 	parent      *genRecord
+	incarnation uint64
 	parentID    uint64
 	parentTag   uint16
 	depth       uintptr
@@ -35,7 +37,6 @@ type genRecord struct {
 	key         uintptr
 	owner       uintptr
 	ownerNext   *genRecord
-	active      bool
 	nextFree    uintptr
 	nextClass   uintptr
 }
@@ -272,7 +273,11 @@ func genReadTag(r *genRecord, a uintptr) uint16 {
 }
 
 // GenRegisteredLive is the shared lookup for compiler checks and runtime
-// count operations. Zero tags are the explicit unchecked addresses.
+// count operations. Zero tags are the explicit unchecked addresses. It is
+// called at every check, so it stays out of line: inlined, its lookup would
+// grow every function that checks a pointer.
+//
+//pu:noinline
 func GenRegisteredLive(p unsafe.Pointer) bool {
 	bits := *(*uintptr)(unsafe.Pointer(&p))
 	tag := uint16(bits >> 48)
@@ -280,7 +285,7 @@ func GenRegisteredLive(p unsafe.Pointer) bool {
 		return true
 	}
 	a := uintptr(p)
-	return genReadLive(a, a+1, tag)
+	return genFirstLive(a, a+1, tag) || genRangeLive(p, 1)
 }
 
 // genReadLive reports whether one registration reached from the directory
@@ -338,12 +343,62 @@ func genReadLive(a, end uintptr, tag uint16) bool {
 // under p's tag. One registration covering the extent in one snapshot is
 // the common case. Otherwise each granule and the last byte are checked
 // on their own, which is the definition (ABI section 1.3): the result is
-// the same, and the fast path only avoids repeating the lookup.
+// the same, and the fast path only avoids repeating the lookup. Out of line
+// as GenRegisteredLive is.
+//
+//pu:noinline
 func GenRegisteredRangeLive(p unsafe.Pointer, n uintptr) bool {
 	bits := *(*uintptr)(unsafe.Pointer(&p))
 	if n == 0 || bits>>48 == 0 {
 		return true
 	}
+	a := uintptr(p)
+	end := a + n
+	if end >= a && end <= uintptr(1)<<48 && genFirstLive(a, end, uint16(bits>>48)) {
+		return true
+	}
+	return genRangeLive(p, n)
+}
+
+// genFirstLive is the common case of genReadLive without a call or a
+// retry: the interval's newest registration has no backing allocation and
+// covers [a, end) live under tag in one stable snapshot. False means only
+// that the complete lookup must decide.
+//
+//pu:inline
+func genFirstLive(a, end uintptr, tag uint16) bool {
+	slot := genBucket(a>>16, false)
+	if slot == nil {
+		return false
+	}
+	page := uintptr(vload64(slot))
+	if page == 0 {
+		return false
+	}
+	l := uintptr(vload64(&(*genInterval)(unsafe.Pointer(page)).head))
+	if l == 0 {
+		return false
+	}
+	rp := uintptr(vload64(&(*genLink)(unsafe.Pointer(l)).reg))
+	if rp == 0 {
+		return false
+	}
+	r := (*genRecord)(unsafe.Pointer(rp))
+	v := vload64(&r.version)
+	active, lo, hi := r.active, r.lo, uintptr(vload64((*uint64)(unsafe.Pointer(&r.hi))))
+	parent, table, origin, capacity := r.parent, r.table, r.origin, r.capacity
+	if v&1 != 0 || v != vload64(&r.version) || parent != nil || !genCovers(active, lo, hi, origin, capacity, a, end) {
+		return false
+	}
+	return genTableMatch(table, origin, a, end, tag) && v == vload64(&r.version)
+}
+
+// genRangeLive is GenRegisteredRangeLive's complete lookup: every
+// registration of the interval, then the definition.
+//
+//pu:noinline
+func genRangeLive(p unsafe.Pointer, n uintptr) bool {
+	bits := *(*uintptr)(unsafe.Pointer(&p))
 	a := uintptr(p)
 	end := a + n
 	if end < a || end > uintptr(1)<<48 {

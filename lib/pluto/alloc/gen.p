@@ -26,6 +26,14 @@ func genChunk(pages PageProvider, owner uintptr) unsafe.Pointer {
 	return p
 }
 
+// genLive is rt.GenRegisteredLive with its test of an untagged pointer
+// (an allocator made from pages, as the default one is) done inline.
+//
+//pu:inline
+func genLive(p unsafe.Pointer) bool {
+	return *(*uintptr)(unsafe.Pointer(&p))>>48 == 0 || rt.GenRegisteredLive(p)
+}
+
 func genBacking(p unsafe.Pointer, owner uintptr) {
 	if genCheck && !rt.GenSlabBackingLive(p, owner) {
 		panic("alloc: slab backing memory was reclaimed")

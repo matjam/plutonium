@@ -242,7 +242,7 @@ func classOf(size, align uintptr) int {
 
 // Alloc returns size zeroed bytes aligned to align.
 func (s *Slab) Alloc(size, align uintptr) unsafe.Pointer {
-	if genCheck && !rt.GenRegisteredLive(unsafe.Pointer(s)) {
+	if genCheck && !genLive(unsafe.Pointer(s)) {
 		panic("alloc: allocator memory was reclaimed")
 	}
 	if size > 1<<maxClassShift || align > 1<<maxClassShift {
@@ -275,7 +275,7 @@ func (s *Slab) Alloc(size, align uintptr) unsafe.Pointer {
 
 // Free returns memory to its size class.
 func (s *Slab) Free(p unsafe.Pointer, size, align uintptr) {
-	if genCheck && !rt.GenRegisteredLive(unsafe.Pointer(s)) {
+	if genCheck && !genLive(unsafe.Pointer(s)) {
 		panic("alloc: allocator memory was reclaimed")
 	}
 	if p == nil {
