@@ -249,8 +249,11 @@ package solve
 //	             and Heap in every result) and β its input binding:
 //	               Esc k              sink(val(k, β), E3003); at a call
 //	                                  that starts a task (Implicit ImplTask),
+//	                                  or whose entry's reason has Sink
+//	                                  SinkTask (a callee that starts one),
 //	                                  a frame token of a sync.WaitGroup
-//	                                  object is E3004 (section 12.12)
+//	                                  object is E3004 (section 12.12), and
+//	                                  the entry it makes keeps SinkTask
 //	               Store (a, b)       store(val(b, β), val(a, β), call)
 //	               HeapStore k        store(val(k, β), <Heap>, call)
 //	               Res[r].From (k,F,G) Results[r] ⊇ pre(val(k, β), F), tags

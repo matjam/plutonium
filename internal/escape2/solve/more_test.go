@@ -316,3 +316,22 @@ func TestTaskStarter(t *testing.T) {
 		t.Errorf("findings %v", got)
 	}
 }
+
+// A helper that starts a task with its parameter (w03): its summary's reason
+// says so, and passing a local sync.WaitGroup to the helper is E3004.
+func TestTaskStarterHelper(t *testing.T) {
+	e := newEnv()
+	pkg := types2.NewPackage("pluto/sync", "sync")
+	wgT := types2.NewNamed(types2.NewTypeName(0, pkg, "WaitGroup", nil), types2.NewStruct(nil, nil), nil)
+	e.contracts["task"] = &summary.Summary{Inputs: 1, Esc: []domain.Key{e.key(0, false)}}
+	h := e.fn("start", 1, 0)
+	h.call(&eir.Call{Kind: eir.CallContract, Contract: "task", Implicit: eir.ImplTask, Args: []eir.Reg{h.input(0)}})
+	e.solve(t, h.f)
+	b := e.fn("f", 0, 0)
+	wg := b.typedObj("wg", wgT)
+	x := b.obj("x", eir.LifeFrame, -1)
+	b.at(5).static(h.f, 0, b.addr(wg))
+	b.at(6).static(h.f, 0, b.addr(x))
+	r := e.solve(t, b.f)
+	wantFindings(t, r, "E3003@6 E3004@5")
+}

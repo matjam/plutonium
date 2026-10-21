@@ -128,13 +128,15 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		}
 		return s.valNode(uint32(bind[i]), k.Path(), k.GE()), true
 	}
-	escCode := uint64(cE3003)
-	if c.Implicit == eir.ImplTask {
-		escCode = cTask
-	}
 	for e, k := range sum.Esc {
 		if v, ok := val(k); ok {
-			s.addCons(v, cSink, escCode, why(e))
+			// A key kept by starting a task, here or in the callee (its
+			// reason says so): a local sync.WaitGroup is E3004 (12.12).
+			code, w := uint64(cE3003), why(e)
+			if c.Implicit == eir.ImplTask || (e < len(sum.Reasons) && len(sum.Reasons) == len(sum.Esc)+len(sum.Store) && sum.Reasons[e].Sink == uint8(eir.SinkTask)) {
+				code, w = cTask, s.why(in.Pos, whyCall, eir.SinkTask, c.Site, cand, e)
+			}
+			s.addCons(v, cSink, code, w)
 		}
 	}
 	for j, p := range sum.Store {

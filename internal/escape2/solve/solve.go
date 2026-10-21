@@ -806,7 +806,7 @@ func (s *solver) summary() *summary.Summary {
 		if kind != whyCall {
 			return summary.Reason{Site: ^uint32(0), Callee: ^uint32(0), Entry: ^uint32(0), Pos: uint32(pos), Sink: uint8(sink)}
 		}
-		return summary.Reason{Site: uint32(site), Callee: uint32(callee), Entry: uint32(int32(entry)), Pos: uint32(pos)}
+		return summary.Reason{Site: uint32(site), Callee: uint32(callee), Entry: uint32(int32(entry)), Pos: uint32(pos), Sink: uint8(sink)}
 	}
 	var escWhy, storeWhy []summary.Reason
 	for i := 0; i < len(s.esc.s); i += 2 {
