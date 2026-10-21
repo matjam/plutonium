@@ -122,7 +122,12 @@ func withFakes(t *testing.T, order *[]eir.FuncID) *fakeArena {
 	newPaths = func() domain.Paths { return fakePaths{} }
 	newArena = func() domain.Arena { return arena }
 	newSets = func(a domain.Arena) domain.Sets { return fakeSets{a: arena} }
+	// The fake solves keep no state: the real solver's resumable solve
+	// would solve the fake functions for real.
+	savedKeep := solveKeepFunc
+	solveKeepFunc = nil
 	t.Cleanup(func() {
+		solveKeepFunc = savedKeep
 		solveFunc = saved[0].(func(*eir.Func, solve.Env, *solve.Workspace) solve.Result)
 		leq = saved[1].(func(domain.Paths, *summary.Summary, *summary.Summary) bool)
 		newPaths = saved[2].(func() domain.Paths)

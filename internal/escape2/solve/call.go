@@ -57,6 +57,10 @@ func (s *solver) applyCandidate(in *eir.Instr, cand eir.FuncID) {
 		inputs = sum.Inputs
 	}
 	bind := s.binding(c, inputs, cand)
+	if !bodyless {
+		// A resumed solve applies what this summary gains (State.Resume).
+		s.applied = append(s.applied, application{in: in, cand: cand, inputs: inputs, sum: sum})
+	}
 	if sum == nil {
 		if bodyless {
 			s.applyDefault(in, bind, cand)
@@ -64,6 +68,31 @@ func (s *solver) applyCandidate(in *eir.Instr, cand eir.FuncID) {
 		return // the bottom summary of a function of this SCC not yet solved
 	}
 	s.apply(in, bind, sum, cand)
+}
+
+// application is a summary a call applied, for State.Resume.
+type application struct {
+	in     *eir.Instr
+	cand   eir.FuncID
+	inputs int
+	sum    *summary.Summary
+}
+
+// reapply applies again the summaries of callees that changed since they
+// were applied. Each new summary covers the old one (the driver joins an
+// iterate with the previous one), so applying it in full adds what it
+// gains: the constraints and edges the old one made are already there, and
+// are not made twice (whys are interned).
+func (s *solver) reapply() {
+	for i := range s.applied {
+		ap := &s.applied[i]
+		sum := s.env.Summary(ap.cand)
+		if sum == ap.sum || sum == nil {
+			continue
+		}
+		ap.sum = sum
+		s.apply(ap.in, s.binding(ap.in.Call, ap.inputs, ap.cand), sum, ap.cand)
+	}
 }
 
 // binding returns the node bound to each input of a candidate with n inputs

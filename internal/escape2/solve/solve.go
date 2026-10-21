@@ -19,15 +19,49 @@ import (
 // the summary and the findings, which the caller keeps (and copies to the
 // SCC or program arena) before it resets the workspace.
 func Solve(f *eir.Func, env Env, ws *Workspace) Result {
+	r, _ := SolveKeep(f, env, ws)
+	return r
+}
+
+// SolveKeep is Solve, and returns the solver's state as well, kept in ws,
+// for a later solve of f to resume (State.Resume): the caller must not
+// reset ws while it holds the state.
+func SolveKeep(f *eir.Func, env Env, ws *Workspace) (Result, *State) {
 	s := newSolver(f, env, ws)
 	s.build()
+	return s.finish(), &State{s}
+}
+
+// finish runs the solve to its fixed point and returns its result.
+func (s *solver) finish() Result {
 	s.run()
 	s.checkDrops()
 	s.measure()
 	sum := s.summary()
 	s.dump(sum)
-	return Result{Summary: sum, Findings: s.findings}
+	return Result{Summary: sum, Findings: append([]Finding(nil), s.findings...)}
 }
+
+// State is a solve kept to be resumed.
+type State struct{ s *solver }
+
+// Resume solves f again against env, whose summaries of the functions f
+// calls each cover the one the kept solve applied (the scheduler joins an
+// SCC's iterate with the previous one, a virtual join only gains members'
+// entries, and the summaries of earlier SCCs are final): it applies what the
+// summaries gained and goes on from the kept fixed point, which gives the
+// result a solve from scratch gives. The limits apply to the work of each
+// resume and to the memory of the whole state.
+func (st *State) Resume(env Env) Result {
+	s := st.s
+	s.env = env
+	s.nsteps = 0
+	s.reapply()
+	return s.finish()
+}
+
+// Bytes is what the state holds: its arena and set table bytes.
+func (st *State) Bytes() int { return st.s.a.Bytes() - st.s.base + st.s.sets.Bytes() }
 
 // solver is the state of one solve.
 type solver struct {
@@ -83,6 +117,8 @@ type solver struct {
 	tjSeen                  table
 	tjCounter               uint64
 	stepBuf                 []domain.Step
+	applied                 []application // the summaries the calls applied (State.Resume)
+	whyIdx                  table         // whys by content, so that a constraint is made once
 }
 
 func newSolver(f *eir.Func, env Env, ws *Workspace) *solver {
@@ -120,7 +156,23 @@ const (
 )
 
 func (s *solver) why(pos token.Pos, kind int, sink eir.SinkKind, site eir.SiteID, callee eir.FuncID, entry int) uint64 {
+	// The same why is the same id: a summary applied again (State.Resume)
+	// makes no constraint twice.
+	var k1, k2 uint64
+	interned := uint64(site) < 1<<22 && uint64(callee)+1 < 1<<22 && entry >= -1 && entry < 1<<19
+	if interned {
+		k1 = uint64(pos)<<16 | uint64(kind)<<8 | uint64(sink)
+		if kind == whyCall {
+			k2 = uint64(site) + 1 | (uint64(callee)+1)<<22 | uint64(int64(entry)+1)<<44
+		}
+		if id, ok := s.whyIdx.get(k1, k2); ok {
+			return id
+		}
+	}
 	id := uint64(len(s.whys.s) / whyWords)
+	if interned {
+		s.whyIdx.put(s.a, k1, k2, id)
+	}
 	s.whys.push(s.a, uint64(pos))
 	if kind == whyCall {
 		s.whys.push(s.a, uint64(site)+1)
