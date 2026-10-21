@@ -313,6 +313,35 @@ against the corrected specification. The immediate implementation order is:
      (E3001): `func mk() (func() int, *int) { x := 1; g := func() int { return x }; return g, &x }`. The
      analysis must treat such an address as a view of the caller's frame at that call, kept from the next
      run of the call (section 11.5, "Refilling"), and the variable must live in the region.
+138. **Views of local owners, counted references and arenas bounded at compile time** (planned; sections
+     18.3 "A local owner's memory" with E3001, E3002, E3313 and E3314, 18.7 rule 5, 18.9; found by the third
+     adversarial review of the escape analysis, defect 7). A view obtained from an owner held in a local
+     variable is bounded by that variable and follows the frame rules, but the analysis takes what a local
+     owner's methods return (`v.Slice()`, `v.Ptr(i)` of a local `vec.Vec`, `a.New[int]()` of a local
+     `arena.Fixed`) for heap memory, so returning or storing it compiles: the default build catches the use
+     by a generation check ("use of freed memory", "use of memory from an arena that was reset"), and
+     `--gencheck=false` reads garbage, which 18.9 forbids for arena views. Programs (third review,
+     `review3-programs/`): o03, c19 (`return v.Slice()` / `return v.Ptr(0)` of a local vector), c20
+     (`keep = v.Slice()`), o26 (a view returned through a method of a local owner struct), o24 (a view
+     captured by a closure, then the owner moved into a callee), o25 (`p := &s.n` through a `shared`
+     reference that is then replaced), ar01 and ar04 (a pointer from a local `arena.Fixed` returned or
+     stored in a package variable), ar02, ar03 and ar07 (use after `Reset`/`Release`, which 18.9 lets a
+     checked build catch at run time but not an unchecked one). Controls that are rejected today: o17 to
+     o23, ar05, ar06. The work: memory reached through the fields of an owner held in a frame location is a
+     view of that location, as the object of an owned box already is (`lkObject`), for every owner type, and
+     a local arena's allocations are views of the arena (as `lkArena` is for `alloc.Use` windows); the move
+     checker's view tracking (E3313, E3314) then follows them, and `Reset`/`Release` of a local arena end
+     its views. This changes what every call on a local owner returns, so the translated compiler, which
+     holds views of local vectors in locals, must be checked for each step.
+139. **Loops made with `goto` and the blocks a scoped task outlives** (planned; sections 18.4 and 19.4; found
+     by the third adversarial review, defect 8). A loop made with `goto` (l05: `top: v := n; ps[i] = &v; ...;
+     goto top`) shares one variable across its iterations, which 18.4 forbids ("every loop that compiles
+     behaves as if each iteration had variables of its own", and 11.5 counts a `goto` loop as a loop): the
+     escape analysis must find such loops (it stops following control flow in a function with a `goto`) and
+     apply E3006, or lowering must give each iteration its own variables. A scoped task given a pointer into a
+     nested block whose storage ends before the scope waits (b16, b23: `{ y := 42; p := &y; s.Task(func() {
+     ... *p ... }) }` with the join after the block) is E3401 by 19.4; the check covers loop bodies only. No
+     dangling pointer today (b23 prints `same slot: false`), but a slot reused after the block would be one.
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a

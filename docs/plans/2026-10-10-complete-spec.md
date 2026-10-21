@@ -1542,6 +1542,8 @@ unverified proof boundaries are distinguished; none is closed by old suite passe
 | 38 | A slice expression on a string is the compile error E2019; `strings.Slice` and `strings.SliceFrom` take a substring (decision D9). Planned. | 7.3, 11.12, F.6 | 104, 74 |
 | 39 | After `main` returns the program ends as in Go; package cleanup runs only when no other task is running (decision D10). Planned. | 15.4, 19.1 | 105 |
 | 40 | Each evaluation of `errors.New` returns a new error, without allocating (decision D11). Planned. | 16.3 | 106 |
+| 41 | Views of owners held in local variables, of counted references and of local arenas are bounded by the variable at compile time; the compiler leaves them to the generation checks (third adversarial review of the escape analysis, defect 7, *verified*). Planned. | 18.3, 18.7, 18.9 | 138 |
+| 42 | A loop made with `goto` gives each iteration variables of its own; a scoped task may not take a view of a block that ends before the scope waits (E3401) (third adversarial review, defect 8, *verified*). Planned. | 18.4, 19.4 | 139 |
 
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
 `sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the
