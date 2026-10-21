@@ -52,6 +52,7 @@ type fnb struct {
 	switchDrop *switchDrop // the value a type switch drops when no clause takes it
 
 	dropRecv        bool     // a Drop method, whose receiver its drop glue destroys
+	drops           int      // drops emitted, for the exit check at a statement's end
 	resultsInMemory bool     // results are frame objects (a range body returns)
 	objBlock        []*Block // the block each object is made in, by ObjID
 	// The variables a loop's header declares are the loop's (section

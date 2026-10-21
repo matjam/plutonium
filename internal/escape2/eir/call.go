@@ -837,6 +837,7 @@ func (fb *fnb) dropAt(addr Reg, T types2.Type, pos token.Pos) {
 	}
 	id := fb.b.synth(Synth{Kind: SynthDropGlue, Recv: T})
 	sig := fb.b.p.Funcs[id].Sig
+	fb.drops++
 	fb.emitCall(&Call{Kind: CallStatic, Callee: id, Sig: sig, Args: []Reg{addr}, Implicit: ImplDrop}, pos)
 }
 

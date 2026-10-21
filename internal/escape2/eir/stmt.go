@@ -181,11 +181,13 @@ func (fb *fnb) stmt(st ast.Stmt) {
 		// done, the function leaves if one did (lower/stmt.go stmt).
 		// The lowerer checks after any statement that released a counted
 		// reference or dropped an owner, which may have run code that
-		// ended with rt.ExitTask; EIR, which does not follow releases,
-		// checks after every statement (a way out more is only less
-		// precise).
+		// ended with rt.ExitTask. EIR, which does not follow releases,
+		// checks after every statement that dropped an owner or has a
+		// value that holds counted references or owners (a way out more is
+		// only less precise; one less would be a hole).
+		dropsBefore := fb.drops
 		defer func() {
-			if fb.b.gx.active && !fb.gxCatch() {
+			if fb.b.gx.active && !fb.gxCatch() && (fb.drops != dropsBefore || fb.b.mayRelease(st)) {
 				fb.leaveForExit(st.Pos())
 			}
 		}()

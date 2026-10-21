@@ -500,6 +500,38 @@ func (fb *fnb) leaveForExit(pos token.Pos) {
 	fb.startBlock(cont)
 }
 
+// mayRelease reports whether a statement may release a counted reference
+// or drop an owner, after which the lowerer checks for an exit: it has an
+// expression whose value holds counted references or needs dropping
+// (outside nested literals).
+func (b *builder) mayRelease(st ast.Stmt) bool {
+	found := false
+	ast.Inspect(st, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case ast.Expr:
+			if tv, ok := b.types[n]; ok && tv.Type != nil && !tv.IsType() {
+				T := tv.Type
+				if tup, ok := T.(*types2.Tuple); ok {
+					for i := 0; i < tup.Len(); i++ {
+						if b.counted(tup.At(i).Type()) {
+							found = true
+						}
+					}
+				} else if b.counted(T) {
+					found = true
+				}
+			}
+		}
+		return !found
+	})
+	return found
+}
+
 // hasExternDecl reports whether fn is declared //pu:extern name.
 func hasExternDecl(b *builder, fn *types2.Func, name string) bool {
 	d := b.decls[fn]
