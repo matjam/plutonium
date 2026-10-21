@@ -361,6 +361,20 @@ type loc struct {
 	steps []int
 	// fieldStep: there is a field step below an unknown base.
 	fieldStep bool
+	// any: the place is anywhere in the object at steps from base, at an
+	// offset not known (eir.AnyStep: unsafe.Add, an unsafe.Pointer
+	// converted to another pointer type). steps stop before the AnyStep.
+	any bool
+}
+
+// splitAny returns path up to its first eir.AnyStep, and whether it has one.
+func splitAny(path []int) ([]int, bool) {
+	for i, st := range path {
+		if st == eir.AnyStep {
+			return path[:i], true
+		}
+	}
+	return path, false
 }
 
 // addrLoc follows the address chain of register r of f.
@@ -376,19 +390,27 @@ func (h *heapOnly) addrLoc(f *eir.Func, r eir.Reg, depth int) loc {
 	switch in.Op {
 	case eir.OpAddr:
 		if int(in.Obj) < len(f.Objects) {
-			return loc{base: f.Objects[in.Obj].Type, steps: in.Path}
+			steps, any := splitAny(in.Path)
+			return loc{base: f.Objects[in.Obj].Type, steps: steps, any: any}
 		}
 	case eir.OpField:
 		l := h.addrLoc(f, in.X, depth+1)
+		if l.any {
+			return l // anywhere in the object stays anywhere in it
+		}
+		steps, any := splitAny(in.Path)
 		if l.base == nil {
 			if pt := pointee(h.regType(f, in.X)); pt != nil {
-				return loc{base: pt, steps: in.Path}
+				return loc{base: pt, steps: steps, any: any}
 			}
-			return loc{fieldStep: l.fieldStep || hasField(in.Path)}
+			return loc{fieldStep: l.fieldStep || hasField(in.Path) || any}
 		}
-		return loc{base: l.base, steps: concat(l.steps, in.Path)}
+		return loc{base: l.base, steps: concat(l.steps, steps), any: any}
 	case eir.OpElem:
 		l := h.addrLoc(f, in.X, depth+1)
+		if l.any {
+			return l
+		}
 		if l.base != nil {
 			if _, isArr := walkPath(l.base, l.steps).Underlying().(*types2.Array); isArr {
 				return loc{base: l.base, steps: concat(l.steps, []int{eir.ElemStep})}
@@ -438,6 +460,9 @@ func (h *heapOnly) classesAlong(base types2.Type, steps []int) []hoKey {
 			out = append(out, h.classKey(u, s))
 			t = u.Field(s).Type()
 		case *types2.Array:
+			if s != eir.ElemStep {
+				return out
+			}
 			t = u.Elem()
 		default:
 			return out
@@ -669,6 +694,9 @@ func (h *heapOnly) paramsKnown(id eir.FuncID) bool {
 // loadOrigin is the origin of a value loaded by in, at path within it.
 func (h *heapOnly) loadOrigin(f *eir.Func, in *eir.Instr, path []int) []hoAtom {
 	l := h.addrLoc(f, in.X, 0)
+	if l.any {
+		l = loc{} // anywhere in the object: no class the load is from
+	}
 	var cls []hoKey
 	if l.base != nil {
 		cls = h.classesAlong(l.base, concat(l.steps, path))
@@ -831,12 +859,58 @@ func (h *heapOnly) escapeWithin(t types2.Type, depth int) {
 	}
 }
 
+// classesWithin returns every class within type t: the fields of the
+// structs t holds by value, at any depth, over the instantiations of type
+// parameters (an open one poisons).
+func (h *heapOnly) classesWithin(t types2.Type) []hoKey {
+	var out []hoKey
+	var rec func(t types2.Type, depth int)
+	rec = func(t types2.Type, depth int) {
+		if depth > 16 || t == nil {
+			return
+		}
+		types, ok := h.expand(t)
+		if !ok {
+			h.poison = true
+			return
+		}
+		for _, t := range types {
+			switch u := t.Underlying().(type) {
+			case *types2.Struct:
+				for i := 0; i < u.NumFields(); i++ {
+					out = append(out, h.classKey(u, i))
+					rec(u.Field(i).Type(), depth+1)
+				}
+			case *types2.Array:
+				rec(u.Elem(), depth+1)
+			}
+		}
+	}
+	rec(t, 0)
+	return out
+}
+
 // store records the requirements of a store.
 func (h *heapOnly) store(st *originState, in *eir.Instr) {
 	f := st.f
 	l := h.addrLoc(f, in.X, 0)
 	L := in.Type
-	if l.base != nil {
+	if l.base != nil && l.any {
+		// Anywhere in the object: every class along the way to it and
+		// every class within it may receive the value.
+		atoms, _ := h.origin(st, in.Y, nil)
+		for _, k := range h.classesAlong(l.base, l.steps) {
+			h.require(h.node(k), atoms)
+		}
+		obj := walkPath(l.base, l.steps)
+		if obj == nil {
+			h.poison = true
+			return
+		}
+		for _, k := range h.classesWithin(obj) {
+			h.require(h.node(k), atoms)
+		}
+	} else if l.base != nil {
 		if L == nil {
 			L = walkPath(l.base, l.steps)
 		}

@@ -174,6 +174,35 @@ func TestHeapOnlyPhiRing(t *testing.T) {
 	}
 }
 
+// TestHeapOnlyAnyStep checks places at an offset not known (eir.AnyStep,
+// unsafe.Add): a store there may land in any class within the object, a
+// load from there may come from any, and neither crashes the walk.
+func TestHeapOnlyAnyStep(t *testing.T) {
+	x := newHoFixture(t)
+	m := x.main
+	any := m.field(m.addr(x.nodeObj), eir.AnyStep)
+	m.store(any, m.addr(x.localInt), x.intPtr)
+	if x.heapOnly(x.node, 1) {
+		t.Errorf("Node.next: a frame address is stored somewhere in a Node, but heap-only")
+	}
+	if !x.heapOnly(x.other, 0) {
+		t.Errorf("Other.q: never written, but not heap-only")
+	}
+
+	y := newHoFixture(t)
+	m = y.main
+	m.store(m.field(m.addr(y.nodeObj), 1), m.heap(), y.intPtr)
+	otherObj := m.obj(eir.Object{Kind: eir.ObjVar, Type: y.other, Life: eir.LifeFrame, Loop: -1})
+	v := m.load(m.field(m.addr(y.nodeObj), eir.AnyStep), y.intPtr)
+	m.store(m.field(m.addr(otherObj), 0), v, y.intPtr)
+	if !y.heapOnly(y.node, 1) {
+		t.Errorf("Node.next: only heap stored, but not heap-only")
+	}
+	if y.heapOnly(y.other, 0) {
+		t.Errorf("Other.q: holds what was loaded from an unknown offset in a Node, but heap-only")
+	}
+}
+
 // TestRegTypePhiDiamonds checks that inferring a register's type through
 // phis is linear: 40 levels of diamonds over sources of unknown type are 2^40
 // paths, which a search that explores a register once per path never
