@@ -70,6 +70,7 @@ type cands struct {
 	sigMemo   map[*types2.Signature]map[typeID]bool // nil: open
 	defs      map[eir.FuncID][]*eir.Instr           // localClosures' definitions, by function
 	namedMemo map[*types2.Func][]eir.FuncID         // allNamedMemo
+	flow      *funcFlow                             // func values' origins, once computed
 	dropsMemo []eir.FuncID                          // ifaceDrops
 }
 
@@ -260,6 +261,11 @@ func (c *cands) of(f *eir.Func, call *eir.Call) []eir.FuncID {
 	case eir.CallFunc:
 		if ids := c.localClosures(f, call.Target); ids != nil {
 			return ids
+		}
+		if c.flow != nil {
+			if ids, ok := c.flow.targetsOf(call); ok {
+				return ids
+			}
 		}
 		return c.funcs(call.Sig)
 	}

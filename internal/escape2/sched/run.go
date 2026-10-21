@@ -42,6 +42,9 @@ func stageB(p *eir.Program) *facts {
 	inst := newInstClosure(tt)
 	inst.run(p)
 	c := newCands(p, tt, inst)
+	fl := newFuncFlow(p, c)
+	fl.run()
+	c.flow = fl
 	f := &facts{p: p, tt: tt, inst: inst, c: c, rule: unionRule{c}}
 	f.ho = newHeapOnly(p, tt, inst, c)
 	return f
@@ -160,7 +163,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			} else {
 				env.sums[id] = joinSums(env.paths, prev, r.Summary)
 			}
-			env.virt.changed()
+			env.virt.changedFunc(id)
 			measure(st)
 			if prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev) {
 				continue

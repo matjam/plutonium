@@ -200,6 +200,7 @@ func other() {}
 		l1 := pr.fn("lit1", eir.FuncKey{}, sig)
 		l2 := pr.fn("lit2", eir.FuncKey{}, sig)
 		fb := pr.decl(lookupFunc(t, pkg, "f"))
+		fb.f.External = true // its callers are not shown: its input is unknown
 		fb.f.Facts.FuncValues = []eir.FuncID{other.f.ID}
 		a := fb.add(eir.Instr{Op: eir.OpClosure, Callee: l1.f.ID, Obj: eir.NoObj}, true)
 		b := fb.add(eir.Instr{Op: eir.OpClosure, Callee: l2.f.ID, Obj: eir.NoObj}, true)
@@ -401,6 +402,7 @@ func lit[U any]() func(U) int { return func(U) int { return 0 } }
 		b4 := pr.decl(lookupFunc(t, pkg, "f4"))
 		ap := lookupFunc(t, pkg, "apply")
 		ab := pr.decl(ap)
+		ab.f.External = true // its callers are not shown: its input is unknown
 		litF := lookupFunc(t, pkg, "lit")
 		pr.decl(litF)
 		// The literal in lit[U]: func(U) int, a func value.
