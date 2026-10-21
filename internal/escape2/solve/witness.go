@@ -51,6 +51,13 @@ func Explain(f *eir.Func, env Env, ws *Workspace, fd Finding) []token.Pos {
 			}
 		}
 	}
+	// The nodes calls share for a pointer passed as an argument (canonBase)
+	// start a path too.
+	for n := uint32(f.NumRegs + 1); int(n) < len(s.nodeRep.s); n++ {
+		if s.nodeKind(n) == nkTok && s.find(n) == n {
+			visit(n, 0, 0)
+		}
+	}
 	end := uint32(0)
 	found := false
 	for i := 0; i < len(queue.s) && !found; i++ {
@@ -59,8 +66,8 @@ func Explain(f *eir.Func, env Env, ws *Workspace, fd Finding) []token.Pos {
 			end, found = n, true
 			break
 		}
-		for e := s.nodeEdges.s[n]; e != 0; e = s.edges.s[(e-1)*edgeWords+3] {
-			w := s.edges.s[(e-1)*edgeWords : (e-1)*edgeWords+edgeWords]
+		for e := s.nodeEdges.s[n]; e != 0; e = s.edges.at(e - 1)[3] {
+			w := s.edges.at(e - 1)
 			visit(uint32(w[0]), n+1, w[2])
 		}
 	}
@@ -111,8 +118,8 @@ func (s *solver) holdsObj(n, o uint32) bool {
 // constraint of n, or a store edge out of n, comes from pos; or n is a
 // register live at a drop at pos.
 func (s *solver) madeAt(n uint32, pos token.Pos) bool {
-	for c := s.nodeCons.s[n]; c != 0; c = s.cons.s[(c-1)*consWords+3] {
-		w := s.cons.s[(c-1)*consWords : (c-1)*consWords+consWords]
+	for c := s.nodeCons.s[n]; c != 0; c = s.cons.at(c - 1)[3] {
+		w := s.cons.at(c - 1)
 		switch int(w[0]) {
 		case cStore, cStoreIn, cSink, cReturn, cRegionChk, cRegionWalk, cBack:
 			if p, _, _, _, _, _ := s.whyAt(w[2]); p == pos {
@@ -120,8 +127,8 @@ func (s *solver) madeAt(n uint32, pos token.Pos) bool {
 			}
 		}
 	}
-	for e := s.nodeEdges.s[n]; e != 0; e = s.edges.s[(e-1)*edgeWords+3] {
-		w := s.edges.s[(e-1)*edgeWords : (e-1)*edgeWords+edgeWords]
+	for e := s.nodeEdges.s[n]; e != 0; e = s.edges.at(e - 1)[3] {
+		w := s.edges.at(e - 1)
 		if w[2] != 0 {
 			if p, _, _, _, _, _ := s.whyAt(w[2]); p == pos {
 				return true

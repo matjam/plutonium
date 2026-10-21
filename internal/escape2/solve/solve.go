@@ -44,7 +44,7 @@ type solver struct {
 	lists, bits                                                               []vec // per node: the tokens it holds, and their bitset
 	done, nodeRep, nodeEdges, nodeCons, nodeInfo, nodeInfo2, nodeNext, inWork vec
 
-	edges, cons vec
+	edges, cons recs
 	work        vec
 	head        int
 
@@ -90,6 +90,7 @@ func newSolver(f *eir.Func, env Env, ws *Workspace) *solver {
 		prog: env.Program(),
 		base: ws.Arena.Bytes(),
 	}
+	s.edges.w, s.cons.w = edgeWords, consWords
 	s.nobj = len(f.Objects) + f.NumSites
 	s.objPlaces.resize(s.a, s.nobj)
 	s.objSubs.resize(s.a, s.nobj)
@@ -312,8 +313,36 @@ func (s *solver) rel(p, r domain.PathID) domain.PathID {
 }
 
 // subscribe makes node dst read the places of o a pointer Obj(o, p, pg)
-// reaches: a load (kind subLoad) or a reach (subReach).
+// reaches: a load (kind subLoad) or a reach (subReach). The reading is done
+// once per (o, p, pg, kind), by a shared node, which dst copies: every load
+// or reach through the same pointer, at any call site, shares its links to
+// the object's places instead of making its own.
 func (s *solver) subscribe(o uint32, p domain.PathID, pg bool, dst uint32, kind int) {
+	k1 := dShared | uint64(o)<<4 | uint64(kind)<<1
+	if pg {
+		k1 |= 1
+	}
+	sn, ok := s.derived.get(k1, uint64(p))
+	if !ok {
+		if kind == subReach {
+			sn = uint64(s.newNode(nkReach))
+		} else {
+			sn = uint64(s.newNode(nkPinned))
+		}
+		s.derived.put(s.a, k1, uint64(p), sn)
+		s.subscribeDirect(o, p, pg, uint32(sn), kind)
+		if kind == subReach {
+			// What the places hold is reached in turn.
+			s.addCons(uint32(sn), cReach, 0, 0)
+		}
+	}
+	if uint32(sn) != s.find(dst) {
+		s.addEdge(uint32(sn), dst, xw(xID, 0, false), 0)
+	}
+}
+
+// subscribeDirect links node dst to the places of o (subscribe).
+func (s *solver) subscribeDirect(o uint32, p domain.PathID, pg bool, dst uint32, kind int) {
 	flags := uint64(kind) << 1
 	if pg {
 		flags |= 1
@@ -405,9 +434,10 @@ func (s *solver) checkStore(m uint32, u tok, why uint64) {
 // --- derived nodes for summary keys ---
 
 const (
-	dVal   = 0
-	dReach = 1
-	dTok   = 2
+	dVal    = 0
+	dReach  = 1
+	dTok    = 2
+	dShared = 1 << 62 // in the first word: a shared subscription node
 )
 
 // valNode returns the node of val(k) for an input bound to node base
@@ -455,7 +485,7 @@ func (s *solver) tokNode(t tok) uint32 {
 	if n, ok := s.derived.get(dTok, id); ok {
 		return uint32(n)
 	}
-	n := s.newNode(nkPinned)
+	n := s.newNode(nkTok)
 	s.derived.put(s.a, dTok, id, uint64(n))
 	s.addTok(n, t)
 	return n
@@ -465,7 +495,7 @@ func (s *solver) tokNode(t tok) uint32 {
 
 func (s *solver) fire(n uint32, c uint64, id uint64) {
 	s.nsteps++
-	w := s.cons.s[c*consWords : c*consWords+consWords]
+	w := s.cons.at(c)
 	kind, a, b := int(w[0]), w[1], w[2]
 	t := s.tokAt(id)
 	switch kind {

@@ -88,7 +88,33 @@ func (s *solver) binding(c *eir.Call, n int, cand eir.FuncID) []uint64 {
 	if c.Kind == eir.CallFunc && n == len(args)+1 {
 		bind[n-1] = uint64(c.Target)
 	}
+	for i, r := range bind {
+		bind[i] = uint64(s.canonBase(eir.Reg(r)))
+	}
 	return bind
+}
+
+// canonBase is the node a call binds to argument register r. A register
+// defined by OpAddr, OpHeap or OpInput holds one token for good (SSA, no
+// edges into it), so every such register of the same token shares one node,
+// and the nodes a call derives from its argument (the values of the
+// callee's keys) are shared by every call that passes the same pointer.
+func (s *solver) canonBase(r eir.Reg) uint32 {
+	if r == 0 || int(r) >= len(s.defs.s) {
+		return uint32(r)
+	}
+	d := s.defs.s[r]
+	if d == 0 {
+		return uint32(r)
+	}
+	in := &s.f.Blocks[d>>32].Instrs[uint32(d)-1]
+	switch in.Op {
+	case eir.OpAddr, eir.OpHeap, eir.OpInput:
+		if ids := s.pts(s.find(uint32(r))); len(ids) == 1 {
+			return s.tokNode(s.tokAt(ids[0]))
+		}
+	}
+	return uint32(r)
 }
 
 // apply applies summary sum of callee cand at the call in.

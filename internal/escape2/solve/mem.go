@@ -110,3 +110,31 @@ func (t *table) rehash(a domain.Arena) {
 		}
 	}
 }
+
+// recs is an append-only array of fixed-size records in chunks of an
+// arena: growing never copies (a vec doubling would leave each old slab in
+// the arena until it is reset).
+type recs struct {
+	chunks [][]uint64
+	w      int // words per record
+	n      int // records
+}
+
+const recsPerChunk = 1024
+
+// add appends a record and returns its index.
+func (r *recs) add(a domain.Arena, words ...uint64) uint64 {
+	if r.n%recsPerChunk == 0 {
+		r.chunks = append(r.chunks, a.Alloc(recsPerChunk*r.w))
+	}
+	copy(r.at(uint64(r.n)), words)
+	r.n++
+	return uint64(r.n - 1)
+}
+
+// at returns record i; its words may be changed in place.
+func (r *recs) at(i uint64) []uint64 {
+	c := r.chunks[i/recsPerChunk]
+	j := int(i%recsPerChunk) * r.w
+	return c[j : j+r.w]
+}

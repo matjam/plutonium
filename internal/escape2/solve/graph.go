@@ -28,6 +28,7 @@ const (
 	nkPlace         // a place <o, p, pg>
 	nkReach         // a reach node (not collapsible)
 	nkPinned        // a derived node that must not be merged
+	nkTok           // a node holding one token for good (tokNode): not merged
 )
 
 // xform kinds, in an edge's transform word: kind (bits 0-7), flag (bit 8),
@@ -222,12 +223,7 @@ func (s *solver) addEdge(n, m uint32, x uint64, why uint64) {
 	if !s.edgeSeen.add(s.a, uint64(n)<<32|uint64(m), k2) {
 		return
 	}
-	e := uint64(len(s.edges.s) / edgeWords)
-	s.edges.push(s.a, uint64(m))
-	s.edges.push(s.a, x)
-	s.edges.push(s.a, why)
-	s.edges.push(s.a, s.nodeEdges.s[n])
-	s.edges.push(s.a, 0)
+	e := s.edges.add(s.a, uint64(m), x, why, s.nodeEdges.s[n], 0)
 	s.nodeEdges.s[n] = e + 1
 	s.sendAlong(e, s.pts(n))
 }
@@ -241,11 +237,7 @@ func (s *solver) addCons(n uint32, kind int, a, b uint64) {
 	if !s.consSeen.add(s.a, uint64(n)<<8|uint64(kind), a|b<<32) {
 		return
 	}
-	c := uint64(len(s.cons.s) / consWords)
-	s.cons.push(s.a, uint64(kind))
-	s.cons.push(s.a, a)
-	s.cons.push(s.a, b)
-	s.cons.push(s.a, s.nodeCons.s[n])
+	c := s.cons.add(s.a, uint64(kind), a, b, s.nodeCons.s[n])
 	s.nodeCons.s[n] = c + 1
 	for i := 0; i < len(s.lists[n].s); i++ {
 		s.fire(n, c, s.lists[n].s[i])
@@ -258,7 +250,7 @@ func (s *solver) sendAlong(e uint64, d []uint64) {
 	if len(d) == 0 {
 		return
 	}
-	w := s.edges.s[e*edgeWords : e*edgeWords+edgeWords]
+	w := s.edges.at(e)
 	m := s.find(uint32(w[0]))
 	x, why := w[1], w[2]
 	kind := int(x & 0xff)
@@ -360,7 +352,7 @@ func (s *solver) process(n uint32) {
 		return
 	}
 	s.done.s[n] = uint64(len(pts))
-	for c := s.nodeCons.s[n]; c != 0; c = s.cons.s[(c-1)*consWords+3] {
+	for c := s.nodeCons.s[n]; c != 0; c = s.cons.at(c - 1)[3] {
 		for _, id := range d {
 			s.fire(n, c-1, id)
 		}
@@ -368,7 +360,7 @@ func (s *solver) process(n uint32) {
 			return // merged while firing; the merged node is queued again
 		}
 	}
-	for e := s.nodeEdges.s[n]; e != 0; e = s.edges.s[(e-1)*edgeWords+3] {
+	for e := s.nodeEdges.s[n]; e != 0; e = s.edges.at(e - 1)[3] {
 		s.sendAlong(e-1, d)
 		if s.find(n) != n {
 			return
@@ -380,7 +372,7 @@ func (s *solver) process(n uint32) {
 // lazyCycle looks for a copy cycle through identity edge e of n when its two
 // ends hold the same set (Hardekopf and Lin's lazy cycle detection).
 func (s *solver) lazyCycle(n uint32, e uint64) {
-	w := s.edges.s[e*edgeWords : e*edgeWords+edgeWords]
+	w := s.edges.at(e)
 	if w[1] != xw(xID, 0, false) || w[2] != 0 || w[4]&1 != 0 {
 		return
 	}
@@ -430,8 +422,8 @@ func (s *solver) tarjan(n uint32) uint64 {
 	s.tjIndex.push(s.a, idx)
 	s.tjLow.push(s.a, idx|tjOnStack)
 	s.tjStack.push(s.a, uint64(n))
-	for e := s.nodeEdges.s[n]; e != 0; e = s.edges.s[(e-1)*edgeWords+3] {
-		w := s.edges.s[(e-1)*edgeWords : (e-1)*edgeWords+edgeWords]
+	for e := s.nodeEdges.s[n]; e != 0; e = s.edges.at(e - 1)[3] {
+		w := s.edges.at(e - 1)
 		if w[1] != xw(xID, 0, false) || w[2] != 0 {
 			continue
 		}
@@ -486,14 +478,14 @@ func (s *solver) merge(a, b uint32) {
 		s.addID(a, id)
 	}
 	s.done.s[a] = 0
-	s.nodeEdges.s[a] = s.appendList(s.nodeEdges.s[a], s.nodeEdges.s[b], s.edges.s, edgeWords)
-	s.nodeCons.s[a] = s.appendList(s.nodeCons.s[a], s.nodeCons.s[b], s.cons.s, consWords)
+	s.nodeEdges.s[a] = s.appendList(s.nodeEdges.s[a], s.nodeEdges.s[b], &s.edges)
+	s.nodeCons.s[a] = s.appendList(s.nodeCons.s[a], s.nodeCons.s[b], &s.cons)
 	s.merged++
 	s.enqueue(a)
 }
 
 // appendList appends list b to list a (heads index+1; next at word 3).
-func (s *solver) appendList(a, b uint64, words []uint64, size int) uint64 {
+func (s *solver) appendList(a, b uint64, r *recs) uint64 {
 	if a == 0 {
 		return b
 	}
@@ -502,9 +494,9 @@ func (s *solver) appendList(a, b uint64, words []uint64, size int) uint64 {
 	}
 	e := a
 	for {
-		next := words[(e-1)*uint64(size)+3]
+		next := r.at(e - 1)[3]
 		if next == 0 {
-			words[(e-1)*uint64(size)+3] = b
+			r.at(e - 1)[3] = b
 			return a
 		}
 		e = next
