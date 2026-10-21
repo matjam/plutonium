@@ -4,9 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"hash"
-	"maps"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/matjam/plutonium/internal/escape2/eir"
@@ -15,27 +14,28 @@ import (
 )
 
 // hasher writes the parts of a digest with their lengths, so that two
-// different sequences of parts never give the same bytes.
-type hasher struct{ h hash.Hash }
+// different sequences of parts never give the same bytes. The parts are
+// collected and hashed at the end (the same digest as hashing them as they
+// come; no hash.Hash, which the self-hosted compiler's library lacks).
+type hasher struct{ b []byte }
 
-func newHasher() hasher { return hasher{sha256.New()} }
+func newHasher() *hasher { return &hasher{} }
 
-func (h hasher) int(v int64) {
-	var b [binary.MaxVarintLen64]byte
-	_, _ = h.h.Write(b[:binary.PutVarint(b[:], v)])
+func (h *hasher) int(v int64) {
+	h.b = binary.AppendVarint(h.b, v)
 }
 
-func (h hasher) str(s string) {
+func (h *hasher) str(s string) {
 	h.int(int64(len(s)))
-	_, _ = h.h.Write([]byte(s))
+	h.b = append(h.b, s...)
 }
 
-func (h hasher) bytes(b []byte) {
+func (h *hasher) bytes(b []byte) {
 	h.int(int64(len(b)))
-	_, _ = h.h.Write(b)
+	h.b = append(h.b, b...)
 }
 
-func (h hasher) bool(b bool) {
+func (h *hasher) bool(b bool) {
 	if b {
 		h.int(1)
 	} else {
@@ -43,16 +43,17 @@ func (h hasher) bool(b bool) {
 	}
 }
 
-func (h hasher) ints(xs []int) {
+func (h *hasher) ints(xs []int) {
 	h.int(int64(len(xs)))
 	for _, x := range xs {
 		h.int(int64(x))
 	}
 }
 
-func (h hasher) sum() digest {
+func (h *hasher) sum() digest {
 	var d digest
-	copy(d[:], h.h.Sum(nil))
+	full := sha256.Sum256(h.b)
+	copy(d[:], full[:])
 	return d
 }
 
@@ -81,7 +82,7 @@ func (c *Cache) typeKey(T types2.Type) string {
 // (solve/call.go): its inputs, results and whether it has a body.
 func shapeOf(f *eir.Func) shape { return shape{inputs: len(f.Inputs), results: f.Results} }
 
-func (c *Cache) writeFuncRef(h hasher, id eir.FuncID) {
+func (c *Cache) writeFuncRef(h *hasher, id eir.FuncID) {
 	if id == eir.NoFunc || int(id) >= len(c.prog.Funcs) {
 		h.str("?")
 		return
@@ -170,7 +171,7 @@ func regsInts(rs []eir.Reg) []int {
 	return out
 }
 
-func (c *Cache) writeInstr(h hasher, in *eir.Instr) {
+func (c *Cache) writeInstr(h *hasher, in *eir.Instr) {
 	h.int(int64(in.Op))
 	h.int(int64(in.Dst))
 	h.int(int64(in.X))
@@ -332,7 +333,11 @@ func (r *recorder) sum() digest {
 			h.str(t)
 		}
 	}
-	names := slices.Sorted(maps.Keys(r.contract))
+	names := make([]string, 0, len(r.contract))
+	for n := range r.contract {
+		names = append(names, n)
+	}
+	sort.Strings(names)
 	h.int(int64(len(names)))
 	for _, n := range names {
 		h.str(n)
