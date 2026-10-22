@@ -35,8 +35,8 @@ type facts struct {
 
 // deferralOn turns D49's deferred calls on: the call graph drops their
 // edges and Env.Deferred names them to the solver. Off until the solver's
-// side is in.
-const deferralOn = false
+// side is in; a variable for the tests.
+var deferralOn = false
 
 // StageB computes the whole-program facts of p.
 func StageB(p *eir.Program) Facts {
@@ -103,6 +103,8 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		inSCC:   make([]int32, len(p.Funcs)),
 		opts:    opts,
 		current: -1,
+		g:       g,
+		solving: eir.NoFunc,
 	}
 	env.virt = newVirtuals(p, env.paths)
 	if env.opts.Contract == nil {
@@ -125,6 +127,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 	// solveOne solves one function against the current summaries, with its
 	// reads recorded for the cache when there is one.
 	solveOne := func(id eir.FuncID) (solve.Result, Recorder) {
+		env.solving = id
 		if opts.Cache == nil {
 			return solveGuarded(p.Funcs[id], env, ws), nil
 		}
@@ -165,6 +168,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			var r solve.Result
 			var rec Recorder
 			if keep {
+				env.solving = id
 				r = ret.solve(p.Funcs[id], env, ws)
 			} else {
 				r, rec = solveOne(id)
@@ -340,6 +344,9 @@ type env struct {
 	current int32
 	opts    Options
 	virt    *virtuals
+	g       *callGraph
+	// solving is the function being solved (NoFunc: none known).
+	solving eir.FuncID
 }
 
 func (e *env) Program() *eir.Program { return e.p }
@@ -359,6 +366,12 @@ func (e *env) Summary(id eir.FuncID) *summary.Summary {
 		// it, so the solver must not depend on it.
 		panic(fmt.Sprintf("internal compiler error: escape2: the summary of %s was read before it was scheduled", e.p.Funcs[id].Name))
 	}
+	if e.facts.def != nil && e.inSCC[id] == e.current && e.solving != eir.NoFunc && !e.inDeps(e.solving, id) {
+		// A member of the current SCC its graph does not order before the
+		// function being solved: it would not be solved again when that
+		// summary grows. With D49 the solver asks CanRead first.
+		panic(fmt.Sprintf("internal compiler error: escape2: %s read the summary of %s, which its call graph does not cover", e.p.Funcs[e.solving].Name, e.p.Funcs[id].Name))
+	}
 	return e.sums[id]
 }
 
@@ -373,6 +386,40 @@ func (e *env) Contract(name string) (*summary.Summary, bool) {
 		return nil, false
 	}
 	return e.opts.Contract(name)
+}
+
+// CanRead reports whether the solve of f may read the summary of id: id is
+// final (of an earlier SCC), or the call graph orders it before f (f's
+// deps); a virtual function when all its members may be read. The solver
+// asks before each read that resolves a deferred entry (D49), and where it
+// may not, applies the conservative default instead.
+func (e *env) CanRead(f *eir.Func, id eir.FuncID) bool {
+	if e.virt.isVirtual(id) {
+		for _, m := range e.virt.sets[int(id)-len(e.p.Funcs)] {
+			if !e.CanRead(f, m) {
+				return false
+			}
+		}
+		return true
+	}
+	if int(id) >= len(e.sums) || e.inSCC[id] < 0 || e.inSCC[id] > e.current {
+		return false
+	}
+	return e.inSCC[id] < e.current || e.inDeps(f.ID, id)
+}
+
+// inDeps reports whether f's solve is ordered after id's: id is one of f's
+// deps in the call graph.
+func (e *env) inDeps(f, id eir.FuncID) bool {
+	if e.g == nil || int(f) >= len(e.g.deps) {
+		return false
+	}
+	for _, x := range e.g.deps[f] {
+		if x == id {
+			return true
+		}
+	}
+	return false
 }
 
 // Deferred reports whether call c of f is deferred to f's callers (D49):
