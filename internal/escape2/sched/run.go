@@ -30,7 +30,13 @@ type facts struct {
 	c    *cands
 	ho   *heapOnly
 	rule dispatchRule
+	def  *deferral // D49's deferred calls; nil while the solver defers none
 }
+
+// deferralOn turns D49's deferred calls on: the call graph drops their
+// edges and Env.Deferred names them to the solver. Off until the solver's
+// side is in.
+const deferralOn = false
 
 // StageB computes the whole-program facts of p.
 func StageB(p *eir.Program) Facts {
@@ -47,6 +53,9 @@ func stageB(p *eir.Program) *facts {
 	c.flow = fl
 	f := &facts{p: p, tt: tt, inst: inst, c: c, rule: unionRule{c}}
 	f.ho = newHeapOnly(p, tt, inst, c)
+	if deferralOn {
+		f.def = newDeferral(p, c, fl)
+	}
 	return f
 }
 
@@ -83,7 +92,7 @@ const maxSolvesPerFunc = 10000
 // RunWith is Run with options.
 func RunWith(p *eir.Program, opts Options) *Result {
 	f := stageB(p)
-	g := buildGraph(p, f.rule)
+	g := buildGraphD(p, f.rule, f.def)
 	comps := g.sccs()
 
 	env := &env{
@@ -364,6 +373,12 @@ func (e *env) Contract(name string) (*summary.Summary, bool) {
 		return nil, false
 	}
 	return e.opts.Contract(name)
+}
+
+// Deferred reports whether call c of f is deferred to f's callers (D49):
+// the solver resolves no candidate of it in f.
+func (e *env) Deferred(f *eir.Func, c *eir.Call) bool {
+	return e.facts.def != nil && e.facts.def.deferred(f, c)
 }
 
 func (e *env) HeapOnly(T types2.Type, field int) bool { return e.facts.HeapOnly(T, field) }

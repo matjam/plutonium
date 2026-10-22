@@ -24,6 +24,13 @@ type callGraph struct {
 }
 
 func buildGraph(p *eir.Program, rule dispatchRule) *callGraph {
+	return buildGraphD(p, rule, nil)
+}
+
+// buildGraphD is buildGraph with the deferred calls of D49 (deferral.go):
+// a deferred call has no edges in its function, whose callers depend
+// instead on what they pass where it is deferred.
+func buildGraphD(p *eir.Program, rule dispatchRule, def *deferral) *callGraph {
 	n := len(p.Funcs)
 	g := &callGraph{nFuncs: n, succ: make([][]int32, n), deps: make([][]eir.FuncID, n)}
 	dispatch := map[string]int32{}
@@ -57,6 +64,9 @@ func buildGraph(p *eir.Program, rule dispatchRule) *callGraph {
 						addDep(c.Callee)
 					}
 				case eir.CallIface, eir.CallTypeParam, eir.CallFunc:
+					if def != nil && def.deferred(f, c) {
+						continue // resolved by f's callers
+					}
 					ids := rule.callees(f, c)
 					if len(ids) == 0 {
 						continue
@@ -84,6 +94,13 @@ func buildGraph(p *eir.Program, rule dispatchRule) *callGraph {
 					}
 					edge(d)
 				}
+			}
+		}
+		if def != nil {
+			// What f's solve reads to resolve its callees' deferred calls.
+			for _, id := range def.deps(f) {
+				edge(int32(id))
+				addDep(id)
 			}
 		}
 	}
