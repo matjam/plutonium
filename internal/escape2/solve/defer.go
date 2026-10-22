@@ -25,7 +25,6 @@ type dcall struct {
 	target   uint32     // the node of the function value
 	origin   eir.FuncID // the call it stands for, for the fallback
 	site     eir.SiteID
-	own      bool         // a call of the function's own code (not one a callee's summary deferred, even from a recursive call)
 	fellBack bool         // the candidates' join applied
 	argsBad  bool         // an argument holds what no caller's key names
 	kept     bool         // the bodyless default applied
@@ -88,7 +87,6 @@ func (s *solver) ownDcall(in *eir.Instr) {
 		args[i] = s.canonBase(a)
 	}
 	s.newDcall(in, s.canonBase(c.Target), args, s.f.ID, c.Site)
-	s.dcalls[s.dcallIdx[fmt.Sprintf("%p %d %d", in, s.f.ID, c.Site)]].own = true
 }
 
 // fireDcall handles token t of the function value of dcall i.
@@ -104,7 +102,7 @@ func (s *solver) fireDcall(i int, t tok) {
 		if dc.argsBad || s.f.External {
 			// Not to be deferred further (an argument a caller's key does
 			// not name, or no caller binds the function): the origin
-			// call's candidates, or for the function's own call, kept.
+			// call's candidates.
 			s.fallback(i)
 			return
 		}
@@ -187,12 +185,6 @@ func (s *solver) fallback(i int) {
 		return
 	}
 	dc.fellBack = true
-	if dc.own {
-		// A call of the function's own the scheduler deferred: it reads no
-		// candidate's summary here (Env.Deferred).
-		s.keep(i)
-		return
-	}
 	call := dc.in.Call
 	origin := s.f
 	if dc.origin != s.f.ID {
@@ -223,7 +215,9 @@ func (s *solver) fallback(i int) {
 			}
 		}
 		if n == len(dc.args)+1 {
-			bind[n-1] = uint64(dc.target)
+			// The rest of the value: the closures it holds that this
+			// function made resolve themselves (applyClosure).
+			bind[n-1] = uint64(s.restNode(dc.target))
 		}
 		s.applyBound(dc.in, cand, bind)
 	}

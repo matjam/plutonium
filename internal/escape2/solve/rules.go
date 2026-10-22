@@ -195,12 +195,27 @@ package solve
 //	    External, the fallback instead, and no Deferred entry
 //	otherwise: the fallback
 // The
-// fallback, once per dcall: for a call of this function's own, the default
-// of a bodyless callee with the arguments and the function value as its
-// inputs (it reads no candidate's summary, as the scheduler decided);
-// otherwise the summaries of Env.Candidates(Origin's function, the call at
-// Site), each with input i bound to argument i and the record input to the
-// function value.
+// fallback, once per dcall: the summaries of Env.Candidates(Origin's
+// function, the call at Site), each with input i bound to argument i and
+// the record input to the rest of the function value (below); when the
+// solve may not read one of them (Env.CanRead), the default of a bodyless
+// callee with the arguments and the function value as its inputs instead.
+// A deferred call is thus resolved precisely at a caller, or as it would
+// be without deferral.
+//
+// # Calls of function values
+//
+// An own record of a function value is a token Obj(o, Root, false), of any
+// tag, where o is the record of an OpClosure of this function with Callee
+// C, and Env.CanRead(f, C). It is C's closure: no other function runs when
+// it is called. The rest of a function value is the value less its own
+// records. A CallFunc with a Target that is not a dcall applies, for each
+// own record t of Target, C's summary with input i bound to Args[i] and the
+// record input to <t>; and, once the rest of Target holds a token, the
+// summary of each candidate, its record input (when it has one input more
+// than Args) bound to the rest. A candidate's summary thus never reads the
+// record of another closure (a literal's keys name its own record's
+// layout).
 //
 // # One rule per instruction
 //
@@ -276,6 +291,8 @@ package solve
 //	OpCall       for each candidate c (CallStatic: Callee; CallIface,
 //	             CallTypeParam, CallFunc: Env.Candidates, all of them, by
 //	             union; CallContract: Env.Contract), with s its summary.
+//	             A CallFunc with a Target is as "Calls of function
+//	             values" says.
 //	             A callee eir.NoFunc is bodyless with as many inputs as
 //	             Args and as many results as Results (the default below);
 //	             otherwise the default's inputs and results are the

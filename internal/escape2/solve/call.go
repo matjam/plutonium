@@ -25,7 +25,15 @@ func (s *solver) call(b eir.BlockID, in *eir.Instr) {
 			panic("internal compiler error: escape2/solve: no contract entry for " + c.Contract)
 		}
 		s.apply(in, s.binding(c, len(c.Args), eir.NoFunc), sum, eir.NoFunc)
-	case eir.CallIface, eir.CallTypeParam, eir.CallFunc:
+	case eir.CallFunc:
+		if c.Target != 0 {
+			s.funcCall(in) // funccall.go
+			return
+		}
+		for _, cand := range s.env.Candidates(s.f, c) {
+			s.applyCandidate(in, cand)
+		}
+	case eir.CallIface, eir.CallTypeParam:
 		for _, cand := range s.env.Candidates(s.f, c) {
 			s.applyCandidate(in, cand)
 		}
@@ -36,6 +44,13 @@ func (s *solver) call(b eir.BlockID, in *eir.Instr) {
 
 // applyCandidate applies the summary of one function the call may reach.
 func (s *solver) applyCandidate(in *eir.Instr, cand eir.FuncID) {
+	s.applyCandidateRec(in, cand, 0)
+}
+
+// applyCandidateRec is applyCandidate with the record input of a CallFunc
+// candidate (one input more than the arguments) bound to node rec, when
+// rec is not 0 (funccall.go).
+func (s *solver) applyCandidateRec(in *eir.Instr, cand eir.FuncID, rec uint32) {
 	c := in.Call
 	inputs := len(c.Args)
 	bodyless := cand == eir.NoFunc
@@ -57,6 +72,9 @@ func (s *solver) applyCandidate(in *eir.Instr, cand eir.FuncID) {
 		inputs = sum.Inputs
 	}
 	bind := s.binding(c, inputs, cand)
+	if rec != 0 && c.Kind == eir.CallFunc && inputs == len(c.Args)+1 {
+		bind[inputs-1] = uint64(rec)
+	}
 	if !bodyless {
 		// A resumed solve applies what this summary gains (State.Resume).
 		s.applied = append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum})

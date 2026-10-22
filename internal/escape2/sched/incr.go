@@ -185,14 +185,17 @@ func (r *retained) account(id eir.FuncID, k *keptSolve) {
 
 // check solves f from scratch and compares with a resumed result.
 func (r *retained) check(f *eir.Func, env solve.Env, scratch *solve.Workspace, resumed solve.Result) {
-	fresh := solveFunc(f, env, scratch)
+	fresh := solve.SolveCheck(f, env, scratch)
 	ps := env.Paths()
-	// A resumed solve must cover a solve from scratch: anything narrower
-	// would be unsound. It may be wider: the kept state still holds what it
-	// derived from a callee's older entries, which the newer ones need not
-	// cover where paths are cut. That is drift, sound but dependent on the
-	// order of the solves, counted and reported.
-	if !leq(ps, fresh.Summary, resumed.Summary) {
+	// A resumed solve must cover every entry a solve from scratch derives,
+	// before the caps (Result.Unwidened): the caps are not monotone in the
+	// order of the derivations, so the two widened summaries need not
+	// compare. Anything narrower would be unsound. It may be wider: the
+	// kept state still holds what it derived from a callee's older
+	// entries, which the newer ones need not cover where paths are cut.
+	// That is drift, sound but dependent on the order of the solves,
+	// counted and reported.
+	if !leq(ps, fresh.Unwidened, resumed.Summary) {
 		panic(fmt.Sprintf("internal compiler error: escape2: the resumed solve of %s is narrower than a solve from scratch", f.Name))
 	}
 	if !leq(ps, resumed.Summary, fresh.Summary) {

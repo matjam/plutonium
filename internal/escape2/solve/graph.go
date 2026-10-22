@@ -48,6 +48,7 @@ const (
 	xAny            // offset to anywhere in the object (eir.AnyStep)
 	xNoBox          // identity, without pointers to interface boxes (OpAssert to a direct type)
 	xImpl           // identity, without pointers to boxes whose type does not implement assertT[path] (OpAssert to an interface)
+	xNoRec          // identity, without the closure records ownRecord resolves (funccall.go)
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -76,6 +77,8 @@ const (
 	cRegionWalk            // a: result index; b: why: the regions of calls in it
 	cDCall                 // a: dcall index: a function value called (defer.go)
 	cDArg                  // a: dcall index: an argument of a deferred call (defer.go)
+	cFRec                  // a: fcall index: a function value called (funccall.go)
+	cFRest                 // a: fcall index: the function value less its own closures (funccall.go)
 )
 
 func (s *solver) newNode(kind uint64) uint32 {
@@ -332,6 +335,11 @@ func (s *solver) transform(x uint64, t tok) {
 		s.buf.push(s.a, s.intern(t))
 	case xImpl:
 		if t.kind == tObj && int(t.base) < len(s.f.Objects) && !BoxAsserts(&s.f.Objects[t.base], s.assertT[path]) {
+			return
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xNoRec:
+		if _, ok := s.ownRecord(t); ok {
 			return
 		}
 		s.buf.push(s.a, s.intern(t))

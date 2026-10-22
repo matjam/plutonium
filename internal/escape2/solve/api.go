@@ -105,4 +105,8 @@ type Result struct {
 	// Store entry of Summary (in that order), each as a Reason: what the
 	// scheduler chooses a well-founded reason from (sched, reasons.go).
 	Derivs [][]summary.Reason
+	// Unwidened, from SolveCheck only, is the summary before the caps
+	// (summary.Widen) and with no store pairs cut as they are collected:
+	// every entry the solve derived, as it derived it.
+	Unwidened *summary.Summary
 }

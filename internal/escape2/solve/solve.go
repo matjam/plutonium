@@ -32,6 +32,22 @@ func SolveDerivs(f *eir.Func, env Env, ws *Workspace) Result {
 	return s.finish()
 }
 
+// SolveCheck is Solve with no store pairs cut as they are collected, and
+// gives the summary before the caps as well (Result.Unwidened): what a
+// resumed solve must cover. Caps and cuts are not monotone in the order of
+// the derivations, so a resumed solve's widened summary need not cover the
+// widened summary of a solve from scratch, but it covers every entry that
+// solve derives. It is for checks (PLUTO_ESCAPE2_RESUMECHECK), not for the
+// compiler: without the cut, a solve's memory is not bounded.
+func SolveCheck(f *eir.Func, env Env, ws *Workspace) Result {
+	s := newSolver(f, env, ws)
+	s.check = true
+	s.build()
+	r := s.finish()
+	r.Unwidened = s.unwidened
+	return r
+}
+
 // SolveKeep is Solve, and returns the solver's state as well, kept in ws,
 // for a later solve of f to resume (State.Resume): the caller must not
 // reset ws while it holds the state.
@@ -132,13 +148,16 @@ type solver struct {
 	applied                 []application // the summaries the calls applied (State.Resume)
 	limit                   *LimitError   // the solve went past the limits (Result.Limit)
 	derivs                  bool          // collect every derivation (SolveDerivs)
-	escDerivs, storeDerivs  vec           // key words and why, of every Esc and Store derivation
+	check                   bool          // SolveCheck: no store cut, and keep unwidened
+	unwidened               *summary.Summary
+	escDerivs, storeDerivs  vec // key words and why, of every Esc and Store derivation
 	derivSeen               table
 	derivOut                [][]summary.Reason    // Result.Derivs
 	dcalls                  []*dcall              // calls of function values (defer.go)
 	closureOf               map[uint32]eir.FuncID // closure record objects of f (OpClosure) to their function
 	dcallIdx                map[string]int
 	dcallDone               map[[2]uint64]bool
+	fcalls                  []*fcall // calls of function values (funccall.go)
 	argNodes                map[string]uint32
 	whyIdx                  table // whys by content, so that a constraint is made once
 }
@@ -575,6 +594,7 @@ const (
 	dShared = 1 << 62 // in the first word: a shared subscription node
 	dJoin   = 1 << 61 // in the first word: a node joining two receivers
 	dRetag  = 1 << 60 // in the first word: a node with its tags made (Root, GE)
+	dRest   = 1 << 59 // in the first word: a function value less its own closures (funccall.go)
 )
 
 // valNode returns the node of val(k) for an input bound to node base
@@ -743,6 +763,10 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		s.fireDcall(int(a), t)
 	case cDArg:
 		s.fireDarg(int(a), t)
+	case cFRec:
+		s.fireFRec(int(a), t)
+	case cFRest:
+		s.fireFRest(int(a))
 	case cRegionWalk:
 		if t.kind == tObj && s.isRegion(t.base) {
 			rn := s.reachNode(s.tokNode(asPointer(t)))
@@ -835,7 +859,7 @@ func (s *solver) addStorePair(src, dst domain.Key, why uint64) {
 	s.store.push(s.a, uint64(dst))
 	s.store.push(s.a, why)
 	s.storeRaw[in]++
-	if s.storeRaw[in] > summary.MaxRawStorePerInput {
+	if s.storeRaw[in] > summary.MaxRawStorePerInput && !s.check {
 		// Cut the input's pairs from now on, and those collected so far.
 		s.storeCut[in] = true
 		old := s.store.s
@@ -953,6 +977,9 @@ func (s *solver) summary() *summary.Summary {
 	sum.Deferred = s.deferredOut()
 	if len(escWhy)+len(storeWhy) > 0 {
 		sum.Reasons = append(escWhy, storeWhy...)
+	}
+	if s.check {
+		s.unwidened = cloneSummary(sum)
 	}
 	summary.Widen(s.ps, sum)
 	if s.derivs {
@@ -1398,4 +1425,20 @@ func fieldClass(T types2.Type, path []int) (types2.Type, int, bool) {
 		T = str.Field(st).Type()
 	}
 	return nil, 0, false
+}
+
+// cloneSummary copies sum, sharing no slice with it.
+func cloneSummary(sum *summary.Summary) *summary.Summary {
+	c := *sum
+	c.Esc = slices.Clone(sum.Esc)
+	c.Store = slices.Clone(sum.Store)
+	c.HeapStore = slices.Clone(sum.HeapStore)
+	c.Reasons = slices.Clone(sum.Reasons)
+	c.Deferred = slices.Clone(sum.Deferred)
+	c.Region.OuterResults = slices.Clone(sum.Region.OuterResults)
+	c.Res = make([]summary.Result, len(sum.Res))
+	for i, r := range sum.Res {
+		c.Res[i] = summary.Result{From: slices.Clone(r.From), Heap: slices.Clone(r.Heap), CountedHeap: slices.Clone(r.CountedHeap)}
+	}
+	return &c
 }

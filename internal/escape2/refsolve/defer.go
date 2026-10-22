@@ -19,7 +19,6 @@ type dcall struct {
 	site     eir.SiteID
 	target   value
 	args     []value
-	own      bool // a call of the function's own code (solve/defer.go)
 	fellBack bool
 	argsBad  bool
 	keys     map[domain.Key]bool
@@ -72,7 +71,6 @@ func (s *solver) ownDcall(in *eir.Instr) {
 		args[i] = s.val(a)
 	}
 	s.newDcall(in, s.val(c.Target), args, s.f.ID, c.Site)
-	s.dcallIdx[fmt.Sprintf("%p %d %d", in, s.f.ID, c.Site)].own = true
 }
 
 // deferredOf makes the dcalls of sm's Deferred entries, applied at in with
@@ -168,11 +166,6 @@ func (s *solver) fallback(dc *dcall) {
 		dc.fellBack = true
 		s.changed = true
 	}
-	if dc.own {
-		// A deferred call of the function's own reads no candidate.
-		s.keep(dc)
-		return
-	}
 	funcs := s.env.Program().Funcs
 	origin, call := s.f, dc.in.Call
 	if dc.origin != s.f.ID {
@@ -193,7 +186,9 @@ func (s *solver) fallback(dc *dcall) {
 		} else if sm := s.env.Summary(cand); sm != nil {
 			n = sm.Inputs
 		}
-		s.applyBound(dc.in, cand, bindArgs(dc, n, dc.target))
+		// The rest of the value: the closures it holds that this function
+		// made resolve themselves (applyClosure).
+		s.applyBound(dc.in, cand, bindArgs(dc, n, s.rest(dc.target)))
 	}
 }
 

@@ -72,9 +72,12 @@ func TestDeferredFallback(t *testing.T) {
 }
 
 // A deferred call of the function's own whose argument holds a frame
-// pointer is kept as by a bodyless callee: it reads no candidate.
+// pointer falls back to its candidates, as without deferral.
 func TestDeferredOwnFrameArgument(t *testing.T) {
 	e := newEnv()
+	keeper := e.fn("keeper", 1, 0)
+	keeper.sink(eir.SinkGlobal, keeper.input(0))
+	e.solve(t, keeper.f)
 	b := e.fn("f", 1, 0)
 	x := b.obj("x", eir.LifeFrame, -1)
 	p := b.obj("p", eir.LifeFrame, -1)
@@ -82,6 +85,27 @@ func TestDeferredOwnFrameArgument(t *testing.T) {
 	c := &eir.Call{Kind: eir.CallFunc, Target: b.input(0), Args: []eir.Reg{b.load(b.addr(p))}}
 	b.at(6).call(c)
 	e.deferred[c] = true
+	e.cands[c] = []eir.FuncID{keeper.f.ID}
+	r := e.solve(t, b.f)
+	wantFindings(t, r, "E3003@6")
+	e.wantSummary(t, r, "")
+}
+
+// A candidate the solve may not read is not applied: the call is kept as
+// by a bodyless callee.
+func TestDeferredOwnFrameArgumentUnread(t *testing.T) {
+	e := newEnv()
+	keeper := e.fn("keeper", 1, 0)
+	e.solve(t, keeper.f)
+	e.unread[keeper.f.ID] = true
+	b := e.fn("f", 1, 0)
+	x := b.obj("x", eir.LifeFrame, -1)
+	p := b.obj("p", eir.LifeFrame, -1)
+	b.store(b.addr(p), b.addr(x))
+	c := &eir.Call{Kind: eir.CallFunc, Target: b.input(0), Args: []eir.Reg{b.load(b.addr(p))}}
+	b.at(6).call(c)
+	e.deferred[c] = true
+	e.cands[c] = []eir.FuncID{keeper.f.ID}
 	r := e.solve(t, b.f)
 	wantFindings(t, r, "E3003@6")
 	e.wantSummary(t, r, "esc 0+")
@@ -128,13 +152,13 @@ func TestDeferredRecursive(t *testing.T) {
 	}
 }
 
-// A function no caller binds (External) has nobody to defer to: it keeps
-// what it passes.
+// A function no caller binds (External) has nobody to defer to: it applies
+// the call's candidates (body keeps its argument).
 func TestDeferredExternal(t *testing.T) {
 	e, _, iter := deferEnv(t)
 	iter.f.External = true
 	r := e.solve(t, iter.f)
-	e.wantSummary(t, r, "esc 0+; esc 1+")
+	e.wantSummary(t, r, "esc 0")
 }
 
 // A literal the scheduler did not order before the resolving function is

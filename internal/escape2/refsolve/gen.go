@@ -303,7 +303,11 @@ func (g *gen) instr() {
 		}
 		g.add(b.Conv(g.pick(), o))
 	case 16:
-		g.add(b.Closure(g.obj(), g.args(rng.Intn(3))...))
+		// A closure of one of the callees: a call of it resolves to that
+		// callee alone (rules.go, "Calls of function values").
+		r := b.Closure(g.obj(), g.args(rng.Intn(3))...)
+		b.F.Blocks[b.cur].Instrs[len(b.F.Blocks[b.cur].Instrs)-1].Callee = g.callees[rng.Intn(len(g.callees))].ID
+		g.add(r)
 	case 17:
 		g.add(b.MethodVal(g.obj(), g.pick()))
 	case 18:

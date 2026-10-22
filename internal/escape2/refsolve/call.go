@@ -26,7 +26,15 @@ func (s *solver) ruleCall(in *eir.Instr) {
 			panic("internal compiler error: escape2: no contract table entry for " + c.Contract)
 		}
 		s.applySummary(in, sm, s.binder(c, nil), eir.NoFunc)
-	default: // CallIface, CallTypeParam, CallFunc: all candidates, by union
+	case eir.CallFunc:
+		if c.Target != 0 {
+			s.funcCall(in) // funccall.go
+			return
+		}
+		for _, id := range s.env.Candidates(s.f, c) {
+			s.applyCandidate(in, id)
+		}
+	default: // CallIface, CallTypeParam: all candidates, by union
 		for _, id := range s.env.Candidates(s.f, c) {
 			s.applyCandidate(in, id)
 		}
@@ -41,11 +49,21 @@ func (s *solver) ruleCall(in *eir.Instr) {
 // inputs as arguments. An ID past Program.Funcs is a virtual function the
 // environment defines by its summary alone (rules.go, OpCall).
 func (s *solver) applyCandidate(in *eir.Instr, id eir.FuncID) {
+	s.applyCandidateRec(in, id, nil)
+}
+
+// applyCandidateRec is applyCandidate with the record input of a CallFunc
+// candidate bound to rec, when rec is not nil (funccall.go).
+func (s *solver) applyCandidateRec(in *eir.Instr, id eir.FuncID, rec value) {
 	funcs := s.env.Program().Funcs
+	binder := s.binder
+	if rec != nil {
+		binder = func(c *eir.Call, cf *eir.Func) func(int) value { return s.recBinder(c, cf, rec) }
+	}
 	if id == eir.NoFunc {
 		c := in.Call
 		cf := &eir.Func{Inputs: make([]eir.Input, len(c.Args)), Results: len(c.Results), Bodyless: true}
-		s.applySummary(in, bodylessSummary(cf), s.binder(c, nil), id)
+		s.applySummary(in, bodylessSummary(cf), s.binder(c, nil), id) // a bodyless NoFunc has no record input
 		return
 	}
 	if int(id) >= len(funcs) {
@@ -54,7 +72,7 @@ func (s *solver) applyCandidate(in *eir.Instr, id eir.FuncID) {
 			panic("internal compiler error: escape2: a virtual candidate without a summary")
 		}
 		cf := &eir.Func{Inputs: make([]eir.Input, sm.Inputs)}
-		s.applySummary(in, sm, s.binder(in.Call, cf), id)
+		s.applySummary(in, sm, binder(in.Call, cf), id)
 		return
 	}
 	cf := funcs[id]
@@ -65,7 +83,7 @@ func (s *solver) applyCandidate(in *eir.Instr, id eir.FuncID) {
 		}
 		sm = bodylessSummary(cf)
 	}
-	s.applySummary(in, sm, s.binder(in.Call, cf), id)
+	s.applySummary(in, sm, binder(in.Call, cf), id)
 }
 
 // bodylessSummary is the default for a function without a body: Esc (i, Root,
