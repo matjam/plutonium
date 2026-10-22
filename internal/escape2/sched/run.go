@@ -141,7 +141,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		solves := map[eir.FuncID]int{}
 		// Members of an SCC are solved again as their callees grow: keep
 		// their states to resume (incr.go), released when the SCC is final.
-		keep := solveKeepFunc != nil && len(comp) > 1 && opts.Cache == nil
+		keep := solveKeepFunc != nil && !noKeep && len(comp) > 1 && opts.Cache == nil
 		defer func() {
 			st.RetainedPeak = ret.peak
 			st.Resumes = ret.resumes

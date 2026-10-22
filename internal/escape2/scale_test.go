@@ -88,6 +88,7 @@ func TestScaleTranslated(t *testing.T) {
 	var sizes []int
 	var biggest sched.SCCStats
 	solves, workspace := 0, 0
+	resumes, retained := 0, 0
 	start = time.Now()
 	last := start
 	var res *sched.Result
@@ -99,6 +100,10 @@ func TestScaleTranslated(t *testing.T) {
 		res = sched.RunWith(p, sched.Options{OnSCC: func(scc []eir.FuncID, st sched.SCCStats) {
 			sizes = append(sizes, len(scc))
 			solves += st.Solves
+			resumes += st.Resumes
+			if st.RetainedPeak > retained {
+				retained = st.RetainedPeak
+			}
 			if st.Funcs > biggest.Funcs {
 				biggest = st
 			}
@@ -133,6 +138,7 @@ func TestScaleTranslated(t *testing.T) {
 	t.Logf("EIR: %d functions, %d instructions, built in %v; stage B %v", len(p.Funcs), instrs, buildTime.Round(time.Millisecond), stageBTime.Round(time.Millisecond))
 	t.Logf("analysis: %v; %d SCCs done %v, largest %d functions (%d solves); %d solves in all",
 		runTime.Round(time.Millisecond), len(sizes), hist, biggest.Funcs, biggest.Solves, solves)
+	t.Logf("resumed solves: %d of %d; most retained solver state of one SCC: %d MB", resumes, solves, retained>>20)
 	t.Logf("memory: peak SCC workspace %d MB; heap in use %d MB after loading, %d MB at the peak of EIR and analysis",
 		workspace>>20, base.HeapInuse>>20, peak.Load()>>20)
 	if stopped != nil {

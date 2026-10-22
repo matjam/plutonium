@@ -47,6 +47,10 @@ var retainBudget = envMB("PLUTO_ESCAPE2_RETAIN_MB", 2048)
 
 var resumeCheck = os.Getenv("PLUTO_ESCAPE2_RESUMECHECK") != ""
 
+// noKeep (PLUTO_ESCAPE2_NOKEEP=1) solves every function from scratch, for
+// measurements and as a way around a fault of resuming.
+var noKeep = os.Getenv("PLUTO_ESCAPE2_NOKEEP") != ""
+
 func envMB(name string, def int) int {
 	if v, err := strconv.Atoi(os.Getenv(name)); err == nil && v >= 0 {
 		return v << 20
