@@ -19,21 +19,10 @@ import (
 // codeEscapeLimit is the code of a function past the solver's limits.
 const codeEscapeLimit = diag.EscapeLimit
 
-// solveGuarded is solveFunc, turning a solve past the limits into the top
-// summary and an E3010 finding at the function. Any other panic is not a
-// limit and goes on up (an internal compiler error).
-func solveGuarded(f *eir.Func, env solve.Env, ws *solve.Workspace) (r solve.Result) {
-	defer func() {
-		x := recover()
-		if x == nil {
-			return
-		}
-		if _, ok := x.(*solve.LimitError); !ok {
-			panic(x)
-		}
-		r = limitResult(f, env)
-	}()
-	r = solveFunc(f, env, ws)
+// solveGuarded is solveFunc, turning a solve past the limits (Result.Limit)
+// into the top summary and an E3010 finding at the function.
+func solveGuarded(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
+	r := solveFunc(f, env, ws)
 	if r.Limit != nil {
 		r = limitResult(f, env)
 	}

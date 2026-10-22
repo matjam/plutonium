@@ -115,21 +115,10 @@ func (r *retained) release() {
 // solve solves f, resuming its kept state if there is one, else solving it
 // with its state kept. A function past the solver's limits gets the top
 // summary as solveGuarded gives it, and no kept state.
-func (r *retained) solve(f *eir.Func, env solve.Env, scratch *solve.Workspace) (res solve.Result) {
+func (r *retained) solve(f *eir.Func, env solve.Env, scratch *solve.Workspace) solve.Result {
 	id := f.ID
-	defer func() {
-		x := recover()
-		if x == nil {
-			return
-		}
-		if _, ok := x.(*solve.LimitError); !ok {
-			panic(x)
-		}
-		r.drop(id)
-		res = solveGuarded(f, env, scratch)
-	}()
 	if k := r.kept[id]; k != nil {
-		res = k.st.Resume(env)
+		res := k.st.Resume(env)
 		r.resumes++
 		if res.Limit != nil {
 			// Past the limits in this resume: solve from scratch.

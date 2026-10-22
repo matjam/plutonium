@@ -204,12 +204,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			// solver makes; if solving against it fails, the check fails
 			// (solving from bottom then shows whether the solver itself
 			// does).
-			func() {
-				defer func() {
-					if recover() != nil {
-						ok = false
-					}
-				}()
+			if !solvesWithoutPanic(func() {
 				r, rec := solveOne(id)
 				findings[id] = r.Findings
 				if !leq(env.paths, r.Summary, loaded[i]) || !opts.Cache.Matches(id, rec) {
@@ -217,7 +212,9 @@ func RunWith(p *eir.Program, opts Options) *Result {
 					return
 				}
 				opts.Cache.Solved(id, rec)
-			}()
+			}) {
+				ok = false
+			}
 			st.Solves++
 			measure(st)
 			if !ok {

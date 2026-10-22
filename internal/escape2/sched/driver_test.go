@@ -327,7 +327,7 @@ func caller() {}
 	var callerSaw *summary.Summary
 	solveFunc = func(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
 		if f.ID == big.f.ID {
-			panic(&solve.LimitError{Func: f.Name, Bytes: 1 << 30})
+			return solve.Result{Limit: &solve.LimitError{Func: f.Name, Bytes: 1 << 30}}
 		}
 		callerSaw = env.Summary(big.f.ID)
 		return inner(f, env, ws)
