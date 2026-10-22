@@ -68,6 +68,26 @@ func canonSummary(b *strings.Builder, ps domain.Paths, s *summary.Summary) {
 			res = append(res, fmt.Sprintf("%d: counted-heap at %s", i, CanonPath(ps, p)))
 		}
 	}
+	var def []string
+	for _, d := range s.Deferred {
+		x := fmt.Sprintf("f%d@%d %s(", d.Origin, d.Site, CanonKey(ps, d.Fn))
+		for i, a := range d.Args {
+			if i > 0 {
+				x += "; "
+			}
+			var ks []string
+			for _, k := range a.Keys {
+				ks = append(ks, CanonKey(ps, k))
+			}
+			sort.Strings(ks)
+			x += strings.Join(ks, " ")
+			if a.Heap {
+				x += " heap"
+			}
+		}
+		def = append(def, x+")")
+	}
+	section("deferred", def)
 	section("esc", esc)
 	section("store", st)
 	section("heapstore", hs)

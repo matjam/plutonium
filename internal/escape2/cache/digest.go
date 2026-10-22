@@ -222,7 +222,8 @@ func (c *Cache) sumDigest(s *summary.Summary) digest {
 		return d
 	}
 	h := newHasher()
-	h.bytes(appendSummary(nil, c.paths, s))
+	b, _ := appendSummary(nil, c.paths, s, c.idOrName)
+	h.bytes(b)
 	d := h.sum()
 	c.sums[s] = d
 	return d

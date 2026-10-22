@@ -59,7 +59,7 @@ func (s *solver) applyCandidate(in *eir.Instr, cand eir.FuncID) {
 	bind := s.binding(c, inputs, cand)
 	if !bodyless {
 		// A resumed solve applies what this summary gains (State.Resume).
-		s.applied = append(s.applied, application{in: in, cand: cand, inputs: inputs, sum: sum})
+		s.applied = append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum})
 	}
 	if sum == nil {
 		if bodyless {
@@ -74,7 +74,7 @@ func (s *solver) applyCandidate(in *eir.Instr, cand eir.FuncID) {
 type application struct {
 	in     *eir.Instr
 	cand   eir.FuncID
-	inputs int
+	bind   []uint64
 	sum    *summary.Summary
 }
 
@@ -91,7 +91,7 @@ func (s *solver) reapply() {
 			continue
 		}
 		ap.sum = sum
-		s.apply(ap.in, s.binding(ap.in.Call, ap.inputs, ap.cand), sum, ap.cand)
+		s.apply(ap.in, ap.bind, sum, ap.cand)
 	}
 }
 
@@ -278,6 +278,7 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 			s.addTok(dst, tok{kind: tCHeap, tag: f, tagGE: true})
 		}
 	}
+	s.applyDeferred(in, bind, sum) // defer.go
 	for _, r := range sum.Region.OuterResults {
 		if r >= len(c.Results) || c.Results[r] == 0 {
 			continue

@@ -14,7 +14,10 @@
 // agreement (internal/escape2 package comment).
 package summary
 
-import "github.com/matjam/plutonium/internal/escape2/domain"
+import (
+	"github.com/matjam/plutonium/internal/escape2/domain"
+	"github.com/matjam/plutonium/internal/escape2/eir"
+)
 
 // Caps on one input's keys (plan section (a), "Caps and widening"). Past a
 // cap the input's keys are replaced by their domain.Paths.Cut with GE set,
@@ -49,6 +52,68 @@ type Summary struct {
 	// call site and callee through which the key escapes, in the same
 	// order as Esc then Store. Empty until stage 5 fills them.
 	Reasons []Reason
+
+	// Deferred are the calls of a function value the function was given
+	// (a key of an input), left to each caller to resolve against the
+	// closures it passes (decision D49). A call is deferred only when its
+	// arguments hold nothing but input pointers and heap memory and its
+	// results hold no pointers; otherwise the function applies the
+	// per-signature join of the call's candidates itself. That is why
+	// deferring is sound: the function passes the call none of its own
+	// frame memory and uses none of its results, so every effect of the
+	// call is one on what the caller passed, which the caller states in
+	// its own terms when it resolves the entry (or defers it again, under
+	// the same condition in its own terms). A Deferred entry is covered
+	// only by a Deferred entry (DeferredCovers), never by Esc or Store
+	// entries, which say something else.
+	Deferred []Deferred
+}
+
+// Deferred is one deferred call (Summary.Deferred).
+type Deferred struct {
+	// Fn is the function value called: a key of an input.
+	Fn domain.Key
+	// Args are what the call passes, by the callee's input index (the
+	// closure record, the last input of a literal, excluded).
+	Args []DeferredArg
+	// Origin and Site are the call: a caller that cannot resolve Fn to a
+	// closure of its own applies the per-signature join of the call's
+	// candidates there.
+	Origin eir.FuncID
+	Site   eir.SiteID
+}
+
+// DeferredArg is what a deferred call passes for one input.
+type DeferredArg struct {
+	Keys []domain.Key // the input keys the argument may hold
+	Heap bool         // and heap memory
+}
+
+// DeferredCovers reports whether deferred call a covers b: the same call,
+// a's function value covering b's, and each of a's arguments covering b's.
+func DeferredCovers(ps domain.Paths, a, b Deferred) bool {
+	if a.Origin != b.Origin || a.Site != b.Site || len(a.Args) < len(b.Args) || !domain.Covers(ps, a.Fn, b.Fn) {
+		return false
+	}
+	for i, bx := range b.Args {
+		ax := a.Args[i]
+		if bx.Heap && !ax.Heap {
+			return false
+		}
+		for _, k := range bx.Keys {
+			covered := false
+			for _, c := range ax.Keys {
+				if domain.Covers(ps, c, k) {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // StorePair is one store edge of a summary.

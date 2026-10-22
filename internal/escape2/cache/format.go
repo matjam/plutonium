@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
+	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/summary"
 )
 
@@ -22,6 +23,8 @@ import (
 //	summary  := byte(0) (bottom, nil)
 //	          | byte(1) uvarint(inputs) keys(esc) pairs(store) keys(heapstore)
 //	            uvarint(len res) result* byte(region builds) uvarint(n) uvarint(outer)*
+//	            uvarint(n) deferred*  (sorted by bytes)
+//	deferred := string(origin stable ID) uvarint(site) key(fn) uvarint(n) (byte(heap) keys)*
 //	keys     := uvarint(n) key*            (sorted by bytes)
 //	pairs    := uvarint(n) (key key)*      (sorted by bytes)
 //	key      := uvarint(input) byte(flags: 1 GE, 2 Borrowed, 4 Counts, 8 DirectCount, 16 FieldsGE) path
@@ -96,9 +99,11 @@ func appendPaths(b []byte, ps domain.Paths, paths []domain.PathID) []byte {
 }
 
 // appendSummary appends the canonical encoding of s.
-func appendSummary(b []byte, ps domain.Paths, s *summary.Summary) []byte {
+// name gives the stable ID of a deferred call's origin; ok is false when an
+// origin has none (the summary cannot be written then).
+func appendSummary(b []byte, ps domain.Paths, s *summary.Summary, name func(eir.FuncID) string) (_ []byte, ok bool) {
 	if s == nil {
-		return append(b, 0)
+		return append(b, 0), true
 	}
 	b = append(b, 1)
 	b = binary.AppendUvarint(b, uint64(s.Inputs))
@@ -137,7 +142,28 @@ func appendSummary(b []byte, ps domain.Paths, s *summary.Summary) []byte {
 	for _, r := range outer {
 		b = binary.AppendUvarint(b, uint64(r))
 	}
-	return b
+	ok = true
+	items = make([][]byte, len(s.Deferred))
+	for i, d := range s.Deferred {
+		n := name(d.Origin)
+		if n == "" {
+			ok = false
+		}
+		it := appendString(nil, n)
+		it = binary.AppendUvarint(it, uint64(d.Site))
+		it = appendKey(it, ps, d.Fn)
+		it = binary.AppendUvarint(it, uint64(len(d.Args)))
+		for _, a := range d.Args {
+			if a.Heap {
+				it = append(it, 1)
+			} else {
+				it = append(it, 0)
+			}
+			it = appendKeys(it, ps, a.Keys)
+		}
+		items[i] = it
+	}
+	return appendSorted(b, items), ok
 }
 
 // errCorrupt is what decoding reports for bytes no encoder writes.
@@ -273,9 +299,9 @@ type shape struct {
 // paths in ps, and checks it against the function's shape. Its sets are
 // sorted as the solver keeps them (by key); nothing else about them is
 // assumed: the driver's check decides whether the summary stands.
-func decodeSummary(b []byte, ps domain.Paths, sh shape) (*summary.Summary, error) {
+func decodeSummary(b []byte, ps domain.Paths, sh shape, id func(string) (eir.FuncID, bool)) (*summary.Summary, error) {
 	r := &reader{b: b}
-	s := r.summary(ps, sh)
+	s := r.summary(ps, sh, id)
 	if r.err == nil && len(r.b) != 0 {
 		r.fail()
 	}
@@ -285,7 +311,7 @@ func decodeSummary(b []byte, ps domain.Paths, sh shape) (*summary.Summary, error
 	return s, nil
 }
 
-func (r *reader) summary(ps domain.Paths, sh shape) *summary.Summary {
+func (r *reader) summary(ps domain.Paths, sh shape, id func(string) (eir.FuncID, bool)) *summary.Summary {
 	switch r.byte1() {
 	case 0:
 		return nil
@@ -374,6 +400,32 @@ func (r *reader) summary(ps domain.Paths, sh shape) *summary.Summary {
 			break
 		}
 		s.Region.OuterResults = append(s.Region.OuterResults, int(o))
+	}
+	nd := r.count(4)
+	for i := 0; i < nd && r.err == nil; i++ {
+		var d summary.Deferred
+		origin, ok := id(r.str())
+		if !ok {
+			r.fail()
+			break
+		}
+		d.Origin = origin
+		d.Site = eir.SiteID(r.uvarint())
+		d.Fn = r.key(ps, s.Inputs)
+		na := r.count(2)
+		for j := 0; j < na && r.err == nil; j++ {
+			var a summary.DeferredArg
+			switch r.byte1() {
+			case 0:
+			case 1:
+				a.Heap = true
+			default:
+				r.fail()
+			}
+			a.Keys = keys()
+			d.Args = append(d.Args, a)
+		}
+		s.Deferred = append(s.Deferred, d)
 	}
 	if r.err != nil {
 		return nil

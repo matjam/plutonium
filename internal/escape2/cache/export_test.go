@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
+	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/summary"
 )
 
@@ -14,11 +16,23 @@ import (
 // internal/escape2 (which imports this package).
 
 // EncodeSummary is appendSummary.
-func EncodeSummary(ps domain.Paths, s *summary.Summary) []byte { return appendSummary(nil, ps, s) }
+func EncodeSummary(ps domain.Paths, s *summary.Summary) []byte {
+	b, _ := appendSummary(nil, ps, s, testName)
+	return b
+}
+
+// testName and testID name a deferred call's origin by its number, for the
+// external tests.
+func testName(id eir.FuncID) string { return strconv.Itoa(int(id)) }
+
+func testID(s string) (eir.FuncID, bool) {
+	n, err := strconv.Atoi(s)
+	return eir.FuncID(n), err == nil
+}
 
 // DecodeSummary is decodeSummary for a function of the given shape.
 func DecodeSummary(b []byte, ps domain.Paths, inputs, results int) (*summary.Summary, error) {
-	return decodeSummary(b, ps, shape{inputs, results})
+	return decodeSummary(b, ps, shape{inputs, results}, testID)
 }
 
 // Entry is an entry of a file, for tests that rewrite files.
@@ -76,6 +90,6 @@ func DecodeAny(b []byte, ps domain.Paths) (*summary.Summary, int, error) {
 		v, _ := binary.Uvarint(b[1:])
 		inputs = int(v)
 	}
-	s, err := decodeSummary(b, ps, shape{inputs, 1 << 20})
+	s, err := decodeSummary(b, ps, shape{inputs, 1 << 20}, testID)
 	return s, inputs, err
 }

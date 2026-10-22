@@ -122,6 +122,11 @@ type solver struct {
 	stepBuf                 []domain.Step
 	applied                 []application // the summaries the calls applied (State.Resume)
 	limit                   *LimitError   // the solve went past the limits (Result.Limit)
+	dcalls                  []*dcall      // calls of function values (defer.go)
+	closureOf               map[uint32]eir.FuncID // closure record objects of f (OpClosure) to their function
+	dcallIdx                map[string]int
+	dcallDone               map[[2]uint64]bool
+	argNodes                map[string]uint32
 	whyIdx                  table         // whys by content, so that a constraint is made once
 }
 
@@ -147,6 +152,17 @@ func newSolver(f *eir.Func, env Env, ws *Workspace) *solver {
 	}
 	s.heapNode = s.newNode(nkPinned)
 	s.addTok(s.heapNode, heapTok)
+	s.closureOf = map[uint32]eir.FuncID{}
+	for _, blk := range f.Blocks {
+		for i := range blk.Instrs {
+			if in := &blk.Instrs[i]; in.Op == eir.OpClosure && in.Obj != eir.NoObj {
+				s.closureOf[uint32(in.Obj)] = in.Callee
+			}
+		}
+	}
+	s.dcallIdx = map[string]int{}
+	s.dcallDone = map[[2]uint64]bool{}
+	s.argNodes = map[string]uint32{}
 	return s
 }
 
@@ -710,6 +726,10 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		case tCHeap:
 			s.addResHeap(r, true, t.tag)
 		}
+	case cDCall:
+		s.fireDcall(int(a), t)
+	case cDArg:
+		s.fireDarg(int(a), t)
 	case cRegionWalk:
 		if t.kind == tObj && s.isRegion(t.base) {
 			rn := s.reachNode(s.tokNode(asPointer(t)))
@@ -908,6 +928,7 @@ func (s *solver) summary() *summary.Summary {
 	for _, r := range s.outer.s {
 		sum.Region.OuterResults = append(sum.Region.OuterResults, int(r))
 	}
+	sum.Deferred = s.deferredOut()
 	if len(escWhy)+len(storeWhy) > 0 {
 		sum.Reasons = append(escWhy, storeWhy...)
 	}
@@ -1061,7 +1082,11 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 			s.drops.push(s.a, uint64(b)<<32|uint64(i))
 		}
 	case eir.OpCall:
-		s.call(b, in)
+		if ownDeferrable(in) {
+			s.ownDcall(in) // defer.go
+		} else {
+			s.call(b, in)
+		}
 	default:
 		panic("internal compiler error: escape2/solve: unknown EIR instruction")
 	}
