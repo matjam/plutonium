@@ -64,6 +64,10 @@ type Env interface {
 	// the solver agree on what f reads: a deferred call reads no candidate's
 	// summary in f.
 	Deferred(f *eir.Func, c *eir.Call) bool
+	// CanRead reports whether the solve of f may read the summary of id to
+	// resolve a deferred call (D49): the scheduler orders f after id. Where
+	// it may not, the resolution keeps what it passes, reading nothing.
+	CanRead(f *eir.Func, id eir.FuncID) bool
 }
 
 // Workspace is the memory one solve works in: the SCC arena and its set

@@ -99,7 +99,9 @@ func (s *solver) fireDcall(i int, t tok) {
 			return
 		}
 	case tIn:
-		if dc.argsBad {
+		if dc.argsBad || s.f.External {
+			// A function no caller binds (External) has nobody to defer
+			// to: it keeps what it passes.
 			s.keep(i)
 			return
 		}
@@ -157,6 +159,10 @@ func (s *solver) applyClosure(i int, fn eir.FuncID, t tok) {
 		return
 	}
 	s.dcallDone[k] = true
+	if !s.env.CanRead(s.f, fn) {
+		s.fallback(i) // the scheduler did not order this literal before f
+		return
+	}
 	f := s.prog.Funcs[fn]
 	bind := s.a.Alloc(len(f.Inputs))
 	for j := range bind {
@@ -193,7 +199,14 @@ func (s *solver) fallback(i int) {
 			panic("internal compiler error: escape2/solve: a deferred call's origin has no such call site")
 		}
 	}
-	for _, cand := range s.env.Candidates(origin, call) {
+	cands := s.env.Candidates(origin, call)
+	for _, cand := range cands {
+		if cand != eir.NoFunc && !s.env.CanRead(s.f, cand) {
+			s.keep(i)
+			return
+		}
+	}
+	for _, cand := range cands {
 		n := len(dc.args)
 		if int(cand) < len(s.prog.Funcs) {
 			n = len(s.prog.Funcs[cand].Inputs)

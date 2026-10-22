@@ -24,7 +24,8 @@ type testEnv struct {
 	cands     map[*eir.Call][]eir.FuncID
 	contracts map[string]*summary.Summary
 	heapOnly  map[string]bool
-	deferred  map[*eir.Call]bool // the calls deferred (D49)
+	deferred  map[*eir.Call]bool  // the calls deferred (D49)
+	unread    map[eir.FuncID]bool // the summaries a resolution may not read
 }
 
 func newEnv() *testEnv {
@@ -35,6 +36,7 @@ func newEnv() *testEnv {
 		cands:     map[*eir.Call][]eir.FuncID{},
 		contracts: map[string]*summary.Summary{},
 		deferred:  map[*eir.Call]bool{},
+		unread:    map[eir.FuncID]bool{},
 		heapOnly:  map[string]bool{},
 	}
 }
@@ -49,6 +51,7 @@ func (e *testEnv) Contract(name string) (*summary.Summary, bool) {
 }
 func (e *testEnv) Instantiated(*types2.TypeParam) ([]types2.Type, bool) { return nil, false }
 func (e *testEnv) Deferred(f *eir.Func, c *eir.Call) bool               { return e.deferred[c] }
+func (e *testEnv) CanRead(f *eir.Func, id eir.FuncID) bool              { return !e.unread[id] }
 func (e *testEnv) HeapOnly(T types2.Type, field int) bool {
 	return e.heapOnly[fmt.Sprintf("%s.%d", T, field)]
 }

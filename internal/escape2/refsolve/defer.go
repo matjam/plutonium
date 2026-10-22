@@ -108,7 +108,7 @@ func (s *solver) resolve() {
 			switch t := x.t; {
 			case t.kind == kObj && !t.ge && t.path == domain.Root && s.closureOf[t.id] != 0:
 				s.applyClosure(dc, s.closureOf[t.id]-1, x)
-			case t.kind == kIn && argsBad:
+			case t.kind == kIn && (argsBad || s.f.External):
 				s.keep(dc)
 			case t.kind == kIn:
 				if k := keyOf(t); !dc.keys[k] {
@@ -151,6 +151,10 @@ func bindArgs(dc *dcall, n int, record value) func(int) value {
 // applyClosure applies the summary of closure fn, whose record x this
 // function made, at dcall dc.
 func (s *solver) applyClosure(dc *dcall, fn eir.FuncID, x tv) {
+	if !s.env.CanRead(s.f, fn) {
+		s.fallback(dc)
+		return
+	}
 	f := s.env.Program().Funcs[fn]
 	s.applyBound(dc.in, fn, bindArgs(dc, len(f.Inputs), single(x)))
 }
@@ -173,7 +177,14 @@ func (s *solver) fallback(dc *dcall) {
 		origin = funcs[dc.origin]
 		call = siteCall(origin, dc.site)
 	}
-	for _, cand := range s.env.Candidates(origin, call) {
+	cands := s.env.Candidates(origin, call)
+	for _, cand := range cands {
+		if cand != eir.NoFunc && !s.env.CanRead(s.f, cand) {
+			s.keep(dc)
+			return
+		}
+	}
+	for _, cand := range cands {
 		n := len(dc.args)
 		if int(cand) < len(funcs) {
 			n = len(funcs[cand].Inputs)

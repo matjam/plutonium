@@ -172,6 +172,9 @@ func (e *MapEnv) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
 	return e.InstantiatedFn(tp)
 }
 
+// CanRead implements solve.Env: every summary may be read.
+func (e *MapEnv) CanRead(f *eir.Func, id eir.FuncID) bool { return true }
+
 // Deferred implements solve.Env: DeferredFn, or no call deferred.
 func (e *MapEnv) Deferred(f *eir.Func, c *eir.Call) bool {
 	return e.DeferredFn != nil && e.DeferredFn(f, c)

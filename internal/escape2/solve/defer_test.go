@@ -86,3 +86,29 @@ func TestDeferredOwnFrameArgument(t *testing.T) {
 	wantFindings(t, r, "E3003@6")
 	e.wantSummary(t, r, "esc 0+")
 }
+
+// A function no caller binds (External) has nobody to defer to: it keeps
+// what it passes.
+func TestDeferredExternal(t *testing.T) {
+	e, _, iter := deferEnv(t)
+	iter.f.External = true
+	r := e.solve(t, iter.f)
+	e.wantSummary(t, r, "esc 0+; esc 1+")
+}
+
+// A literal the scheduler did not order before the resolving function is
+// not read: the call falls back to the origin call's candidates, and where
+// those cannot be read either, keeps what it passes.
+func TestDeferredUnread(t *testing.T) {
+	e, body, iter := deferEnv(t)
+	e.solve(t, iter.f)
+	e.unread[body.f.ID] = true
+	b := e.fn("f", 1, 0)
+	rec := b.obj("rec", eir.LifeFrame, -1)
+	b.f.Objects[rec].Kind = eir.ObjClosure
+	clo := b.reg()
+	b.emit(eir.Instr{Op: eir.OpClosure, Dst: clo, Obj: rec, Callee: body.f.ID})
+	b.static(iter.f, 0, b.input(0), clo)
+	r := e.solve(t, b.f)
+	e.wantSummary(t, r, "esc 0+")
+}
