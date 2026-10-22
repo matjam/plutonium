@@ -20,8 +20,12 @@ import (
 // Memory is bounded: states are kept only while their SCC is solved, only
 // for members of SCCs of more than one function (the others are solved
 // once), and only up to a budget of retained bytes (PLUTO_ESCAPE2_RETAIN_MB,
-// default 2048); past it the largest states are dropped, and their functions
-// are solved from scratch next time. With the D44 cache recording a solve's
+// default 1024). Past it the states of the functions least likely to be
+// solved again are dropped: those solved the fewest times in this SCC so far
+// (the largest first among equals); their functions are solved from scratch
+// next time. Memory matters more than time here (the compiler bootstraps
+// itself under a memory cap), and the most-solved members are where
+// resuming saves most. With the D44 cache recording a solve's
 // reads, every solve is from scratch, as before.
 //
 // PLUTO_ESCAPE2_RESUMECHECK=1 solves every resumed function from scratch as
@@ -43,7 +47,7 @@ type resumable interface {
 var solveKeepFunc func(f *eir.Func, env solve.Env, ws *solve.Workspace) (solve.Result, resumable)
 
 // retainBudget is the most the kept states of one SCC may hold, in bytes.
-var retainBudget = envMB("PLUTO_ESCAPE2_RETAIN_MB", 2048)
+var retainBudget = envMB("PLUTO_ESCAPE2_RETAIN_MB", 1024)
 
 var resumeCheck = os.Getenv("PLUTO_ESCAPE2_RESUMECHECK") != ""
 
@@ -66,10 +70,13 @@ type keptSolve struct {
 
 // retained are the kept states of the SCC being solved.
 type retained struct {
-	kept  map[eir.FuncID]*keptSolve
-	pool  []*solve.Workspace
-	bytes int // what the kept states hold now
-	peak  int // the most they held, in this SCC
+	kept map[eir.FuncID]*keptSolve
+	pool []*solve.Workspace
+	// solves counts the solves of each function in this SCC, kept or not:
+	// what decides which states stay.
+	solves map[eir.FuncID]int
+	bytes  int // what the kept states hold now
+	peak   int // the most they held, in this SCC
 	// resumes counts the solves that resumed a kept state; drift the
 	// resumed solves the check found wider than a solve from scratch.
 	resumes int
@@ -77,7 +84,7 @@ type retained struct {
 }
 
 func newRetained() *retained {
-	return &retained{kept: map[eir.FuncID]*keptSolve{}}
+	return &retained{kept: map[eir.FuncID]*keptSolve{}, solves: map[eir.FuncID]int{}}
 }
 
 func (r *retained) workspace() *solve.Workspace {
@@ -97,19 +104,28 @@ func (r *retained) drop(id eir.FuncID) {
 		return
 	}
 	r.bytes -= k.bytes
-	k.ws.Sets.Reset()
-	k.ws.Arena.Reset()
-	r.pool = append(r.pool, k.ws)
 	delete(r.kept, id)
+	// A reset arena keeps its chunks: pooled workspaces hold memory the
+	// budget does not count, so only a few are pooled.
+	if len(r.pool) < maxPooled {
+		k.ws.Sets.Reset()
+		k.ws.Arena.Reset()
+		r.pool = append(r.pool, k.ws)
+	}
 }
+
+// maxPooled is how many workspaces of dropped states are kept for reuse.
+const maxPooled = 4
 
 // release frees every kept state: the SCC is final.
 func (r *retained) release() {
 	for id := range r.kept {
 		r.drop(id)
 	}
+	r.pool = nil
 	r.peak = 0
 	r.resumes = 0
+	r.solves = map[eir.FuncID]int{}
 }
 
 // solve solves f, resuming its kept state if there is one, else solving it
@@ -117,6 +133,7 @@ func (r *retained) release() {
 // summary as solveGuarded gives it, and no kept state.
 func (r *retained) solve(f *eir.Func, env solve.Env, scratch *solve.Workspace) solve.Result {
 	id := f.ID
+	r.solves[id]++
 	if k := r.kept[id]; k != nil {
 		res := k.st.Resume(env)
 		r.resumes++
@@ -144,27 +161,22 @@ func (r *retained) solve(f *eir.Func, env solve.Env, scratch *solve.Workspace) s
 }
 
 // account updates the bytes of k and keeps the total under the budget,
-// dropping the largest states first (never the one just solved unless it
-// alone is past the budget).
+// dropping first the states of the functions solved the fewest times (the
+// largest first among equals, then the lowest ID, so that the choice does
+// not depend on map order). The one just solved may be dropped too.
 func (r *retained) account(id eir.FuncID, k *keptSolve) {
 	b := k.st.Bytes()
 	r.bytes += b - k.bytes
 	k.bytes = b
 	for r.bytes > retainBudget && len(r.kept) > 0 {
-		var big eir.FuncID
-		bigBytes := -1
+		victim, vs, vb := eir.NoFunc, 0, 0
 		for x, kx := range r.kept {
-			if x != id && kx.bytes > bigBytes {
-				big, bigBytes = x, kx.bytes
+			s := r.solves[x]
+			if victim == eir.NoFunc || s < vs || s == vs && (kx.bytes > vb || kx.bytes == vb && x < victim) {
+				victim, vs, vb = x, s, kx.bytes
 			}
 		}
-		if bigBytes < 0 {
-			big = id // it alone is past the budget
-		}
-		r.drop(big)
-		if big == id {
-			break
-		}
+		r.drop(victim)
 	}
 	if r.bytes > r.peak {
 		r.peak = r.bytes
