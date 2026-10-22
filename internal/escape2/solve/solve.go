@@ -23,6 +23,15 @@ func Solve(f *eir.Func, env Env, ws *Workspace) Result {
 	return r
 }
 
+// SolveDerivs is Solve, and gives every derivation of each entry of the
+// summary (Result.Derivs).
+func SolveDerivs(f *eir.Func, env Env, ws *Workspace) Result {
+	s := newSolver(f, env, ws)
+	s.derivs = true
+	s.build()
+	return s.finish()
+}
+
 // SolveKeep is Solve, and returns the solver's state as well, kept in ws,
 // for a later solve of f to resume (State.Resume): the caller must not
 // reset ws while it holds the state.
@@ -42,7 +51,7 @@ func (s *solver) finish() Result {
 	s.measure()
 	sum := s.summary()
 	s.dump(sum)
-	return Result{Summary: sum, Findings: append([]Finding(nil), s.findings...)}
+	return Result{Summary: sum, Findings: append([]Finding(nil), s.findings...), Derivs: s.derivOut}
 }
 
 // State is a solve kept to be resumed.
@@ -120,8 +129,12 @@ type solver struct {
 	tjSeen                  table
 	tjCounter               uint64
 	stepBuf                 []domain.Step
-	applied                 []application         // the summaries the calls applied (State.Resume)
-	limit                   *LimitError           // the solve went past the limits (Result.Limit)
+	applied                 []application // the summaries the calls applied (State.Resume)
+	limit                   *LimitError   // the solve went past the limits (Result.Limit)
+	derivs                  bool          // collect every derivation (SolveDerivs)
+	escDerivs, storeDerivs  vec           // key words and why, of every Esc and Store derivation
+	derivSeen               table
+	derivOut                [][]summary.Reason    // Result.Derivs
 	dcalls                  []*dcall              // calls of function values (defer.go)
 	closureOf               map[uint32]eir.FuncID // closure record objects of f (OpClosure) to their function
 	dcallIdx                map[string]int
@@ -794,6 +807,10 @@ const (
 )
 
 func (s *solver) addEsc(k domain.Key, why uint64) {
+	if s.derivs && s.derivSeen.add(s.a, uint64(k)<<4|1, why) {
+		s.escDerivs.push(s.a, uint64(k))
+		s.escDerivs.push(s.a, why)
+	}
 	if s.sumSeen.add(s.a, sEsc, uint64(k)) {
 		s.esc.push(s.a, uint64(k))
 		s.esc.push(s.a, why)
@@ -801,6 +818,11 @@ func (s *solver) addEsc(k domain.Key, why uint64) {
 }
 
 func (s *solver) addStorePair(src, dst domain.Key, why uint64) {
+	if s.derivs && s.derivSeen.add(s.a, uint64(src)<<4|2, uint64(dst)<<20^why) {
+		s.storeDerivs.push(s.a, uint64(src))
+		s.storeDerivs.push(s.a, uint64(dst))
+		s.storeDerivs.push(s.a, why)
+	}
 	in := src.Input()
 	if s.storeCut[in] {
 		s.addCutPair(src, dst, why)
@@ -933,7 +955,36 @@ func (s *solver) summary() *summary.Summary {
 		sum.Reasons = append(escWhy, storeWhy...)
 	}
 	summary.Widen(s.ps, sum)
+	if s.derivs {
+		s.derivOut = s.derivations(sum, reason)
+	}
 	return sum
+}
+
+// derivations gives each Esc and Store entry of sum the reasons of every
+// derivation it covers (an entry Widen cut covers the ones it absorbed).
+func (s *solver) derivations(sum *summary.Summary, reason func(uint64) summary.Reason) [][]summary.Reason {
+	out := make([][]summary.Reason, 0, len(sum.Esc)+len(sum.Store))
+	for _, k := range sum.Esc {
+		var rs []summary.Reason
+		for i := 0; i < len(s.escDerivs.s); i += 2 {
+			if domain.Covers(s.ps, k, domain.Key(s.escDerivs.s[i])) {
+				rs = append(rs, reason(s.escDerivs.s[i+1]))
+			}
+		}
+		out = append(out, rs)
+	}
+	for _, p := range sum.Store {
+		var rs []summary.Reason
+		for i := 0; i < len(s.storeDerivs.s); i += 3 {
+			a, b := domain.Key(s.storeDerivs.s[i]), domain.Key(s.storeDerivs.s[i+1])
+			if domain.Covers(s.ps, p.Src, a) && domain.Covers(s.ps, p.Dst, b) {
+				rs = append(rs, reason(s.storeDerivs.s[i+2]))
+			}
+		}
+		out = append(out, rs)
+	}
+	return out
 }
 
 // --- building the constraints from the instructions ---

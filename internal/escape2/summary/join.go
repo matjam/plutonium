@@ -57,3 +57,48 @@ func reasonsOf(s *Summary) (esc, store []Reason) {
 	}
 	return none[:len(s.Esc)], none[len(s.Esc):]
 }
+
+// NoReason is the reason of an entry no solve against the final summaries
+// derives: one a join kept from an earlier iterate of its SCC.
+var NoReason = Reason{Site: ^uint32(0), Callee: ^uint32(0), Entry: ^uint32(0)}
+
+// EntryDerivs gives each Esc and Store entry of s the derivations of the
+// entries of fresh it covers: fresh is a solve against the final summaries
+// of s's SCC (fresh ⊑ s), and derivs its derivations (solve.Result.Derivs),
+// by entry of fresh. An entry of s that covers no entry of fresh has none:
+// a join kept it from an earlier iterate, and nothing derives it now.
+func EntryDerivs(ps domain.Paths, s, fresh *Summary, derivs [][]Reason) [][]Reason {
+	if s == nil {
+		return nil
+	}
+	out := make([][]Reason, 0, len(s.Esc)+len(s.Store))
+	at := func(i int) []Reason {
+		if i < len(derivs) {
+			return derivs[i]
+		}
+		return nil
+	}
+	for _, k := range s.Esc {
+		var rs []Reason
+		if fresh != nil {
+			for i, f := range fresh.Esc {
+				if domain.Covers(ps, k, f) {
+					rs = append(rs, at(i)...)
+				}
+			}
+		}
+		out = append(out, rs)
+	}
+	for _, p := range s.Store {
+		var rs []Reason
+		if fresh != nil {
+			for i, f := range fresh.Store {
+				if domain.Covers(ps, p.Src, f.Src) && domain.Covers(ps, p.Dst, f.Dst) {
+					rs = append(rs, at(len(fresh.Esc)+i)...)
+				}
+			}
+		}
+		out = append(out, rs)
+	}
+	return out
+}

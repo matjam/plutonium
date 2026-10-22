@@ -124,10 +124,14 @@ func withFakes(t *testing.T, order *[]eir.FuncID) *fakeArena {
 	newSets = func(a domain.Arena) domain.Sets { return fakeSets{a: arena} }
 	// The fake solves keep no state: the real solver's resumable solve
 	// would solve the fake functions for real.
-	savedKeep := solveKeepFunc
+	savedKeep, savedDerivs := solveKeepFunc, solveDerivsFunc
 	solveKeepFunc = nil
+	// The final pass of an SCC (reasons.go) solves as the fakes do.
+	solveDerivsFunc = func(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
+		return solveFunc(f, env, ws)
+	}
 	t.Cleanup(func() {
-		solveKeepFunc = savedKeep
+		solveKeepFunc, solveDerivsFunc = savedKeep, savedDerivs
 		solveFunc = saved[0].(func(*eir.Func, solve.Env, *solve.Workspace) solve.Result)
 		leq = saved[1].(func(domain.Paths, *summary.Summary, *summary.Summary) bool)
 		newPaths = saved[2].(func() domain.Paths)

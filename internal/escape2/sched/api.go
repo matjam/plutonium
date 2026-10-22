@@ -103,4 +103,7 @@ type SCCStats struct {
 	// (incremental re-solving, incr.go).
 	RetainedPeak int
 	Resumes      int
+	// Unfounded counts the entries of the SCC's final summaries that no
+	// derivation of finite depth supports (reasons.go).
+	Unfounded int
 }

@@ -101,4 +101,8 @@ type Result struct {
 	// past the solver's limits (MaxFuncArena, MaxFuncSteps): the caller
 	// gives the function the top summary and E3010 (sched, solveGuarded).
 	Limit *LimitError
+	// Derivs, from SolveDerivs only, are every derivation of each Esc and
+	// Store entry of Summary (in that order), each as a Reason: what the
+	// scheduler chooses a well-founded reason from (sched, reasons.go).
+	Derivs [][]summary.Reason
 }

@@ -159,6 +159,27 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			st.Resumes = ret.resumes
 			ret.release()
 		}()
+		defer func() {
+			// The summaries are final: a solve of each member against them
+			// gives its findings and well-founded reasons (reasons.go).
+			iterated := len(comp) > 1
+			for _, n := range solves {
+				iterated = iterated || n > 1
+			}
+			if !iterated || opts.Cache != nil {
+				return
+			}
+			st.Unfounded = wellFounded(comp, env, func(id eir.FuncID) solve.Result {
+				env.solving = id
+				r := solveDerivsFunc(p.Funcs[id], env, ws)
+				st.Solves++
+				measure(st)
+				if r.Limit != nil {
+					r = limitResult(p.Funcs[id], env)
+				}
+				return r
+			}, findings)
+		}()
 		for !work.empty() {
 			id := work.pop()
 			solves[id]++
@@ -186,6 +207,16 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			// not monotone in the summaries it reads where paths are cut
 			// (summary.Join), and the join makes the iteration climb, so it
 			// stops at a post-fixed point.
+			//
+			// A new summary the previous one covers leaves the previous one
+			// in place, unchanged: the readers are not solved again, and
+			// the reasons they hold name entries of the summary they read
+			// by index, which a join, though it covers the same, may number
+			// differently.
+			if prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev) {
+				measure(st)
+				continue
+			}
 			if prev == nil {
 				env.sums[id] = clone(r.Summary)
 			} else {
@@ -193,9 +224,6 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			}
 			env.virt.changedFunc(id)
 			measure(st)
-			if prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev) {
-				continue
-			}
 			for _, rd := range readers[id] {
 				work.push(rd)
 			}
