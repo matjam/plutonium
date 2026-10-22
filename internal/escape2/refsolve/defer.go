@@ -20,6 +20,7 @@ type dcall struct {
 	target   value
 	args     []value
 	fellBack bool
+	argsBad  bool
 	keys     map[domain.Key]bool
 }
 
@@ -95,10 +96,11 @@ func (s *solver) deferredOf(in *eir.Instr, sm *summary.Summary, bind func(int) v
 func (s *solver) resolve() {
 	for i := 0; i < len(s.dcalls); i++ {
 		dc := s.dcalls[i]
+		argsBad := false
 		for _, a := range dc.args {
 			for x := range a {
 				if x.t.kind == kObj || x.tag != domain.Root || x.g {
-					s.fallback(dc)
+					argsBad = true
 				}
 			}
 		}
@@ -106,6 +108,8 @@ func (s *solver) resolve() {
 			switch t := x.t; {
 			case t.kind == kObj && !t.ge && t.path == domain.Root && s.closureOf[t.id] != 0:
 				s.applyClosure(dc, s.closureOf[t.id]-1, x)
+			case t.kind == kIn && argsBad:
+				s.keep(dc)
 			case t.kind == kIn:
 				if k := keyOf(t); !dc.keys[k] {
 					dc.keys[k] = true
@@ -115,7 +119,18 @@ func (s *solver) resolve() {
 				s.fallback(dc)
 			}
 		}
+		if argsBad != dc.argsBad {
+			dc.argsBad = argsBad
+			s.changed = true
+		}
 	}
+}
+
+// keep applies the default of a bodyless callee at dcall dc, with its
+// arguments and its function value as the inputs (solve/defer.go).
+func (s *solver) keep(dc *dcall) {
+	n := len(dc.args) + 1
+	s.applySummary(dc.in, bodylessSummary(&eir.Func{Inputs: make([]eir.Input, n)}), bindArgs(dc, n, dc.target), eir.NoFunc)
 }
 
 // bindArgs is the binding of a candidate with n inputs at dcall dc: input i
@@ -148,10 +163,8 @@ func (s *solver) fallback(dc *dcall) {
 		s.changed = true
 	}
 	if dc.origin == s.f.ID {
-		// A deferred call of the function's own: kept, as by a bodyless
-		// callee (solve/defer.go).
-		n := len(dc.args) + 1
-		s.applySummary(dc.in, bodylessSummary(&eir.Func{Inputs: make([]eir.Input, n)}), bindArgs(dc, n, dc.target), eir.NoFunc)
+		// A deferred call of the function's own reads no candidate.
+		s.keep(dc)
 		return
 	}
 	funcs := s.env.Program().Funcs
@@ -206,7 +219,7 @@ func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind func(int) value
 func (s *solver) deferredOut() []summary.Deferred {
 	var out []summary.Deferred
 	for _, dc := range s.dcalls {
-		if dc.fellBack || len(dc.keys) == 0 {
+		if dc.argsBad || len(dc.keys) == 0 {
 			continue
 		}
 		args := make([]summary.DeferredArg, len(dc.args))

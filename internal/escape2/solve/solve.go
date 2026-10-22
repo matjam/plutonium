@@ -120,14 +120,14 @@ type solver struct {
 	tjSeen                  table
 	tjCounter               uint64
 	stepBuf                 []domain.Step
-	applied                 []application // the summaries the calls applied (State.Resume)
-	limit                   *LimitError   // the solve went past the limits (Result.Limit)
-	dcalls                  []*dcall      // calls of function values (defer.go)
+	applied                 []application         // the summaries the calls applied (State.Resume)
+	limit                   *LimitError           // the solve went past the limits (Result.Limit)
+	dcalls                  []*dcall              // calls of function values (defer.go)
 	closureOf               map[uint32]eir.FuncID // closure record objects of f (OpClosure) to their function
 	dcallIdx                map[string]int
 	dcallDone               map[[2]uint64]bool
 	argNodes                map[string]uint32
-	whyIdx                  table         // whys by content, so that a constraint is made once
+	whyIdx                  table // whys by content, so that a constraint is made once
 }
 
 func newSolver(f *eir.Func, env Env, ws *Workspace) *solver {

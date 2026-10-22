@@ -25,7 +25,9 @@ type dcall struct {
 	target   uint32     // the node of the function value
 	origin   eir.FuncID // the call it stands for, for the fallback
 	site     eir.SiteID
-	fellBack bool
+	fellBack bool         // the candidates' join applied
+	argsBad  bool         // an argument holds what no caller's key names
+	kept     bool         // the bodyless default applied
 	keys     []domain.Key // the In tokens of the function value: the Deferred entries it makes
 }
 
@@ -97,6 +99,10 @@ func (s *solver) fireDcall(i int, t tok) {
 			return
 		}
 	case tIn:
+		if dc.argsBad {
+			s.keep(i)
+			return
+		}
 		k := key(asPointer(t))
 		for _, x := range dc.keys {
 			if x == k {
@@ -109,14 +115,37 @@ func (s *solver) fireDcall(i int, t tok) {
 	s.fallback(i)
 }
 
-// fireDarg handles token t of an argument of dcall i: a frame token makes
-// the call ineligible for deferral.
+// fireDarg handles token t of an argument of dcall i. A frame token, or a
+// pointer held in a field of a value (a key keeps no tag), is nothing a
+// caller's key names: the call cannot be deferred further, and the
+// function values it would have been deferred for are kept.
 func (s *solver) fireDarg(i int, t tok) {
-	// A frame token, or a pointer held in a field of a value (a key keeps
-	// no tag), is no input pointer of a caller.
-	if t.kind == tObj || t.tag != domain.Root || t.tagGE {
-		s.fallback(i)
+	dc := s.dcalls[i]
+	if dc.argsBad || (t.kind != tObj && t.tag == domain.Root && !t.tagGE) {
+		return
 	}
+	dc.argsBad = true
+	if len(dc.keys) > 0 {
+		s.keep(i)
+	}
+}
+
+// keep applies, once, the default of a bodyless callee at dcall i, with its
+// arguments and its function value as the inputs: what cannot be resolved
+// or deferred is kept, and no summary is read (the scheduler orders none
+// for it).
+func (s *solver) keep(i int) {
+	dc := s.dcalls[i]
+	if dc.kept {
+		return
+	}
+	dc.kept = true
+	bind := make([]uint64, len(dc.args)+1)
+	for j, a := range dc.args {
+		bind[j] = uint64(a)
+	}
+	bind[len(dc.args)] = uint64(dc.target)
+	s.applyDefault(dc.in, bind, eir.NoFunc)
 }
 
 // applyClosure applies the summary of closure fn, whose record t this
@@ -151,14 +180,8 @@ func (s *solver) fallback(i int) {
 	dc.fellBack = true
 	if dc.origin == s.f.ID {
 		// A call of the function's own the scheduler deferred: it reads no
-		// candidate's summary here (Env.Deferred), so what it cannot defer
-		// is kept, as a bodyless callee keeps it.
-		bind := make([]uint64, len(dc.args)+1)
-		for j, a := range dc.args {
-			bind[j] = uint64(a)
-		}
-		bind[len(dc.args)] = uint64(dc.target)
-		s.applyDefault(dc.in, bind, eir.NoFunc)
+		// candidate's summary here (Env.Deferred).
+		s.keep(i)
 		return
 	}
 	call := dc.in.Call
@@ -279,7 +302,7 @@ func (s *solver) argNode(a summary.DeferredArg, bind []uint64) uint32 {
 func (s *solver) deferredOut() []summary.Deferred {
 	var out []summary.Deferred
 	for _, dc := range s.dcalls {
-		if dc.fellBack || len(dc.keys) == 0 {
+		if dc.argsBad || len(dc.keys) == 0 {
 			continue
 		}
 		args := make([]summary.DeferredArg, len(dc.args))

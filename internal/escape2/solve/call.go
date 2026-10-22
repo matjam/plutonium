@@ -72,10 +72,10 @@ func (s *solver) applyCandidate(in *eir.Instr, cand eir.FuncID) {
 
 // application is a summary a call applied, for State.Resume.
 type application struct {
-	in     *eir.Instr
-	cand   eir.FuncID
-	bind   []uint64
-	sum    *summary.Summary
+	in   *eir.Instr
+	cand eir.FuncID
+	bind []uint64
+	sum  *summary.Summary
 }
 
 // reapply applies again the summaries of callees that changed since they
