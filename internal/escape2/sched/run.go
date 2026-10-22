@@ -35,9 +35,11 @@ type facts struct {
 }
 
 // deferralOn turns D49's deferred calls on: the call graph drops their
-// edges and Env.Deferred names them to the solver. PLUTO_ESCAPE2_NODEFER=1
-// turns it off, for measurements and as a way around a fault of it.
-var deferralOn = os.Getenv("PLUTO_ESCAPE2_NODEFER") == ""
+// edges and Env.Deferred names them to the solver. It is opt-in
+// (PLUTO_ESCAPE2_DEFER=1) while it costs too much: on the translated
+// compiler it removes 45% of the findings but its largest SCC, which it
+// does not split, takes 460,000 solves instead of 20,000 (40 minutes).
+var deferralOn = os.Getenv("PLUTO_ESCAPE2_DEFER") != ""
 
 // StageB computes the whole-program facts of p.
 func StageB(p *eir.Program) Facts {
