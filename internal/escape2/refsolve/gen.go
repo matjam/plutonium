@@ -91,6 +91,11 @@ func Random(seed int64, ps domain.Paths) *Case {
 		HeapOnlyFn: func(t types2.Type, field int) bool {
 			return field == 1
 		},
+		// Every other call site is deferred (D49): which ones the scheduler
+		// defers does not matter for the two solvers' agreement.
+		DeferredFn: func(f *eir.Func, c *eir.Call) bool {
+			return c.Site%2 == 1
+		},
 	}
 	nin, nres := g.rng.Intn(4), g.rng.Intn(3)
 	g.b = NewFunc(0, nin, nres)

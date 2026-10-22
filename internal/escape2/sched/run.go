@@ -435,6 +435,15 @@ func (e *env) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
 	return e.facts.Instantiated(tp)
 }
 
+// Deferred implements solve.Env: deferredFunc, or no call deferred until the
+// scheduler decides deferral (D49).
+func (e *env) Deferred(f *eir.Func, c *eir.Call) bool {
+	return deferredFunc != nil && deferredFunc(f, c)
+}
+
+// deferredFunc decides which calls are deferred (D49); nil defers none.
+var deferredFunc func(f *eir.Func, c *eir.Call) bool
+
 // clone copies a summary into memory of its own, sharing nothing with the
 // solver's workspace.
 func clone(s *summary.Summary) *summary.Summary {

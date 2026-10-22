@@ -69,6 +69,7 @@ func Solve(f *eir.Func, env solve.Env) solve.Result {
 				s.apply(b, &b.Instrs[i])
 			}
 		}
+		s.resolve() // defer.go
 		if !s.changed {
 			break
 		}
@@ -99,6 +100,7 @@ func (s *solver) result() solve.Result {
 		sm.Region.OuterResults = append(sm.Region.OuterResults, r)
 	}
 	sort.Ints(sm.Region.OuterResults)
+	sm.Deferred = s.deferredOut()
 	sm.Region.Builds = s.builds
 	s.antichains(sm)
 	widen(s.ps, sm)

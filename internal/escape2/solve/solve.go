@@ -1082,7 +1082,7 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 			s.drops.push(s.a, uint64(b)<<32|uint64(i))
 		}
 	case eir.OpCall:
-		if ownDeferrable(in) {
+		if ownDeferrable(in) && s.env.Deferred(s.f, in.Call) {
 			s.ownDcall(in) // defer.go
 		} else {
 			s.call(b, in)

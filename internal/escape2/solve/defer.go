@@ -149,6 +149,18 @@ func (s *solver) fallback(i int) {
 		return
 	}
 	dc.fellBack = true
+	if dc.origin == s.f.ID {
+		// A call of the function's own the scheduler deferred: it reads no
+		// candidate's summary here (Env.Deferred), so what it cannot defer
+		// is kept, as a bodyless callee keeps it.
+		bind := make([]uint64, len(dc.args)+1)
+		for j, a := range dc.args {
+			bind[j] = uint64(a)
+		}
+		bind[len(dc.args)] = uint64(dc.target)
+		s.applyDefault(dc.in, bind, eir.NoFunc)
+		return
+	}
 	call := dc.in.Call
 	origin := s.f
 	if dc.origin != s.f.ID {

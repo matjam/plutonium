@@ -60,25 +60,31 @@ type solver struct {
 
 	findings map[findingKey]solve.Finding
 
+	closureOf map[int]eir.FuncID // a closure record object to its function, plus one
+	dcalls    []*dcall
+	dcallIdx  map[string]*dcall
+
 	changed bool
 }
 
 func newSolver(f *eir.Func, env solve.Env) *solver {
 	s := &solver{
-		f:        f,
-		env:      env,
-		ps:       env.Paths(),
-		regs:     make([]value, f.NumRegs+1),
-		places:   map[place]value{},
-		esc:      map[domain.Key]bool{},
-		stores:   map[summary.StorePair]bool{},
-		hstore:   map[domain.Key]bool{},
-		res:      make([]resAcc, f.Results),
-		outer:    map[int]bool{},
-		findings: map[findingKey]solve.Finding{},
-		defs:     make([]*eir.Instr, f.NumRegs+1),
-		blockOf:  map[*eir.Instr]eir.BlockID{},
-		indexOf:  map[*eir.Instr]int{},
+		f:         f,
+		env:       env,
+		ps:        env.Paths(),
+		regs:      make([]value, f.NumRegs+1),
+		places:    map[place]value{},
+		esc:       map[domain.Key]bool{},
+		stores:    map[summary.StorePair]bool{},
+		hstore:    map[domain.Key]bool{},
+		res:       make([]resAcc, f.Results),
+		outer:     map[int]bool{},
+		findings:  map[findingKey]solve.Finding{},
+		closureOf: map[int]eir.FuncID{},
+		dcallIdx:  map[string]*dcall{},
+		defs:      make([]*eir.Instr, f.NumRegs+1),
+		blockOf:   map[*eir.Instr]eir.BlockID{},
+		indexOf:   map[*eir.Instr]int{},
 	}
 	for i := range s.regs {
 		s.regs[i] = value{}
@@ -113,6 +119,9 @@ func newSolver(f *eir.Func, env solve.Env) *solver {
 			s.indexOf[in] = i
 			if in.Dst != 0 {
 				s.defs[in.Dst] = in
+			}
+			if in.Op == eir.OpClosure && in.Obj != eir.NoObj {
+				s.closureOf[int(in.Obj)] = in.Callee + 1
 			}
 			if in.Op == eir.OpCall {
 				for _, r := range in.Call.Results {

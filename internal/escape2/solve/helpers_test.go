@@ -24,6 +24,7 @@ type testEnv struct {
 	cands     map[*eir.Call][]eir.FuncID
 	contracts map[string]*summary.Summary
 	heapOnly  map[string]bool
+	deferred  map[*eir.Call]bool // the calls deferred (D49)
 }
 
 func newEnv() *testEnv {
@@ -33,6 +34,7 @@ func newEnv() *testEnv {
 		sums:      map[eir.FuncID]*summary.Summary{},
 		cands:     map[*eir.Call][]eir.FuncID{},
 		contracts: map[string]*summary.Summary{},
+		deferred:  map[*eir.Call]bool{},
 		heapOnly:  map[string]bool{},
 	}
 }
@@ -46,6 +48,7 @@ func (e *testEnv) Contract(name string) (*summary.Summary, bool) {
 	return s, ok
 }
 func (e *testEnv) Instantiated(*types2.TypeParam) ([]types2.Type, bool) { return nil, false }
+func (e *testEnv) Deferred(f *eir.Func, c *eir.Call) bool               { return e.deferred[c] }
 func (e *testEnv) HeapOnly(T types2.Type, field int) bool {
 	return e.heapOnly[fmt.Sprintf("%s.%d", T, field)]
 }
@@ -235,6 +238,20 @@ func (e *testEnv) describe(s *summary.Summary) string {
 		if len(res.CountedHeap) > 0 {
 			parts = append(parts, fmt.Sprintf("res%d cheap", r))
 		}
+	}
+	for _, d := range s.Deferred {
+		var args []string
+		for _, a := range d.Args {
+			var ks []string
+			for _, k := range a.Keys {
+				ks = append(ks, e.keyString(k))
+			}
+			if a.Heap {
+				ks = append(ks, "heap")
+			}
+			args = append(args, strings.Join(ks, " "))
+		}
+		parts = append(parts, fmt.Sprintf("defer f%d@%d %s(%s)", d.Origin, d.Site, e.keyString(d.Fn), strings.Join(args, ", ")))
 	}
 	if s.Region.Builds {
 		parts = append(parts, "builds")
