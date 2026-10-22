@@ -49,10 +49,12 @@ func other(int) bool { return true }
 		t.Errorf("pass's input 0 stands for %v, want iter's call (re-deferred)", got)
 	}
 	g := buildGraphD(pr.p, f.rule, d)
+	hasOther := false
 	for _, x := range g.deps[it.f.ID] {
-		if x == lit.f.ID || x == other.f.ID {
-			t.Errorf("iter depends on %d: a deferred call has no edges in its function", x)
-		}
+		hasOther = hasOther || x == other.f.ID
+	}
+	if !hasOther {
+		t.Errorf("iter depends on %v: a deferred call keeps its edges to its candidates (other), for its fallback", g.deps[it.f.ID])
 	}
 	if got := d.deps(main.f); !sameIDs(got, idsOf(lit)) {
 		t.Errorf("main depends on %v, want only the literal it passes %v", got, idsOf(lit))
@@ -320,7 +322,7 @@ func other(int) bool { return true }
 		t.Errorf("main depends on %v, want only the literal it passes %v", got, idsOf(lit))
 	}
 	g := buildGraphD(pr.p, f.rule, d)
-	for _, id := range []eir.FuncID{it.f.ID, body.f.ID, body2.f.ID, all.f.ID, allRef.f.ID} {
+	for _, id := range []eir.FuncID{all.f.ID, allRef.f.ID} {
 		for _, x := range g.deps[id] {
 			if x == other.f.ID || x == lit.f.ID {
 				t.Errorf("%s depends on %s", pr.p.Funcs[id].Name, pr.p.Funcs[x].Name)

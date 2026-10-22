@@ -12,9 +12,12 @@ import (
 // where what a caller passes is not known does the per-signature join (the
 // candidates of the original call) apply.
 //
-// For the scheduler this is what splits the SCCs that func-value calls tie
-// together: f no longer depends on the candidates of a deferred call;
-// instead each caller depends on what it passes in that position.
+// For the scheduler, each caller also depends on what it passes in that
+// position. f keeps its edges to the deferred call's candidates (graph.go):
+// where the call's arguments turn out to point into f's frame when the
+// solver runs, f resolves it against them. What D49 buys is precision, not
+// smaller SCCs: on the translated compiler the largest SCC is the type
+// checker's own recursion.
 //
 // Which calls are deferred is decided here, from the EIR alone, and the
 // solver defers exactly those (Env.Deferred). The call graph must cover

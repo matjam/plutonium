@@ -28,8 +28,13 @@ func buildGraph(p *eir.Program, rule dispatchRule) *callGraph {
 }
 
 // buildGraphD is buildGraph with the deferred calls of D49 (deferral.go):
-// a deferred call has no edges in its function, whose callers depend
-// instead on what they pass where it is deferred.
+// the callers of a function with a deferred call also depend on what they
+// pass where it is deferred. A deferred call keeps its edges to its
+// candidates: where its arguments turn out to hold a pointer into the
+// frame when the solver runs, the function itself resolves it against
+// them (the join, as for a call that is not deferred), so they must be
+// solved before it or with it. Only the summaries a solve reads re-solve
+// it (run.go), so the edges cost nothing where they are not read.
 func buildGraphD(p *eir.Program, rule dispatchRule, def *deferral) *callGraph {
 	n := len(p.Funcs)
 	g := &callGraph{nFuncs: n, succ: make([][]int32, n), deps: make([][]eir.FuncID, n)}
@@ -64,9 +69,6 @@ func buildGraphD(p *eir.Program, rule dispatchRule, def *deferral) *callGraph {
 						addDep(c.Callee)
 					}
 				case eir.CallIface, eir.CallTypeParam, eir.CallFunc:
-					if def != nil && def.deferred(f, c) {
-						continue // resolved by f's callers
-					}
 					ids := rule.callees(f, c)
 					if len(ids) == 0 {
 						continue
