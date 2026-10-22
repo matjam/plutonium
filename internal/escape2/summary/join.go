@@ -38,6 +38,7 @@ func Join(ps domain.Paths, a, b *Summary) *Summary {
 			j.Res[r].CountedHeap = append(j.Res[r].CountedHeap, res.CountedHeap...)
 		}
 	}
+	j.Deferred = append(append([]Deferred(nil), a.Deferred...), b.Deferred...)
 	j.Region.Builds = a.Region.Builds || b.Region.Builds
 	j.Region.OuterResults = append(append([]int(nil), a.Region.OuterResults...), b.Region.OuterResults...)
 	Widen(ps, j)

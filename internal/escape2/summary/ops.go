@@ -56,6 +56,11 @@ func Leq(ps domain.Paths, s, t *Summary) bool {
 			return false
 		}
 	}
+	for _, d := range s.Deferred {
+		if !slices.ContainsFunc(t.Deferred, func(e Deferred) bool { return DeferredCovers(ps, e, d) }) {
+			return false
+		}
+	}
 	if s.Region.Builds && !t.Region.Builds {
 		return false
 	}
@@ -69,7 +74,7 @@ func Leq(ps domain.Paths, s, t *Summary) bool {
 
 // isBottom reports whether s has no effects at all.
 func isBottom(s *Summary) bool {
-	if len(s.Esc) > 0 || len(s.Store) > 0 || len(s.HeapStore) > 0 || s.Region.Builds || len(s.Region.OuterResults) > 0 {
+	if len(s.Esc) > 0 || len(s.Store) > 0 || len(s.HeapStore) > 0 || len(s.Deferred) > 0 || s.Region.Builds || len(s.Region.OuterResults) > 0 {
 		return false
 	}
 	for _, r := range s.Res {
@@ -148,6 +153,7 @@ func Widen(ps domain.Paths, s *Summary) {
 		s.Res[r].CountedHeap = sortedPaths(s.Res[r].CountedHeap)
 	}
 	s.Region.OuterResults = sortedInts(s.Region.OuterResults)
+	s.Deferred = widenDeferred(ps, s.Deferred)
 	if escWhy != nil || storeWhy != nil {
 		s.Reasons = append(append([]Reason(nil), escWhy...), storeWhy...)
 	} else {
@@ -379,6 +385,96 @@ func antichainResults(ps domain.Paths, from []ResultKey) []ResultKey {
 		}
 		if !covered {
 			out = append(out, rk)
+		}
+	}
+	return out
+}
+
+// MaxDeferredPerCall bounds the deferred entries of one origin call: past
+// it, the entries of that call are merged (their function value keys cut,
+// then the input's root), never with another call's (the fallback join is
+// per call).
+const MaxDeferredPerCall = 16
+
+// widenDeferred makes each entry's argument keys an antichain under the Esc
+// cap, merges entries of one call with one function value key (the union
+// of their arguments covers both), merges past MaxDeferredPerCall as said
+// there, and returns an antichain under DeferredCovers, sorted.
+func widenDeferred(ps domain.Paths, ds []Deferred) []Deferred {
+	if len(ds) == 0 {
+		return nil
+	}
+	type site struct {
+		origin uint64
+		site   uint64
+	}
+	merge := func(ds []Deferred, fn func(domain.Key) domain.Key) []Deferred {
+		var out []Deferred
+		at := map[[3]uint64]int{}
+		for _, d := range ds {
+			d.Fn = fn(d.Fn)
+			k := [3]uint64{uint64(d.Origin), uint64(d.Site), uint64(d.Fn)}
+			i, ok := at[k]
+			if !ok {
+				at[k] = len(out)
+				out = append(out, Deferred{Fn: d.Fn, Origin: d.Origin, Site: d.Site, Args: append([]DeferredArg(nil), d.Args...)})
+				continue
+			}
+			o := &out[i]
+			for len(o.Args) < len(d.Args) {
+				o.Args = append(o.Args, DeferredArg{})
+			}
+			for j, a := range d.Args {
+				o.Args[j] = DeferredArg{Keys: append(append([]domain.Key(nil), o.Args[j].Keys...), a.Keys...), Heap: o.Args[j].Heap || a.Heap}
+			}
+		}
+		return out
+	}
+	ds = merge(ds, func(k domain.Key) domain.Key { return k })
+	for pass := 0; pass < 2; pass++ {
+		n := map[site]int{}
+		for _, d := range ds {
+			n[site{uint64(d.Origin), uint64(d.Site)}]++
+		}
+		over := false
+		for _, c := range n {
+			over = over || c > MaxDeferredPerCall
+		}
+		if !over {
+			break
+		}
+		ds = merge(ds, func(k domain.Key) domain.Key {
+			if pass == 0 {
+				return cutKey(ps, k)
+			}
+			return rootKey(k)
+		})
+	}
+	for i := range ds {
+		for j := range ds[i].Args {
+			ds[i].Args[j].Keys, _ = widenKeys(ps, ds[i].Args[j].Keys, nil, MaxEscPerInput)
+		}
+	}
+	slices.SortStableFunc(ds, func(a, b Deferred) int {
+		if c := cmpU64(uint64(a.Origin), uint64(b.Origin)); c != 0 {
+			return c
+		}
+		if c := cmpU64(uint64(a.Site), uint64(b.Site)); c != 0 {
+			return c
+		}
+		return cmpU64(uint64(a.Fn), uint64(b.Fn))
+	})
+	var out []Deferred
+	for i, d := range ds {
+		covered := false
+		for j, o := range ds {
+			if j != i && DeferredCovers(ps, o, d) && (!DeferredCovers(ps, d, o) || j < i) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, d)
 		}
 	}
 	return out

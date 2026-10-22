@@ -107,6 +107,12 @@ func (e recordingEnv) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
 	return types, known
 }
 
+// Deferred is decided from the EIR, which the cache's digest covers.
+func (e recordingEnv) Deferred(f *eir.Func, c *eir.Call) bool { return e.env.Deferred(f, c) }
+
+// CanRead is decided by the call graph, from the EIR.
+func (e recordingEnv) CanRead(f *eir.Func, id eir.FuncID) bool { return e.env.CanRead(f, id) }
+
 func (e recordingEnv) Contract(name string) (*summary.Summary, bool) {
 	s, ok := e.env.Contract(name)
 	e.rec.Contract(name, s, ok)

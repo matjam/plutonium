@@ -70,6 +70,7 @@ type Cache struct {
 	prog  *eir.Program
 	paths domain.Paths
 	ids   []string
+	byID  map[string]eir.FuncID // the functions by stable ID
 
 	eirSum  []digest
 	eirDone []bool
@@ -149,6 +150,12 @@ func (c *Cache) init(v sched.CacheView) {
 	c.prog, c.paths = v.Program(), v.Paths()
 	n := len(c.prog.Funcs)
 	c.ids = stableIDs(c.prog)
+	c.byID = make(map[string]eir.FuncID, n)
+	for id, s := range c.ids {
+		if s != "" {
+			c.byID[s] = eir.FuncID(id)
+		}
+	}
 	c.eirSum, c.eirDone = make([]digest, n), make([]bool, n)
 	c.ctx, c.ctxDone = make([]digest, n), make([]bool, n)
 	c.read, c.readOK = make([]digest, n), make([]bool, n)
@@ -175,7 +182,7 @@ func (c *Cache) Begin(v sched.CacheView, comp []eir.FuncID, load bool) []*summar
 		if !ok {
 			return nil
 		}
-		s, err := decodeSummary(e.sum, c.paths, shapeOf(f))
+		s, err := decodeSummary(e.sum, c.paths, shapeOf(f), c.funcByID)
 		if err != nil {
 			c.Stats.BadSummaries++
 			return nil
@@ -298,7 +305,11 @@ func (c *Cache) Save(res *sched.Result) error {
 			continue
 		}
 		e := entry{entryKey: entryKey{id: c.ids[id], eir: c.eirDigest(eir.FuncID(id)), ctx: c.ctx[id], read: c.read[id]}}
-		e.sum = appendSummary(nil, c.paths, res.Summaries[id])
+		var ok bool
+		e.sum, ok = appendSummary(nil, c.paths, res.Summaries[id], c.stableID)
+		if !ok {
+			continue // a deferred call of a function without a stable ID
+		}
 		byPkg[pkgOf(f)] = append(byPkg[pkgOf(f)], e)
 	}
 	if len(byPkg) == 0 {
@@ -356,3 +367,17 @@ func merge(cur, old []entry) []entry {
 }
 
 var _ sched.Cache = (*Cache)(nil)
+
+// stableID is the stable ID of a function ("" for one without).
+func (c *Cache) stableID(id eir.FuncID) string {
+	if int(id) < len(c.ids) {
+		return c.ids[id]
+	}
+	return ""
+}
+
+// funcByID is the function of a stable ID.
+func (c *Cache) funcByID(s string) (eir.FuncID, bool) {
+	id, ok := c.byID[s]
+	return id, ok
+}

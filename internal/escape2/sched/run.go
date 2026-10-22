@@ -450,7 +450,8 @@ func clone(s *summary.Summary) *summary.Summary {
 			Builds:       s.Region.Builds,
 			OuterResults: append([]int(nil), s.Region.OuterResults...),
 		},
-		Reasons: append([]summary.Reason(nil), s.Reasons...),
+		Reasons:  append([]summary.Reason(nil), s.Reasons...),
+		Deferred: append([]summary.Deferred(nil), s.Deferred...),
 	}
 	if s.Res != nil {
 		c.Res = make([]summary.Result, len(s.Res))

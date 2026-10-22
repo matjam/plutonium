@@ -173,6 +173,35 @@ package solve
 // frame token is a finding with code; u = In is summary Esc of u's key; Heap
 // is nothing.
 //
+// # Deferred calls (decision D49)
+//
+// A CallFunc of this function that Env.Deferred names (a call of a function
+// value derived from one input, with arguments derived from inputs, heap or
+// static memory and constants, and results that hold no pointers) is not
+// applied by its candidates: it is a dcall. So is each Deferred entry
+// (Fn, Args, Origin, Site) of a summary a call applies, with function value
+// val(Fn, β) and arguments ∪ val(k, β) over Args[i].Keys, and <Heap, Root,
+// false> when Args[i].Heap. A dcall is one per (call of this function,
+// origin call); what every resolution at that call gives joins in it. For
+// each token t of its function value:
+//
+//	t = Obj(o, Root, false), o the record of an OpClosure of this function
+//	    with Callee C: apply C's summary, input i bound to argument i and the
+//	    record input (when C has one input more) to <t>
+//	t = In(i, P, kg): the summary's Deferred gets (key of t, the
+//	    arguments' keys: the keys of their In tokens, and Heap when they
+//	    hold heap memory, Origin, Site)
+//	otherwise: the fallback
+//
+// and an argument token that is an Obj token or has a tag other than
+// <Root, false> makes the fallback too, and no Deferred entry. The
+// fallback, once per dcall: for a call of this function's own, the default
+// of a bodyless callee with the arguments and the function value as its
+// inputs (it reads no candidate's summary, as the scheduler decided);
+// otherwise the summaries of Env.Candidates(Origin's function, the call at
+// Site), each with input i bound to argument i and the record input to the
+// function value.
+//
 // # One rule per instruction
 //
 //	OpAddr       Dst ⊇ <Obj(Obj, Path, cut), Root, false> (Heap if LifeHeap)

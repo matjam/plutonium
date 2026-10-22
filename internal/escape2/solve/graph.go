@@ -74,6 +74,8 @@ const (
 	cRegionChk             // a: result index; b: why
 	cBack                  // a: loop index; b: why
 	cRegionWalk            // a: result index; b: why: the regions of calls in it
+	cDCall                 // a: dcall index: a function value called (defer.go)
+	cDArg                  // a: dcall index: an argument of a deferred call (defer.go)
 )
 
 func (s *solver) newNode(kind uint64) uint32 {

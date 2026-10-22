@@ -56,6 +56,18 @@ type Env interface {
 	// instantiated with anywhere in the program, and whether that set is
 	// known; known false means open (any type), never none.
 	Instantiated(tp *types2.TypeParam) (types []types2.Type, known bool)
+	// Deferred reports whether the call c of f is deferred to f's callers
+	// (decision D49; rules.go, "Deferred calls"): a call of a function value
+	// derived from one input of f, whose arguments derive from f's inputs,
+	// heap or static memory and constants, and whose results hold no
+	// pointers. It is decided from the EIR alone, so that the scheduler and
+	// the solver agree on what f reads: a deferred call reads no candidate's
+	// summary in f.
+	Deferred(f *eir.Func, c *eir.Call) bool
+	// CanRead reports whether the solve of f may read the summary of id to
+	// resolve a deferred call (D49): the scheduler orders f after id. Where
+	// it may not, the resolution keeps what it passes, reading nothing.
+	CanRead(f *eir.Func, id eir.FuncID) bool
 }
 
 // Workspace is the memory one solve works in: the SCC arena and its set

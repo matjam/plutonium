@@ -13,6 +13,10 @@ import (
 func (s *solver) ruleCall(in *eir.Instr) {
 	c := in.Call
 	s.initRegion(in)
+	if ownDeferrable(in) && s.env.Deferred(s.f, in.Call) {
+		s.ownDcall(in) // defer.go
+		return
+	}
 	switch c.Kind {
 	case eir.CallStatic:
 		s.applyCandidate(in, c.Callee)
@@ -198,6 +202,7 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 			s.def(dst, single(tv{t: tok{kind: kCHeap}, tag: f, g: true}))
 		}
 	}
+	s.deferredOf(in, sm, bind)                 // defer.go
 	for _, r := range sm.Region.OuterResults { // Results[r] ⊇ <Obj(Reg(site), Root, true), Root, true>
 		if r < len(c.Results) && c.Results[r] != 0 && s.f.Key.Init != nil {
 			// A package's initialization: the region is static memory.
