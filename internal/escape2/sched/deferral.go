@@ -27,15 +27,21 @@ import (
 //     one input of f through copies, phis, loads, fields and elements (a
 //     range body calls the yield its record captured: a load of a field of
 //     its record input);
+//   - no argument visibly points into f's frame (framePtrArg): the address
+//     of a frame object, a closure with a record in the frame (a range body
+//     passed to the iterator f was given), or what f stored into its own
+//     frame objects;
 //   - no result may hold a pointer.
 //
-// Its arguments are not checked here: the solver checks what they hold
+// Other arguments are not checked here: the solver checks what they hold
 // when it runs (a frame pointer of f's makes the call take the
-// conservative default, in f, with no summary read). A static check would also stop
-// the calls whose arguments are call results or locals that hold nothing
-// but f's inputs and heap memory, the callback pattern (underIs's f(u),
-// u := under(typ)), whose candidates' joins were what spread through the
-// largest SCC.
+// conservative default, in f, with no summary read). Checking every
+// argument statically would also stop the calls whose arguments are call
+// results or loads that hold nothing but f's inputs and heap memory, the
+// callback pattern (underIs's f(u), u := under(typ)), whose candidates'
+// joins were what spread through the largest SCC. Checking none would
+// defer the range bodies an iterator passes to the iterator it was given,
+// which then fall to the conservative default.
 //
 // Where a caller f resolves a deferred entry, the value it passes there,
 // below every path, is evaluated in f alone (reach):
@@ -139,6 +145,11 @@ func (d *deferral) decide(f *eir.Func, c *eir.Call) bool {
 	defs := d.c.defsOf(f)
 	if _, ok := oneInput(defs, c.Target); !ok {
 		return false
+	}
+	for _, a := range c.Args {
+		if framePtrArg(d, f, defs, a, map[eir.Reg]bool{}) {
+			return false
+		}
 	}
 	if c.Sig != nil {
 		for i := 0; i < c.Sig.Results().Len(); i++ {
@@ -432,6 +443,52 @@ func mayFramePtr(d *deferral, f *eir.Func, defs []*eir.Instr, r eir.Reg, seen ma
 		return mayFramePtr(d, f, defs, in.X, seen)
 	}
 	return true
+}
+
+// framePtrArg reports whether register r of f visibly holds a pointer into
+// f's frame: an address of a frame object, a closure, method value or box
+// with a record in the frame, a value built from one, or what f alone
+// stored into a frame object (an untracked object counts). A call's result
+// or a load from elsewhere is not looked into: the solver checks what it
+// holds when it runs.
+func framePtrArg(d *deferral, f *eir.Func, defs []*eir.Instr, r eir.Reg, seen map[eir.Reg]bool) bool {
+	if r == 0 || seen[r] || int(r) >= len(defs) || defs[r] == nil {
+		return false
+	}
+	seen[r] = true
+	in := defs[r]
+	switch in.Op {
+	case eir.OpAddr:
+		return true
+	case eir.OpClosure, eir.OpMethodVal, eir.OpConv:
+		if in.Obj != eir.NoObj {
+			return true
+		}
+		return in.Op == eir.OpConv && framePtrArg(d, f, defs, in.X, seen)
+	case eir.OpCopy, eir.OpField, eir.OpElem, eir.OpSelect:
+		return framePtrArg(d, f, defs, in.X, seen)
+	case eir.OpPhi, eir.OpCompose:
+		for _, a := range in.Args {
+			if framePtrArg(d, f, defs, a, seen) {
+				return true
+			}
+		}
+		return false
+	case eir.OpLoad:
+		if o, ok := addrObj(f, defs, in.X); ok {
+			if d.cp.untracked[o] {
+				return true
+			}
+			for _, s := range d.stores[o] {
+				if s.f == f.ID && framePtrArg(d, f, defs, s.v, seen) {
+					return true
+				}
+			}
+			return false
+		}
+		return framePtrArg(d, f, defs, in.X, seen)
+	}
+	return false
 }
 
 // isRecord reports whether input j of l is its closure record.

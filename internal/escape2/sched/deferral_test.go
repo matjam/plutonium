@@ -168,6 +168,22 @@ func underIs(x *int, f func(*int) bool) bool { return f(under(x)) }
 	if !d.deferred(ui.f, fc) {
 		t.Errorf("underIs's call of f with a call's result as argument is not deferred")
 	}
+	// A range body over an iterator f was given: f(body), body a closure
+	// whose record is in f's frame. Deferred, it would fall to the
+	// conservative default; it is resolved in f.
+	body := pr.fn("body", eir.FuncKey{}, nil)
+	o := ui.obj(eir.Object{Type: types2.Typ[types2.Int]})
+	cl := ui.add(eir.Instr{Op: eir.OpClosure, Callee: body.f.ID, Obj: o}, true)
+	rc := &eir.Call{Kind: eir.CallFunc, Sig: fc.Sig, Target: ui.input(1), Args: []eir.Reg{cl}, Results: []eir.Reg{ui.reg()}}
+	ui.call(rc)
+	f = stageB(pr.p)
+	d = newDeferral(pr.p, f.c, f.c.flow)
+	if d.deferred(ui.f, rc) {
+		t.Errorf("a call of f with a closure of f's frame as argument is deferred")
+	}
+	if !d.deferred(ui.f, fc) {
+		t.Errorf("the callback call is no longer deferred")
+	}
 }
 
 // TestDeferralFrameArg checks a deferred call whose argument, bound in a
