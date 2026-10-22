@@ -41,6 +41,11 @@ type facts struct {
 // does not split, takes 460,000 solves instead of 20,000 (40 minutes).
 var deferralOn = os.Getenv("PLUTO_ESCAPE2_DEFER") != ""
 
+// traceSolve, when set (by a debugging test), is called after each solve
+// in an SCC's iteration with the previous and the new summary, and whether
+// the previous covers the new.
+var traceSolve func(paths domain.Paths, comp []eir.FuncID, id eir.FuncID, prev, next *summary.Summary, covered bool)
+
 // StageB computes the whole-program facts of p.
 func StageB(p *eir.Program) Facts {
 	return stageB(p)
@@ -123,8 +128,23 @@ func RunWith(p *eir.Program, opts Options) *Result {
 	res.Stats.Funcs = len(p.Funcs)
 	res.Stats.SCCs = len(comps)
 
-	// readers[g] are the functions of g's SCC that read g's summary.
-	readers := make([][]eir.FuncID, len(p.Funcs))
+	// readBy[g] are the members of g's SCC whose solves have read g's
+	// summary: they are solved again when it grows. These are the reads
+	// the solves made, not the call graph's deps, which are a superset (a
+	// deferred call's fallback candidates, say, are deps but are read only
+	// where it falls back). A solve's result depends only on the summaries
+	// it read, so the others need not be solved again. The sets only grow
+	// in an SCC: a kept state (incr.go) depends on all it read.
+	readBy := map[eir.FuncID][]eir.FuncID{}
+	readSeen := map[[2]eir.FuncID]bool{}
+	noteReads := func(id eir.FuncID, reads []eir.FuncID) {
+		for _, g := range reads {
+			if k := [2]eir.FuncID{g, id}; !readSeen[k] {
+				readSeen[k] = true
+				readBy[g] = append(readBy[g], id)
+			}
+		}
+	}
 	findings := make([][]solve.Finding, len(p.Funcs))
 
 	// solveOne solves one function against the current summaries, with its
@@ -156,7 +176,10 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		solves := map[eir.FuncID]int{}
 		// Members of an SCC are solved again as their callees grow: keep
 		// their states to resume (incr.go), released when the SCC is final.
-		keep := solveKeepFunc != nil && !noKeep && len(comp) > 1 && opts.Cache == nil
+		// Not with D49: a resumed solve can miss what deferred entries a
+		// callee gained give, so it would be narrower than a solve from
+		// scratch (PLUTO_ESCAPE2_RESUMECHECK finds it).
+		keep := solveKeepFunc != nil && !noKeep && len(comp) > 1 && opts.Cache == nil && f.def == nil
 		defer func() {
 			st.RetainedPeak = ret.peak
 			st.Resumes = ret.resumes
@@ -191,12 +214,14 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			}
 			var r solve.Result
 			var rec Recorder
+			env.beginReads()
 			if keep {
 				env.solving = id
 				r = ret.solve(p.Funcs[id], env, ws)
 			} else {
 				r, rec = solveOne(id)
 			}
+			noteReads(id, env.endReads())
 			if rec != nil {
 				opts.Cache.Solved(id, rec)
 			}
@@ -216,6 +241,9 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			// the reasons they hold name entries of the summary they read
 			// by index, which a join, though it covers the same, may number
 			// differently.
+			if traceSolve != nil {
+				traceSolve(env.paths, comp, id, prev, r.Summary, prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev))
+			}
 			if prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev) {
 				measure(st)
 				continue
@@ -227,7 +255,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			}
 			env.virt.changedFunc(id)
 			measure(st)
-			for _, rd := range readers[id] {
+			for _, rd := range readBy[id] {
 				work.push(rd)
 			}
 		}
@@ -297,13 +325,8 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		for _, id := range comp {
 			env.inSCC[id] = int32(ci)
 		}
-		for _, id := range comp {
-			for _, d := range g.deps[id] {
-				if env.inSCC[d] == int32(ci) {
-					readers[d] = append(readers[d], id)
-				}
-			}
-		}
+		readBy = map[eir.FuncID][]eir.FuncID{}
+		readSeen = map[[2]eir.FuncID]bool{}
 		env.current = int32(ci)
 
 		var st SCCStats
@@ -378,6 +401,35 @@ type env struct {
 	g       *callGraph
 	// solving is the function being solved (NoFunc: none known).
 	solving eir.FuncID
+	// reads are the members of the current SCC whose summaries the solve
+	// being recorded read (readMark[id] == readStamp: id is in reads).
+	recording bool
+	reads     []eir.FuncID
+	readMark  []uint32
+	readStamp uint32
+}
+
+// beginReads starts recording the current SCC's summaries a solve reads.
+func (e *env) beginReads() {
+	if e.readMark == nil {
+		e.readMark = make([]uint32, len(e.sums))
+	}
+	e.readStamp++
+	e.reads = e.reads[:0]
+	e.recording = true
+}
+
+// endReads stops recording and returns what was read.
+func (e *env) endReads() []eir.FuncID {
+	e.recording = false
+	return e.reads
+}
+
+func (e *env) noteRead(id eir.FuncID) {
+	if e.recording && int(id) < len(e.sums) && e.inSCC[id] == e.current && e.readMark[id] != e.readStamp {
+		e.readMark[id] = e.readStamp
+		e.reads = append(e.reads, id)
+	}
 }
 
 func (e *env) Program() *eir.Program { return e.p }
@@ -387,6 +439,11 @@ func (e *env) Paths() domain.Paths   { return e.paths }
 // latest iterate in the current one, nil (bottom) before the first.
 func (e *env) Summary(id eir.FuncID) *summary.Summary {
 	if e.virt.isVirtual(id) {
+		// The join may come from its cache without reading its members:
+		// they are read all the same.
+		for _, m := range e.virt.sets[int(id)-len(e.p.Funcs)] {
+			e.noteRead(m)
+		}
 		return e.virt.summary(id, e.Summary)
 	}
 	if int(id) >= len(e.sums) {
@@ -397,12 +454,7 @@ func (e *env) Summary(id eir.FuncID) *summary.Summary {
 		// it, so the solver must not depend on it.
 		panic(fmt.Sprintf("internal compiler error: escape2: the summary of %s was read before it was scheduled", e.p.Funcs[id].Name))
 	}
-	if e.facts.def != nil && e.inSCC[id] == e.current && e.solving != eir.NoFunc && !e.inDeps(e.solving, id) {
-		// A member of the current SCC its graph does not order before the
-		// function being solved: it would not be solved again when that
-		// summary grows. With D49 the solver asks CanRead first.
-		panic(fmt.Sprintf("internal compiler error: escape2: %s read the summary of %s, which its call graph does not cover", e.p.Funcs[e.solving].Name, e.p.Funcs[id].Name))
-	}
+	e.noteRead(id)
 	return e.sums[id]
 }
 
@@ -420,10 +472,12 @@ func (e *env) Contract(name string) (*summary.Summary, bool) {
 }
 
 // CanRead reports whether the solve of f may read the summary of id: id is
-// final (of an earlier SCC), or the call graph orders it before f (f's
-// deps); a virtual function when all its members may be read. The solver
-// asks before each read that resolves a deferred entry (D49), and where it
-// may not, applies the conservative default instead.
+// final (of an earlier SCC) or a member of the current one, whose reads the
+// driver records (a member is solved again when a summary it read grows);
+// a virtual function when all its members may be read. A function of a
+// later SCC may not be read: it is not solved yet. The solver asks before
+// each read that resolves a deferred entry (D49), and where it may not,
+// applies the conservative default instead.
 func (e *env) CanRead(f *eir.Func, id eir.FuncID) bool {
 	if e.virt.isVirtual(id) {
 		for _, m := range e.virt.sets[int(id)-len(e.p.Funcs)] {
@@ -436,21 +490,7 @@ func (e *env) CanRead(f *eir.Func, id eir.FuncID) bool {
 	if int(id) >= len(e.sums) || e.inSCC[id] < 0 || e.inSCC[id] > e.current {
 		return false
 	}
-	return e.inSCC[id] < e.current || e.inDeps(f.ID, id)
-}
-
-// inDeps reports whether f's solve is ordered after id's: id is one of f's
-// deps in the call graph.
-func (e *env) inDeps(f, id eir.FuncID) bool {
-	if e.g == nil || int(f) >= len(e.g.deps) {
-		return false
-	}
-	for _, x := range e.g.deps[f] {
-		if x == id {
-			return true
-		}
-	}
-	return false
+	return true
 }
 
 // Deferred reports whether call c of f is deferred to f's callers (D49):

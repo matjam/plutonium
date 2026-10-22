@@ -27,9 +27,15 @@ import (
 //     one input of f through copies, phis, loads, fields and elements (a
 //     range body calls the yield its record captured: a load of a field of
 //     its record input);
-//   - every argument is derived from f's inputs (the same steps), from heap
-//     or static memory, or is a constant;
 //   - no result may hold a pointer.
+//
+// Its arguments are not checked here: the solver checks what they hold
+// when it runs (a frame pointer of f's makes the call take the
+// conservative default, in f, with no summary read). A static check would also stop
+// the calls whose arguments are call results or locals that hold nothing
+// but f's inputs and heap memory, the callback pattern (underIs's f(u),
+// u := under(typ)), whose candidates' joins were what spread through the
+// largest SCC.
 //
 // Where a caller f resolves a deferred entry, the value it passes there,
 // below every path, is evaluated in f alone (reach):
@@ -134,11 +140,6 @@ func (d *deferral) decide(f *eir.Func, c *eir.Call) bool {
 	if _, ok := oneInput(defs, c.Target); !ok {
 		return false
 	}
-	for _, a := range c.Args {
-		if !inputDerived(defs, a, 0) {
-			return false
-		}
-	}
 	if c.Sig != nil {
 		for i := 0; i < c.Sig.Results().Len(); i++ {
 			if mayHoldPointers(c.Sig.Results().At(i).Type()) {
@@ -187,33 +188,6 @@ func oneInput(defs []*eir.Instr, r eir.Reg) (int, bool) {
 		return 0, false
 	}
 	return which, true
-}
-
-// inputDerived reports whether register r is derived from the function's
-// inputs (through copies, phis, loads, fields and elements of them), from
-// heap or static memory, or is a constant (register 0).
-func inputDerived(defs []*eir.Instr, r eir.Reg, depth int) bool {
-	if r == 0 {
-		return true
-	}
-	if depth > 32 || int(r) >= len(defs) || defs[r] == nil {
-		return false
-	}
-	in := defs[r]
-	switch in.Op {
-	case eir.OpInput, eir.OpHeap:
-		return true
-	case eir.OpCopy, eir.OpLoad, eir.OpField, eir.OpElem:
-		return inputDerived(defs, in.X, depth+1)
-	case eir.OpPhi:
-		for _, a := range in.Args {
-			if !inputDerived(defs, a, depth+1) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }
 
 // reach is what a register of f may hold below every path, evaluated in f

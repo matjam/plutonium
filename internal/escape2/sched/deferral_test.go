@@ -3,6 +3,7 @@ package sched
 import (
 	"testing"
 
+	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/types2"
@@ -72,10 +73,11 @@ func other(int) bool { return true }
 	}
 }
 
-// TestCanRead checks the guard on the summaries a solve reads while D49 is
-// on: final ones and the function's deps may be read; a member of the
-// current SCC outside its deps may not, and reading one is an internal
-// error.
+// TestCanRead checks what a solve may read while D49 is on: final
+// summaries and members of the current SCC, not a function of a later SCC;
+// and that a member read outside the call graph's deps is still solved
+// before its reader settles: the driver re-solves the solves that read a
+// summary when it grows, whatever the graph says.
 func TestCanRead(t *testing.T) {
 	var order []eir.FuncID
 	withFakes(t, &order)
@@ -84,39 +86,87 @@ func TestCanRead(t *testing.T) {
 	defer func() { deferralOn = saved }()
 	pr := newProg()
 	fs := map[string]*fbuild{}
-	for _, n := range []string{"leaf", "a", "b", "c"} {
+	for _, n := range []string{"leaf", "a", "b", "c", "main"} {
 		fs[n] = pr.fn(n, eir.FuncKey{}, nil)
 	}
-	// a → b → c → a, a → leaf.
+	// a → b → c → a, a → leaf, main → a.
 	fs["a"].callStatic(fs["b"])
 	fs["a"].callStatic(fs["leaf"])
 	fs["b"].callStatic(fs["c"])
 	fs["c"].callStatic(fs["a"])
+	fs["main"].callStatic(fs["a"])
 	inner := solveFunc
 	var checked bool
 	solveFunc = func(f *eir.Func, en solve.Env, ws *solve.Workspace) solve.Result {
 		e := en.(*env)
-		if f.ID == fs["a"].f.ID && !checked {
+		r := inner(f, en, ws)
+		if f.ID == fs["b"].f.ID {
+			// b passes nothing on: c's growth reaches a only through a's
+			// own read of c.
+			r.Summary.Esc = []domain.Key{domain.Key(f.ID)}
+		}
+		if f.ID == fs["c"].f.ID && e.Summary(fs["a"].f.ID) != nil {
+			// A key c has only once a has a summary: it reaches a late.
+			r.Summary.Esc = append(r.Summary.Esc, 1000)
+		}
+		if f.ID != fs["a"].f.ID {
+			return r
+		}
+		if !checked {
 			checked = true
-			for n, want := range map[string]bool{"leaf": true, "b": true, "c": false} {
+			for n, want := range map[string]bool{"leaf": true, "b": true, "c": true, "main": false} {
 				if got := e.CanRead(f, fs[n].f.ID); got != want {
 					t.Errorf("CanRead(a, %s) = %v, want %v", n, got, want)
 				}
 			}
-			func() {
-				defer func() {
-					if recover() == nil {
-						t.Errorf("a read c's summary, outside its deps, without an internal error")
-					}
-				}()
-				e.Summary(fs["c"].f.ID)
-			}()
 		}
-		return inner(f, en, ws)
+		// a also reads c, which its call graph does not cover.
+		if cs := e.Summary(fs["c"].f.ID); cs != nil {
+			have := map[domain.Key]bool{}
+			for _, k := range r.Summary.Esc {
+				have[k] = true
+			}
+			for _, k := range cs.Esc {
+				if !have[k] {
+					r.Summary.Esc = append(r.Summary.Esc, k)
+				}
+			}
+		}
+		return r
 	}
-	RunWith(pr.p, Options{})
+	res := RunWith(pr.p, Options{})
 	if !checked {
 		t.Fatalf("a was not solved")
+	}
+	have := map[domain.Key]bool{}
+	for _, k := range res.Summaries[fs["a"].f.ID].Esc {
+		have[k] = true
+	}
+	for _, k := range res.Summaries[fs["c"].f.ID].Esc {
+		if !have[k] {
+			t.Errorf("a's summary lacks %v of c's: a was not solved again after c, which it read, grew", k)
+		}
+	}
+}
+
+// TestDeferralCallbackArg checks the callback pattern: a call of a func
+// input whose argument is a call's result (underIs's f(under(typ))) is
+// deferred; what the argument holds is the solver's to check.
+func TestDeferralCallbackArg(t *testing.T) {
+	pkg := typecheck(t, `
+func under(x *int) *int { return x }
+func underIs(x *int, f func(*int) bool) bool { return f(under(x)) }
+`)
+	pr := newProg()
+	un := pr.decl(lookupFunc(t, pkg, "under"))
+	ui := pr.decl(lookupFunc(t, pkg, "underIs"))
+	u := ui.callStatic(un, ui.input(0))[0]
+	fc := &eir.Call{Kind: eir.CallFunc, Sig: ui.f.Inputs[1].Type.(*types2.Signature), Target: ui.input(1), Args: []eir.Reg{u}, Results: []eir.Reg{ui.reg()}}
+	ui.call(fc)
+	f := stageB(pr.p)
+	d := newDeferral(pr.p, f.c, f.c.flow)
+	if !d.deferred(ui.f, fc) {
+		t.Errorf("underIs's call of f with a call's result as argument is not deferred")
 	}
 }
 
