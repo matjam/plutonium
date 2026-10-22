@@ -2,6 +2,7 @@ package sched
 
 import (
 	"fmt"
+	"os"
 	"sort"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
@@ -34,9 +35,9 @@ type facts struct {
 }
 
 // deferralOn turns D49's deferred calls on: the call graph drops their
-// edges and Env.Deferred names them to the solver. Off until the solver's
-// side is in; a variable for the tests.
-var deferralOn = false
+// edges and Env.Deferred names them to the solver. PLUTO_ESCAPE2_NODEFER=1
+// turns it off, for measurements and as a way around a fault of it.
+var deferralOn = os.Getenv("PLUTO_ESCAPE2_NODEFER") == ""
 
 // StageB computes the whole-program facts of p.
 func StageB(p *eir.Program) Facts {

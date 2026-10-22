@@ -122,6 +122,11 @@ func (d *deferral) deferred(f *eir.Func, c *eir.Call) bool {
 }
 
 func (d *deferral) decide(f *eir.Func, c *eir.Call) bool {
+	if f.External || f.Bodyless || calledByRuntime(f) || (f.Key.Synth != nil && f.Key.Synth.Kind == eir.SynthTaskThunk) {
+		// Called from where the program does not show: no caller would
+		// resolve it, so it is resolved here, against its candidates.
+		return false
+	}
 	defs := d.c.defsOf(f)
 	if _, ok := oneInput(defs, c.Target); !ok {
 		return false
