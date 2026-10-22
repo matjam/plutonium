@@ -100,6 +100,40 @@ func (s *solver) dump(res *summary.Summary) {
 		}
 	}
 	fmt.Fprintf(&b, "  frame objects with tokens: %d\n", len(objs))
+	fmt.Fprintf(&b, "  dcalls %d, applications %d\n", len(s.dcalls), len(s.applied))
+	for i, dc := range s.dcalls {
+		if i == 12 {
+			break
+		}
+		var sizes []int
+		for _, a := range dc.args {
+			sizes = append(sizes, len(s.pts(s.find(a))))
+		}
+		fmt.Fprintf(&b, "    dcall %d origin %d site %d: target %d tokens, args %v, keys %d, fellBack %v argsBad %v kept %v\n", i, dc.origin, dc.site, len(s.pts(s.find(dc.target))), sizes, len(dc.keys), dc.fellBack, dc.argsBad, dc.kept)
+	}
+	apps := map[eir.FuncID]int{}
+	for _, ap := range s.applied {
+		apps[ap.cand]++
+	}
+	type ac struct {
+		id eir.FuncID
+		n  int
+	}
+	var acs []ac
+	for id, n := range apps {
+		acs = append(acs, ac{id, n})
+	}
+	sort.Slice(acs, func(i, j int) bool { return acs[i].n > acs[j].n })
+	for i, a := range acs {
+		if i == 8 {
+			break
+		}
+		name := fmt.Sprintf("virtual %d", a.id)
+		if int(a.id) < len(s.prog.Funcs) {
+			name = s.prog.Funcs[a.id].Name
+		}
+		fmt.Fprintf(&b, "    applied %d times: %s\n", a.n, name)
+	}
 	// The callees' summaries this solve applied.
 	seen := map[eir.FuncID]bool{}
 	type cs struct {

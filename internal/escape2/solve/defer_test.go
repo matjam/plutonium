@@ -101,6 +101,33 @@ func TestDeferredFrameArgumentFallsBack(t *testing.T) {
 	e.wantSummary(t, r, "")
 }
 
+// A recursive function defers its own deferred calls through its recursive
+// call: those are not calls of its own code, so where they cannot be
+// deferred further they fall back to the candidates, never to keeping what
+// they pass (testdata/run/gentypes.p, (*Tree).Walk).
+func TestDeferredRecursive(t *testing.T) {
+	e := newEnv()
+	body := e.fn("body", 2, 0)
+	e.solve(t, body.f)
+	walk := e.fn("walk", 2, 0) // (t, f)
+	rec := &eir.Call{Kind: eir.CallStatic, Callee: walk.f.ID, Args: []eir.Reg{walk.load(walk.field(walk.input(0), 0)), walk.input(1)}}
+	walk.call(rec)
+	c := &eir.Call{Kind: eir.CallFunc, Target: walk.input(1), Args: []eir.Reg{walk.load(walk.field(walk.input(0), 1))}}
+	walk.call(c)
+	e.deferred[c] = true
+	e.cands[c] = []eir.FuncID{body.f.ID}
+	var r Result
+	for range 6 {
+		r = e.solve(t, walk.f)
+	}
+	for _, k := range r.Summary.Esc {
+		t.Errorf("walk keeps %s", e.keyString(k))
+	}
+	if len(r.Summary.Deferred) == 0 {
+		t.Errorf("walk defers nothing: %s", e.describe(r.Summary))
+	}
+}
+
 // A function no caller binds (External) has nobody to defer to: it keeps
 // what it passes.
 func TestDeferredExternal(t *testing.T) {
