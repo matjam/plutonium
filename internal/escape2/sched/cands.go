@@ -251,6 +251,9 @@ func (c *cands) of(f *eir.Func, call *eir.Call) []eir.FuncID {
 			// The drop of an owning interface's dynamic value.
 			return c.ifaceDrops()
 		}
+		if ids, ok := c.localBoxes(f, call); ok {
+			return ids
+		}
 		return c.iface(call.Method)
 	case eir.CallTypeParam:
 		tp, _ := types2.Unalias(call.Iface).(*types2.TypeParam)
@@ -270,6 +273,72 @@ func (c *cands) of(f *eir.Func, call *eir.Call) []eir.FuncID {
 		return c.funcs(call.Sig)
 	}
 	return nil
+}
+
+// localBoxes returns the methods an interface call may reach when the
+// function itself boxed its receiver: the receiver is defined, through
+// copies, phis, and conversions and assertions to interface types (which
+// keep the dynamic type), only by conversions of values of concrete types
+// to an interface. Only the boxes' own dynamic types decide, never the
+// static type of where the value went: a dynamic type without the method
+// contributes nothing (the assertion to an interface that has it fails
+// first), so a string boxed and asserted to error calls no Error. Anything
+// else on the way (an input, a load, a call's result, a type with type
+// parameters) gives false: the set is not known locally.
+func (c *cands) localBoxes(f *eir.Func, call *eir.Call) ([]eir.FuncID, bool) {
+	defs := c.defsOf(f)
+	seen := map[eir.Reg]bool{}
+	var types []types2.Type
+	work := []eir.Reg{call.Target}
+	for len(work) > 0 {
+		x := work[len(work)-1]
+		work = work[:len(work)-1]
+		if seen[x] {
+			continue
+		}
+		seen[x] = true
+		if x == 0 || int(x) >= len(defs) || defs[x] == nil {
+			return nil, false
+		}
+		in := defs[x]
+		switch in.Op {
+		case eir.OpCopy:
+			work = append(work, in.X)
+		case eir.OpPhi:
+			work = append(work, in.Args...)
+		case eir.OpAssert:
+			if !types2.IsInterface(in.Type) {
+				return nil, false
+			}
+			work = append(work, in.X)
+		case eir.OpConv:
+			if in.Type == nil {
+				return nil, false
+			}
+			if types2.IsInterface(in.Type) {
+				work = append(work, in.X)
+				continue
+			}
+			open := false
+			walkType(in.Type, func(u types2.Type) bool {
+				if _, ok := u.(*types2.TypeParam); ok {
+					open = true
+				}
+				return !open
+			})
+			if open {
+				return nil, false
+			}
+			types = append(types, in.Type)
+		default:
+			return nil, false
+		}
+	}
+	set := map[eir.FuncID]bool{}
+	for _, t := range types {
+		c.methodsOf(t, call.Method, set, true)
+	}
+	return setIDs(set), true
 }
 
 // localClosures returns the literals a func value can be when the function

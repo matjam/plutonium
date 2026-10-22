@@ -102,6 +102,52 @@ func TestIfaceCandidates(t *testing.T) {
 	}
 }
 
+// TestIfaceLocalBoxes checks an interface call on a value the function
+// boxed itself: only the boxes' own dynamic types decide. A string boxed
+// and asserted to Stringer reaches nothing (string has no String); a boxed
+// C reaches C's String alone, through a phi and an interface conversion;
+// a receiver from an input still reaches every converted type's method.
+func TestIfaceLocalBoxes(t *testing.T) {
+	pkg := typecheck(t, ifaceSrc)
+	str := lookupType(t, pkg, "Stringer")
+	A, C := lookupType(t, pkg, "A"), lookupType(t, pkg, "C")
+	anyT := types2.Universe.Lookup("any").Type()
+	m := method(t, str, "String")
+	pr := newProg()
+	aS := pr.decl(method(t, A, "String"))
+	cS := pr.decl(method(t, C, "String"))
+	use := pr.decl(lookupFunc(t, pkg, "use"))
+	f := pr.fn("f", eir.FuncKey{}, nil)
+	f.f.Facts.Converted = []types2.Type{A, C}
+	call := func(target eir.Reg) *eir.Call {
+		c := &eir.Call{Kind: eir.CallIface, Method: m, Iface: str, Sig: m.Signature(), Target: target}
+		f.call(c)
+		return c
+	}
+	// var a any = "s"; a.(Stringer).String()
+	sb := f.add(eir.Instr{Op: eir.OpConv, X: f.heap(), Type: types2.Typ[types2.String], To: anyT}, true)
+	strCall := call(f.add(eir.Instr{Op: eir.OpAssert, X: sb, Type: str}, true))
+	// s := Stringer(C{}) or Stringer(C{}) via any; s.String()
+	c1 := f.add(eir.Instr{Op: eir.OpConv, X: f.heap(), Type: C, To: str}, true)
+	c2 := f.add(eir.Instr{Op: eir.OpConv, X: f.heap(), Type: C, To: anyT}, true)
+	c2s := f.add(eir.Instr{Op: eir.OpConv, X: c2, Type: anyT, To: str}, true)
+	cCall := call(f.add(eir.Instr{Op: eir.OpPhi, Args: []eir.Reg{c1, c2s}}, true))
+	// A receiver from an input: not known locally.
+	inCall := &eir.Call{Kind: eir.CallIface, Method: m, Iface: str, Sig: m.Signature(), Target: use.input(0)}
+	use.call(inCall)
+
+	fs := stageB(pr.p)
+	if got := fs.Candidates(f.f, strCall); len(got) != 0 {
+		t.Errorf("a boxed string asserted to Stringer reaches %v, want nothing", got)
+	}
+	if got, want := fs.Candidates(f.f, cCall), idsOf(cS); !sameIDs(got, want) {
+		t.Errorf("a boxed C reaches %v, want %v", got, want)
+	}
+	if got, want := fs.Candidates(use.f, inCall), idsOf(aS, cS); !sameIDs(got, want) {
+		t.Errorf("a receiver from an input reaches %v, want %v", got, want)
+	}
+}
+
 // TestIfaceAdapterCandidates checks that an interface call reaches a type's
 // itab adapter alone when there is one (it loads the value from the box the
 // data word points to; the source method would read the box as the value),
