@@ -120,6 +120,60 @@ func TestCanRead(t *testing.T) {
 	}
 }
 
+// TestDeferralFrameArg checks a deferred call whose argument, bound in a
+// caller, may point into the caller's frame: the caller cannot defer it
+// further, so it depends on the call's candidates (the fallback); a
+// caller passing only its inputs does not.
+func TestDeferralFrameArg(t *testing.T) {
+	pkg := typecheck(t, `
+func apply(f func(func(int) bool), fn func(int) bool) { f(fn) }
+func caller(f func(func(int) bool)) {}
+func plain(f func(func(int) bool), fn func(int) bool) {}
+func runner(fn func(int) bool) {}
+func other(int) bool { return true }
+`)
+	pr := newProg()
+	ap := pr.decl(lookupFunc(t, pkg, "apply"))
+	cl := pr.decl(lookupFunc(t, pkg, "caller"))
+	pl := pr.decl(lookupFunc(t, pkg, "plain"))
+	run := pr.decl(lookupFunc(t, pkg, "runner"))
+	other := pr.decl(lookupFunc(t, pkg, "other"))
+	fc := &eir.Call{Kind: eir.CallFunc, Sig: run.f.Sig, Target: ap.input(0), Args: []eir.Reg{ap.input(1)}}
+	ap.call(fc)
+	// caller passes a closure with a record of its frame as the argument.
+	body := pr.fn("body", eir.FuncKey{}, other.f.Sig)
+	body.f.Inputs = append(body.f.Inputs, eir.Input{Type: types2.Typ[types2.UnsafePointer]})
+	o := cl.obj(eir.Object{Type: types2.Typ[types2.Int]})
+	lit := cl.add(eir.Instr{Op: eir.OpClosure, Callee: body.f.ID, Obj: o, Args: []eir.Reg{cl.addr(o)}}, true)
+	cl.callStatic(ap, cl.input(0), lit)
+	// plain passes its inputs on.
+	pl.callStatic(ap, pl.input(0), pl.input(1))
+	main := pr.fn("main", eir.FuncKey{}, nil)
+	main.f.External = true
+	main.f.Facts.FuncValues = []eir.FuncID{run.f.ID, other.f.ID}
+	rv := main.add(eir.Instr{Op: eir.OpClosure, Callee: run.f.ID, Obj: eir.NoObj}, true)
+	main.callStatic(cl, rv)
+
+	f := stageB(pr.p)
+	d := newDeferral(pr.p, f.c, f.c.flow)
+	if !d.deferred(ap.f, fc) {
+		t.Fatalf("apply's call of its input is not deferred")
+	}
+	if !d.argInputs[ap.f.ID][1] || !d.argInputs[pl.f.ID][1] {
+		t.Errorf("argument inputs: apply %v, plain %v; want input 1 in both", d.argInputs[ap.f.ID], d.argInputs[pl.f.ID])
+	}
+	has := false
+	for _, x := range d.deps(cl.f) {
+		has = has || x == run.f.ID
+	}
+	if !has {
+		t.Errorf("caller depends on %v, want the deferred call's candidates (runner): it passes a frame pointer as its argument", d.deps(cl.f))
+	}
+	if got := d.deps(pl.f); len(got) != 0 {
+		t.Errorf("plain depends on %v, want nothing", got)
+	}
+}
+
 // TestDeferralRangeBody checks deferral through a closure record: a range
 // body calls the yield its record captured (by value, and by reference
 // through a frame object), the function that makes the body re-defers it

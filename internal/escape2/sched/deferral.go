@@ -53,6 +53,9 @@ type deferral struct {
 	// f defers through its input i, directly or by passing what it reaches
 	// from i on to a callee that defers it.
 	inputs []map[int][]origin
+	// argInputs[f]: the inputs of f that the arguments of a deferred call
+	// f carries (its own, or one it re-defers) may be reached from.
+	argInputs []map[int]bool
 	// lit[L]: L is a literal, whose last input is its closure record.
 	lit []bool
 	// stores[o]: the stores into frame object o, by function and value.
@@ -76,7 +79,7 @@ type storeSite struct {
 
 func newDeferral(p *eir.Program, c *cands, fl *funcFlow) *deferral {
 	d := &deferral{p: p, c: c, memo: map[*eir.Call]bool{},
-		inputs: make([]map[int][]origin, len(p.Funcs)), lit: make([]bool, len(p.Funcs)),
+		inputs: make([]map[int][]origin, len(p.Funcs)), argInputs: make([]map[int]bool, len(p.Funcs)), lit: make([]bool, len(p.Funcs)),
 		stores: map[objKey][]storeSite{}, fallback: map[*eir.Call][]eir.FuncID{}}
 	if fl != nil {
 		d.cp = fl.cp
@@ -333,6 +336,19 @@ func (d *deferral) resolve(f *eir.Func) resolution {
 		}
 	}
 	defs := d.c.defsOf(f)
+	// A deferred call whose arguments, bound in f, may hold a pointer to
+	// f's frame cannot be deferred further: f resolves it against its
+	// candidates (the fallback).
+	if d.final {
+		for _, b := range f.Blocks {
+			for i := range b.Instrs {
+				in := &b.Instrs[i]
+				if in.Op == eir.OpCall {
+					d.framePassed(f, defs, in.Call, res.deps)
+				}
+			}
+		}
+	}
 	for len(work) > 0 {
 		it := work[len(work)-1]
 		work = work[:len(work)-1]
@@ -370,6 +386,78 @@ func (d *deferral) resolve(f *eir.Func) resolution {
 		}
 	}
 	return res
+}
+
+// framePassed adds to deps the fallback of every deferred call a callee of
+// c carries when c passes it something that may point into f's frame: the
+// arguments of those calls may hold it, and then f resolves them against
+// their candidates instead of deferring them.
+func (d *deferral) framePassed(f *eir.Func, defs []*eir.Instr, c *eir.Call, deps map[eir.FuncID]bool) {
+	d.eachArgPassed(f, c, func(g eir.FuncID, a eir.Reg) {
+		if mayFramePtr(d, f, defs, a, map[eir.Reg]bool{}) {
+			for _, os := range d.inputs[g] {
+				d.unknown(os, deps)
+			}
+		}
+	})
+}
+
+// eachArgPassed calls fn for each argument of call c (in f) bound to an
+// input of a callee g that the arguments of g's deferred calls take.
+func (d *deferral) eachArgPassed(f *eir.Func, c *eir.Call, fn func(g eir.FuncID, a eir.Reg)) {
+	d.eachBound(f, c, func(g eir.FuncID, bind []eir.Reg) {
+		for j := range d.argInputs[g] {
+			if j < len(bind) && bind[j] != 0 {
+				fn(g, bind[j])
+			}
+		}
+	})
+}
+
+// mayFramePtr reports whether register r of f may hold a pointer into f's
+// frame: an address of a frame object, a closure with a record, a call's
+// result, or what was stored into a frame object of f. What is loaded from
+// f's inputs or from heap memory is not (it holds the callers' pointers).
+func mayFramePtr(d *deferral, f *eir.Func, defs []*eir.Instr, r eir.Reg, seen map[eir.Reg]bool) bool {
+	if r == 0 || seen[r] {
+		return false
+	}
+	seen[r] = true
+	if int(r) >= len(defs) || defs[r] == nil {
+		return true // a call result
+	}
+	in := defs[r]
+	switch in.Op {
+	case eir.OpInput, eir.OpHeap:
+		return false
+	case eir.OpClosure:
+		return in.Obj != eir.NoObj
+	case eir.OpAddr:
+		return true
+	case eir.OpCopy, eir.OpField, eir.OpElem:
+		return mayFramePtr(d, f, defs, in.X, seen)
+	case eir.OpPhi:
+		for _, a := range in.Args {
+			if mayFramePtr(d, f, defs, a, seen) {
+				return true
+			}
+		}
+		return false
+	case eir.OpLoad:
+		if o, ok := addrObj(f, defs, in.X); ok {
+			if d.cp.untracked[o] {
+				return true
+			}
+			for _, s := range d.stores[o] {
+				if s.f != f.ID || mayFramePtr(d, f, defs, s.v, seen) {
+					return true
+				}
+			}
+			return false
+		}
+		return mayFramePtr(d, f, defs, in.X, seen)
+	}
+	return true
 }
 
 // isRecord reports whether input j of l is its closure record.
@@ -453,6 +541,11 @@ func (d *deferral) propagate() {
 				if in.Op == eir.OpCall && d.deferred(f, in.Call) {
 					k, _ := oneInput(defs, in.Call.Target)
 					d.add(f.ID, k, []origin{{f.ID, in.Call}})
+					for _, a := range in.Call.Args {
+						for j := range d.reachOf(f, a).inputs {
+							d.addArg(f.ID, j)
+						}
+					}
 				}
 			}
 		}
@@ -465,8 +558,36 @@ func (d *deferral) propagate() {
 					changed = true
 				}
 			}
+			// What f passes where a callee's deferred calls take their
+			// arguments: f's inputs it is reached from.
+			for _, b := range f.Blocks {
+				for i := range b.Instrs {
+					in := &b.Instrs[i]
+					if in.Op != eir.OpCall {
+						continue
+					}
+					d.eachArgPassed(f, in.Call, func(_ eir.FuncID, a eir.Reg) {
+						for j := range d.reachOf(f, a).inputs {
+							if d.addArg(f.ID, j) {
+								changed = true
+							}
+						}
+					})
+				}
+			}
 		}
 	}
+}
+
+func (d *deferral) addArg(f eir.FuncID, j int) bool {
+	if d.argInputs[f] == nil {
+		d.argInputs[f] = map[int]bool{}
+	}
+	if d.argInputs[f][j] {
+		return false
+	}
+	d.argInputs[f][j] = true
+	return true
 }
 
 func (d *deferral) add(f eir.FuncID, k int, os []origin) bool {
@@ -482,6 +603,20 @@ func (d *deferral) add(f eir.FuncID, k int, os []origin) bool {
 // defers through its input j, with the deferred calls it stands for. The
 // arguments are bound as the solver binds them (solve.binding).
 func (d *deferral) eachPassed(f *eir.Func, c *eir.Call, fn func(g eir.FuncID, j int, a eir.Reg, os []origin)) {
+	d.eachBound(f, c, func(g eir.FuncID, bind []eir.Reg) {
+		for j, os := range d.inputs[g] {
+			if j < len(bind) && bind[j] != 0 {
+				fn(g, j, bind[j], os)
+			}
+		}
+	})
+}
+
+// eachBound calls fn for each callee g of call c (in f) that carries
+// deferred calls, with the registers bound to g's inputs as the solver
+// binds them (solve.binding). A deferred call of f is resolved by f's
+// callers: it binds nothing here.
+func (d *deferral) eachBound(f *eir.Func, c *eir.Call, fn func(g eir.FuncID, bind []eir.Reg)) {
 	var callees []eir.FuncID
 	switch c.Kind {
 	case eir.CallStatic:
@@ -490,14 +625,14 @@ func (d *deferral) eachPassed(f *eir.Func, c *eir.Call, fn func(g eir.FuncID, j 
 		callees = d.c.of(f, c)
 	case eir.CallFunc:
 		if d.deferred(f, c) {
-			return // resolved by f's callers
+			return
 		}
 		callees = d.c.of(f, c)
 	default:
 		return
 	}
 	for _, g := range callees {
-		if g == eir.NoFunc || int(g) >= len(d.p.Funcs) || d.inputs[g] == nil {
+		if g == eir.NoFunc || int(g) >= len(d.p.Funcs) || (d.inputs[g] == nil && d.argInputs[g] == nil) {
 			continue
 		}
 		gf := d.p.Funcs[g]
@@ -517,11 +652,7 @@ func (d *deferral) eachPassed(f *eir.Func, c *eir.Call, fn func(g eir.FuncID, j 
 		if c.Kind == eir.CallFunc && n == len(c.Args)+1 {
 			bind[n-1] = c.Target
 		}
-		for j, os := range d.inputs[g] {
-			if j < n && bind[j] != 0 {
-				fn(g, j, bind[j], os)
-			}
-		}
+		fn(g, bind)
 	}
 }
 
