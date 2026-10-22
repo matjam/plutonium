@@ -190,11 +190,11 @@ package solve
 //	    record input (when C has one input more) to <t>
 //	t = In(i, P, kg): the summary's Deferred gets (key of t, the
 //	    arguments' keys: the keys of their In tokens, and Heap when they
-//	    hold heap memory, Origin, Site)
+//	    hold heap memory, Origin, Site); when an argument token is an Obj
+//	    token or has a tag other than <Root, false>, or the function is
+//	    External, the fallback instead, and no Deferred entry
 //	otherwise: the fallback
-//
-// and an argument token that is an Obj token or has a tag other than
-// <Root, false> makes the fallback too, and no Deferred entry. The
+// The
 // fallback, once per dcall: for a call of this function's own, the default
 // of a bodyless callee with the arguments and the function value as its
 // inputs (it reads no candidate's summary, as the scheduler decided);

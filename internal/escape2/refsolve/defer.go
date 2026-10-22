@@ -109,7 +109,7 @@ func (s *solver) resolve() {
 			case t.kind == kObj && !t.ge && t.path == domain.Root && s.closureOf[t.id] != 0:
 				s.applyClosure(dc, s.closureOf[t.id]-1, x)
 			case t.kind == kIn && (argsBad || s.f.External):
-				s.keep(dc)
+				s.fallback(dc)
 			case t.kind == kIn:
 				if k := keyOf(t); !dc.keys[k] {
 					dc.keys[k] = true

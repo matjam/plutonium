@@ -100,9 +100,10 @@ func (s *solver) fireDcall(i int, t tok) {
 		}
 	case tIn:
 		if dc.argsBad || s.f.External {
-			// A function no caller binds (External) has nobody to defer
-			// to: it keeps what it passes.
-			s.keep(i)
+			// Not to be deferred further (an argument a caller's key does
+			// not name, or no caller binds the function): the origin
+			// call's candidates, or for the function's own call, kept.
+			s.fallback(i)
 			return
 		}
 		k := key(asPointer(t))
@@ -120,7 +121,7 @@ func (s *solver) fireDcall(i int, t tok) {
 // fireDarg handles token t of an argument of dcall i. A frame token, or a
 // pointer held in a field of a value (a key keeps no tag), is nothing a
 // caller's key names: the call cannot be deferred further, and the
-// function values it would have been deferred for are kept.
+// function values it would have been deferred for fall back.
 func (s *solver) fireDarg(i int, t tok) {
 	dc := s.dcalls[i]
 	if dc.argsBad || (t.kind != tObj && t.tag == domain.Root && !t.tagGE) {
@@ -128,7 +129,7 @@ func (s *solver) fireDarg(i int, t tok) {
 	}
 	dc.argsBad = true
 	if len(dc.keys) > 0 {
-		s.keep(i)
+		s.fallback(i)
 	}
 }
 

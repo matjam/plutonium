@@ -87,6 +87,20 @@ func TestDeferredOwnFrameArgument(t *testing.T) {
 	e.wantSummary(t, r, "esc 0+")
 }
 
+// A caller that passes its own input as the function value but a frame
+// pointer as the argument cannot defer the call again: it applies the
+// origin call's candidates, which keep the frame pointer.
+func TestDeferredFrameArgumentFallsBack(t *testing.T) {
+	e, _, iter := deferEnv(t)
+	e.solve(t, iter.f)
+	b := e.fn("g", 1, 0)
+	x := b.obj("x", eir.LifeFrame, -1)
+	b.at(3).static(iter.f, 0, b.addr(x), b.input(0))
+	r := e.solve(t, b.f)
+	wantFindings(t, r, "E3003@3")
+	e.wantSummary(t, r, "")
+}
+
 // A function no caller binds (External) has nobody to defer to: it keeps
 // what it passes.
 func TestDeferredExternal(t *testing.T) {
