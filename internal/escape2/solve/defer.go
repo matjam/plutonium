@@ -189,14 +189,17 @@ func (s *solver) fallback(i int) {
 		return
 	}
 	dc.fellBack = true
-	call := dc.in.Call
+	// The origin call by its site: dc.in is a call of this function's
+	// that applied a summary with the Deferred entry, which is the origin
+	// call only for a call of its own (a recursive callee's entry may name
+	// this function as its origin through a static call).
 	origin := s.f
 	if dc.origin != s.f.ID {
 		origin = s.prog.Funcs[dc.origin]
-		call = siteCall(origin, dc.site)
-		if call == nil {
-			panic("internal compiler error: escape2/solve: a deferred call's origin has no such call site")
-		}
+	}
+	call := siteCall(origin, dc.site)
+	if call == nil {
+		panic("internal compiler error: escape2/solve: a deferred call's origin has no such call site")
 	}
 	cands := s.env.Candidates(origin, call)
 	for _, cand := range cands {

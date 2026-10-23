@@ -171,6 +171,31 @@ func TestDeferredRecursive(t *testing.T) {
 	}
 }
 
+// A recursive call's deferred call that falls back (here: its function
+// value is heap memory) applies the candidates of the origin call, found by
+// its site: not those of the recursive call that applied the entry, a
+// static call with none.
+func TestDeferredRecursiveFallback(t *testing.T) {
+	e := newEnv()
+	body := e.fn("body", 1, 0) // keeps its argument
+	body.sink(eir.SinkGlobal, body.input(0))
+	e.solve(t, body.f)
+	walk := e.fn("walk", 2, 0) // (t, f)
+	rec := &eir.Call{Kind: eir.CallStatic, Callee: walk.f.ID, Args: []eir.Reg{walk.load(walk.field(walk.input(0), 0)), walk.heap()}}
+	walk.call(rec)
+	c := &eir.Call{Kind: eir.CallFunc, Target: walk.input(1), Args: []eir.Reg{walk.load(walk.field(walk.input(0), 1))}}
+	walk.call(c)
+	e.deferred[c] = true
+	e.cands[c] = []eir.FuncID{body.f.ID}
+	var r Result
+	for range 6 {
+		r = e.solve(t, walk.f)
+	}
+	if len(r.Summary.Esc) == 0 {
+		t.Errorf("walk keeps nothing: %s", e.describe(r.Summary))
+	}
+}
+
 // A function no caller binds (External) has nobody to defer to: it applies
 // the call's candidates (body keeps its argument).
 func TestDeferredExternal(t *testing.T) {

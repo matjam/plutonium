@@ -173,11 +173,11 @@ func (s *solver) fallback(dc *dcall) {
 		s.changed = true
 	}
 	funcs := s.env.Program().Funcs
-	origin, call := s.f, dc.in.Call
+	origin := s.f // the origin call by its site (solve/defer.go)
 	if dc.origin != s.f.ID {
 		origin = funcs[dc.origin]
-		call = siteCall(origin, dc.site)
 	}
+	call := siteCall(origin, dc.site)
 	cands := s.env.Candidates(origin, call)
 	for _, cand := range cands {
 		if cand != eir.NoFunc && !s.env.CanRead(s.f, cand) {
