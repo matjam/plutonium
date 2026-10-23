@@ -23,9 +23,10 @@ import (
 // step, the overlays' view of what is interned. It is kept in step with the
 // interner between rounds (sync), never during one.
 type pathIndex struct {
-	base  domain.Paths
-	child map[uint64]domain.PathID
-	n     int // the interner's paths indexed so far
+	base   domain.Paths
+	child  map[uint64]domain.PathID
+	parent []domain.PathID // by path
+	n      int             // the interner's paths indexed so far
 }
 
 func childKey(p domain.PathID, s domain.Step) uint64 {
@@ -33,7 +34,7 @@ func childKey(p domain.PathID, s domain.Step) uint64 {
 }
 
 func newPathIndex(base domain.Paths) *pathIndex {
-	ix := &pathIndex{base: base, child: map[uint64]domain.PathID{}, n: 1}
+	ix := &pathIndex{base: base, child: map[uint64]domain.PathID{}, parent: []domain.PathID{domain.Root}, n: 1}
 	ix.sync()
 	return ix
 }
@@ -53,6 +54,7 @@ func (ix *pathIndex) sync() {
 			p = q
 		}
 		ix.child[childKey(p, steps[len(steps)-1])] = id
+		ix.parent = append(ix.parent, p)
 	}
 }
 
@@ -66,6 +68,7 @@ type overlay struct {
 	steps   [][]domain.Step
 	loads   []int
 	own     map[uint64]domain.PathID
+	cuts    []domain.PathID // Cut of each own path, once computed (0: not yet)
 }
 
 func newOverlay(ix *pathIndex) *overlay {
@@ -94,12 +97,7 @@ func (o *overlay) parentOf(p domain.PathID) domain.PathID {
 	if o.isOwn(p) {
 		return o.parent[p-o.baseLen]
 	}
-	st := o.ix.base.Steps(p)
-	q := domain.Root
-	for _, s := range st[:len(st)-1] {
-		q = o.ix.child[childKey(q, s)]
-	}
-	return q
+	return o.ix.parent[p]
 }
 
 func (o *overlay) HasPrefix(p, prefix domain.PathID) bool {
@@ -119,10 +117,16 @@ func (o *overlay) Cut(p domain.PathID) domain.PathID {
 	if !o.isOwn(p) {
 		return o.ix.base.Cut(p)
 	}
-	if o.Loads(p) == 0 {
-		return p
+	i := p - o.baseLen
+	if c := o.cuts[i]; c != 0 {
+		return c - 1
 	}
-	return o.throughLoad(p, 1)
+	c := p
+	if o.Loads(p) > 0 {
+		c = o.throughLoad(p, 1)
+	}
+	o.cuts[i] = c + 1
+	return c
 }
 
 // cut is the interner's cut: the prefix through the second load (or the
@@ -199,6 +203,7 @@ func (o *overlay) child(p domain.PathID, s domain.Step) domain.PathID {
 	o.step = append(o.step, s)
 	o.steps = append(o.steps, st)
 	o.loads = append(o.loads, loads)
+	o.cuts = append(o.cuts, 0)
 	o.own[k] = c
 	return c
 }
