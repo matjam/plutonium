@@ -212,6 +212,12 @@ func (w *worker) Methods(t types2.Type, m *types2.Func) []eir.FuncID {
 	return w.pf.e.Methods(t, m)
 }
 
+func (w *worker) PointerWrappers(u types2.Type) ([]types2.Type, bool) {
+	w.pf.mu.Lock()
+	defer w.pf.mu.Unlock()
+	return w.pf.e.PointerWrappers(u)
+}
+
 func (w *worker) Deferred(f *eir.Func, c *eir.Call) bool {
 	if v, ok := w.pf.defer_[c]; ok {
 		return v
@@ -241,6 +247,10 @@ type task struct {
 	id    eir.FuncID
 	scc   int32
 	final bool // the final solve for reasons (SolveDerivs)
+	// keep: solve keeping the state, to resume it later; kept: the state
+	// kept from the member's last solve, to resume.
+	keep bool
+	kept *keptSolve
 }
 
 // outcome is what a task gives, for the commit.
@@ -253,6 +263,9 @@ type outcome struct {
 	arenaB   int
 	setsB    int
 	dur      time.Duration
+	kept     *keptSolve // the state to keep, if any
+	resumed  bool
+	ownWS    int // the bytes of the workspace of its own a solve used, if any
 }
 
 // run solves one task.
@@ -276,7 +289,7 @@ func (w *worker) run(t task) outcome {
 		}
 		o.res.Findings = append([]solve.Finding(nil), r.Findings...)
 	} else {
-		r := solveGuarded(f, w, w.ws)
+		r := w.solve(t, f, &o)
 		o.res.Findings = append([]solve.Finding(nil), r.Findings...)
 		o.res.Summary = clone(r.Summary)
 		o.ov = w.ov
@@ -285,6 +298,9 @@ func (w *worker) run(t task) outcome {
 	o.dur = time.Since(t0)
 	o.arenaB = w.arena.Bytes()
 	o.setsB = w.ws.Sets.Bytes()
+	if o.ownWS > 0 {
+		o.arenaB, o.setsB = o.ownWS, 0
+	}
 	if o.arenaB > bigWorkspace {
 		w.newWorkspace()
 	} else {
@@ -293,6 +309,87 @@ func (w *worker) run(t task) outcome {
 	}
 	w.ov = nil
 	return o
+}
+
+// solve solves t, resuming its kept state if it has one, or keeping the
+// state if it should. A state is kept only if the solve made no path of its
+// own: then every path it names is interned, and it stays valid when the
+// round's paths are committed (an overlay's own paths are renamed then). The
+// solve's result does not depend on whether its state is kept, so neither
+// does the analysis.
+func (w *worker) solve(t task, f *eir.Func, o *outcome) solve.Result {
+	if t.kept != nil {
+		r := t.kept.st.Resume(w)
+		o.resumed = true
+		o.ownWS = t.kept.st.Bytes()
+		if r.Limit != nil {
+			// Past the limits in this resume: solve from scratch.
+			return solveGuarded(f, w, w.ws)
+		}
+		if len(w.ov.parent) == 0 {
+			t.kept.bytes = t.kept.st.Bytes()
+			o.kept = t.kept
+		}
+		return r
+	}
+	if !t.keep {
+		return solveGuarded(f, w, w.ws)
+	}
+	a := newArena()
+	ws := &solve.Workspace{Arena: a, Sets: newSets(a)}
+	r, st := solveKeepFunc(f, w, ws)
+	o.ownWS = ws.Arena.Bytes() + ws.Sets.Bytes()
+	if r.Limit != nil {
+		return limitResult(f, w)
+	}
+	if len(w.ov.parent) == 0 {
+		o.kept = &keptSolve{ws: ws, st: st, bytes: st.Bytes()}
+	}
+	return r
+}
+
+// keepParallel: the parallel driver keeps solver states, of the members of
+// SCCs of more than one function, and resumes them (a variable for
+// measurements).
+var keepParallel = true
+
+// keptStates are the kept solver states of the parallel driver, by
+// function, with the bytes they hold under retainBudget: past it, those of
+// the functions solved the fewest times go first, then the largest, then
+// by ID; all of it in the commit, so in a fixed order.
+type keptStates struct {
+	m     map[eir.FuncID]*keptSolve
+	bytes int
+	peak  int
+}
+
+func (ks *keptStates) put(id eir.FuncID, k *keptSolve, solves map[eir.FuncID]int) {
+	ks.drop(id)
+	if k == nil {
+		return
+	}
+	ks.m[id] = k
+	ks.bytes += k.bytes
+	for ks.bytes > retainBudget && len(ks.m) > 0 {
+		victim, vs, vb := eir.NoFunc, 0, 0
+		for x, kx := range ks.m {
+			s := solves[x]
+			if victim == eir.NoFunc || s < vs || s == vs && (kx.bytes > vb || kx.bytes == vb && x < victim) {
+				victim, vs, vb = x, s, kx.bytes
+			}
+		}
+		ks.drop(victim)
+	}
+	if ks.bytes > ks.peak {
+		ks.peak = ks.bytes
+	}
+}
+
+func (ks *keptStates) drop(id eir.FuncID) {
+	if k := ks.m[id]; k != nil {
+		ks.bytes -= k.bytes
+		delete(ks.m, id)
+	}
 }
 
 // sccRun is the state of an SCC in the parallel driver.
@@ -373,12 +470,20 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 	// its longest solves first, so that a long one does not start last and
 	// hold the round up (the commit's order does not depend on it).
 	lastDur := make([]time.Duration, len(p.Funcs))
+	// lastBytes is the workspace each function's last solve used.
+	lastBytes := make([]int, len(p.Funcs))
 	workers := make([]*worker, n)
 	for i := range workers {
 		workers[i] = newWorker(pf, ix)
 	}
 
 	var active []*sccRun
+	ks := &keptStates{m: map[eir.FuncID]*keptSolve{}}
+	// Not with D49: a kept state of a solve with deferred calls holds much
+	// more than its workspace (the solver's maps of its deferred calls),
+	// which retainBudget does not see; on the translated compiler kept
+	// states took the analysis past 10 GB within a minute.
+	keep := keepParallel && solveKeepFunc != nil && !noKeep && env.facts.def == nil
 	start := func(ci int32) {
 		r := &sccRun{ci: ci, dirty: map[eir.FuncID]bool{}, solves: map[eir.FuncID]int{},
 			readBy: map[eir.FuncID][]eir.FuncID{}, readSeen: map[[2]eir.FuncID]bool{},
@@ -402,12 +507,28 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 		// The round's tasks, in SCC order and member order.
 		sortRuns(active)
 		var tasks []task
+		// Which solves may keep their state: decided before the round from
+		// what was committed, so the same whatever the timing. A solve that
+		// may keep its state solves in a workspace of its own, held until
+		// the commit; so only members solved before do, and only while the
+		// states kept and those that may be, each the size of the member's
+		// last solve, fit in retainBudget.
+		planned := ks.bytes
 		for _, r := range active {
 			for _, id := range comps[r.ci] {
 				if r.final {
 					tasks = append(tasks, task{id: id, scc: r.ci, final: true})
 				} else if r.dirty[id] && r.ready(id, g, pf.scc) {
-					tasks = append(tasks, task{id: id, scc: r.ci})
+					t := task{id: id, scc: r.ci}
+					if keep && len(comps[r.ci]) > 1 {
+						if k := ks.m[id]; k != nil {
+							t.keep, t.kept = true, k
+						} else if r.solves[id] > 0 && planned+lastBytes[id] <= retainBudget {
+							t.keep = true
+							planned += lastBytes[id]
+						}
+					}
+					tasks = append(tasks, t)
 				}
 			}
 		}
@@ -472,6 +593,7 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 			o := &outs[i]
 			r.st.Solves++
 			lastDur[t.id] = o.dur
+			lastBytes[t.id] = o.arenaB + o.setsB
 			if o.arenaB > r.st.ArenaBytes {
 				r.st.ArenaBytes = o.arenaB
 			}
@@ -486,6 +608,12 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 				continue
 			}
 			r.solves[t.id]++
+			if t.keep {
+				ks.put(t.id, o.kept, r.solves)
+				if o.resumed {
+					r.st.Resumes++
+				}
+			}
 			if r.solves[t.id] > maxSolvesPerFunc {
 				panic(fmt.Sprintf("internal compiler error: escape2: %s did not converge in its SCC of %d functions", p.Funcs[t.id].Name, len(comps[r.ci])))
 			}
@@ -537,6 +665,11 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 				}
 			}
 			pf.done[r.ci] = true
+			for _, id := range comp {
+				ks.drop(id)
+			}
+			r.st.RetainedPeak = ks.peak
+			ks.peak = ks.bytes
 			finish(comp, &r.st)
 			for _, sc := range succs[r.ci] {
 				preds[sc]--
