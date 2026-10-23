@@ -63,6 +63,11 @@ func (s *solver) newDcall(in *eir.Instr, target uint32, args []uint32, origin ei
 		s.dcallIdx[k] = i
 		dc := &dcall{in: in, target: s.newNode(nkPinned), origin: origin, site: site}
 		s.dcalls = append(s.dcalls, dc)
+		g := uint64(origin)<<32 | uint64(uint32(site))
+		if s.originDcalls == nil {
+			s.originDcalls = map[uint64][]int{}
+		}
+		s.originDcalls[g] = append(s.originDcalls[g], i)
 		s.addCons(dc.target, cDCall, uint64(i), 0)
 	}
 	dc := s.dcalls[i]
@@ -374,30 +379,32 @@ func (s *solver) capDeferred(i, in int) {
 	}
 	gs := s.deferOrigins[in]
 	at, found := slices.BinarySearch(gs, g)
-	if !found {
-		gs = slices.Insert(gs, at, g)
-		s.deferOrigins[in] = gs
+	if found {
+		// An origin call ranked already: past the bound, its dcalls with
+		// keys of in were undeferred when it went past; this one too.
+		if at >= MaxDeferredOrigins && !dc.noDefer {
+			s.undefer(i)
+		}
+		return
 	}
+	gs = slices.Insert(gs, at, g)
+	s.deferOrigins[in] = gs
 	if len(gs) <= MaxDeferredOrigins {
 		return
 	}
-	past := map[uint64]bool{}
-	for _, x := range gs[MaxDeferredOrigins:] {
-		past[x] = true
-	}
-	for j, d := range s.dcalls {
-		if d.noDefer || !past[uint64(d.origin)<<32|uint64(uint32(d.site))] {
+	// Exactly one origin call goes past the bound: the new one, or the one
+	// it pushes down. Its dcalls with keys of in resolve here.
+	past := gs[MaxDeferredOrigins]
+	for _, j := range s.originDcalls[past] {
+		d := s.dcalls[j]
+		if d.noDefer {
 			continue
 		}
-		has := false
 		for _, k := range d.keys {
 			if k.Input() == in {
-				has = true
+				s.undefer(j)
 				break
 			}
-		}
-		if has {
-			s.undefer(j)
 		}
 	}
 }

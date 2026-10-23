@@ -163,6 +163,7 @@ type solver struct {
 	fcalls                  []*fcall             // calls of function values (funccall.go)
 	argBuf                  []byte               // argNode's key
 	deferOrigins            map[int][]uint64     // capDeferred: the origin calls with Deferred keys, by input, sorted
+	originDcalls            map[uint64][]int     // the dcalls of each origin call (Origin<<32 | Site)
 	closApps                map[closKey][]uint32 // applyClosure's applications: their argument nodes
 	fbGroups                map[fbKey]*fbGroup   // fallback groups (defer.go)
 	argNodes                map[string]uint32
