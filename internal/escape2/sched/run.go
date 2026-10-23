@@ -34,12 +34,13 @@ type facts struct {
 	def  *deferral // D49's deferred calls; nil while the solver defers none
 }
 
-// deferralOn turns D49's deferred calls on: the call graph drops their
-// edges and Env.Deferred names them to the solver. It is opt-in
-// (PLUTO_ESCAPE2_DEFER=1) while it costs too much: on the translated
-// compiler it removes 45% of the findings but its largest SCC, which it
-// does not split, takes 460,000 solves instead of 20,000 (40 minutes).
-var deferralOn = os.Getenv("PLUTO_ESCAPE2_DEFER") != ""
+// deferralOn turns D49's deferred calls on: Env.Deferred names them to the
+// solver, and the callers of a function with one depend on what they pass
+// where it is deferred. It is the default (decided 2026-10-23: on the
+// translated compiler it removes about 70% of the findings, and with the
+// deferred calls bounded it costs a few times the analysis without it);
+// PLUTO_ESCAPE2_DEFER=0 turns it off.
+var deferralOn = os.Getenv("PLUTO_ESCAPE2_DEFER") != "0"
 
 // sequential (PLUTO_ESCAPE2_SEQUENTIAL=1) analyses the SCCs one after the
 // other with a worklist in each, on one thread, resuming kept solver
