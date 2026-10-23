@@ -83,6 +83,9 @@ type State struct{ s *solver }
 func (st *State) Resume(env Env) Result {
 	s := st.s
 	s.env = env
+	// The paths of the env it resumes with: the parallel driver gives each
+	// solve paths of its own (sched/overlay.go).
+	s.ps = env.Paths()
 	s.nsteps = 0
 	s.reapply()
 	return s.finish()
