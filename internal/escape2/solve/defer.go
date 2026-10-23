@@ -3,6 +3,7 @@ package solve
 import (
 	"encoding/binary"
 	"fmt"
+	"slices"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
@@ -29,6 +30,7 @@ type dcall struct {
 	argsBad  bool         // an argument holds what no caller's key names
 	kept     bool         // the bodyless default applied
 	keys     []domain.Key // the In tokens of the function value: the Deferred entries it makes
+	noDefer  bool         // past MaxDeferredOrigins: resolved here, no Deferred entry (capDeferred)
 }
 
 // ownDeferrable reports whether call in of the function's own code is a
@@ -95,7 +97,7 @@ func (s *solver) fireDcall(i int, t tok) {
 	switch t.kind {
 	case tObj:
 		if fn, ok := s.closureOf[t.base]; ok && !t.ge && t.path == domain.Root {
-			s.applyClosure(i, fn, t)
+			s.applyClosure(i, fn, asPointer(t))
 			return
 		}
 	case tIn:
@@ -111,6 +113,11 @@ func (s *solver) fireDcall(i int, t tok) {
 			}
 		}
 		dc.keys = append(dc.keys, k)
+		s.capDeferred(i, k.Input())
+		if dc.noDefer {
+			s.fallback(i)
+			return
+		}
 		if dc.argsBad {
 			// An argument a caller's key does not name: what the call
 			// does with its arguments is resolved here (fallback), and
@@ -168,17 +175,45 @@ func (s *solver) applyClosure(i int, fn eir.FuncID, t tok) {
 		s.fallback(i) // the scheduler did not order this literal before f
 		return
 	}
+	// One application per (call, closure record): the dcalls of one call
+	// that resolve to the same record join their arguments in it (a
+	// record reached through many origin calls would apply its literal
+	// once per origin call otherwise).
 	f := s.prog.Funcs[fn]
-	bind := s.a.Alloc(len(f.Inputs))
-	for j := range bind {
-		if j < len(dc.args) {
-			bind[j] = uint64(dc.args[j])
+	ck := closKey{dc.in, s.intern(asPointer(t))}
+	args, ok := s.closApps[ck]
+	if !ok {
+		n := len(f.Inputs)
+		if n > 0 && len(f.Inputs) == len(dc.args)+1 {
+			n--
+		}
+		args = make([]uint32, n)
+		for j := range args {
+			args[j] = s.newNode(nkPinned)
+		}
+		s.closApps[ck] = args
+		bind := s.a.Alloc(len(f.Inputs))
+		for j := range bind {
+			if j < len(args) {
+				bind[j] = uint64(args[j])
+			}
+		}
+		if len(f.Inputs) == len(args)+1 {
+			bind[len(f.Inputs)-1] = uint64(s.tokNode(t))
+		}
+		s.applyBound(dc.in, fn, bind, -1)
+	}
+	for j, a := range dc.args {
+		if j < len(args) && a != 0 {
+			s.addEdge(a, args[j], xw(xID, 0, false), 0)
 		}
 	}
-	if len(f.Inputs) == len(dc.args)+1 {
-		bind[len(f.Inputs)-1] = uint64(s.tokNode(t))
-	}
-	s.applyBound(dc.in, fn, bind, -1)
+}
+
+// closKey names an application of a closure at a call (applyClosure).
+type closKey struct {
+	in  *eir.Instr
+	rec uint64
 }
 
 // fallback applies the per-signature join of the origin call's candidates
@@ -209,39 +244,94 @@ func (s *solver) fallback(i int) {
 		}
 	}
 	for _, cand := range cands {
-		n := len(dc.args)
-		if int(cand) < len(s.prog.Funcs) {
-			n = len(s.prog.Funcs[cand].Inputs)
-		} else if sum := s.env.Summary(cand); sum != nil {
-			n = sum.Inputs
+		s.joinFallback(i, cand, false)
+		if s.f.External || dc.noDefer {
+			s.joinFallback(i, cand, true)
 		}
+	}
+}
+
+// A fallback group is one application of a candidate at a call, which
+// every dcall of that call that falls back to the candidate joins: its
+// arguments, and the rest of its function value as the record (rules.go,
+// "Deferred calls"). A function value reached through many origin calls
+// would apply its candidates once per origin call otherwise. The record of
+// the rest's In tokens is bound apart, the candidate's entries that name
+// the record alone left out (those are the callers', through Deferred
+// entries); the In-full group binds the In tokens of the dcalls that make
+// no Deferred entry (External, or past MaxDeferredOrigins) with nothing
+// left out.
+type fbKey struct {
+	in     *eir.Instr
+	cand   eir.FuncID
+	inFull bool
+}
+
+type fbGroup struct {
+	args          []uint32
+	recOther, rec uint32 // the record: the rest less its In tokens, and its In tokens
+}
+
+// joinFallback joins dcall i to the fallback group of cand at its call
+// (inFull: the group that binds the In tokens with nothing left out).
+func (s *solver) joinFallback(i int, cand eir.FuncID, inFull bool) {
+	dc := s.dcalls[i]
+	n := len(dc.args)
+	if int(cand) < len(s.prog.Funcs) {
+		n = len(s.prog.Funcs[cand].Inputs)
+	} else if sum := s.env.Summary(cand); sum != nil {
+		n = sum.Inputs
+	}
+	record := n == len(dc.args)+1 && n > 0
+	if inFull && !record {
+		return // nothing more than the other group's
+	}
+	k := fbKey{dc.in, cand, inFull}
+	g, ok := s.fbGroups[k]
+	if !ok {
+		g = &fbGroup{}
+		na := n
+		if record {
+			na--
+		}
+		g.args = make([]uint32, na)
+		for j := range g.args {
+			g.args[j] = s.newNode(nkPinned)
+		}
+		if record {
+			g.recOther, g.rec = s.newNode(nkPinned), s.newNode(nkPinned)
+		}
+		s.fbGroups[k] = g
 		bind := s.a.Alloc(n)
-		for j := range bind {
-			if j < len(dc.args) {
-				bind[j] = uint64(dc.args[j])
-			}
+		for j, a := range g.args {
+			bind[j] = uint64(a)
 		}
-		if n != len(dc.args)+1 {
+		switch {
+		case !record:
 			s.applyBound(dc.in, cand, bind, -1)
-			continue
+		case inFull:
+			bind[n-1] = uint64(g.rec)
+			s.applyBound(dc.in, cand, bind, -1)
+		default:
+			bind[n-1] = uint64(g.recOther)
+			s.applyBound(dc.in, cand, bind, -1)
+			bindIn := s.a.Alloc(n)
+			copy(bindIn, bind)
+			bindIn[n-1] = uint64(g.rec)
+			s.applyBound(dc.in, cand, bindIn, n-1)
 		}
-		// The record input is bound to the rest of the value: the closures
-		// it holds that this function made resolve themselves
-		// (applyClosure). Its In tokens are Deferred entries
-		// (deferredOut), whose callers apply the entries that name the
-		// record alone: here, only the entries that name an argument.
+	}
+	for j, a := range dc.args {
+		if j < len(g.args) && a != 0 {
+			s.addEdge(a, g.args[j], xw(xID, 0, false), 0)
+		}
+	}
+	if record {
 		rest := s.restNode(dc.target)
-		if s.f.External {
-			bind[n-1] = uint64(rest)
-			s.applyBound(dc.in, cand, bind, -1)
-			continue
+		s.addEdge(s.splitNode(rest, true), g.rec, xw(xID, 0, false), 0)
+		if !inFull {
+			s.addEdge(s.splitNode(rest, false), g.recOther, xw(xID, 0, false), 0)
 		}
-		bind[n-1] = uint64(s.splitNode(rest, false))
-		s.applyBound(dc.in, cand, bind, -1)
-		bindIn := s.a.Alloc(n)
-		copy(bindIn, bind)
-		bindIn[n-1] = uint64(s.splitNode(rest, true))
-		s.applyBound(dc.in, cand, bindIn, n-1)
 	}
 }
 
@@ -260,6 +350,78 @@ func (s *solver) splitNode(n uint32, in bool) uint32 {
 	s.derived.put(s.a, kind|uint64(n)<<20, 0, uint64(r))
 	s.addEdge(n, r, xw(x, 0, false), 0)
 	return r
+}
+
+// MaxDeferredOrigins bounds the origin calls (Origin, Site) of the
+// Deferred entries of one input of a summary: a function that forwards a
+// function value many calls deep would otherwise carry every origin call
+// below it. Past it, the dcalls of the origin calls that rank past the
+// bound (by Origin, then Site) for some input resolve here, as they would
+// without deferral: the fallback, with the record bound to the whole rest
+// of the function value, and no Deferred entry. The ranks are over the
+// origin calls that have Deferred keys of that input; as more appear, an
+// origin call only moves down the ranks, so the choice settles, and it
+// does not depend on the order of the solve (refsolve makes the same).
+const MaxDeferredOrigins = 16
+
+// capDeferred notes that dcall i has a key of input in, and resolves here
+// the dcalls whose origin calls rank past MaxDeferredOrigins for it.
+func (s *solver) capDeferred(i, in int) {
+	dc := s.dcalls[i]
+	g := uint64(dc.origin)<<32 | uint64(uint32(dc.site))
+	if s.deferOrigins == nil {
+		s.deferOrigins = map[int][]uint64{}
+	}
+	gs := s.deferOrigins[in]
+	at, found := slices.BinarySearch(gs, g)
+	if !found {
+		gs = slices.Insert(gs, at, g)
+		s.deferOrigins[in] = gs
+	}
+	if len(gs) <= MaxDeferredOrigins {
+		return
+	}
+	past := map[uint64]bool{}
+	for _, x := range gs[MaxDeferredOrigins:] {
+		past[x] = true
+	}
+	for j, d := range s.dcalls {
+		if d.noDefer || !past[uint64(d.origin)<<32|uint64(uint32(d.site))] {
+			continue
+		}
+		has := false
+		for _, k := range d.keys {
+			if k.Input() == in {
+				has = true
+				break
+			}
+		}
+		if has {
+			s.undefer(j)
+		}
+	}
+}
+
+// undefer makes dcall j resolve here: if it fell back already, with the
+// record of its In tokens bound apart and its entries that name the
+// record alone left out, those apply now.
+func (s *solver) undefer(j int) {
+	dc := s.dcalls[j]
+	dc.noDefer = true
+	if !dc.fellBack {
+		s.fallback(j)
+		return
+	}
+	if dc.kept {
+		return // the default kept the whole value already
+	}
+	origin := s.f
+	if dc.origin != s.f.ID {
+		origin = s.prog.Funcs[dc.origin]
+	}
+	for _, cand := range s.env.Candidates(origin, siteCall(origin, dc.site)) {
+		s.joinFallback(j, cand, true)
+	}
 }
 
 // siteCall is the call at site of function f.
@@ -387,7 +549,7 @@ func (s *solver) argNode(a summary.DeferredArg, bind []uint64) uint32 {
 func (s *solver) deferredOut() []summary.Deferred {
 	var out []summary.Deferred
 	for _, dc := range s.dcalls {
-		if len(dc.keys) == 0 {
+		if len(dc.keys) == 0 || dc.noDefer {
 			continue
 		}
 		args := make([]summary.DeferredArg, len(dc.args))

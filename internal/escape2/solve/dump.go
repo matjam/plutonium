@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
@@ -21,6 +22,9 @@ var dumpFilter = os.Getenv("ESCAPE2_DUMP")
 
 // dumpPass counts the solves of each dumped function: the passes of its SCC.
 var dumpPass = map[string]int{}
+
+// dumpMu serializes dumps: solves run concurrently.
+var dumpMu sync.Mutex
 
 func (s *solver) wantDump() bool {
 	if dumpFilter == "" {
@@ -40,6 +44,8 @@ func (s *solver) dump(res *summary.Summary) {
 	if !s.wantDump() {
 		return
 	}
+	dumpMu.Lock()
+	defer dumpMu.Unlock()
 	dumpPass[s.f.Name]++
 	var b strings.Builder
 	fmt.Fprintf(&b, "== %s pass %d: %d nodes, %d tokens, %d steps, %d bytes\n", s.f.Name, dumpPass[s.f.Name], len(s.nodeRep.s), len(s.toks.s)/2, s.nsteps, s.a.Bytes()-s.base)

@@ -64,6 +64,7 @@ func (s *solver) fireFRec(i int, t tok) {
 		return
 	}
 	fc := s.fcalls[i]
+	t = asPointer(t) // the record, whatever field of a value it came from
 	k := [2]uint64{uint64(i) | 1<<62, s.intern(t)}
 	if s.dcallDone[k] {
 		return

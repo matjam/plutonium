@@ -214,6 +214,21 @@ package solve
 // is thus resolved precisely at a caller, or as it would be without
 // deferral.
 //
+// Applications are shared at a call: the dcalls of one call of this
+// function that resolve to the same closure record apply its summary once,
+// with the union of their arguments; those that fall back to the same
+// candidate apply it once (once with the In tokens bound apart, as above),
+// with the union of their arguments and of the rests of their function
+// values. A function value reached through many origin calls would apply
+// its literal once per origin call otherwise.
+//
+// The origin calls of the Deferred keys of one input are at most
+// MaxDeferredOrigins: ranked by (Origin, Site), those past it make no
+// Deferred entry, and their dcalls resolve here, the In tokens of the rest
+// bound with nothing left out (the In-full group). As more origin calls
+// appear an origin call only moves down the ranks, so the choice settles,
+// whatever the order of the solve.
+//
 // # Calls of function values
 //
 // An own record of a function value is a token Obj(o, Root, false), of any

@@ -160,8 +160,11 @@ type solver struct {
 	closureOf               map[uint32]eir.FuncID // closure record objects of f (OpClosure) to their function
 	dcallIdx                map[string]int
 	dcallDone               map[[2]uint64]bool
-	fcalls                  []*fcall // calls of function values (funccall.go)
-	argBuf                  []byte   // argNode's key
+	fcalls                  []*fcall             // calls of function values (funccall.go)
+	argBuf                  []byte               // argNode's key
+	deferOrigins            map[int][]uint64     // capDeferred: the origin calls with Deferred keys, by input, sorted
+	closApps                map[closKey][]uint32 // applyClosure's applications: their argument nodes
+	fbGroups                map[fbKey]*fbGroup   // fallback groups (defer.go)
 	argNodes                map[string]uint32
 	whyIdx                  table // whys by content, so that a constraint is made once
 }
@@ -198,6 +201,8 @@ func newSolver(f *eir.Func, env Env, ws *Workspace) *solver {
 	}
 	s.dcallIdx = map[string]int{}
 	s.dcallDone = map[[2]uint64]bool{}
+	s.closApps = map[closKey][]uint32{}
+	s.fbGroups = map[fbKey]*fbGroup{}
 	s.argNodes = map[string]uint32{}
 	return s
 }

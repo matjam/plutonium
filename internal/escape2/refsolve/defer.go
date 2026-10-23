@@ -2,9 +2,11 @@ package refsolve
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
+	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/escape2/summary"
 )
 
@@ -22,6 +24,7 @@ type dcall struct {
 	fellBack bool
 	argsBad  bool
 	keys     map[domain.Key]bool
+	noDefer  bool // past solve.MaxDeferredOrigins: resolved here (capDeferred)
 }
 
 // ownDeferrable reports whether call in of the function's own code is a
@@ -118,7 +121,7 @@ func (s *solver) resolve() {
 					dc.keys[k] = true
 					s.changed = true
 				}
-				if argsBad {
+				if argsBad || dc.noDefer {
 					s.fallback(dc)
 				}
 			default:
@@ -128,6 +131,46 @@ func (s *solver) resolve() {
 		if argsBad != dc.argsBad {
 			dc.argsBad = argsBad
 			s.changed = true
+		}
+	}
+	s.capDeferred()
+}
+
+// capDeferred marks the dcalls whose origin calls rank past
+// solve.MaxDeferredOrigins among those with Deferred keys of one input
+// (solve/defer.go): they resolve here.
+func (s *solver) capDeferred() {
+	groups := map[int][]uint64{}
+	for _, dc := range s.dcalls {
+		g := uint64(dc.origin)<<32 | uint64(uint32(dc.site))
+		for k := range dc.keys {
+			in := k.Input()
+			if !slices.Contains(groups[in], g) {
+				groups[in] = append(groups[in], g)
+			}
+		}
+	}
+	for in, gs := range groups {
+		slices.Sort(gs)
+		if len(gs) <= solve.MaxDeferredOrigins {
+			continue
+		}
+		past := map[uint64]bool{}
+		for _, g := range gs[solve.MaxDeferredOrigins:] {
+			past[g] = true
+		}
+		for _, dc := range s.dcalls {
+			if dc.noDefer || !past[uint64(dc.origin)<<32|uint64(uint32(dc.site))] {
+				continue
+			}
+			for k := range dc.keys {
+				if k.Input() == in {
+					dc.noDefer = true
+					s.changed = true
+					s.fallback(dc)
+					break
+				}
+			}
 		}
 	}
 }
@@ -161,8 +204,39 @@ func (s *solver) applyClosure(dc *dcall, fn eir.FuncID, x tv) {
 		s.fallback(dc)
 		return
 	}
+	// The dcalls of one call that resolve to the same record join their
+	// arguments in one application (solve/defer.go).
 	f := s.env.Program().Funcs[fn]
-	s.applyBound(dc.in, fn, bindArgs(dc, len(f.Inputs), single(x)), -1)
+	n := len(f.Inputs)
+	if n > 0 && n == len(dc.args)+1 {
+		n--
+	}
+	args := make([]value, n)
+	for j := range args {
+		args[j] = value{}
+	}
+	for _, d := range s.dcalls {
+		if d.in != dc.in {
+			continue
+		}
+		has := false
+		for y := range d.target {
+			if y.t == x.t {
+				has = true
+				break
+			}
+		}
+		if !has {
+			continue
+		}
+		for j, a := range d.args {
+			if j < n {
+				args[j].addAll(a)
+			}
+		}
+	}
+	joined := &dcall{in: dc.in, args: args}
+	s.applyBound(dc.in, fn, bindArgs(joined, len(f.Inputs), single(ptr(x.t))), -1)
 }
 
 // fallback applies the per-signature join of the origin call's candidates
@@ -186,31 +260,86 @@ func (s *solver) fallback(dc *dcall) {
 		}
 	}
 	for _, cand := range cands {
-		n := len(dc.args)
-		if int(cand) < len(funcs) {
-			n = len(funcs[cand].Inputs)
-		} else if sm := s.env.Summary(cand); sm != nil {
-			n = sm.Inputs
+		s.groupFallback(dc.in, cand, false)
+		if s.f.External || dc.noDefer {
+			s.groupFallback(dc.in, cand, true)
 		}
-		// The rest of the value: the closures it holds that this function
-		// made resolve themselves (applyClosure). Its In tokens are
-		// Deferred entries, whose callers apply the entries that name the
-		// record alone: here, only those that name an argument.
-		rest := s.rest(dc.target)
-		if s.f.External || n != len(dc.args)+1 {
-			s.applyBound(dc.in, cand, bindArgs(dc, n, rest), -1)
+	}
+}
+
+// groupFallback applies the fallback group of cand at call in (solve's
+// joinFallback): the union of what the dcalls of that call that fell back
+// to cand pass (inFull: those that make no Deferred entry).
+func (s *solver) groupFallback(in *eir.Instr, cand eir.FuncID, inFull bool) {
+	funcs := s.env.Program().Funcs
+	var members []*dcall
+	n := -1
+	for _, d := range s.dcalls {
+		if d.in != in || !d.fellBack {
 			continue
 		}
-		ins, other := value{}, value{}
-		for x := range rest {
+		if inFull && !s.f.External && !d.noDefer {
+			continue
+		}
+		origin := s.f
+		if d.origin != s.f.ID {
+			origin = funcs[d.origin]
+		}
+		cands := s.env.Candidates(origin, siteCall(origin, d.site))
+		if !slices.Contains(cands, cand) || slices.ContainsFunc(cands, func(c eir.FuncID) bool {
+			return c != eir.NoFunc && !s.env.CanRead(s.f, c)
+		}) {
+			continue // kept instead (fallback)
+		}
+		members = append(members, d)
+		if n < 0 {
+			n = len(d.args)
+			if int(cand) < len(funcs) {
+				n = len(funcs[cand].Inputs)
+			} else if sm := s.env.Summary(cand); sm != nil {
+				n = sm.Inputs
+			}
+		}
+	}
+	if len(members) == 0 {
+		return
+	}
+	record := n == len(members[0].args)+1 && n > 0
+	if inFull && !record {
+		return
+	}
+	na := n
+	if record {
+		na--
+	}
+	args := make([]value, na)
+	for j := range args {
+		args[j] = value{}
+	}
+	ins, other := value{}, value{}
+	for _, d := range members {
+		for j, a := range d.args {
+			if j < na {
+				args[j].addAll(a)
+			}
+		}
+		for x := range s.rest(d.target) {
 			if x.t.kind == kIn {
 				ins.add(x)
 			} else {
 				other.add(x)
 			}
 		}
-		s.applyBound(dc.in, cand, bindArgs(dc, n, other), -1)
-		s.applyBound(dc.in, cand, bindArgs(dc, n, ins), n-1)
+	}
+	joined := &dcall{in: in, args: args}
+	switch {
+	case !record:
+		s.applyBound(in, cand, bindArgs(joined, n, value{}), -1)
+	case inFull:
+		s.applyBound(in, cand, bindArgs(joined, n, ins), -1)
+	default:
+		s.applyBound(in, cand, bindArgs(joined, n, other), -1)
+		s.applyBound(in, cand, bindArgs(joined, n, ins), n-1)
 	}
 }
 
@@ -264,7 +393,7 @@ func deferredOnly(d summary.Deferred, i int) bool {
 func (s *solver) deferredOut() []summary.Deferred {
 	var out []summary.Deferred
 	for _, dc := range s.dcalls {
-		if len(dc.keys) == 0 {
+		if len(dc.keys) == 0 || dc.noDefer {
 			continue
 		}
 		args := make([]summary.DeferredArg, len(dc.args))
