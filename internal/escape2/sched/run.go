@@ -447,6 +447,15 @@ func (e *env) noteRead(id eir.FuncID) {
 func (e *env) Program() *eir.Program { return e.p }
 func (e *env) Paths() domain.Paths   { return e.paths }
 
+// Previous implements solve.PreviousEnv: a function's latest iterate, not
+// recorded as a read.
+func (e *env) Previous(id eir.FuncID) *summary.Summary {
+	if int(id) >= len(e.sums) {
+		return nil
+	}
+	return e.sums[id]
+}
+
 // Summary is the current summary of a callee: final for earlier SCCs, the
 // latest iterate in the current one, nil (bottom) before the first.
 func (e *env) Summary(id eir.FuncID) *summary.Summary {

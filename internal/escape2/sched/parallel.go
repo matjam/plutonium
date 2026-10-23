@@ -149,6 +149,15 @@ func (w *worker) note(id eir.FuncID) {
 func (w *worker) Program() *eir.Program { return w.pf.e.p }
 func (w *worker) Paths() domain.Paths   { return w.ov }
 
+// Previous implements solve.PreviousEnv: a function's latest iterate, not
+// recorded as a read.
+func (w *worker) Previous(id eir.FuncID) *summary.Summary {
+	if int(id) >= len(w.pf.e.sums) {
+		return nil
+	}
+	return w.pf.e.sums[id]
+}
+
 func (w *worker) Summary(id eir.FuncID) *summary.Summary {
 	e := w.pf.e
 	if e.virt.isVirtual(id) {

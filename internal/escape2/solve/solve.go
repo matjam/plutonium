@@ -53,6 +53,7 @@ func SolveCheck(f *eir.Func, env Env, ws *Workspace) Result {
 // reset ws while it holds the state.
 func SolveKeep(f *eir.Func, env Env, ws *Workspace) (Result, *State) {
 	s := newSolver(f, env, ws)
+	s.initSaturated() // saturate.go
 	s.build()
 	return s.finish(), &State{s}
 }
@@ -109,6 +110,8 @@ type solver struct {
 	nobj   int // objects of f, then one region per call site
 	base   int // the arena's Allocated bytes when the solve began
 	nsteps int // constraint firings and edge transforms, for MaxFuncSteps
+
+	saturated []bool // by input: start it as In(i, Root, GE) (saturate.go)
 
 	toks   vec // two words per tagged token
 	tokIdx table
@@ -1128,7 +1131,11 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 			s.addTok(dst, heapTok)
 		}
 	case eir.OpInput:
-		s.addTok(dst, tok{kind: tIn, base: uint32(in.Index)})
+		t := tok{kind: tIn, base: uint32(in.Index)}
+		if in.Index < len(s.saturated) && s.saturated[in.Index] {
+			t.ge = true // saturate.go
+		}
+		s.addTok(dst, t)
 	case eir.OpLoad:
 		if in.X == 0 || dst == 0 {
 			return
