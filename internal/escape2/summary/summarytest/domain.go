@@ -105,22 +105,15 @@ func (p *Paths) HasPrefix(id, prefix domain.PathID) bool {
 	return len(b) <= len(a) && slices.Equal(a[:len(b)], b)
 }
 
-// Cut cuts id back to its first load plus one load. A path with no load is
-// cut to its first field step.
+// Cut returns the prefix of id through its first load, or id itself when it
+// has no load (domain.Paths.Cut): with GE it covers id.
 func (p *Paths) Cut(id domain.PathID) domain.PathID {
 	s := p.steps[id]
 	i := slices.Index(s, domain.StepLoad)
 	if i < 0 {
-		if len(s) > 1 {
-			return p.intern(s[:1])
-		}
 		return id
 	}
-	c := slices.Clone(s[:i+1])
-	if i+1 < len(s) {
-		c = append(c, domain.StepLoad)
-	}
-	return p.intern(c)
+	return p.intern(slices.Clone(s[:i+1]))
 }
 
 // Len is the number of interned paths.

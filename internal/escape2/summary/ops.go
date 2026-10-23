@@ -471,10 +471,19 @@ func antichainResults(ps domain.Paths, from []ResultKey) []ResultKey {
 // per call).
 const MaxDeferredPerCall = 16
 
+// MaxDeferredPerInput bounds the deferred entries of one origin call whose
+// function value keys name one input: past it, they merge into one, GE on
+// the longest common prefix of their paths (widenDeferred).
+const MaxDeferredPerInput = 4
+
 // widenDeferred makes each entry's argument keys an antichain under the Esc
 // cap, merges entries of one call with one function value key (the union
-// of their arguments covers both), merges past MaxDeferredPerCall as said
-// there, and returns an antichain under DeferredCovers, sorted.
+// of their arguments covers both), then, past MaxDeferredPerInput, the
+// entries of one call whose function value keys name one input: one entry
+// whose key is GE on the longest common prefix of their paths (a function forwarded through many
+// paths would otherwise add an entry for each, and its callers re-solve for
+// each), merges past MaxDeferredPerCall as said there, and returns an
+// antichain under DeferredCovers, sorted.
 func widenDeferred(ps domain.Paths, ds []Deferred) []Deferred {
 	if len(ds) == 0 {
 		return nil
@@ -506,6 +515,38 @@ func widenDeferred(ps domain.Paths, ds []Deferred) []Deferred {
 		return out
 	}
 	ds = merge(ds, func(k domain.Key) domain.Key { return k })
+	// One entry per (call, input of the function value key).
+	type group struct {
+		origin, site uint64
+		in           domain.Key // the key without path and GE, FieldsGE or Deep
+	}
+	common := map[group][]domain.Step{}
+	count := map[group]int{}
+	for _, d := range ds {
+		g := group{uint64(d.Origin), uint64(d.Site), plainKey(d.Fn).WithPath(domain.Root, false)}
+		st := ps.Steps(d.Fn.Path())
+		if c, ok := common[g]; ok {
+			n := 0
+			for n < len(c) && n < len(st) && c[n] == st[n] {
+				n++
+			}
+			common[g] = c[:n]
+		} else {
+			common[g] = st
+		}
+		count[g]++
+	}
+	ds = mergeBy(ds, func(d Deferred) domain.Key {
+		g := group{uint64(d.Origin), uint64(d.Site), plainKey(d.Fn).WithPath(domain.Root, false)}
+		if count[g] <= MaxDeferredPerInput {
+			return d.Fn
+		}
+		p := domain.Root
+		for _, st := range common[g] {
+			p, _ = ps.Extend(p, st)
+		}
+		return d.Fn.WithPath(p, true)
+	}, merge)
 	for pass := 0; pass < 2; pass++ {
 		n := map[site]int{}
 		for _, d := range ds {
@@ -553,6 +594,15 @@ func widenDeferred(ps domain.Paths, ds []Deferred) []Deferred {
 		}
 	}
 	return out
+}
+
+// mergeBy maps each entry's function value key by fn and merges the
+// entries that then have one (merge is widenDeferred's merge).
+func mergeBy(ds []Deferred, fn func(Deferred) domain.Key, merge func([]Deferred, func(domain.Key) domain.Key) []Deferred) []Deferred {
+	for i := range ds {
+		ds[i].Fn = fn(ds[i])
+	}
+	return merge(ds, func(k domain.Key) domain.Key { return k })
 }
 
 func sortedPaths(ps []domain.PathID) []domain.PathID {
