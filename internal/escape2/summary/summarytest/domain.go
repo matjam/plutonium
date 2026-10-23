@@ -153,6 +153,9 @@ func (a *Arena) Bytes() int { return a.bytes }
 // Peak is the most it held.
 func (a *Arena) Peak() int { return a.peak }
 
+// Allocated is what Alloc handed out since Reset.
+func (a *Arena) Allocated() int { return a.bytes }
+
 // Reset frees everything.
 func (a *Arena) Reset() { a.bytes = 0 }
 

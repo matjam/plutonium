@@ -35,9 +35,10 @@ func (a *fakeArena) Alloc(n int) []uint64 {
 	}
 	return make([]uint64, n)
 }
-func (a *fakeArena) Bytes() int { return a.bytes }
-func (a *fakeArena) Peak() int  { return a.peak }
-func (a *fakeArena) Reset()     { a.bytes = 0; a.resets++ }
+func (a *fakeArena) Bytes() int     { return a.bytes }
+func (a *fakeArena) Peak() int      { return a.peak }
+func (a *fakeArena) Allocated() int { return a.bytes }
+func (a *fakeArena) Reset()         { a.bytes = 0; a.resets++ }
 
 type fakeSets struct{ a *fakeArena }
 

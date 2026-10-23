@@ -52,7 +52,7 @@ func (s *solver) checkLimit() bool {
 	if s.limit != nil {
 		return true
 	}
-	if b := s.a.Bytes() - s.base; b > maxFuncArena || s.nsteps > maxFuncSteps {
+	if b := s.a.Allocated() - s.base; b > maxFuncArena || s.nsteps > maxFuncSteps {
 		s.dump(nil)
 		s.measureLimited(true)
 		s.limit = &LimitError{Func: s.f.Name, Bytes: b, Steps: s.nsteps}
@@ -83,7 +83,7 @@ func (s *solver) measureLimited(limited bool) {
 	if Measure == nil {
 		return
 	}
-	m := Measurement{Tokens: len(s.toks.s) / 2, Nodes: len(s.nodeRep.s), ArenaBytes: s.a.Bytes() - s.base, Steps: s.nsteps, Limited: limited}
+	m := Measurement{Tokens: len(s.toks.s) / 2, Nodes: len(s.nodeRep.s), ArenaBytes: s.a.Allocated() - s.base, Steps: s.nsteps, Limited: limited}
 	per := map[uint32]int{}
 	for i := 0; i < m.Tokens; i++ {
 		if t := s.tokAt(uint64(i)); t.kind == tIn {

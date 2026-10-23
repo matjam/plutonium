@@ -282,6 +282,11 @@ type Arena interface {
 	// Bytes is the memory the arena holds now, and Peak the most it has
 	// held since it was made.
 	Bytes() int
+	// Allocated is the memory Alloc handed out since the last Reset: what
+	// the work since then used, whatever chunks the arena kept from before
+	// (Bytes counts those), so that a solve's limit does not depend on
+	// what its workspace ran earlier.
+	Allocated() int
 	Peak() int
 	// Reset frees everything allocated.
 	Reset()

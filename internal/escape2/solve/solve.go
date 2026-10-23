@@ -94,7 +94,7 @@ func (st *State) Resume(env Env) Result {
 // Bytes is what the state holds: its arena and set table bytes, and its
 // Go slices and maps (heapBytes).
 func (st *State) Bytes() int {
-	return st.s.a.Bytes() - st.s.base + st.s.sets.Bytes() + st.s.heapBytes()
+	return st.s.a.Allocated() - st.s.base + st.s.sets.Bytes() + st.s.heapBytes()
 }
 
 // solver is the state of one solve.
@@ -107,7 +107,7 @@ type solver struct {
 	prog *eir.Program
 
 	nobj   int // objects of f, then one region per call site
-	base   int // the arena's bytes when the solve began
+	base   int // the arena's Allocated bytes when the solve began
 	nsteps int // constraint firings and edge transforms, for MaxFuncSteps
 
 	toks   vec // two words per tagged token
@@ -182,7 +182,7 @@ func newSolver(f *eir.Func, env Env, ws *Workspace) *solver {
 		sets: ws.Sets,
 		a:    ws.Arena,
 		prog: env.Program(),
-		base: ws.Arena.Bytes(),
+		base: ws.Arena.Allocated(),
 	}
 	s.edges.w, s.cons.w = edgeWords, consWords
 	s.nobj = len(f.Objects) + f.NumSites

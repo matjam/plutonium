@@ -48,7 +48,7 @@ func (s *solver) dump(res *summary.Summary) {
 	defer dumpMu.Unlock()
 	dumpPass[s.f.Name]++
 	var b strings.Builder
-	fmt.Fprintf(&b, "== %s pass %d: %d nodes, %d tokens, %d steps, %d bytes\n", s.f.Name, dumpPass[s.f.Name], len(s.nodeRep.s), len(s.toks.s)/2, s.nsteps, s.a.Bytes()-s.base)
+	fmt.Fprintf(&b, "== %s pass %d: %d nodes, %d tokens, %d steps, %d bytes\n", s.f.Name, dumpPass[s.f.Name], len(s.nodeRep.s), len(s.toks.s)/2, s.nsteps, s.a.Allocated()-s.base)
 	type inStat struct {
 		toks        int
 		paths, tags map[domain.PathID]int

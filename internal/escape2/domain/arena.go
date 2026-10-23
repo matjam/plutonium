@@ -30,6 +30,7 @@ type arena struct {
 	epoch   uint32
 	checked bool
 	peak    int
+	alloc   int // words handed out since Reset
 }
 
 // NewArena returns an empty arena.
@@ -46,6 +47,7 @@ func (a *arena) Alloc(n int) []uint64 {
 	if n == 0 {
 		return nil
 	}
+	a.alloc += n
 	if n > chunkWords/4 {
 		b := make([]uint64, n)
 		a.big = append(a.big, b)
@@ -79,6 +81,8 @@ func (a *arena) Bytes() int { return (len(a.chunks)*chunkWords + a.bigSize) * 8 
 
 func (a *arena) Peak() int { return a.peak }
 
+func (a *arena) Allocated() int { return a.alloc * 8 }
+
 func (a *arena) Reset() {
 	if a.checked {
 		for _, c := range a.chunks[:a.used] {
@@ -89,7 +93,7 @@ func (a *arena) Reset() {
 		}
 		a.chunks = nil
 	}
-	a.used, a.pos = 0, 0
+	a.used, a.pos, a.alloc = 0, 0, 0
 	a.big, a.bigSize = nil, 0
 	a.epoch++
 }
