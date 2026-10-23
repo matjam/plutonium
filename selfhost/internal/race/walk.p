@@ -1044,7 +1044,7 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 			}
 			continue
 		}
-		what := compat.Sprintf("argument %d of %s", i+1, desc)
+		what := compat.Sprintfb("argument %d of %s", compat.ArgI(int64(i+1)), compat.ArgS(desc))
 		if e != nil {
 			what = compat.Concat("the argument ", exprText(e), " of ", desc)
 		}

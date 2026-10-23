@@ -84,9 +84,9 @@ func (w *walker) scopeOutlives(e *ast.CallExpr, t *scoped.Task, v *types2.Var, l
 		if l.v != nil {
 			name = l.v.Name()
 		}
-		d.Text = compat.Sprintf("%s's block ends with each iteration, so the task takes its own copy of %s when %s.Task runs. But %s holds %s, and a copy of a view still looks at the same memory. %s is declared in the loop at %s, which reuses %s's memory in every iteration, and %s does not wait for the task until after the loop, so a later iteration could change the memory while the task uses it.",
-			v.Name(), v.Name(), sname, v.Name(), what, name, w.a.basePos(L.node.Pos()), name, sname)
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Use %s itself in the function literal, so that the task gets its own copy of it, or wait for the task inside the loop", name), Code: compat.Concat(sname, ".Wait() // at the end of the loop body")})
+		d.Text = compat.Sprintfb("%s's block ends with each iteration, so the task takes its own copy of %s when %s.Task runs. But %s holds %s, and a copy of a view still looks at the same memory. %s is declared in the loop at %s, which reuses %s's memory in every iteration, and %s does not wait for the task until after the loop, so a later iteration could change the memory while the task uses it.",
+			compat.ArgS(v.Name()), compat.ArgS(v.Name()), compat.ArgS(sname), compat.ArgS(v.Name()), compat.ArgS(what), compat.ArgS(name), compat.ArgS(w.a.basePos(L.node.Pos())), compat.ArgS(name), compat.ArgS(sname))
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s itself in the function literal, so that the task gets its own copy of it, or wait for the task inside the loop", compat.ArgS(name)), Code: compat.Concat(sname, ".Wait() // at the end of the loop body")})
 		return d
 	})
 }

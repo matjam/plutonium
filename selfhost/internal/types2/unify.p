@@ -36,7 +36,6 @@ package types2
 
 import (
 	"pluto/cmp"
-	"pluto/fmt"
 	"pluto/slices"
 	"pluto/strings"
 	"selfhost/compat"
@@ -136,7 +135,7 @@ func (m unifyMode) String() string {
 	case assign | exact:
 		return "assign, exact"
 	}
-	return compat.Sprintf("mode %d", m)
+	return compat.Sprintfb("mode %d", compat.ArgU(uint64(m)))
 }
 
 // unify attempts to unify x and y and reports whether it succeeded.
@@ -148,7 +147,7 @@ func (u *unifier) unify(x, y Type, mode unifyMode) bool {
 
 func (u *unifier) tracef(format string, args ...any) {
 	// TODO(gri) consider adjusting this to use Checker.trace
-	fmt.Println(compat.Concat(strings.Repeat(".  ", u.depth), sprintf(nil, nil, true, format, args...)))
+	compat.Printfb("%v\n", compat.ArgS(compat.Concat(strings.Repeat(".  ", u.depth), sprintf(nil, nil, true, format, args...))))
 }
 
 // String returns a string representation of the current mapping

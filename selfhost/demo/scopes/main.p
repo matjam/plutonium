@@ -10,6 +10,7 @@ package main
 import (
 	"pluto/fmt"
 	"pluto/sync"
+	"selfhost/compat"
 )
 
 const n = 8
@@ -117,6 +118,6 @@ func main() {
 	fmt.Println(atEnd())
 	fmt.Println(args())
 	fmt.Println(renamed())
-	fmt.Println(goForm())
+	compat.Printfb("%v\n", compat.ArgI(int64(goForm())))
 	fmt.Println(twice())
 }

@@ -303,7 +303,7 @@ func funcName(obj *types2.Func) string {
 			ptr = "*"
 		}
 		if n, ok := types2.Unalias(t).(*types2.Named); ok {
-			return compat.Sprintf("(%s%s).%s", ptr, n.Obj().Name(), obj.Name())
+			return compat.Sprintfb("(%s%s).%s", compat.ArgS(ptr), compat.ArgS(n.Obj().Name()), compat.ArgS(obj.Name()))
 		}
 		return obj.Name()
 	}
@@ -477,7 +477,7 @@ func (a *analyzer) litFunc(lit *ast.FuncLit, pkg *pkgInfo, outer string) *functi
 		sig = types2.NewSignatureType(nil, nil, nil, nil, nil, false)
 	}
 	p := a.fset.Position(lit.Pos())
-	f := pu.New(function{name: compat.Sprintf("func literal in %s at line %d", outer, p.Line), pkg: pkg, lit: lit, sig: sig})
+	f := pu.New(function{name: compat.Sprintfb("func literal in %s at line %d", compat.ArgS(outer), compat.ArgI(int64(p.Line))), pkg: pkg, lit: lit, sig: sig})
 	a.ver.lit++
 	f.params = sigParams(sig)
 	a.lits[lit] = f
@@ -779,7 +779,7 @@ func convKeyAt(text string, i int) string {
 	if i == 0 {
 		return text
 	}
-	return compat.Sprintf("%s#%d", text, i)
+	return compat.Sprintfb("%s#%d", compat.ArgS(text), compat.ArgI(int64(i)))
 }
 
 // A convMethod is a method of a converted type, by the type's key.

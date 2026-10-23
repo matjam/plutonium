@@ -7,7 +7,6 @@
 package types2
 
 import (
-	"pluto/fmt"
 	"pluto/strings"
 	"pluto/unicode"
 	"pluto/unicode/utf8"
@@ -319,7 +318,7 @@ func (kind VarKind) String() string {
 	if int(kind) < len(varKindNames) {
 		return varKindNames[kind]
 	}
-	return compat.Sprintf("VarKind(%d)", kind)
+	return compat.Sprintfb("VarKind(%d)", compat.ArgU(uint64(kind)))
 }
 
 // Kind reports what kind of variable v is.
@@ -519,9 +518,9 @@ func writeObject(buf *compat.Buffer, obj Object, qf Qualifier) {
 
 	switch obj := obj.(type) {
 	case *PkgName:
-		fmt.Fprintf(buf, "package %s", obj.Name())
+		compat.Fprintfb(buf, "package %s", compat.ArgS(obj.Name()))
 		if path := obj.imported.path; path != "" && path != obj.name {
-			fmt.Fprintf(buf, " (%q)", path)
+			compat.Fprintfb(buf, " (%q)", compat.ArgS(path))
 		}
 		return
 

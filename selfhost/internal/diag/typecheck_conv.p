@@ -65,14 +65,14 @@ func explainBytesToString(s *spec) {
 	const lossyIntro = "To replace each byte that is not valid UTF-8 with U+FFFD, as string(b) did"
 	if s.isReturned(call) {
 		s.d.Fix = pu.New(Fix{Intro: "To fail on bytes that are not UTF-8, return the error",
-			Code: compat.Sprintf("import \"pluto/strings\"\n\ns, err := strings.FromUTF8(%s)\nif err != nil {\n\treturn \"\", err\n}\nreturn s, nil", b)})
+			Code: compat.Sprintfb("import \"pluto/strings\"\n\ns, err := strings.FromUTF8(%s)\nif err != nil {\n\treturn \"\", err\n}\nreturn s, nil", compat.ArgS(b))})
 		s.d.More = compat.Clone([]*Fix{pu.New(Fix{Intro: lossyIntro,
-			Code: compat.Sprintf("import \"pluto/strings\"\n\nreturn strings.FromUTF8Lossy(%s)", b)})})
+			Code: compat.Sprintfb("import \"pluto/strings\"\n\nreturn strings.FromUTF8Lossy(%s)", compat.ArgS(b))})})
 		return
 	}
 	s.d.Fix = pu.New(Fix{Intro: "To fail on bytes that are not UTF-8, check them and handle the error",
-		Code: compat.Sprintf("import \"pluto/strings\"\n\n%s, err := strings.FromUTF8(%s)\nif err != nil {\n\t// the bytes are not text\n}", name, b)})
-	lossy := compat.Sprintf("strings.FromUTF8Lossy(%s)", b)
+		Code: compat.Sprintfb("import \"pluto/strings\"\n\n%s, err := strings.FromUTF8(%s)\nif err != nil {\n\t// the bytes are not text\n}", compat.ArgS(name), compat.ArgS(b))})
+	lossy := compat.Sprintfb("strings.FromUTF8Lossy(%s)", compat.ArgS(b))
 	if s.resultName(call, "") != "" {
 		lossy = compat.Concat(name, " := ", lossy)
 	}
@@ -113,32 +113,32 @@ func explainStringToSlice(s *spec) {
 	runes := strings.HasPrefix(s.first, "[]rune")
 	if runes && s.enclosingCall(call, "len") != nil {
 		s.d.Fix = pu.New(Fix{Intro: "To count the runes of a string, count them without copying",
-			Code: compat.Sprintf("import \"pluto/unicode/utf8\"\n\nn := utf8.RuneCountInString(%s)", str)})
+			Code: compat.Sprintfb("import \"pluto/unicode/utf8\"\n\nn := utf8.RuneCountInString(%s)", compat.ArgS(str))})
 		return
 	}
 	if runes && s.rangedOver(call) {
 		s.d.Fix = pu.New(Fix{Intro: "To visit the runes of a string, range over the string; i is the byte offset of r",
-			Code: compat.Sprintf("for i, r := range %s {\n\t...\n}", str)})
+			Code: compat.Sprintfb("for i, r := range %s {\n\t...\n}", compat.ArgS(str))})
 		return
 	}
 	if !runes && s.rangedOver(call) {
 		s.d.Fix = pu.New(Fix{Intro: "To visit the bytes of a string, index it",
-			Code: compat.Sprintf("for i := 0; i < len(%s); i++ {\n\tb := %s[i]\n\t...\n}", str, str)})
+			Code: compat.Sprintfb("for i := 0; i < len(%s); i++ {\n\tb := %s[i]\n\t...\n}", compat.ArgS(str), compat.ArgS(str))})
 		return
 	}
 	if runes {
 		name := s.resultName(call, "r")
 		s.d.Fix = pu.New(Fix{Intro: "To visit the runes of a string, range over the string; i is the byte offset of r",
-			Code: compat.Sprintf("for i, r := range %s {\n\t...\n}", str)})
+			Code: compat.Sprintfb("for i, r := range %s {\n\t...\n}", compat.ArgS(str))})
 		s.d.More = compat.Clone([]*Fix{pu.New(Fix{Intro: "To keep the runes in a vec.Vec[rune] that you own, which frees them when it is dropped",
-			Code: compat.Sprintf("import \"pluto/strings\"\n\n%s := strings.Runes(%s)\n// %s.Slice() is the []rune", name, str, name)})})
+			Code: compat.Sprintfb("import \"pluto/strings\"\n\n%s := strings.Runes(%s)\n// %s.Slice() is the []rune", compat.ArgS(name), compat.ArgS(str), compat.ArgS(name))})})
 		return
 	}
 	name := s.resultName(call, "b")
 	s.d.Fix = pu.New(Fix{Intro: "To keep a copy that you own, in a vec.Vec[byte] that frees it when it is dropped",
-		Code: compat.Sprintf("import \"pluto/strings\"\n\n%s := strings.Bytes(%s)\n// %s.Slice() is the []byte", name, str, name)})
+		Code: compat.Sprintfb("import \"pluto/strings\"\n\n%s := strings.Bytes(%s)\n// %s.Slice() is the []byte", compat.ArgS(name), compat.ArgS(str), compat.ArgS(name))})
 	s.d.More = compat.Clone([]*Fix{pu.New(Fix{Intro: "To copy into a buffer of your own without allocating",
-		Code: compat.Sprintf("var buf [64]byte\nn := copy(buf[:], %s)\n%s := buf[:n]", str, name)})})
+		Code: compat.Sprintfb("var buf [64]byte\nn := copy(buf[:], %s)\n%s := buf[:n]", compat.ArgS(str), compat.ArgS(name))})})
 }
 
 // explainIntToString writes the two fixes for string(i): the character with
@@ -154,26 +154,26 @@ func explainIntToString(s *spec) {
 	if T := s.typeOf(call.Args[0]); T != nil {
 		if _, ok := T.Underlying().(*types2.Slice); ok {
 			s.d.Fix = pu.New(Fix{Intro: "To write the characters whose codes are the elements, convert each one to a rune",
-				Code: compat.Sprintf("import \"pluto/strings\"\n\nvar b strings.Builder\nfor _, c := range %s {\n\tb.WriteRune(rune(c))\n}\ntext := b.String()", x)})
+				Code: compat.Sprintfb("import \"pluto/strings\"\n\nvar b strings.Builder\nfor _, c := range %s {\n\tb.WriteRune(rune(c))\n}\ntext := b.String()", compat.ArgS(x))})
 			return
 		}
 	}
-	s.d.Fix = pu.New(Fix{Intro: compat.Sprintf("To make the character whose code is %s, convert to a rune first", x),
-		Code: compat.Sprintf("string(rune(%s))", x)})
+	s.d.Fix = pu.New(Fix{Intro: compat.Sprintfb("To make the character whose code is %s, convert to a rune first", compat.ArgS(x)),
+		Code: compat.Sprintfb("string(rune(%s))", compat.ArgS(x))})
 	T := s.typeOf(call.Args[0])
 	var digits string
 	switch {
 	case T != nil && types2.Identical(T, types2.Typ[types2.Int]):
-		digits = compat.Sprintf("strconv.Itoa(%s)", x)
+		digits = compat.Sprintfb("strconv.Itoa(%s)", compat.ArgS(x))
 	case T != nil && types2.Identical(T, types2.Typ[types2.Int64]):
-		digits = compat.Sprintf("strconv.FormatInt(%s, 10)", x)
+		digits = compat.Sprintfb("strconv.FormatInt(%s, 10)", compat.ArgS(x))
 	case T != nil && types2.Identical(T, types2.Typ[types2.Uint64]):
-		digits = compat.Sprintf("strconv.FormatUint(%s, 10)", x)
+		digits = compat.Sprintfb("strconv.FormatUint(%s, 10)", compat.ArgS(x))
 	case isKind(T, types2.IsUnsigned):
-		digits = compat.Sprintf("strconv.FormatUint(uint64(%s), 10)", x)
+		digits = compat.Sprintfb("strconv.FormatUint(uint64(%s), 10)", compat.ArgS(x))
 	default:
-		digits = compat.Sprintf("strconv.FormatInt(int64(%s), 10)", x)
+		digits = compat.Sprintfb("strconv.FormatInt(int64(%s), 10)", compat.ArgS(x))
 	}
-	s.d.More = compat.Clone([]*Fix{pu.New(Fix{Intro: compat.Sprintf("To make the digits of %s, as text", x),
+	s.d.More = compat.Clone([]*Fix{pu.New(Fix{Intro: compat.Sprintfb("To make the digits of %s, as text", compat.ArgS(x)),
 		Code: compat.Concat("import \"pluto/strconv\"\n\n", digits)})})
 }

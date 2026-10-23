@@ -3,7 +3,6 @@
 package amd64
 
 import (
-	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 )
@@ -79,7 +78,7 @@ func checkNoSSE(f *MFunc) error {
 				bad = bad || isXMM(r)
 			}
 			if bad {
-				return fmt.Errorf("amd64: %s: %s uses SSE, which this function may not use (kernel mode without //pu:fpu)", f.Name, in)
+				return compat.NewError(compat.Sprintfb("amd64: %s: %s uses SSE, which this function may not use (kernel mode without //pu:fpu)", compat.ArgS(f.Name), compat.ArgS(compat.StringOf(in))))
 			}
 		}
 	}

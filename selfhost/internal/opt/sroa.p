@@ -117,7 +117,7 @@ func splitSlot(f *ssa.Func, in *slotInfo) {
 	parts := compat.Make[*ssa.Slot](len(s.Leaves))
 	addrs := compat.Make[*ssa.Value](len(s.Leaves))
 	for i, l := range s.Leaves {
-		parts[i] = f.NewSlot(compat.Sprintf("%s.%d", s.Name, l.Off), l.Type.Size, l.Type.Size)
+		parts[i] = f.NewSlot(compat.Sprintfb("%s.%d", compat.ArgS(s.Name), compat.ArgI(l.Off)), l.Type.Size, l.Type.Size)
 		parts[i].Leaves = compat.Clone([]ssa.Leaf{{Off: 0, Type: l.Type}})
 		addrs[i] = slotAddr(f, parts[i])
 	}

@@ -238,7 +238,7 @@ func (s *fnState) rangeEnum(st *ast.RangeStmt, label *types2.Label) {
 // enumValues returns a read-only table of an enum's member values in
 // declaration order, each of scalar type t.
 func (l *Lowerer) enumValues(en *types2.Enum, t *ssa.Type) *ssa.Sym {
-	sym := l.out.Sym(compat.Sprintf(".enumvalues.%d", l.statics), ssa.SymData)
+	sym := l.out.Sym(compat.Sprintfb(".enumvalues.%d", compat.ArgI(int64(l.statics))), ssa.SymData)
 	l.statics++
 	buf := compat.Make[byte](int(t.Size) * en.Len())
 	for i := 0; i < en.Len(); i++ {

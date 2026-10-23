@@ -442,7 +442,7 @@ func (check *Checker) checkFiles(files []*ast.File) {
 	print := func(msg string) {
 		if check.conf._Trace {
 			fmt.Println()
-			fmt.Println(msg)
+			compat.Printfb("%v\n", compat.ArgS(msg))
 		}
 	}
 

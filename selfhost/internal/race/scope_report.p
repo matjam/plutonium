@@ -59,7 +59,7 @@ func (fc *frameCheck) accWhere(x *frameAcc) string {
 		if sp := fnSpan(fc.starter); sp.Pos() <= x.pos && x.pos < sp.End() {
 			fn = "the function literal" // one of the starter's, called where it is used
 		}
-		return compat.Sprintf("%s, in %s called at %s", fc.a.short(x.pos), fn, fc.a.short(x.via))
+		return compat.Sprintfb("%s, in %s called at %s", compat.ArgS(fc.a.short(x.pos)), compat.ArgS(fn), compat.ArgS(fc.a.short(x.via)))
 	}
 	return fc.a.short(x.pos)
 }
@@ -94,11 +94,11 @@ func (fc *frameCheck) joinText(q *party, pos token.Pos) string {
 	name := sc.Var.Name()
 	for _, c := range sc.Waits {
 		if c.Pos() > pos {
-			return compat.Sprintf("%s waits for it at %s", name, fc.a.short(c.Pos()))
+			return compat.Sprintfb("%s waits for it at %s", compat.ArgS(name), compat.ArgS(fc.a.short(c.Pos())))
 		}
 	}
 	if sc.Node != nil {
-		return compat.Sprintf("%s waits for it where its block ends, at %s", name, fc.a.short(sc.Node.End()-1))
+		return compat.Sprintfb("%s waits for it where its block ends, at %s", compat.ArgS(name), compat.ArgS(fc.a.short(sc.Node.End()-1)))
 	}
 	return compat.Concat(name, " waits for it when its block ends")
 }
@@ -118,11 +118,11 @@ func (fc *frameCheck) report(c conflictRec) {
 	place := fc.placeName(x.place)
 	// The parties are numbered within one starter, and a root's key holds
 	// an @ that stripParts would take for a part.
-	key := compat.Sprintf("scope|%d|%s%s|%d|%d", fc.starterNode().Pos(), x.place.root.key(), stripParts(stripOwned(x.place.path)), p.idx, q.idx)
+	key := compat.Sprintfb("scope|%d|%s%s|%d|%d", compat.ArgI(int64(fc.starterNode().Pos())), compat.ArgS(x.place.root.key()), compat.ArgS(stripParts(stripOwned(x.place.path))), compat.ArgI(int64(p.idx)), compat.ArgI(int64(q.idx)))
 	if x.via.IsValid() && x.via != x.pos {
 		// One race for each call that makes it: a callee that reads the
 		// memory of a vector and its header races once.
-		key = compat.Sprintf("scope|%d|via%d|%d|%d|%v", fc.starterNode().Pos(), x.via, p.idx, q.idx, x.move)
+		key = compat.Sprintfb("scope|%d|via%d|%d|%d|%v", compat.ArgI(int64(fc.starterNode().Pos())), compat.ArgI(int64(x.via)), compat.ArgI(int64(p.idx)), compat.ArgI(int64(q.idx)), compat.ArgB(x.move))
 	}
 	var d *diag.Diagnostic
 	switch {
@@ -132,8 +132,8 @@ func (fc *frameCheck) report(c conflictRec) {
 			what = "drop"
 		}
 		d = diag.New(fc.a.pos(x.pos), diag.ScopeMoveInUse, "cannot %s %s here: %s may still be using it", pu.Box(what), pu.Box(place), pu.Box(fc.partyName(q, false)))
-		d.Text = compat.Sprintf("%s %s %s at %s, and %s, so the task could use %s after it has moved or been freed.",
-			capitalize(fc.partyName(q, false)), verb(y), fc.placeName(y.place), fc.accWhere(y), fc.joinText(q, x.pos), place)
+		d.Text = compat.Sprintfb("%s %s %s at %s, and %s, so the task could use %s after it has moved or been freed.",
+			compat.ArgS(capitalize(fc.partyName(q, false))), compat.ArgS(verb(y)), compat.ArgS(fc.placeName(y.place)), compat.ArgS(fc.accWhere(y)), compat.ArgS(fc.joinText(q, x.pos)), compat.ArgS(place))
 		d.Fix = pu.New(diag.Fix{Intro: "Wait for the task first", Code: compat.Concat(q.task.Scope.Var.Name(), ".Wait()")})
 	case p.task == nil:
 		if x.write {
@@ -141,29 +141,29 @@ func (fc *frameCheck) report(c conflictRec) {
 		} else {
 			d = diag.New(fc.a.pos(x.pos), diag.ScopeRace, "%s is read here while %s may write it", pu.Box(place), pu.Box(fc.partyName(q, false)))
 		}
-		d.Text = compat.Sprintf("%s %s %s at %s, and %s. Meanwhile %s %s at %s in %s, so the two may run at the same time, one of them writing: a data race.",
-			capitalize(fc.partyName(q, false)), verb(y), fc.placeName(y.place), fc.accWhere(y), fc.joinText(q, x.pos), place, passive(x), fc.accWhere(x), fc.starter.name)
+		d.Text = compat.Sprintfb("%s %s %s at %s, and %s. Meanwhile %s %s at %s in %s, so the two may run at the same time, one of them writing: a data race.",
+			compat.ArgS(capitalize(fc.partyName(q, false))), compat.ArgS(verb(y)), compat.ArgS(fc.placeName(y.place)), compat.ArgS(fc.accWhere(y)), compat.ArgS(fc.joinText(q, x.pos)), compat.ArgS(place), compat.ArgS(passive(x)), compat.ArgS(fc.accWhere(x)), compat.ArgS(fc.starter.name))
 		fc.aliasText(d, c)
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Wait for the tasks before using %s", place), Code: compat.Concat(q.task.Scope.Var.Name(), ".Wait()")})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Wait for the tasks before using %s", compat.ArgS(place)), Code: compat.Concat(q.task.Scope.Var.Name(), ".Wait()")})
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "Or lock one sync.Mutex around every use of it, in the tasks and here", Code: "mu.Lock()\n...\nmu.Unlock()"})})
 	case c.self && element(x.place) && element(y.place) && !c.alias:
 		d = diag.New(fc.a.pos(x.pos), diag.ScopeNotPartitioned, "the tasks started at %s may write the same element of %s", pu.Box(fc.a.short(p.task.Call.Pos())), pu.Box(fc.placeName(vpath{root: x.place.root, path: trimElem(x.place.path)})))
-		d.Text = compat.Sprintf("Each task %s %s at %s, and several of them run at the same time. Tasks may write one array or slice at once only when each writes elements no other can reach, and the compiler can see that only for x[i], or a window such as x[i*k:(i+1)*k] or x[i:i+k], where i is the variable of the loop that starts them (each task takes its own i), or for x[:m] and x[m:].", verb(x), place, fc.accWhere(x))
+		d.Text = compat.Sprintfb("Each task %s %s at %s, and several of them run at the same time. Tasks may write one array or slice at once only when each writes elements no other can reach, and the compiler can see that only for x[i], or a window such as x[i*k:(i+1)*k] or x[i:i+k], where i is the variable of the loop that starts them (each task takes its own i), or for x[:m] and x[m:].", compat.ArgS(verb(x)), compat.ArgS(place), compat.ArgS(fc.accWhere(x)))
 		d.Fix = pu.New(diag.Fix{Intro: "Index by the loop variable", Code: compat.Concat(q.task.Scope.Var.Name(), ".Task(func() { out[i] = f(i) })")})
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "Or give each task a window and index within it", Code: "row := out[i*w : (i+1)*w]"}), pu.New(diag.Fix{Intro: "Or send the results on a channel and store them in the function that starts the tasks."})})
 	case c.self:
 		d = diag.New(fc.a.pos(x.pos), diag.ScopeRace, "%s is written by %s at the same time as each other", pu.Box(place), pu.Box(fc.partyName(p, true)))
-		d.Text = compat.Sprintf("Each call of %s.Task at %s starts a task, and they run at the same time. Each %s %s (%s), and another %s it (%s). Two tasks using one place at once, one of them writing, is a data race: an update can be lost, and a value larger than a word can be read half written.",
-			p.task.Scope.Var.Name(), fc.a.short(p.task.Call.Pos()), verb(x), place, fc.accWhere(x), verb(y), fc.accWhere(y))
+		d.Text = compat.Sprintfb("Each call of %s.Task at %s starts a task, and they run at the same time. Each %s %s (%s), and another %s it (%s). Two tasks using one place at once, one of them writing, is a data race: an update can be lost, and a value larger than a word can be read half written.",
+			compat.ArgS(p.task.Scope.Var.Name()), compat.ArgS(fc.a.short(p.task.Call.Pos())), compat.ArgS(verb(x)), compat.ArgS(place), compat.ArgS(fc.accWhere(x)), compat.ArgS(verb(y)), compat.ArgS(fc.accWhere(y)))
 		fc.aliasText(d, c)
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Lock a mutex around every use of %s", place), Code: "mu.Lock()\n...\nmu.Unlock()"})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Lock a mutex around every use of %s", compat.ArgS(place)), Code: "mu.Lock()\n...\nmu.Unlock()"})
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "Or, for a number, use an atomic type such as atomic.Int64."}), pu.New(diag.Fix{Intro: "Or give each task its own element: results[i] = ..., where i is the loop variable."})})
 	default:
 		d = diag.New(fc.a.pos(x.pos), diag.ScopeRace, "%s is written by %s while %s uses it", pu.Box(place), pu.Box(fc.partyName(p, false)), pu.Box(fc.partyName(q, false)))
-		d.Text = compat.Sprintf("%s %s %s at %s, and %s %s %s at %s. The two tasks may run at the same time, one of them writing, which is a data race.",
-			capitalize(fc.partyName(p, false)), verb(x), place, fc.accWhere(x), fc.partyName(q, false), verb(y), fc.placeName(y.place), fc.accWhere(y))
+		d.Text = compat.Sprintfb("%s %s %s at %s, and %s %s %s at %s. The two tasks may run at the same time, one of them writing, which is a data race.",
+			compat.ArgS(capitalize(fc.partyName(p, false))), compat.ArgS(verb(x)), compat.ArgS(place), compat.ArgS(fc.accWhere(x)), compat.ArgS(fc.partyName(q, false)), compat.ArgS(verb(y)), compat.ArgS(fc.placeName(y.place)), compat.ArgS(fc.accWhere(y)))
 		fc.aliasText(d, c)
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Lock a mutex around every use of %s", place), Code: "mu.Lock()\n...\nmu.Unlock()"})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Lock a mutex around every use of %s", compat.ArgS(place)), Code: "mu.Lock()\n...\nmu.Unlock()"})
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "Or, for a number, use an atomic type such as atomic.Int64."})})
 	}
 	fc.a.add(key, d)
@@ -175,8 +175,8 @@ func (fc *frameCheck) aliasText(d *diag.Diagnostic, c conflictRec) {
 	if !c.alias {
 		return
 	}
-	d.Text = compat.Concat(d.Text, compat.Sprintf("\n%s and %s are reached through different views, which may point to the same memory: the compiler cannot tell where the memory they look at comes from, and both may hold values of type %s. Two slices of one type are accepted when the task uses each only as x[i], with the same loop variable i: the program then checks, before each task starts, that the slices start at the same element or do not overlap.",
-		fc.placeName(c.x.place), fc.placeName(c.y.place), types2.TypeString(c.x.typ, fc.a.qualifier)))
+	d.Text = compat.Concat(d.Text, compat.Sprintfb("\n%s and %s are reached through different views, which may point to the same memory: the compiler cannot tell where the memory they look at comes from, and both may hold values of type %s. Two slices of one type are accepted when the task uses each only as x[i], with the same loop variable i: the program then checks, before each task starts, that the slices start at the same element or do not overlap.",
+		compat.ArgS(fc.placeName(c.x.place)), compat.ArgS(fc.placeName(c.y.place)), compat.ArgS(types2.TypeString(c.x.typ, fc.a.qualifier))))
 }
 
 // trimElem cuts a path after its last element step, for naming the array
@@ -208,9 +208,9 @@ func (fc *frameCheck) checkTakenWrites(p *party) {
 		}
 		name := v.Name()
 		d := diag.New(fc.a.pos(x.pos), diag.ScopeTakenWrite, "the task started at %s changes %s, but has its own copy of it, so the change is not seen at %s", pu.Box(fc.a.short(p.task.Call.Pos())), pu.Box(name), pu.Box(fc.a.short(use.Pos())))
-		d.Text = compat.Sprintf("%s is declared in a block that may end before %s waits for the task (%s), so the task takes its own copy of %s when %s.Task runs, as each iteration of a Go loop has its own variables. The task changes its copy at %s, and %s uses %s again at %s, where it still holds its old value.",
-			name, p.task.Scope.Var.Name(), fc.a.short(v.Pos()), name, p.task.Scope.Var.Name(), fc.a.short(x.pos), fc.starter.name, name, fc.a.short(use.Pos()))
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("If only the task needs %s, declare it inside the function literal; if %s needs the result, give each task its own element of a variable declared before the loop", name, fc.starter.name), Code: "results[i] = ..."})
+		d.Text = compat.Sprintfb("%s is declared in a block that may end before %s waits for the task (%s), so the task takes its own copy of %s when %s.Task runs, as each iteration of a Go loop has its own variables. The task changes its copy at %s, and %s uses %s again at %s, where it still holds its old value.",
+			compat.ArgS(name), compat.ArgS(p.task.Scope.Var.Name()), compat.ArgS(fc.a.short(v.Pos())), compat.ArgS(name), compat.ArgS(p.task.Scope.Var.Name()), compat.ArgS(fc.a.short(x.pos)), compat.ArgS(fc.starter.name), compat.ArgS(name), compat.ArgS(fc.a.short(use.Pos())))
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("If only the task needs %s, declare it inside the function literal; if %s needs the result, give each task its own element of a variable declared before the loop", compat.ArgS(name), compat.ArgS(fc.starter.name)), Code: "results[i] = ..."})
 		fc.a.add(compat.Sprintf("taken|%d|%p", p.idx, v), d)
 	}
 }
@@ -263,8 +263,8 @@ func (fc *frameCheck) reportConc(c concCall, x *frameAcc) {
 		at = c.f.lit.Pos()
 	}
 	d := diag.New(fc.a.pos(at), diag.ScopeConcurrentCall, "%s calls %s from several tasks at once, and %s writes %s", pu.Box(c.name), pu.Box(c.param), pu.Box(what), pu.Box(place))
-	d.Text = compat.Sprintf("%s starts tasks that call %s, several at the same time. %s writes %s at %s with no lock held, so the calls would write it at the same time: a data race.",
-		c.name, c.param, capitalize(strings.TrimSuffix(what, ",")), place, fc.accWhere(x))
+	d.Text = compat.Sprintfb("%s starts tasks that call %s, several at the same time. %s writes %s at %s with no lock held, so the calls would write it at the same time: a data race.",
+		compat.ArgS(c.name), compat.ArgS(c.param), compat.ArgS(capitalize(strings.TrimSuffix(what, ","))), compat.ArgS(place), compat.ArgS(fc.accWhere(x)))
 	d.Fix = pu.New(diag.Fix{Intro: "Use an atomic type for it, or lock a mutex around the write", Code: "mu.Lock()\n...\nmu.Unlock()"})
 	fc.a.add(compat.Sprintf("conc|%d|%p", c.pos, c.f), d)
 }

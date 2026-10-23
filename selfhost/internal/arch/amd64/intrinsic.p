@@ -3,7 +3,6 @@
 package amd64
 
 import (
-	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
@@ -143,7 +142,7 @@ func (s *isel) intrinsic(v *ssa.Value) error {
 		s.emit(pu.New(MInst{Op: MFXRSTOR, Src: MemOp(s.addr(args[0]))}))
 
 	default:
-		return fmt.Errorf("amd64: unknown intrinsic %q", name)
+		return compat.NewError(compat.Sprintfb("amd64: unknown intrinsic %q", compat.ArgS(string(name))))
 	}
 
 	for _, b := range s.f.Blocks {

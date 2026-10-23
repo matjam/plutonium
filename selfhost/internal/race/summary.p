@@ -262,7 +262,7 @@ type spawn struct {
 
 func (s *spawn) key() string {
 	b := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(b, "%d|", s.pos)
+	compat.Fprintfb(b, "%d|", compat.ArgI(int64(s.pos)))
 	for _, o := range s.root {
 		b.WriteString(compat.Concat(o.vp.key(), ";"))
 	}
@@ -273,7 +273,7 @@ func (s *spawn) key() string {
 		}
 		b.WriteString("/")
 	}
-	fmt.Fprintf(b, "|%v|%v|%v", s.multi, s.handler, s.trap)
+	compat.Fprintfb(b, "|%v|%v|%v", compat.ArgB(s.multi), compat.ArgB(s.handler), compat.ArgB(s.trap))
 	return b.String()
 }
 
@@ -291,7 +291,7 @@ type crossing struct {
 
 func (c *crossing) key() string {
 	b := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(b, "%d|%s|", c.pos, c.what)
+	compat.Fprintfb(b, "%d|%s|", compat.ArgI(int64(c.pos)), compat.ArgS(c.what))
 	for _, o := range c.vals {
 		b.WriteString(compat.Concat(o.vp.key(), o.tag, ";"))
 	}

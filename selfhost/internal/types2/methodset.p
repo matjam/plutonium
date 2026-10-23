@@ -9,7 +9,6 @@
 package types2
 
 import (
-	"pluto/fmt"
 	"pluto/sort"
 	"selfhost/compat"
 	"selfhost/pu"
@@ -28,11 +27,11 @@ func (s *MethodSet) String() string {
 	}
 
 	buf := pu.Alloc[compat.Builder]()
-	fmt.Fprintln(buf, "MethodSet {")
+	compat.Fprintfb(buf, "%v\n", compat.ArgS("MethodSet {"))
 	for _, f := range s.list {
-		fmt.Fprintf(buf, "\t%s\n", f)
+		compat.Fprintfb(buf, "\t%s\n", compat.ArgS(compat.StringOf(f)))
 	}
-	fmt.Fprintln(buf, "}")
+	compat.Fprintfb(buf, "%v\n", compat.ArgS("}"))
 	return buf.String()
 }
 

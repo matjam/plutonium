@@ -85,45 +85,45 @@ func dumpFile(out *compat.Buffer, name string, src []byte) {
 func dump(out *compat.Buffer, name string, src []byte, mode parser.Mode) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, name, pu.Box(src), mode)
-	fmt.Fprintf(out, "file %s mode %d size %d\n", name, int(mode), len(src))
+	compat.Fprintfb(out, "file %s mode %d size %d\n", compat.ArgS(name), compat.ArgI(int64(int(mode))), compat.ArgI(int64(len(src))))
 	if err != nil {
 		if list, ok := err.(*scanner.ErrorList); ok {
-			fmt.Fprintf(out, "errors %d\n", len(*list))
+			compat.Fprintfb(out, "errors %d\n", compat.ArgI(int64(len(*list))))
 			for _, e := range *list {
-				fmt.Fprintf(out, "error %d:%d (offset %d): %s\n", e.Pos.Line, e.Pos.Column, e.Pos.Offset, e.Msg)
+				compat.Fprintfb(out, "error %d:%d (offset %d): %s\n", compat.ArgI(int64(e.Pos.Line)), compat.ArgI(int64(e.Pos.Column)), compat.ArgI(int64(e.Pos.Offset)), compat.ArgS(e.Msg))
 			}
 		} else {
-			fmt.Fprintf(out, "error: %s\n", err.Error())
+			compat.Fprintfb(out, "error: %s\n", compat.ArgS(err.Error()))
 		}
 	}
 	if f == nil {
 		fmt.Fprintf(out, "no tree\n")
 		return
 	}
-	fmt.Fprintf(out, "start %d end %d goversion %q imports %d\n", int(f.FileStart), int(f.FileEnd), f.GoVersion, len(f.Imports))
+	compat.Fprintfb(out, "start %d end %d goversion %q imports %d\n", compat.ArgI(int64(int(f.FileStart))), compat.ArgI(int64(int(f.FileEnd))), compat.ArgS(f.GoVersion), compat.ArgI(int64(len(f.Imports))))
 	depth := 0
 	ast.Inspect(f, func(n ast.Node) bool {
 		if n == nil {
 			depth--
 			return true
 		}
-		fmt.Fprintf(out, "%d ", depth)
+		compat.Fprintfb(out, "%d ", compat.ArgI(int64(depth)))
 		depth++
 		start := fset.Position(n.Pos())
 		end := fset.Position(n.End())
-		fmt.Fprintf(out, "%s %d:%d-%d:%d [%d-%d]%s\n", kind(n), start.Line, start.Column, end.Line, end.Column, int(n.Pos()), int(n.End()), detail(n))
+		compat.Fprintfb(out, "%s %d:%d-%d:%d [%d-%d]%s\n", compat.ArgS(kind(n)), compat.ArgI(int64(start.Line)), compat.ArgI(int64(start.Column)), compat.ArgI(int64(end.Line)), compat.ArgI(int64(end.Column)), compat.ArgI(int64(int(n.Pos()))), compat.ArgI(int64(int(n.End()))), compat.ArgS(detail(n)))
 		return true
 	})
 	for _, g := range f.Comments {
 		start := fset.Position(g.Pos())
-		fmt.Fprintf(out, "comment group %d:%d %d comments, %d bytes\n", start.Line, start.Column, len(g.List), len(g.Text()))
+		compat.Fprintfb(out, "comment group %d:%d %d comments, %d bytes\n", compat.ArgI(int64(start.Line)), compat.ArgI(int64(start.Column)), compat.ArgI(int64(len(g.List))), compat.ArgI(int64(len(g.Text()))))
 		for _, c := range g.List {
 			cs := fset.Position(c.Pos())
-			fmt.Fprintf(out, "  comment %d:%d-%d %q\n", cs.Line, cs.Column, int(c.End()), c.Text)
+			compat.Fprintfb(out, "  comment %d:%d-%d %q\n", compat.ArgI(int64(cs.Line)), compat.ArgI(int64(cs.Column)), compat.ArgI(int64(int(c.End()))), compat.ArgS(c.Text))
 		}
 	}
 	for _, imp := range f.Imports {
-		fmt.Fprintf(out, "import %s\n", imp.Path.Value)
+		compat.Fprintfb(out, "import %s\n", compat.ArgS(imp.Path.Value))
 	}
 }
 
@@ -134,7 +134,7 @@ func detail(n ast.Node) string {
 	case *ast.Ident:
 		return compat.Concat(" name=", n.Name)
 	case *ast.BasicLit:
-		return compat.Sprintf(" %s %q", n.Kind.String(), n.Value)
+		return compat.Sprintfb(" %s %q", compat.ArgS(n.Kind.String()), compat.ArgS(n.Value))
 	case *ast.BinaryExpr:
 		return compat.Concat(" op=", n.Op.String())
 	case *ast.UnaryExpr:
@@ -148,7 +148,7 @@ func detail(n ast.Node) string {
 	case *ast.GenDecl:
 		return compat.Concat(" tok=", n.Tok.String())
 	case *ast.Comment:
-		return compat.Sprintf(" %q", n.Text)
+		return compat.Sprintfb(" %q", compat.ArgS(n.Text))
 	}
 	return ""
 }

@@ -3,7 +3,6 @@
 package diag
 
 import (
-	"pluto/fmt"
 	"pluto/io"
 	"pluto/strings"
 	"selfhost/compat"
@@ -59,7 +58,7 @@ func (p *Printer) Print(err error) {
 		}
 	default:
 		p.separate()
-		_, _ = fmt.Fprintln(p.W, strings.TrimRight(err.Error(), "\n"))
+		_, _ = compat.Fprintfb(p.W, "%v\n", compat.ArgS(strings.TrimRight(err.Error(), "\n")))
 	}
 }
 
@@ -73,7 +72,7 @@ func (p *Printer) separate() {
 
 func (p *Printer) diagnostic(d *Diagnostic) {
 	p.separate()
-	_, _ = fmt.Fprintln(p.W, d.Error())
+	_, _ = compat.Fprintfb(p.W, "%v\n", compat.ArgS(d.Error()))
 	if p.Brief {
 		return
 	}
@@ -85,7 +84,7 @@ func (p *Printer) diagnostic(d *Diagnostic) {
 		p.seen = map[string]Code{}
 	}
 	if _, ok := p.seen[body]; ok {
-		_, _ = fmt.Fprintf(p.W, "%s(explained above; run \"pluto explain %s\" for more)\n", indent, d.Code)
+		_, _ = compat.Fprintfb(p.W, "%s(explained above; run \"pluto explain %s\" for more)\n", compat.ArgS(indent), compat.ArgS(string(d.Code)))
 		return
 	}
 	p.seen[body] = d.Code
@@ -123,7 +122,7 @@ func Explanation(d *Diagnostic) string {
 		writeParas(b, compat.Concat("(see ", e.Spec, ")"), indent, width)
 	}
 	if e != nil {
-		fmt.Fprintf(b, "%s(run \"pluto explain %s\" for a longer explanation)\n", indent, d.Code)
+		compat.Fprintfb(b, "%s(run \"pluto explain %s\" for a longer explanation)\n", compat.ArgS(indent), compat.ArgS(string(d.Code)))
 	}
 	return b.String()
 }

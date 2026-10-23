@@ -689,5 +689,5 @@ func (im *sourceImporter) Import(p string) (*types2.Package, error) {
 	if dep := im.l.packages[p]; dep != nil {
 		return dep.Types, nil
 	}
-	return nil, fmt.Errorf("package %q not loaded", p)
+	return nil, compat.NewError(compat.Sprintfb("package %q not loaded", compat.ArgS(p)))
 }

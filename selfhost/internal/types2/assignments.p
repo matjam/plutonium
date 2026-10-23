@@ -357,7 +357,7 @@ func measure(x int, unit string) string {
 	if x != 1 {
 		unit = compat.Concat(unit, "s")
 	}
-	return compat.Sprintf("%d %s", x, unit)
+	return compat.Sprintfb("%d %s", compat.ArgI(int64(x)), compat.ArgS(unit))
 }
 
 func (check *Checker) assignError(rhs []ast.Expr, l, r int) {

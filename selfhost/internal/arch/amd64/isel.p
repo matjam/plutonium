@@ -516,7 +516,7 @@ func (s *isel) reg(v *ssa.Value) Reg {
 		return r
 	}
 	if !isLazy(v) {
-		panic(pu.Box(compat.Sprintf("amd64: %s used before it was emitted", v.LongString())))
+		panic(pu.Box(compat.Sprintfb("amd64: %s used before it was emitted", compat.ArgS(v.LongString()))))
 	}
 	switch v.Op {
 	case ssa.OpConst:
@@ -619,7 +619,7 @@ func (s *isel) constMem(lo, hi uint64) Mem {
 		if s.mf.constSyms == nil {
 			s.mf.constSyms = map[[16]byte]*ssa.Sym{}
 		}
-		sym = pu.New(ssa.Sym{Name: compat.Sprintf("pluto.const.%016x%016x", hi, lo), Kind: ssa.SymData})
+		sym = pu.New(ssa.Sym{Name: compat.Sprintfb("pluto.const.%016x%016x", compat.ArgU(hi), compat.ArgU(lo)), Kind: ssa.SymData})
 		s.mf.constSyms[b] = sym
 		s.mf.consts = compat.Append(s.mf.consts, Const{Sym: sym, Bytes: b})
 	}
@@ -880,7 +880,7 @@ func (s *isel) def(v *ssa.Value) Reg {
 
 func (s *isel) value(v *ssa.Value) error {
 	if s.noSSE && needsSSE(v) {
-		return fmt.Errorf("amd64: %s: %s needs SSE, which this function may not use (kernel mode without //pu:fpu)", s.f.Name, v.LongString())
+		return compat.NewError(compat.Sprintfb("amd64: %s: %s needs SSE, which this function may not use (kernel mode without //pu:fpu)", compat.ArgS(s.f.Name), compat.ArgS(v.LongString())))
 	}
 	if isLazy(v) || s.fused[v.ID] || s.folded[v.ID] {
 		return nil
@@ -1092,11 +1092,11 @@ func (s *isel) value(v *ssa.Value) error {
 		}
 		// Result registers were copied out by the call.
 		if s.vregs[v.ID] == NoReg {
-			return fmt.Errorf("amd64: %s: result not produced by its call", v.LongString())
+			return compat.NewError(compat.Sprintfb("amd64: %s: result not produced by its call", compat.ArgS(v.LongString())))
 		}
 
 	default:
-		return fmt.Errorf("amd64: cannot select %s", v.LongString())
+		return compat.NewError(compat.Sprintfb("amd64: cannot select %s", compat.ArgS(v.LongString())))
 	}
 	return nil
 }

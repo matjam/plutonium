@@ -312,7 +312,7 @@ func (cmap CommentMap) String() string {
 	})
 
 	buf := pu.Alloc[compat.Builder]()
-	fmt.Fprintln(buf, "CommentMap {")
+	compat.Fprintfb(buf, "%v\n", compat.ArgS("CommentMap {"))
 	for _, node := range nodes {
 		comment := cmap[node]
 		// print name of identifiers; print node type for other nodes
@@ -324,6 +324,6 @@ func (cmap CommentMap) String() string {
 		}
 		fmt.Fprintf(buf, "\t%p  %20s:  %s\n", node, s, summary(comment))
 	}
-	fmt.Fprintln(buf, "}")
+	compat.Fprintfb(buf, "%v\n", compat.ArgS("}"))
 	return buf.String()
 }

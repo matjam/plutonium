@@ -3,7 +3,6 @@
 package race
 
 import (
-	"pluto/fmt"
 	"pluto/sort"
 	"pluto/strings"
 	"selfhost/compat"
@@ -128,9 +127,9 @@ type cpuUse struct {
 }
 
 func (u *cpuUse) key() string {
-	k := compat.Sprintf("%d|%d|%d|%s|%v", u.pos, u.class, u.tag, u.reason, u.lone)
+	k := compat.Sprintfb("%d|%d|%d|%s|%v", compat.ArgI(int64(u.pos)), compat.ArgU(uint64(u.class)), compat.ArgI(int64(u.tag)), compat.ArgS(u.reason), compat.ArgB(u.lone))
 	if u.dep != nil {
-		k = compat.Concat(k, compat.Concat("|dep|", u.own.String(), "|", compat.Sprint(u.unspan, u.task)))
+		k = compat.Concat(k, compat.Concat("|dep|", u.own.String(), "|", compat.Sprintfb("%v %v", compat.ArgB(u.unspan), compat.ArgB(u.task))))
 		for _, sp := range u.spans {
 			k = compat.Concat(k, compat.Concat("|", sp.String()))
 		}
@@ -694,9 +693,9 @@ func (w *walker) cpuSink(val origins, pos token.Pos, how string) {
 func (a *analyzer) pointerEscapes(pos token.Pos, v *types2.Var, how string) {
 	name := v.Name()
 	d := diag.New(a.pos(pos), diag.CheckerCode(typerr.PerCPUPointer), "a pointer to the per-CPU variable %s is %s, outside the region it was taken in", pu.Box(name), pu.Box(how))
-	d.Text = compat.Sprintf("%s has one copy for each processor, and &%s points to the copy of the processor that runs this code now. The pointer is good only while the task cannot move to another processor, so it may be kept only in local variables and used only inside the region it was taken in (preemption or interrupts disabled, or an rt.Lock held). Here it is %s, where it can be used after the region ends or by another task.", name, name, how)
+	d.Text = compat.Sprintfb("%s has one copy for each processor, and &%s points to the copy of the processor that runs this code now. The pointer is good only while the task cannot move to another processor, so it may be kept only in local variables and used only inside the region it was taken in (preemption or interrupts disabled, or an rt.Lock held). Here it is %s, where it can be used after the region ends or by another task.", compat.ArgS(name), compat.ArgS(name), compat.ArgS(how))
 	d.Fix = pu.New(diag.Fix{Intro: "Use the variable by name inside the region, or copy the value out and keep the copy", Code: compat.Concat("rt.DisablePreemption()\ntotal := ", name, "\nrt.EnablePreemption()")})
-	a.add(compat.Sprintf("cpuptr|%d", pos), d)
+	a.add(compat.Sprintfb("cpuptr|%d", compat.ArgI(int64(pos))), d)
 }
 
 // ----------------------------------------------------------------------------
@@ -734,23 +733,23 @@ func (a *analyzer) checkPerCPU(uses []*cpuEntry, groups []*group) {
 			if x.locks.regionHeld(len(hs) > 0) && u.spanned(x.locks, len(hs) > 0) {
 				continue
 			}
-			a.add(compat.Sprintf("cpuacc|%d", x.pos), a.cpuAccessError(x, hs))
+			a.add(compat.Sprintfb("cpuacc|%d", compat.ArgI(int64(x.pos))), a.cpuAccessError(x, hs))
 		case cpuDeref:
 			if !a.pointerRegionHeld(x) {
-				a.add(compat.Sprintf("cpuptr|%d", x.pos), a.cpuDerefError(x, handlers[u.v]))
+				a.add(compat.Sprintfb("cpuptr|%d", compat.ArgI(int64(x.pos))), a.cpuDerefError(x, handlers[u.v]))
 				continue
 			}
 			// The region bounds the pointer; a handler that uses the
 			// variable also needs interrupts disabled, as for a use by name.
 			if hs := handlers[u.v]; len(hs) > 0 && !u.lone && !x.locks.regionHeld(true) {
-				a.add(compat.Sprintf("cpuacc|%d", x.pos), a.cpuAccessError(x, hs))
+				a.add(compat.Sprintfb("cpuacc|%d", compat.ArgI(int64(x.pos))), a.cpuAccessError(x, hs))
 				continue
 			}
 			// A store whose value or condition depends on a load of the
 			// variable needs the load in the same region.
 			irq := len(handlers[u.v]) > 0
 			if u.dep != nil && (!x.locks.regionHeld(irq) || !u.spanned(x.locks, irq)) {
-				a.add(compat.Sprintf("cpuacc|%d", x.pos), a.cpuAccessError(x, handlers[u.v]))
+				a.add(compat.Sprintfb("cpuacc|%d", compat.ArgI(int64(x.pos))), a.cpuAccessError(x, handlers[u.v]))
 			}
 		}
 	}
@@ -801,18 +800,18 @@ func (a *analyzer) cpuAccessError(x *access, handlers []string) *diag.Diagnostic
 		reason = "an access other than a lone load or store of the whole variable"
 	}
 	b := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(b, "%s has one copy for each processor. This is %s, so the task could move to another processor in the middle of it and read one processor's copy and write another's.", name, reason)
+	compat.Fprintfb(b, "%s has one copy for each processor. This is %s, so the task could move to another processor in the middle of it and read one processor's copy and write another's.", compat.ArgS(name), compat.ArgS(reason))
 	if u.task {
 		b.WriteString(compat.Concat(" The task runs later and on any processor, so no region held here covers its store: the task could not have read the value it stores from this processor's copy at the moment it stores it. Pass the task what it needs without loading ", name, " first, or load and store inside the task, in one region."))
 	} else if apart {
 		b.WriteString(" The store is inside a region, but the load it depends on was made outside that region (or in an earlier one), so the task could have moved between the two. The load and the store must be inside the same region.")
 	} else if len(handlers) > 0 {
-		fmt.Fprintf(b, " The interrupt handler %s also uses %s, so an interrupt on this processor could run in the middle of it as well: it must be inside a region with maskable interrupts disabled (x86.Cli to x86.Sti, x86.SaveFlagsCli to x86.RestoreFlags, or an rt.Lock held), not just with preemption disabled.", compat.Join(handlers, " and "), name)
+		compat.Fprintfb(b, " The interrupt handler %s also uses %s, so an interrupt on this processor could run in the middle of it as well: it must be inside a region with maskable interrupts disabled (x86.Cli to x86.Sti, x86.SaveFlagsCli to x86.RestoreFlags, or an rt.Lock held), not just with preemption disabled.", compat.ArgS(compat.Join(handlers, " and ")), compat.ArgS(name))
 	} else {
 		b.WriteString(" It must be inside a region where the task cannot move: preemption disabled (rt.DisablePreemption to rt.EnablePreemption), maskable interrupts disabled, or an rt.Lock held.")
 	}
 	if u.dep != nil && u.dep.opaque != "" {
-		fmt.Fprintf(b, " The dependence passes through a call of %s, whose body the analysis cannot see; it assumes that the result of such a call depends on all of its arguments, and rejects the store when it cannot tell.", u.dep.opaque)
+		compat.Fprintfb(b, " The dependence passes through a call of %s, whose body the analysis cannot see; it assumes that the result of such a call depends on all of its arguments, and rejects the store when it cannot tell.", compat.ArgS(u.dep.opaque))
 	}
 	if u.dep != nil {
 		b.WriteString(" A lone load or store of a whole variable of at most a machine word is allowed anywhere, as long as the store does not depend on a load of the same variable.")
@@ -855,23 +854,23 @@ func (a *analyzer) depReason(ds *cpuDepSite) string {
 	name := a.cpuName(ds.v)
 	var from string
 	if l.call != nil {
-		from = compat.Sprintf("the call of %s at %s, which loads %s", l.callee, a.short(l.pos), name)
+		from = compat.Sprintfb("the call of %s at %s, which loads %s", compat.ArgS(l.callee), compat.ArgS(a.short(l.pos)), compat.ArgS(name))
 	} else {
-		from = compat.Sprintf("the load of %s at %s", name, a.short(l.pos))
+		from = compat.Sprintfb("the load of %s at %s", compat.ArgS(name), compat.ArgS(a.short(l.pos)))
 	}
 	switch {
 	case ds.callee != "":
-		return compat.Sprintf("a call of %s, which stores %s, from a value or under a condition that depends on %s", ds.callee, name, from)
+		return compat.Sprintfb("a call of %s, which stores %s, from a value or under a condition that depends on %s", compat.ArgS(ds.callee), compat.ArgS(name), compat.ArgS(from))
 	case ds.data:
-		return compat.Sprintf("a store of a value that depends on %s", from)
+		return compat.Sprintfb("a store of a value that depends on %s", compat.ArgS(from))
 	}
-	return compat.Sprintf("a store controlled by a condition that depends on %s", from)
+	return compat.Sprintfb("a store controlled by a condition that depends on %s", compat.ArgS(from))
 }
 
 func (a *analyzer) cpuDerefError(x *access, handlers []string) *diag.Diagnostic {
 	name := a.cpuName(x.cpu.v)
 	d := diag.New(a.pos(x.pos), diag.CheckerCode(typerr.PerCPUPointer), "a pointer to the per-CPU variable %s is used outside the region it was taken in", pu.Box(name))
-	d.Text = compat.Sprintf("%s has one copy for each processor, and &%s points to the copy of the processor that ran the code that took it. Here the pointer is used where the region it was taken in (preemption or interrupts disabled, or an rt.Lock held) is no longer held, so the task may have moved to another processor and the pointer reaches that processor's copy while another task or an interrupt handler uses it.", name, name)
+	d.Text = compat.Sprintfb("%s has one copy for each processor, and &%s points to the copy of the processor that ran the code that took it. Here the pointer is used where the region it was taken in (preemption or interrupts disabled, or an rt.Lock held) is no longer held, so the task may have moved to another processor and the pointer reaches that processor's copy while another task or an interrupt handler uses it.", compat.ArgS(name), compat.ArgS(name))
 	d.Fix = pu.New(diag.Fix{Intro: "Use the pointer only inside the region it was taken in, or take the address again where it is needed"})
 	return d
 }

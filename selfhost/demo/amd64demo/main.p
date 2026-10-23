@@ -31,7 +31,7 @@ func main() {
 		fmt.Printf("== %s: %d bytes\n", code.Sym, len(code.Bytes))
 		for i := 0; i < len(code.Bytes); i += 32 {
 			for _, b := range code.Bytes[i:min(i+32, len(code.Bytes))] {
-				fmt.Printf("%02x", b)
+				compat.Printfb("%02x", compat.ArgU(uint64(b)))
 			}
 			fmt.Println()
 		}
@@ -41,11 +41,11 @@ func main() {
 		for _, c := range code.Consts {
 			fmt.Printf("const %s", c.Sym)
 			for _, b := range c.Bytes {
-				fmt.Printf(" %02x", b)
+				compat.Printfb(" %02x", compat.ArgU(uint64(b)))
 			}
 			fmt.Println()
 		}
-		fmt.Print(code.Asm)
+		compat.Printfb("%v", compat.ArgS(code.Asm))
 	}
 }
 

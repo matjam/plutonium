@@ -57,9 +57,9 @@ func (l *Lowerer) findPanicHandler() {
 		first := found[0]
 		for _, d := range found[1:] {
 			l.report(d.decl.Name.Pos(), pu.New(diag.Diagnostic{Code: diag.DupPanicHandler,
-				Msg: compat.Sprintf("%s is a second panic handler", d.obj.Name()),
-				Text: compat.Sprintf("A program has exactly one panic handler, and %s (%s) is already marked //pu:panic. "+
-					"Remove //pu:panic from all but one of them.", first.obj.Name(), l.shortPos(first.decl.Name.Pos()))}))
+				Msg: compat.Sprintfb("%s is a second panic handler", compat.ArgS(d.obj.Name())),
+				Text: compat.Sprintfb("A program has exactly one panic handler, and %s (%s) is already marked //pu:panic. "+
+					"Remove //pu:panic from all but one of them.", compat.ArgS(first.obj.Name()), compat.ArgS(l.shortPos(first.decl.Name.Pos())))}))
 		}
 	case l.cfg.Freestanding:
 		mode, what := "freestanding", "A freestanding build"
@@ -95,7 +95,7 @@ func (l *Lowerer) checkPanicDecl(fd *ast.FuncDecl, fn *types2.Func) bool {
 		return true
 	}
 	l.report(fd.Name.Pos(), pu.New(diag.Diagnostic{Code: diag.PanicHandlerDecl,
-		Msg: compat.Sprintf("%s cannot be the panic handler: %s", name, why),
+		Msg: compat.Sprintfb("%s cannot be the panic handler: %s", compat.ArgS(name), compat.ArgS(why)),
 		Text: "The runtime calls the panic handler, the function marked //pu:panic, with a description of the " +
 			"panic, and never expects it to return. It is a plain function with a body, not a method, not " +
 			"generic and not also an interrupt handler, that takes a *rt.Panic and returns nothing.",
@@ -134,7 +134,7 @@ func (s *fnState) callPanicHandler(e *ast.CallExpr) []value {
 // explanatory errors name places.
 func (l *Lowerer) shortPos(pos token.Pos) string {
 	p := l.fset.Position(pos)
-	return compat.Sprintf("%s:%d", filepath.Base(p.Filename), p.Line)
+	return compat.Sprintfb("%s:%d", compat.ArgS(filepath.Base(p.Filename)), compat.ArgI(int64(p.Line)))
 }
 
 // checkPanicHandler checks that the panic handler cannot return: every
@@ -159,7 +159,7 @@ func (l *Lowerer) checkPanicHandler() {
 	}
 	name := l.panicFn.Name()
 	l.report(pos, pu.New(diag.Diagnostic{Code: diag.PanicHandlerRet,
-		Msg: compat.Sprintf("%s is the panic handler, so it must never return", name),
+		Msg: compat.Sprintfb("%s is the panic handler, so it must never return", compat.ArgS(name)),
 		Text: compat.Concat("A panic stops the program: it does not unwind, so there is nothing for the handler to return to. "+
 			"Every path through it must end in an endless loop, or in a call of a function that never returns, "+
 			"such as os.Exit, or a function whose every path ends the same way. "+

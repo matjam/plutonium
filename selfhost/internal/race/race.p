@@ -54,7 +54,6 @@
 package race
 
 import (
-	"pluto/fmt"
 	"pluto/os"
 	"pluto/slices"
 	"pluto/sort"
@@ -99,7 +98,7 @@ func AnalyzeWith(prog *load.Program, mv *moves.Info) (scoped.Overlaps, error) {
 	a := newAnalyzer(prog)
 	a.moves = mv
 	if debug {
-		fmt.Fprintf(os.Stderr, "race: %d units\n", len(a.units))
+		compat.Fprintfb(os.Stderr, "race: %d units\n", compat.ArgI(int64(len(a.units))))
 	}
 	a.callGraph()
 	if !a.mayStartTasks() {
@@ -556,7 +555,7 @@ func (a *analyzer) mayStartTasks() bool {
 			unitSpawns, installs := a.scanUnit(u)
 			if !spawns && unitSpawns {
 				if debug {
-					fmt.Fprintf(os.Stderr, "race: %s may start a task\n", u.fns[len(u.fns)-1].name)
+					compat.Fprintfb(os.Stderr, "race: %s may start a task\n", compat.ArgS(u.fns[len(u.fns)-1].name))
 				}
 				spawns = true
 			}
@@ -728,7 +727,7 @@ func (a *analyzer) run() {
 					}
 					if debug {
 						f := u.fns[len(u.fns)-1]
-						fmt.Fprintf(os.Stderr, "race: round %d pass %d changed %s (%d accesses, %d edges, %d spawns, %d crossings, %d calls; %d type accesses)\n", round, pass, f.name, len(f.sum.accesses), len(f.sum.edges), len(f.sum.spawns), len(f.sum.cross), len(f.sum.calls), len(a.typeSeen))
+						compat.Fprintfb(os.Stderr, "race: round %d pass %d changed %s (%d accesses, %d edges, %d spawns, %d crossings, %d calls; %d type accesses)\n", compat.ArgI(int64(round)), compat.ArgI(int64(pass)), compat.ArgS(f.name), compat.ArgI(int64(len(f.sum.accesses))), compat.ArgI(int64(len(f.sum.edges))), compat.ArgI(int64(len(f.sum.spawns))), compat.ArgI(int64(len(f.sum.cross))), compat.ArgI(int64(len(f.sum.calls))), compat.ArgI(int64(len(a.typeSeen))))
 					}
 					for _, c := range callers[u] {
 						dirty[c] = true

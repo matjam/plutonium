@@ -195,10 +195,10 @@ func (l *Lowerer) reportInitAlloc(g *callGraph, r initRoot, n *ctxNode, last *ho
 	var who, subject, fix string
 	switch {
 	case r.decl != nil:
-		who = compat.Sprintf("the init function at %s", l.shortPos(r.decl.Pos()))
+		who = compat.Sprintfb("the init function at %s", compat.ArgS(l.shortPos(r.decl.Pos())))
 		subject = "The init function"
 		if r.pkg != l.prog.Main {
-			who = compat.Sprintf("the init function of package %s (%s)", r.pkg.Types.Name(), l.shortPos(r.decl.Pos()))
+			who = compat.Sprintfb("the init function of package %s (%s)", compat.ArgS(r.pkg.Types.Name()), compat.ArgS(l.shortPos(r.decl.Pos())))
 		}
 		fix = "Do the work of the init function in the program's entry function instead, after it has called alloc.SetDefault."
 	default:
@@ -209,14 +209,14 @@ func (l *Lowerer) reportInitAlloc(g *callGraph, r initRoot, n *ctxNode, last *ho
 		}
 		who = compat.Concat("the initializer of ", name)
 		subject = compat.Concat("The initializer of ", name)
-		fix = compat.Sprintf("Declare %s without an initializer, and set it in the program's entry function after it has called alloc.SetDefault", name)
+		fix = compat.Sprintfb("Declare %s without an initializer, and set it in the program's entry function after it has called alloc.SetDefault", compat.ArgS(name))
 		if v != nil {
-			fix = compat.Concat(fix, compat.Sprintf(":\n\nvar %s %s\n\nfunc kernelMain(...) {\n\talloc.SetDefault(heap)\n\t%s = ...\n}", v.Name(), types2.TypeString(v.Type(), types2.RelativeTo(r.pkg.Types)), v.Name()))
+			fix = compat.Concat(fix, compat.Sprintfb(":\n\nvar %s %s\n\nfunc kernelMain(...) {\n\talloc.SetDefault(heap)\n\t%s = ...\n}", compat.ArgS(v.Name()), compat.ArgS(types2.TypeString(v.Type(), types2.RelativeTo(r.pkg.Types))), compat.ArgS(v.Name())))
 		}
 	}
 	path := compat.Concat(subject, " ", compat.Join(phrases, ", which "), ".")
 	text := compat.Concat("A freestanding program, which every kernel is, has no allocator while its packages are initialized: it installs one in its entry function with alloc.SetDefault. Package initialization runs before that, so an allocation there would have nowhere to come from, and no console to report the failure on.\n", path)
-	d := pu.New(diag.Diagnostic{Code: diag.InitAllocates, Msg: compat.Sprintf("%s allocates, but a freestanding program has no allocator during package initialization", who)})
+	d := pu.New(diag.Diagnostic{Code: diag.InitAllocates, Msg: compat.Sprintfb("%s allocates, but a freestanding program has no allocator during package initialization", compat.ArgS(who))})
 	d.Text = text
 	intro, code, _ := strings.Cut(fix, ":\n\n")
 	d.Fix = pu.New(diag.Fix{Intro: intro, Code: code})

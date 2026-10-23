@@ -170,7 +170,7 @@ func (a *analyzer) typeProblemIn(E types2.Type, seen map[types2.Type]bool) (*wri
 		if bad, w := a.fieldProblem(key); bad != nil {
 			site := pu.New(writeSite{pos: bad.pos, fn: a.funcAt(bad.pos), expr: compat.Concat("its field ", f.Name())})
 			if !bad.write && w != nil {
-				return site, compat.Sprintf("Its field %s is changed at %s (in %s) and read at %s (in %s) without a lock that every change holds.", f.Name(), a.short(w.pos), a.funcAt(w.pos), a.short(bad.pos), a.funcAt(bad.pos))
+				return site, compat.Sprintfb("Its field %s is changed at %s (in %s) and read at %s (in %s) without a lock that every change holds.", compat.ArgS(f.Name()), compat.ArgS(a.short(w.pos)), compat.ArgS(a.funcAt(w.pos)), compat.ArgS(a.short(bad.pos)), compat.ArgS(a.funcAt(bad.pos)))
 			}
 			return site, ""
 		}

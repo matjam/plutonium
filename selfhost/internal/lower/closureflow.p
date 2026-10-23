@@ -1907,9 +1907,9 @@ func (s *fnState) checkLoopRegions(f *closureFlow) {
 		var where string
 		switch {
 		case kept != nil && loop.forStmt.IsValid() && kept.Pos() >= loop.forStmt && kept.Pos() < loop.lo:
-			where = compat.Sprintf("%s, a variable of the for statement (%s), which passes its value on to the next iteration", kept.Name(), s.l.shortPos(kept.Pos()))
+			where = compat.Sprintfb("%s, a variable of the for statement (%s), which passes its value on to the next iteration", compat.ArgS(kept.Name()), compat.ArgS(s.l.shortPos(kept.Pos())))
 		case kept != nil:
-			where = compat.Sprintf("%s, declared outside the loop (%s)", kept.Name(), s.l.shortPos(kept.Pos()))
+			where = compat.Sprintfb("%s, declared outside the loop (%s)", compat.ArgS(kept.Name()), compat.ArgS(s.l.shortPos(kept.Pos())))
 		case f.pool.has(bit):
 			where = "memory reached through a pointer"
 		default:
@@ -1924,15 +1924,15 @@ func (s *fnState) checkLoopRegions(f *closureFlow) {
 		text := ""
 		if loop.label != "" {
 			what = compat.Concat("this run of the loop that goto ", loop.label, " makes")
-			text = compat.Sprintf("The goto at %s jumps back to the label %s, before the call, which makes a loop. ", s.l.shortPos(loop.gotoAt), loop.label)
+			text = compat.Sprintfb("The goto at %s jumps back to the label %s, before the call, which makes a loop. ", compat.ArgS(s.l.shortPos(loop.gotoAt)), compat.ArgS(loop.label))
 		}
-		text = compat.Concat(text, compat.Sprintf("A function that returns a closure builds it in a region its caller provides (spec section 11.5). The region of a call in a loop is part of this frame, and the call uses the same region on every iteration, so the closure %s returns on one iteration is overwritten on the next. Keeping it past the iteration, in %s, would leave it changing under you.", call, where))
+		text = compat.Concat(text, compat.Sprintfb("A function that returns a closure builds it in a region its caller provides (spec section 11.5). The region of a call in a loop is part of this frame, and the call uses the same region on every iteration, so the closure %s returns on one iteration is overwritten on the next. Keeping it past the iteration, in %s, would leave it changing under you.", compat.ArgS(call), compat.ArgS(where)))
 		fix := "\nUse the closure within the iteration, or declare the variable that holds it inside the loop."
 		for _, a := range c.Args {
 			if f.expr(a).has(bit) {
 				// it = Filter(it, f): each closure would hold the one
 				// before, a chain as long as the loop runs.
-				text = compat.Concat(text, compat.Sprintf(" Here the closure is passed back to %s, so each one would hold the one the call made before, in the region the call is about to refill: the chain grows with every iteration, and no region of fixed size can hold it.", shortExpr(c.Fun)))
+				text = compat.Concat(text, compat.Sprintfb(" Here the closure is passed back to %s, so each one would hold the one the call made before, in the region the call is about to refill: the chain grows with every iteration, and no region of fixed size can hold it.", compat.ArgS(shortExpr(c.Fun))))
 				fix = "\nCompose a fixed number of closures, or keep what each step needs in a slice and return one closure that applies every step."
 				break
 			}
@@ -1940,7 +1940,7 @@ func (s *fnState) checkLoopRegions(f *closureFlow) {
 		// Reported only if the callee builds closures (finishRegions).
 		s.l.regionPending = compat.Append(s.l.regionPending, compat.Clone([]regionCand{{key: f.callKey(c), pos: c.Pos(), d: pu.New(diag.Diagnostic{
 			Code: diag.ClosureRegionLoop,
-			Msg:  compat.Sprintf("cannot keep the closure %s returns past %s: it is stored in %s", call, what, where),
+			Msg:  compat.Sprintfb("cannot keep the closure %s returns past %s: it is stored in %s", compat.ArgS(call), compat.ArgS(what), compat.ArgS(where)),
 			Text: compat.Concat(text, fix),
 		})}}))
 	}
@@ -1970,46 +1970,46 @@ func (f *closureFlow) diagnose(e ast.Expr, what string, src ast.Node, name strin
 	if region {
 		maker = f.container(src)
 	}
-	why := compat.Sprintf("\n%s's results can hold the closure only through a pointer, so its callers provide no region to build it in (spec section 11.5). Return the closure itself, an interface holding it, or a struct or array holding it, instead.", name)
+	why := compat.Sprintfb("\n%s's results can hold the closure only through a pointer, so its callers provide no region to build it in (spec section 11.5). Return the closure itself, an interface holding it, or a struct or array holding it, instead.", compat.ArgS(name))
 	if region {
-		why = compat.Sprintf("\n%s builds the closures it returns in a region its caller provides (spec section 11.5), but this one is made in %s, which is a function of its own. Make it in %s itself.", name, maker, name)
+		why = compat.Sprintfb("\n%s builds the closures it returns in a region its caller provides (spec section 11.5), but this one is made in %s, which is a function of its own. Make it in %s itself.", compat.ArgS(name), compat.ArgS(maker), compat.ArgS(name))
 	}
 	switch src := src.(type) {
 	case *ast.FuncLit:
 		v := litCaptures(f.info, src)[0]
 		owner := l.varOwner(v, job, name)
 		if direct {
-			d.Msg = compat.Sprintf("cannot return the function literal: it uses %s, a local variable of %s", v.Name(), owner)
+			d.Msg = compat.Sprintfb("cannot return the function literal: it uses %s, a local variable of %s", compat.ArgS(v.Name()), compat.ArgS(owner))
 		} else {
-			d.Msg = compat.Sprintf("cannot return %s: it holds the function literal at %s, which uses %s, a local variable of %s", what, l.shortPos(src.Pos()), v.Name(), owner)
+			d.Msg = compat.Sprintfb("cannot return %s: it holds the function literal at %s, which uses %s, a local variable of %s", compat.ArgS(what), compat.ArgS(l.shortPos(src.Pos())), compat.ArgS(v.Name()), compat.ArgS(owner))
 		}
-		d.Text = compat.Concat(compat.Sprintf("A function literal that uses variables of the functions around it is a closure record, holding the code to run and where each variable is, in the frame of the function that makes it: here %s. That frame is reclaimed when %s returns, and the record with it.", maker, maker), why)
+		d.Text = compat.Concat(compat.Sprintfb("A function literal that uses variables of the functions around it is a closure record, holding the code to run and where each variable is, in the frame of the function that makes it: here %s. That frame is reclaimed when %s returns, and the record with it.", compat.ArgS(maker), compat.ArgS(maker)), why)
 		d.Fix = pu.New(diag.Fix{
 			Intro: "Return a value that carries its own state instead, such as a struct with a method",
-			Code:  compat.Sprintf("type state struct {\n\t%s %s\n}\n\nfunc (s *state) call() {\n\t... s.%s ...\n}", v.Name(), types2.TypeString(v.Type(), types2.RelativeTo(v.Pkg())), v.Name()),
+			Code:  compat.Sprintfb("type state struct {\n\t%s %s\n}\n\nfunc (s *state) call() {\n\t... s.%s ...\n}", compat.ArgS(v.Name()), compat.ArgS(types2.TypeString(v.Type(), types2.RelativeTo(v.Pkg()))), compat.ArgS(v.Name())),
 		})
 	case *ast.SelectorExpr:
 		mv := types2.ExprString(src)
 		if direct {
-			d.Msg = compat.Sprintf("cannot return the method value %s: its closure record is in %s's frame", mv, maker)
+			d.Msg = compat.Sprintfb("cannot return the method value %s: its closure record is in %s's frame", compat.ArgS(mv), compat.ArgS(maker))
 		} else {
-			d.Msg = compat.Sprintf("cannot return %s: it holds the method value %s (%s), whose closure record is in %s's frame", what, mv, l.shortPos(src.Pos()), maker)
+			d.Msg = compat.Sprintfb("cannot return %s: it holds the method value %s (%s), whose closure record is in %s's frame", compat.ArgS(what), compat.ArgS(mv), compat.ArgS(l.shortPos(src.Pos())), compat.ArgS(maker))
 		}
-		d.Text = compat.Concat(compat.Sprintf("A method value such as %s is a closure record, holding the method to call and a copy of the receiver, in the frame of the function that makes it: here %s. That frame is reclaimed when %s returns, and the record with it.", mv, maker, maker), why)
+		d.Text = compat.Concat(compat.Sprintfb("A method value such as %s is a closure record, holding the method to call and a copy of the receiver, in the frame of the function that makes it: here %s. That frame is reclaimed when %s returns, and the record with it.", compat.ArgS(mv), compat.ArgS(maker), compat.ArgS(maker)), why)
 		sel := f.info.Selections[src]
 		recv := types2.TypeString(sel.Obj().Type().(*types2.Signature).Recv().Type(), types2.RelativeTo(sel.Obj().Pkg()))
 		d.Fix = pu.New(diag.Fix{
 			Intro: "Return the receiver and let the caller call the method, or return a method expression, which takes the receiver as its first argument",
-			Code:  compat.Sprintf("m := (%s).%s // m(x, ...) calls x.%s(...)", recv, sel.Obj().Name(), sel.Obj().Name()),
+			Code:  compat.Sprintfb("m := (%s).%s // m(x, ...) calls x.%s(...)", compat.ArgS(recv), compat.ArgS(sel.Obj().Name()), compat.ArgS(sel.Obj().Name())),
 		})
 	case *ast.CallExpr:
 		call := shortExpr(src)
 		if direct {
-			d.Msg = compat.Sprintf("cannot return %s: its closures are built in %s's frame", call, maker)
+			d.Msg = compat.Sprintfb("cannot return %s: its closures are built in %s's frame", compat.ArgS(call), compat.ArgS(maker))
 		} else {
-			d.Msg = compat.Sprintf("cannot return %s: it holds a closure that %s (%s) builds in %s's frame", what, call, l.shortPos(src.Pos()), maker)
+			d.Msg = compat.Sprintfb("cannot return %s: it holds a closure that %s (%s) builds in %s's frame", compat.ArgS(what), compat.ArgS(call), compat.ArgS(l.shortPos(src.Pos())), compat.ArgS(maker))
 		}
-		d.Text = compat.Concat(compat.Sprintf("A function that returns a closure builds it in a region its caller provides. The region of this call is in %s's frame, which is reclaimed when %s returns.", maker, maker), why)
+		d.Text = compat.Concat(compat.Sprintfb("A function that returns a closure builds it in a region its caller provides. The region of this call is in %s's frame, which is reclaimed when %s returns.", compat.ArgS(maker), compat.ArgS(maker)), why)
 	}
 	return d
 }

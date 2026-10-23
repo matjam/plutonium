@@ -30,10 +30,10 @@ func main() {
 			continue
 		}
 		for _, b := range code.Bytes {
-			fmt.Printf("%02x", b)
+			compat.Printfb("%02x", compat.ArgU(uint64(b)))
 		}
 		fmt.Println()
-		fmt.Print(code.Asm)
+		compat.Printfb("%v", compat.ArgS(code.Asm))
 	}
 }
 

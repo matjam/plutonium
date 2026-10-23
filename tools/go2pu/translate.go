@@ -305,6 +305,7 @@ func TranslateDir(cfg *Config, dir string) (*Result, error) {
 	tc := &translator{goPath: goPath, cfg: cfg, fset: fset, info: info, pkg: pkg, esc: esc, exports: plutoExports(cfg.PlutoRoot)}
 	res.OutPath = tc.mapPath(goPath)
 	tc.indexParents(files)
+	tc.planStringers(files)
 	tc.planScopes(files, res)
 	tc.heap = tc.findHeapVars()
 	tc.ptrSubst = map[*ast.Ident]string{}
@@ -403,6 +404,17 @@ type translator struct {
 	assertedTypes []types.Type
 	boxed, boxing map[ast.Expr]bool
 	arenaBoxing   map[ast.Expr]bool // values being boxed in the arena (arenabox.go)
+
+	// Formatting operands replaced by a call of their String or Error
+	// method (stringers.go).
+	stringerArgs map[ast.Expr]stringerArg
+	stringering  map[ast.Expr]bool
+	// Formatting calls routed to compat's formatter, by call and callee,
+	// and their operands (stringers.go).
+	basicCalls map[ast.Node]*basicCall
+	basicOps   map[ast.Expr]basicOp
+	basicing   map[ast.Node]bool
+	basicingOp map[ast.Expr]bool
 
 	// Closure conversion (closures.go).
 	cl       *closurePlan

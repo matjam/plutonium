@@ -44,13 +44,13 @@ func explainStringSlice(s *spec) {
 		s.d.Fix = pu.New(Fix{Intro: "A string cannot change, so the whole string is the same value", Code: str})
 	case e.High == nil:
 		s.d.Fix = pu.New(Fix{Intro: "To take the rest of the string, which panics unless the bound is on a rune boundary",
-			Code: compat.Sprintf("%ssub := strings.SliceFrom(%s, %s)", imp, str, lo)})
+			Code: compat.Sprintfb("%ssub := strings.SliceFrom(%s, %s)", compat.ArgS(imp), compat.ArgS(str), compat.ArgS(lo))})
 	default:
 		s.d.Fix = pu.New(Fix{Intro: "To take a substring, which panics unless both bounds are on rune boundaries",
-			Code: compat.Sprintf("%ssub := strings.Slice(%s, %s, %s)", imp, str, lo, hi)})
+			Code: compat.Sprintfb("%ssub := strings.Slice(%s, %s, %s)", compat.ArgS(imp), compat.ArgS(str), compat.ArgS(lo), compat.ArgS(hi))})
 		if e.Low == nil {
 			s.d.More = compat.Clone([]*Fix{pu.New(Fix{Intro: "To take at most that many bytes, ending on a rune boundary instead of panicking",
-				Code: compat.Sprintf("%ssub := strings.Truncate(%s, %s)", imp, str, hi)})})
+				Code: compat.Sprintfb("%ssub := strings.Truncate(%s, %s)", compat.ArgS(imp), compat.ArgS(str), compat.ArgS(hi))})})
 		}
 	}
 }

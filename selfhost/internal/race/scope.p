@@ -3,7 +3,6 @@
 package race
 
 import (
-	"pluto/fmt"
 	"pluto/sort"
 	"pluto/strings"
 	"selfhost/compat"
@@ -513,7 +512,7 @@ func (fc *frameCheck) add(p *party, x *frameAcc) {
 func (r runSet) String() string {
 	b := pu.Alloc[compat.Builder]()
 	for _, e := range r {
-		fmt.Fprintf(b, "%d:%x,", e.party, e.mask)
+		compat.Fprintfb(b, "%d:%x,", compat.ArgI(int64(e.party)), compat.ArgU(e.mask))
 	}
 	return b.String()
 }

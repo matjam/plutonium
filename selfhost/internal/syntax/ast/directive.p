@@ -7,7 +7,6 @@
 package ast
 
 import (
-	"pluto/fmt"
 	"pluto/strconv"
 	"pluto/strings"
 	"pluto/unicode"
@@ -131,7 +130,7 @@ func (d *Directive) ParseArgs() ([]DirectiveArg, error) {
 		case '`', '"':
 			q, err := strconv.QuotedPrefix(args.str)
 			if err != nil { // Always strconv.ErrSyntax
-				return nil, fmt.Errorf("invalid quoted string in //%s:%s: %s", d.Tool, d.Name, args.str)
+				return nil, compat.NewError(compat.Sprintfb("invalid quoted string in //%s:%s: %s", compat.ArgS(d.Tool), compat.ArgS(d.Name), compat.ArgS(args.str)))
 			}
 			// Any errors will have been returned by QuotedPrefix
 			arg, _ = strconv.Unquote(args.take(len(q)))
@@ -140,7 +139,7 @@ func (d *Directive) ParseArgs() ([]DirectiveArg, error) {
 			if args.str != "" {
 				r, _ := utf8.DecodeRuneInString(args.str)
 				if !unicode.IsSpace(r) {
-					return nil, fmt.Errorf("invalid quoted string in //%s:%s: %s", d.Tool, d.Name, args.str)
+					return nil, compat.NewError(compat.Sprintfb("invalid quoted string in //%s:%s: %s", compat.ArgS(d.Tool), compat.ArgS(d.Name), compat.ArgS(args.str)))
 				}
 			}
 		}

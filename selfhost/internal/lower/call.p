@@ -504,7 +504,7 @@ func (l *Lowerer) rtFunc(name string) *types2.Func {
 			}
 		}
 	}
-	panic(pu.Box(compat.Sprintf("lower: pluto/rt.%s is missing", name)))
+	panic(pu.Box(compat.Sprintfb("lower: pluto/rt.%s is missing", compat.ArgS(name))))
 }
 
 // callRuntime calls pluto/rt.name with already-flattened scalar arguments and
@@ -928,7 +928,7 @@ func (s *fnState) closureWith(lit *ast.FuncLit, captures []*types2.Var, sym *ssa
 // closureFunc queues the function of a literal with the given captures.
 func (s *fnState) closureFunc(lit *ast.FuncLit, captures []*types2.Var) *ssa.Sym {
 	s.closures++
-	name := compat.Sprintf("%s.func%d", s.f.Name, s.closures)
+	name := compat.Sprintfb("%s.func%d", compat.ArgS(s.f.Name), compat.ArgI(int64(s.closures)))
 	sym := s.l.out.Sym(name, ssa.SymFunc)
 	sig := s.subst(s.info.Types[lit].Type).(*types2.Signature)
 	s.l.funcValues[sym] = sig

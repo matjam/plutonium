@@ -74,7 +74,7 @@ func (c *checker) scopeMovedDiag(id *ast.Ident, v *types2.Var, sc *scoped.Scope)
 		at = compat.Concat(" at ", c.basePos(sc.Calls[0].Pos()))
 	}
 	d := c.newDiag(id.Pos(), diag.ScopeMoved, "cannot move %s: it starts tasks%s, which find it at its address", pu.Box(name), pu.Box(at))
-	d.Text = compat.Sprintf("%s is a sync.Scope, and %s.Task%s starts tasks that tell %s when they return, at the address %s has in this function. Moving %s (assigning, passing or returning it) would leave them telling the old place, so nothing would wait for them where %s ends up.", name, name, at, name, name, name, name)
-	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Keep %s where it is and wait for its tasks before it goes", name), Code: compat.Concat(name, ".Wait()")})
+	d.Text = compat.Sprintfb("%s is a sync.Scope, and %s.Task%s starts tasks that tell %s when they return, at the address %s has in this function. Moving %s (assigning, passing or returning it) would leave them telling the old place, so nothing would wait for them where %s ends up.", compat.ArgS(name), compat.ArgS(name), compat.ArgS(at), compat.ArgS(name), compat.ArgS(name), compat.ArgS(name), compat.ArgS(name))
+	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Keep %s where it is and wait for its tasks before it goes", compat.ArgS(name)), Code: compat.Concat(name, ".Wait()")})
 	return d
 }

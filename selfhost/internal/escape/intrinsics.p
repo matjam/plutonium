@@ -74,7 +74,7 @@ func (a *analyzer) intrinsicSummary(fn *function) (summary, bool) {
 	var s summary
 	pos := shortPos(a.fset.Position(fn.decl.Pos()))
 	for _, st := range eff.stores {
-		s.addStore(edge{src: st.src, dst: st.dst}, pu.New(reason{text: compat.Sprintf("stores %s (%s)", st.what, pos)}))
+		s.addStore(edge{src: st.src, dst: st.dst}, pu.New(reason{text: compat.Sprintfb("stores %s (%s)", compat.ArgS(st.what), compat.ArgS(pos))}))
 	}
 	for i, keys := range eff.results {
 		for _, k := range keys {

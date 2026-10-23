@@ -51,10 +51,10 @@ func main() {
 
 // check loads the program in dir and dumps it.
 func check(out *compat.Buffer, cfg *load.Config, dir string) {
-	fmt.Fprintf(out, "dir %s\n", dir)
+	compat.Fprintfb(out, "dir %s\n", compat.ArgS(dir))
 	prog, err := load.Load(cfg, dir)
 	if err != nil {
-		fmt.Fprintf(out, "error\n%s\n", strings.TrimRight(err.Error(), "\n"))
+		compat.Fprintfb(out, "error\n%s\n", compat.ArgS(strings.TrimRight(err.Error(), "\n")))
 		return
 	}
 	for _, p := range prog.Packages {
@@ -62,13 +62,13 @@ func check(out *compat.Buffer, cfg *load.Config, dir string) {
 			dumpMain(out, prog.Fset, p)
 			continue
 		}
-		fmt.Fprintf(out, "import %s %s\n", p.Path, digest(prog.Fset, p.Info))
+		compat.Fprintfb(out, "import %s %s\n", compat.ArgS(p.Path), compat.ArgS(digest(prog.Fset, p.Info)))
 	}
 }
 
 // dumpMain prints the declarations of the main package.
 func dumpMain(out *compat.Buffer, fset *token.FileSet, p *load.Package) {
-	fmt.Fprintf(out, "package %s %s\n", p.Path, p.Types.Name())
+	compat.Fprintfb(out, "package %s %s\n", compat.ArgS(p.Path), compat.ArgS(p.Types.Name()))
 	scope := p.Types.Scope()
 	for _, name := range scope.Names() {
 		obj := scope.Lookup(name)
@@ -81,7 +81,7 @@ func dumpMain(out *compat.Buffer, fset *token.FileSet, p *load.Package) {
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(out, "  underlying %s\n", types2.TypeString(named.Underlying(), nil))
+		compat.Fprintfb(out, "  underlying %s\n", compat.ArgS(types2.TypeString(named.Underlying(), nil)))
 		for i := 0; i < named.NumMethods(); i++ {
 			m := named.Method(i)
 			fmt.Fprintf(out, "  method %s %s\n", fset.Position(m.Pos()), types2.ObjectString(m, nil))
@@ -97,9 +97,9 @@ func dumpMain(out *compat.Buffer, fset *token.FileSet, p *load.Package) {
 	}
 	slices.Sort(defs)
 	for _, d := range defs {
-		fmt.Fprintf(out, "def %s\n", d)
+		compat.Fprintfb(out, "def %s\n", compat.ArgS(d))
 	}
-	fmt.Fprintf(out, "digest %s\n", digest(fset, p.Info))
+	compat.Fprintfb(out, "digest %s\n", compat.ArgS(digest(fset, p.Info)))
 }
 
 // digest returns, for each map of info, its size and a hash of its entries
@@ -118,7 +118,7 @@ func digest(fset *token.FileSet, info *types2.Info) string {
 			h ^= '\n'
 			h *= 1099511628211
 		}
-		parts = compat.Append(parts, compat.Sprintf("%s=%d:%016x", name, len(lines), h))
+		parts = compat.Append(parts, compat.Sprintfb("%s=%d:%016x", compat.ArgS(name), compat.ArgI(int64(len(lines))), compat.ArgU(h)))
 		lines = lines[:0]
 	}
 	span := func(n ast.Node) string {
@@ -154,7 +154,7 @@ func digest(fset *token.FileSet, info *types2.Info) string {
 		if tv.HasOk() {
 			flags = compat.Concat(flags, "k")
 		}
-		lines = compat.Append(lines, compat.Sprintf("%s %s %s %s", span(e), flags, types2.TypeString(tv.Type, nil), val))
+		lines = compat.Append(lines, compat.Sprintfb("%s %s %s %s", compat.ArgS(span(e)), compat.ArgS(flags), compat.ArgS(types2.TypeString(tv.Type, nil)), compat.ArgS(val)))
 	}
 	add("types")
 	for id, inst := range info.Instances {
@@ -162,19 +162,19 @@ func digest(fset *token.FileSet, info *types2.Info) string {
 		for i := 0; i < inst.TypeArgs.Len(); i++ {
 			args = compat.Append(args, types2.TypeString(inst.TypeArgs.At(i), nil))
 		}
-		lines = compat.Append(lines, compat.Sprintf("%s %s [%s] %s", span(id), id.Name, compat.Join(args, ","), types2.TypeString(inst.Type, nil)))
+		lines = compat.Append(lines, compat.Sprintfb("%s %s [%s] %s", compat.ArgS(span(id)), compat.ArgS(id.Name), compat.ArgS(compat.Join(args, ",")), compat.ArgS(types2.TypeString(inst.Type, nil))))
 	}
 	add("instances")
 	for id, obj := range info.Defs {
-		lines = compat.Append(lines, compat.Sprintf("%s %s", span(id), objString(obj)))
+		lines = compat.Append(lines, compat.Sprintfb("%s %s", compat.ArgS(span(id)), compat.ArgS(objString(obj))))
 	}
 	add("defs")
 	for id, obj := range info.Uses {
-		lines = compat.Append(lines, compat.Sprintf("%s %s", span(id), objString(obj)))
+		lines = compat.Append(lines, compat.Sprintfb("%s %s", compat.ArgS(span(id)), compat.ArgS(objString(obj))))
 	}
 	add("uses")
 	for n, obj := range info.Implicits {
-		lines = compat.Append(lines, compat.Sprintf("%s %s", span(n), objString(obj)))
+		lines = compat.Append(lines, compat.Sprintfb("%s %s", compat.ArgS(span(n)), compat.ArgS(objString(obj))))
 	}
 	add("implicits")
 	for e, sel := range info.Selections {
@@ -182,7 +182,7 @@ func digest(fset *token.FileSet, info *types2.Info) string {
 	}
 	add("selections")
 	for n, sc := range info.Scopes {
-		lines = compat.Append(lines, compat.Sprintf("%s %s", span(n), compat.Join(sc.Names(), ",")))
+		lines = compat.Append(lines, compat.Sprintfb("%s %s", compat.ArgS(span(n)), compat.ArgS(compat.Join(sc.Names(), ","))))
 	}
 	add("scopes")
 	return compat.Join(parts, " ")

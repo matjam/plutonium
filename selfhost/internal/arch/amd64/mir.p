@@ -177,7 +177,7 @@ func (op MOp) String() string {
 	if s, ok := mopNames[op]; ok {
 		return s
 	}
-	return compat.Sprintf("mop%d", op)
+	return compat.Sprintfb("mop%d", compat.ArgU(uint64(op)))
 }
 
 // A Cond is an x86 condition code, in hardware encoding order.
@@ -315,7 +315,7 @@ type MBlock struct {
 	offset int
 }
 
-func (b *MBlock) String() string { return compat.Sprintf(".L%d", b.ID) }
+func (b *MBlock) String() string { return compat.Sprintfb(".L%d", compat.ArgI(int64(b.ID))) }
 
 // An MFunc is a function in machine IR.
 type MFunc struct {
@@ -409,11 +409,11 @@ func (f *MFunc) newSlot(name string, size, align int64) *ssa.Slot {
 // String formats the function in an assembly-like syntax for -S output.
 func (f *MFunc) String() string {
 	sb := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(sb, "%s:\n", f.Name)
+	compat.Fprintfb(sb, "%s:\n", compat.ArgS(f.Name))
 	for _, b := range f.Blocks {
-		fmt.Fprintf(sb, "%s:\n", b)
+		compat.Fprintfb(sb, "%s:\n", compat.ArgS(compat.StringOf(b)))
 		for _, in := range b.Insts {
-			fmt.Fprintf(sb, "\t%s\n", in)
+			compat.Fprintfb(sb, "\t%s\n", compat.ArgS(compat.StringOf(in)))
 		}
 	}
 	return sb.String()
@@ -424,7 +424,7 @@ func (o Operand) format(size int) string {
 	case OpdReg:
 		return compat.Concat("%", o.Reg.Name(size))
 	case OpdImm:
-		return compat.Sprintf("$%d", o.Imm)
+		return compat.Sprintfb("$%d", compat.ArgI(o.Imm))
 	case OpdMem:
 		return o.Mem.String()
 	}
@@ -439,33 +439,33 @@ func (m Mem) String() string {
 			if m.Sym != nil {
 				sb.WriteString(m.Sym.Name)
 				if m.Disp != 0 {
-					fmt.Fprintf(sb, "%+d", m.Disp)
+					compat.Fprintfb(sb, "%+d", compat.ArgI(m.Disp))
 				}
 				return sb.String()
 			}
-			fmt.Fprintf(sb, "%d", m.Disp)
+			compat.Fprintfb(sb, "%d", compat.ArgI(m.Disp))
 			return sb.String()
 		}
 		m.Seg = SegNone
 		if m.Sym != nil && m.Base == NoReg {
 			// sym(,%index,scale): absolute, not RIP-relative.
-			fmt.Fprintf(sb, "%s", m.Sym.Name)
+			compat.Fprintfb(sb, "%s", compat.ArgS(m.Sym.Name))
 			if m.Disp != 0 {
-				fmt.Fprintf(sb, "%+d", m.Disp)
+				compat.Fprintfb(sb, "%+d", compat.ArgI(m.Disp))
 			}
-			fmt.Fprintf(sb, "(,%%%s,%d)", m.Index.Name(8), max(m.Scale, 1))
+			compat.Fprintfb(sb, "(,%%%s,%d)", compat.ArgS(m.Index.Name(8)), compat.ArgU(uint64(max(m.Scale, 1))))
 			return sb.String()
 		}
 		return compat.Concat(sb.String(), m.String())
 	}
 	switch {
 	case m.RIP:
-		fmt.Fprintf(sb, "%d(%%rip)", m.Disp)
+		compat.Fprintfb(sb, "%d(%%rip)", compat.ArgI(m.Disp))
 		return sb.String()
 	case m.Sym != nil:
-		fmt.Fprintf(sb, "%s", m.Sym.Name)
+		compat.Fprintfb(sb, "%s", compat.ArgS(m.Sym.Name))
 		if m.Disp != 0 {
-			fmt.Fprintf(sb, "%+d", m.Disp)
+			compat.Fprintfb(sb, "%+d", compat.ArgI(m.Disp))
 		}
 		if m.Base == NoReg && m.Index == NoReg {
 			if !m.Abs {
@@ -479,33 +479,33 @@ func (m Mem) String() string {
 			sb.WriteString(m.Base.String())
 		}
 		if m.Index != NoReg {
-			fmt.Fprintf(sb, ",%s,%d", m.Index, max(m.Scale, 1))
+			compat.Fprintfb(sb, ",%s,%d", compat.ArgS((m.Index).String()), compat.ArgU(uint64(max(m.Scale, 1))))
 		}
 		sb.WriteString(")")
 		return sb.String()
 	case m.Slot != nil && m.Base == NoReg:
 		fmt.Fprintf(sb, "%s", m.Slot)
 		if m.Disp != 0 {
-			fmt.Fprintf(sb, "%+d", m.Disp)
+			compat.Fprintfb(sb, "%+d", compat.ArgI(m.Disp))
 		}
 		sb.WriteString("(frame)")
 		return sb.String()
 	case m.ArgSlot && m.Base == NoReg:
-		fmt.Fprintf(sb, "arg%d(frame)", m.ArgOff)
+		compat.Fprintfb(sb, "arg%d(frame)", compat.ArgI(m.ArgOff))
 		return sb.String()
 	case m.OutArg && m.Base == NoReg:
-		fmt.Fprintf(sb, "out%d(%%rsp)", m.Disp)
+		compat.Fprintfb(sb, "out%d(%%rsp)", compat.ArgI(m.Disp))
 		return sb.String()
 	}
 	if m.Disp != 0 {
-		fmt.Fprintf(sb, "%d", m.Disp)
+		compat.Fprintfb(sb, "%d", compat.ArgI(m.Disp))
 	}
 	sb.WriteByte('(')
 	if m.Base != NoReg {
 		sb.WriteString(compat.Concat("%", m.Base.Name(8)))
 	}
 	if m.Index != NoReg {
-		fmt.Fprintf(sb, ",%%%s,%d", m.Index.Name(8), m.Scale)
+		compat.Fprintfb(sb, ",%%%s,%d", compat.ArgS(m.Index.Name(8)), compat.ArgU(uint64(m.Scale)))
 	}
 	sb.WriteByte(')')
 	return sb.String()
@@ -515,24 +515,24 @@ func (in *MInst) String() string {
 	size := int(in.Size)
 	switch in.Op {
 	case MSTACKPROBE:
-		return compat.Sprintf("lea -%d(%%rsp), %%r11; mov %%rsp, %%r10; 1: sub $%d, %%r10; test %%r10, (%%r10); cmp %%r11, %%r10; ja 1b", in.Imm, probeInterval)
+		return compat.Sprintfb("lea -%d(%%rsp), %%r11; mov %%rsp, %%r10; 1: sub $%d, %%r10; test %%r10, (%%r10); cmp %%r11, %%r10; ja 1b", compat.ArgI(in.Imm), compat.ArgI(int64(probeInterval)))
 	case MJMP:
-		return compat.Sprintf("jmp %s", in.Target)
+		return compat.Sprintfb("jmp %s", compat.ArgS(compat.StringOf(in.Target)))
 	case MJCC:
-		return compat.Sprintf("j%s %s", in.Cond, in.Target)
+		return compat.Sprintfb("j%s %s", compat.ArgS((in.Cond).String()), compat.ArgS(compat.StringOf(in.Target)))
 	case MSETCC:
-		return compat.Sprintf("set%s %s", in.Cond, in.Dst.format(1))
+		return compat.Sprintfb("set%s %s", compat.ArgS((in.Cond).String()), compat.ArgS(in.Dst.format(1)))
 	case MCMOVCC:
-		return compat.Sprintf("cmov%s %s, %s", in.Cond, in.Src.format(size), in.Dst.format(size))
+		return compat.Sprintfb("cmov%s %s, %s", compat.ArgS((in.Cond).String()), compat.ArgS(in.Src.format(size)), compat.ArgS(in.Dst.format(size)))
 	case MCALL:
 		if in.Sym != nil {
-			return compat.Sprintf("call %s", in.Sym.Name)
+			return compat.Sprintfb("call %s", compat.ArgS(in.Sym.Name))
 		}
-		return compat.Sprintf("call *%s", in.Src.format(8))
+		return compat.Sprintfb("call *%s", compat.ArgS(in.Src.format(8)))
 	case MPCOPY:
 		var parts []string
 		for i := range in.Dsts {
-			parts = compat.Append(parts, compat.Sprintf("%s<-%s", in.Dsts[i], in.Srcs[i]))
+			parts = compat.Append(parts, compat.Sprintfb("%s<-%s", compat.ArgS((in.Dsts[i]).String()), compat.ArgS((in.Srcs[i]).String())))
 		}
 		return compat.Concat("pcopy ", compat.Join(parts, " "))
 	case MDEF:
@@ -544,23 +544,23 @@ func (in *MInst) String() string {
 	case MRELOAD:
 		return compat.Sprintf("reload %s -> %s", in.Slot, in.Dst.format(8))
 	case MMOVZX, MMOVSX, MCVTSI2F, MCVTTF2SI, MCVTF2F:
-		return compat.Sprintf("%s%d%d %s, %s", in.Op, in.SrcSize, in.Size, in.Src.format(int(in.SrcSize)), in.Dst.format(size))
+		return compat.Sprintfb("%s%d%d %s, %s", compat.ArgS((in.Op).String()), compat.ArgU(uint64(in.SrcSize)), compat.ArgU(uint64(in.Size)), compat.ArgS(in.Src.format(int(in.SrcSize))), compat.ArgS(in.Dst.format(size)))
 	case MIMUL3:
-		return compat.Sprintf("imul $%d, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
+		return compat.Sprintfb("imul $%d, %s, %s", compat.ArgI(in.Imm), compat.ArgS(in.Src.format(size)), compat.ArgS(in.Dst.format(size)))
 	case MLOADCONSTF:
 		return compat.Sprintf("loadconstf $%#x, %s", in.Imm, in.Dst.format(size))
 	case MPSHUFD:
 		return compat.Sprintf("pshufd $%#x, %s, %s", in.Imm, in.Src.format(size), in.Dst.format(size))
 	case MSAVEFLAGS:
-		return compat.Sprintf("pushfq; pop %s", in.Dst.format(8))
+		return compat.Sprintfb("pushfq; pop %s", compat.ArgS(in.Dst.format(8)))
 	case MRESTOREFLAGS:
-		return compat.Sprintf("push %s; popfq", in.Src.format(8))
+		return compat.Sprintfb("push %s; popfq", compat.ArgS(in.Src.format(8)))
 	case MINVLPG, MLGDT, MLIDT, MLTR, MFXSAVE, MFXRSTOR:
-		return compat.Sprintf("%s %s", in.Op, in.Src.format(2))
+		return compat.Sprintfb("%s %s", compat.ArgS((in.Op).String()), compat.ArgS(in.Src.format(2)))
 	case MRDCR:
-		return compat.Sprintf("mov %%cr%d, %s", in.Imm, in.Dst.format(8))
+		return compat.Sprintfb("mov %%cr%d, %s", compat.ArgI(in.Imm), compat.ArgS(in.Dst.format(8)))
 	case MWRCR:
-		return compat.Sprintf("mov %s, %%cr%d", in.Src.format(8), in.Imm)
+		return compat.Sprintfb("mov %s, %%cr%d", compat.ArgS(in.Src.format(8)), compat.ArgI(in.Imm))
 	case MIN, MOUT:
 		port := "%dx"
 		if in.Src.Kind == OpdImm {
@@ -568,15 +568,15 @@ func (in *MInst) String() string {
 		}
 		suffix := map[uint8]string{1: "b", 2: "w", 4: "l"}[in.Size]
 		if in.Op == MIN {
-			return compat.Sprintf("in%s %s, %%%s", suffix, port, RAX.Name(size))
+			return compat.Sprintfb("in%s %s, %%%s", compat.ArgS(suffix), compat.ArgS(port), compat.ArgS(RAX.Name(size)))
 		}
-		return compat.Sprintf("out%s %%%s, %s", suffix, RAX.Name(size), port)
+		return compat.Sprintfb("out%s %%%s, %s", compat.ArgS(suffix), compat.ArgS(RAX.Name(size)), compat.ArgS(port))
 	case MCLI, MSTI, MSTIHLT, MHLT, MPAUSE, MRDMSR, MWRMSR, MCPUID, MRDTSC, MRDTSCP, MSWAPGS, MCLTS:
 		return in.Op.String()
 	case MIRETQ, MCLD:
 		return in.Op.String()
 	case MMOVUPS:
-		return compat.Sprintf("movups %s, %s", in.Src.format(16), in.Dst.format(16))
+		return compat.Sprintfb("movups %s, %s", compat.ArgS(in.Src.format(16)), compat.ArgS(in.Dst.format(16)))
 	}
 	var args []string
 	if in.Src.Kind != OpdNone {
@@ -586,11 +586,11 @@ func (in *MInst) String() string {
 		args = compat.Append(args, in.Dst.format(size))
 	}
 	if name, ok := packedNames[in.Op]; ok && in.Size == 16 {
-		return compat.Sprintf("%s %s", name, compat.Join(args, ", "))
+		return compat.Sprintfb("%s %s", compat.ArgS(name), compat.ArgS(compat.Join(args, ", ")))
 	}
 	switch in.Op {
 	case MUNPCKLPD, MMOVHPD:
-		return compat.Sprintf("%s %s", in.Op, compat.Join(args, ", "))
+		return compat.Sprintfb("%s %s", compat.ArgS((in.Op).String()), compat.ArgS(compat.Join(args, ", ")))
 	}
-	return compat.Sprintf("%s%d %s", in.Op, in.Size, compat.Join(args, ", "))
+	return compat.Sprintfb("%s%d %s", compat.ArgS((in.Op).String()), compat.ArgU(uint64(in.Size)), compat.ArgS(compat.Join(args, ", ")))
 }

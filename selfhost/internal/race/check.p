@@ -3,7 +3,6 @@
 package race
 
 import (
-	"pluto/fmt"
 	"pluto/os"
 	"pluto/sort"
 	"pluto/strings"
@@ -37,9 +36,9 @@ func (g *group) name(a *analyzer) string {
 		return "the main task"
 	}
 	if g.handler {
-		return compat.Sprintf("the interrupt handler %s installed at %s", strings.TrimPrefix(g.desc, "handler "), a.short(g.pos))
+		return compat.Sprintfb("the interrupt handler %s installed at %s", compat.ArgS(strings.TrimPrefix(g.desc, "handler ")), compat.ArgS(a.short(g.pos)))
 	}
-	return compat.Sprintf("the task started by %s at %s", g.desc, a.short(g.pos))
+	return compat.Sprintfb("the task started by %s at %s", compat.ArgS(g.desc), compat.ArgS(a.short(g.pos)))
 }
 
 // check runs the three rules over the whole program.
@@ -134,7 +133,7 @@ func (a *analyzer) expandAll(s *summary) []*access {
 				worst, n = f.name, c
 			}
 		}
-		fmt.Fprintf(os.Stderr, "race: expanded %d contexts of %d functions, %d accesses; most: %s %d\n", len(x.seen), len(perFn), len(x.out), worst, n)
+		compat.Fprintfb(os.Stderr, "race: expanded %d contexts of %d functions, %d accesses; most: %s %d\n", compat.ArgI(int64(len(x.seen))), compat.ArgI(int64(len(perFn))), compat.ArgI(int64(len(x.out))), compat.ArgS(worst), compat.ArgI(int64(n)))
 	}
 	return x.out
 }
@@ -462,10 +461,10 @@ func (a *analyzer) checkCrossings(cross []*crossing, written func(vpath) token.P
 			continue
 		}
 		if p.shared != nil {
-			a.add(compat.Sprintf("send|%d", c.pos), a.sharedError(c, p))
+			a.add(compat.Sprintfb("send|%d", compat.ArgI(int64(c.pos))), a.sharedError(c, p))
 			continue
 		}
-		a.add(compat.Sprintf("send|%d", c.pos), a.sendError(c, p))
+		a.add(compat.Sprintfb("send|%d", compat.ArgI(int64(c.pos))), a.sendError(c, p))
 	}
 }
 
@@ -580,15 +579,15 @@ func (a *analyzer) checkSynced(groups []*group) {
 		for i, e := range es {
 			_, _, sub, _ := syncedSplit(e.x.place)
 			x := pu.New(*e.x)
-			x.place = vpath{root: root{kind: rLocal, v: syncedVar}, path: compat.Concat(compat.Sprintf("$%d", id), sub)}
+			x.place = vpath{root: root{kind: rLocal, v: syncedVar}, path: compat.Concat(compat.Sprintfb("$%d", compat.ArgI(int64(id))), sub)}
 			// Locks: those within the same object, relative to it; and
 			// package-level ones.
 			base, _, _, _ := syncedSplit(e.x.place)
-			prefix := compat.Concat(base.path, compat.Sprintf("$%d", id))
+			prefix := compat.Concat(base.path, compat.Sprintfb("$%d", compat.ArgI(int64(id))))
 			var ls lockset
 			for _, l := range e.x.locks {
 				if l.place.root == base.root && prefixOf(prefix, l.place.path) {
-					ls = ls.with(vpath{root: root{kind: rLocal, v: syncedVar}, path: compat.Concat(compat.Sprintf("$%d", id), strings.SliceFrom(l.place.path, len(prefix)))}, l.excl)
+					ls = ls.with(vpath{root: root{kind: rLocal, v: syncedVar}, path: compat.Concat(compat.Sprintfb("$%d", compat.ArgI(int64(id))), strings.SliceFrom(l.place.path, len(prefix)))}, l.excl)
 				} else if _, ok := globalLock(l); ok {
 					ls = ls.with(l.place, l.excl)
 				}
@@ -690,7 +689,7 @@ func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
 		for i, e := range es {
 			base, _, _, _ := syncedSplit(e.x.place)
 			x := pu.New(*e.x)
-			x.place = vpath{root: root{kind: rLocal, v: mapVar}, path: compat.Sprintf("$%d", id)}
+			x.place = vpath{root: root{kind: rLocal, v: mapVar}, path: compat.Sprintfb("$%d", compat.ArgI(int64(id)))}
 			// Locks: package-level ones, and those of the struct the map
 			// is a field of, relative to it.
 			holder, field := splitField(base)
@@ -803,7 +802,7 @@ func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text f
 		}
 		held := guards(p.x, false, rel)
 		if len(intersect(held, g)) == 0 {
-			a.add(compat.Sprintf("read|%d", p.x.pos), a.unguardedError(p, writes, g, rel, text))
+			a.add(compat.Sprintfb("read|%d", compat.ArgI(int64(p.x.pos))), a.unguardedError(p, writes, g, rel, text))
 		}
 	}
 }
@@ -884,14 +883,14 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 	held := guards(p.x, true, rel)
 	shared := guards(p.x, false, rel)
 	b := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(b, "%s is %s at %s by %s", place, verb, a.where(p.x), p.g.name(a))
+	compat.Fprintfb(b, "%s is %s at %s by %s", compat.ArgS(place), compat.ArgS(verb), compat.ArgS(a.where(p.x)), compat.ArgS(p.g.name(a)))
 	switch {
 	case len(held) == 0 && len(shared) > 0:
 		k := ""
 		for x := range shared {
 			k = x
 		}
-		fmt.Fprintf(b, " while holding %s only for reading", a.lockText(k, rel, es))
+		compat.Fprintfb(b, " while holding %s only for reading", compat.ArgS(a.lockText(k, rel, es)))
 	case len(held) == 0:
 		b.WriteString(" with no lock held")
 	default:
@@ -900,18 +899,18 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 			names = compat.Append(names, a.lockText(k, rel, es))
 		}
 		sort.Strings(names)
-		fmt.Fprintf(b, " holding %s", compat.Join(names, " and "))
+		compat.Fprintfb(b, " holding %s", compat.ArgS(compat.Join(names, " and ")))
 	}
 	ov := "uses"
 	if other.x.write {
 		ov = "writes"
 	}
 	if other.g == p.g && p.g.handler {
-		fmt.Fprintf(b, ", and the same handler running on another processor %s it at %s", ov, a.where(other.x))
+		compat.Fprintfb(b, ", and the same handler running on another processor %s it at %s", compat.ArgS(ov), compat.ArgS(a.where(other.x)))
 	} else if other.g == p.g {
-		fmt.Fprintf(b, ", and another task started there %s it at %s", ov, a.where(other.x))
+		compat.Fprintfb(b, ", and another task started there %s it at %s", compat.ArgS(ov), compat.ArgS(a.where(other.x)))
 	} else {
-		fmt.Fprintf(b, ", and %s %s it at %s", other.g.name(a), ov, a.where(other.x))
+		compat.Fprintfb(b, ", and %s %s it at %s", compat.ArgS(other.g.name(a)), compat.ArgS(ov), compat.ArgS(a.where(other.x)))
 	}
 	og := guards(other.x, true, rel)
 	if len(og) > 0 && other.x.write {
@@ -920,7 +919,7 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 			names = compat.Append(names, a.lockText(k, rel, es))
 		}
 		sort.Strings(names)
-		fmt.Fprintf(b, " holding %s", compat.Join(names, " and "))
+		compat.Fprintfb(b, " holding %s", compat.ArgS(compat.Join(names, " and ")))
 	}
 	if p.g.handler || other.g.handler {
 		b.WriteString(". An interrupt handler may run at any point where interrupts are enabled, on any processor and on several at once, so these may run at the same time, one of them writing, which is a data race: the other may see a value half written, or lose an update. Volatile accesses and disabled interrupts exclude only the same processor.")
@@ -965,7 +964,7 @@ func (a *analyzer) unguardedError(p entry, writes []entry, g map[string]bool, re
 		d = diag.New(a.pos(p.x.pos), diag.RaceUnguarded, "%s is read here without holding %s, which guards it", pu.Box(place), pu.Box(guard))
 	}
 	b := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(b, "Every write to %s that another task may run at the same time holds %s:", place, guard)
+	compat.Fprintfb(b, "Every write to %s that another task may run at the same time holds %s:", compat.ArgS(place), compat.ArgS(guard))
 	sort.SortFunc(writes, func(a, b entry) bool { return a.x.pos < b.x.pos })
 	n := 0
 	seen := map[token.Pos]bool{}
@@ -978,18 +977,18 @@ func (a *analyzer) unguardedError(p entry, writes []entry, g map[string]bool, re
 		if n == 0 {
 			sep = ""
 		}
-		fmt.Fprintf(b, "%s %s (%s)", sep, a.where(w.x), w.g.name(a))
+		compat.Fprintfb(b, "%s %s (%s)", compat.ArgS(sep), compat.ArgS(a.where(w.x)), compat.ArgS(w.g.name(a)))
 		n++
 	}
-	fmt.Fprintf(b, ". So the compiler infers that %s guards %s, and every read must hold it too: a read without it may run while a write is half done.", guard, place)
-	fmt.Fprintf(b, "\nHere %s reads it at %s", p.g.name(a), a.where(p.x))
+	compat.Fprintfb(b, ". So the compiler infers that %s guards %s, and every read must hold it too: a read without it may run while a write is half done.", compat.ArgS(guard), compat.ArgS(place))
+	compat.Fprintfb(b, "\nHere %s reads it at %s", compat.ArgS(p.g.name(a)), compat.ArgS(a.where(p.x)))
 	if held := guards(p.x, false, rel); len(held) > 0 {
 		var hn []string
 		for k := range held {
 			hn = compat.Append(hn, a.lockText(k, rel, writes))
 		}
 		sort.Strings(hn)
-		fmt.Fprintf(b, " holding only %s", compat.Join(hn, " and "))
+		compat.Fprintfb(b, " holding only %s", compat.ArgS(compat.Join(hn, " and ")))
 	} else {
 		b.WriteString(" with no lock held")
 	}
@@ -1013,17 +1012,17 @@ func (a *analyzer) sendError(c *crossing, p *problem) *diag.Diagnostic {
 		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so %s cannot be %s", pu.Box(p.part), pu.Box(elem), pu.Box(exprText(c.expr)), pu.Box(crossVerb(c)))
 	}
 	b := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(b, "%s gives another task %s, a %s: after this, both tasks can reach the same %s.", capitalize(c.what), p.part, types2.TypeString(p.typ, a.qualifier), elem)
+	compat.Fprintfb(b, "%s gives another task %s, a %s: after this, both tasks can reach the same %s.", compat.ArgS(capitalize(c.what)), compat.ArgS(p.part), compat.ArgS(types2.TypeString(p.typ, a.qualifier)), compat.ArgS(elem))
 	if p.glob != nil {
-		fmt.Fprintf(b, " It points to the package variable %s, which is written at %s while tasks run.", p.glob.Name(), a.short(p.gpos))
+		compat.Fprintfb(b, " It points to the package variable %s, which is written at %s while tasks run.", compat.ArgS(p.glob.Name()), compat.ArgS(a.short(p.gpos)))
 	}
 	switch {
 	case p.why != "":
-		fmt.Fprintf(b, " %s is not safe to use from two tasks at once. %s", elem, p.why)
+		compat.Fprintfb(b, " %s is not safe to use from two tasks at once. %s", compat.ArgS(elem), compat.ArgS(p.why))
 	case p.write != nil:
-		fmt.Fprintf(b, " A %s is changed through a pointer at %s (%s, in %s) without a lock of the same %s held, so the compiler cannot tell that this one stays the same while the other task uses it.", elem, a.short(p.write.pos), p.write.expr, p.write.fn, elem)
+		compat.Fprintfb(b, " A %s is changed through a pointer at %s (%s, in %s) without a lock of the same %s held, so the compiler cannot tell that this one stays the same while the other task uses it.", compat.ArgS(elem), compat.ArgS(a.short(p.write.pos)), compat.ArgS(p.write.expr), compat.ArgS(p.write.fn), compat.ArgS(elem))
 	case p.glob == nil:
-		fmt.Fprintf(b, " Nothing shows that this %s stays the same while the other task uses it.", elem)
+		compat.Fprintfb(b, " Nothing shows that this %s stays the same while the other task uses it.", compat.ArgS(elem))
 	}
 	b.WriteString("\nA view may cross to another task only if what it points to cannot change while both may use it, or every change is synchronized: a package variable that is not written once tasks run, a struct whose fields are never changed once it is shared or are used only under a lock of the same struct or atomically, memory of a pluto/sync type, or the object of a synced[T].")
 	d.Text = b.String()
@@ -1048,10 +1047,10 @@ func (a *analyzer) sharedError(c *crossing, p *problem) *diag.Diagnostic {
 	}
 	where := ""
 	if p.site != nil {
-		where = compat.Sprintf(" (converted at %s, package %s)", a.short(p.site.pos), p.site.pkg)
+		where = compat.Sprintfb(" (converted at %s, package %s)", compat.ArgS(a.short(p.site.pos)), compat.ArgS(p.site.pkg))
 	}
 	d := diag.New(a.pos(c.pos), diag.CheckerCode(typerr.NotSendable), "%s is not sendable: %s is an interface that may hold a %s%s, which contains %s, whose count is not atomic; use synced[T] (spec section 19.2)", pu.Box(what), pu.Box(part), pu.Box(held), pu.Box(where), pu.Box(sh))
-	d.Text = compat.Sprintf("%s gives another task %s. The program converts a %s to that interface type, and a %s contains a %s, directly or through a field, element or pointer. Both tasks could then copy or drop that %s, changing its count without atomic operations.", capitalize(c.what), what, held, held, sh, sh)
+	d.Text = compat.Sprintfb("%s gives another task %s. The program converts a %s to that interface type, and a %s contains a %s, directly or through a field, element or pointer. Both tasks could then copy or drop that %s, changing its count without atomic operations.", compat.ArgS(capitalize(c.what)), compat.ArgS(what), compat.ArgS(held), compat.ArgS(held), compat.ArgS(sh), compat.ArgS(sh))
 	d.Fix = pu.New(diag.Fix{Intro: "Use a synced[T] instead of the shared[T]: its count is atomic, so it may cross between tasks."})
 	return d
 }

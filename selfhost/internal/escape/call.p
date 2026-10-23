@@ -223,7 +223,7 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []tset {
 			vals, types := w.multi(e.Args[0], tup.Len())
 			for i := range vals {
 				if i < n {
-					v := w.argumentHolders(vals[i], e.Args[0], types[i], compat.Sprintf("result%d/", i))
+					v := w.argumentHolders(vals[i], e.Args[0], types[i], compat.Sprintfb("result%d/", compat.ArgI(int64(i))))
 					out[i] = w.conv(v, types[i], params.At(i).Type(), e.Args[0])
 				}
 			}
@@ -640,7 +640,7 @@ func (w *walker) dynIface(t callTarget, args []tset, cs *callSite, nres int) []t
 			}
 			cargs = compat.Append([]tset{recv}, args[1:]...)
 		}
-		label := compat.Sprintf("%s (which may call %s.%s)", t.name, f.pkg.Types.Name(), f.name)
+		label := compat.Sprintfb("%s (which may call %s.%s)", compat.ArgS(t.name), compat.ArgS(f.pkg.Types.Name()), compat.ArgS(f.name))
 		r := w.apply(f, cargs, cs, label, c.recv, nres)
 		for i := range res {
 			res[i].addAll(r[i])
@@ -818,7 +818,7 @@ func (w *walker) dynFuncCall(t callTarget, args []tset, cs *callSite, fun ast.Ex
 				continue
 			}
 		}
-		label := compat.Sprintf("%s (which may call %s)", t.name, f.name)
+		label := compat.Sprintfb("%s (which may call %s)", compat.ArgS(t.name), compat.ArgS(f.name))
 		fargs, mode, fcs := args, recvExact, cs
 		switch fv.kind {
 		case fvBound:

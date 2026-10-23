@@ -212,7 +212,7 @@ func (check *Checker) validateTArgLen(pos token.Pos, name string, want, got int)
 		return false
 	}
 
-	panic(pu.Box(compat.Sprintf("%v: %s", pos, msg)))
+	panic(pu.Box(compat.Sprintfb("%v: %s", compat.ArgI(int64(pos)), compat.ArgS(msg))))
 }
 
 // check may be nil; pos is used only if check is non-nil.

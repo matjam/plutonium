@@ -142,7 +142,7 @@ func (cfg *Config) Check() error {
 			return fmt.Errorf("--alloc=debug needs a hosted build; a freestanding program installs the debug allocator itself with alloc.SetDefault(debug.New(...))")
 		}
 	default:
-		return fmt.Errorf("unknown allocator %q (supported: debug)", cfg.Alloc)
+		return compat.NewError(compat.Sprintfb("unknown allocator %q (supported: debug)", compat.ArgS(cfg.Alloc)))
 	}
 	if cfg.GenCheck && (cfg.Freestanding || cfg.Kernel) {
 		return fmt.Errorf("--gencheck is for hosted builds only: freestanding and kernel builds have no generation tags")
@@ -153,7 +153,7 @@ func (cfg *Config) Check() error {
 	switch cfg.FieldNames {
 	case "", "on", "off":
 	default:
-		return fmt.Errorf("unknown --fieldnames setting %q (supported: on, off)", cfg.FieldNames)
+		return compat.NewError(compat.Sprintfb("unknown --fieldnames setting %q (supported: on, off)", compat.ArgS(cfg.FieldNames)))
 	}
 	return nil
 }
@@ -234,7 +234,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		return err
 	}
 	if cfg.KeepWork {
-		fmt.Fprintf(os.Stderr, "work directory: %s\n", work)
+		compat.Fprintfb(os.Stderr, "work directory: %s\n", compat.ArgS(work))
 	} else {
 		defer func() { _ = os.RemoveAll(work) }()
 	}
@@ -256,7 +256,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 			// Assemble in the work directory by relative names: an
 			// assembler may record the source's name, and the work
 			// directory's differs on every build.
-			src := compat.Sprintf("%s_%d.s", strings.ReplaceAll(p.Path, "/", "_"), i)
+			src := compat.Sprintfb("%s_%d.s", compat.ArgS(strings.ReplaceAll(p.Path, "/", "_")), compat.ArgI(int64(i)))
 			os.WriteFile(filepath.Join(work, src), a.Src, 0o644) or return
 			o := compat.Concat(strings.TrimSuffix(src, ".s"), ".o")
 			if err := runIn(cfg, work, map[string]string{src: a.Name}, "as", "--64", "-o", o, src); err != nil {
@@ -312,7 +312,7 @@ func compileC(cfg *Config, work string, p *load.Package) ([]string, error) {
 	for i, c := range p.CFiles {
 		// Compiled in the work directory by relative names, like
 		// assembly, so that no temporary path reaches the object.
-		src := compat.Sprintf("%s_c%d.c", prefix, i)
+		src := compat.Sprintfb("%s_c%d.c", compat.ArgS(prefix), compat.ArgI(int64(i)))
 		os.WriteFile(filepath.Join(work, src), c.Src, 0o644) or return
 		o := compat.Concat(strings.TrimSuffix(src, ".c"), ".o")
 		args := []string{"-c", "-O2", "-ffreestanding", "-fno-stack-protector"}
@@ -333,7 +333,7 @@ func compileC(cfg *Config, work string, p *load.Package) ([]string, error) {
 		objs = compat.Append(objs, filepath.Join(work, o))
 	}
 	for i, obj := range p.ObjFiles {
-		o := filepath.Join(work, compat.Sprintf("%s_o%d.o", prefix, i))
+		o := filepath.Join(work, compat.Sprintfb("%s_o%d.o", compat.ArgS(prefix), compat.ArgI(int64(i))))
 		os.WriteFile(o, obj.Src, 0o644) or return
 		objs = compat.Append(objs, o)
 	}
@@ -352,9 +352,9 @@ func run(cfg *Config, rename map[string]string, name string, args ...string) err
 func runIn(cfg *Config, dir string, rename map[string]string, name string, args ...string) error {
 	if cfg.Verbose {
 		if dir != "" {
-			fmt.Fprintf(os.Stderr, "cd %s && ", dir)
+			compat.Fprintfb(os.Stderr, "cd %s && ", compat.ArgS(dir))
 		}
-		fmt.Fprintln(os.Stderr, name, compat.Join(args, " "))
+		compat.Fprintfb(os.Stderr, "%v %v\n", compat.ArgS(name), compat.ArgS(compat.Join(args, " ")))
 	}
 	if r := runTool(dir, name, args); r.failed {
 		return diag.FromTool(name, r.notFound, r.cause, r.stderr, rename)

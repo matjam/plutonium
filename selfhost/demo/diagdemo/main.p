@@ -76,7 +76,7 @@ func renderCatalog(out *compat.Builder) {
 			Fix:  pu.New(diag.Fix{Intro: "To fix it", Code: "x := 1\n\ty := 2"}),
 			More: compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "Or write", Code: "z := 3"}), pu.New(diag.Fix{Intro: "Or just think about it"})})})
 		diag.Print(out, own, false)
-		fmt.Fprintf(out, "%s\n", own.Error())
+		compat.Fprintfb(out, "%s\n", compat.ArgS(own.Error()))
 	}
 	// A diagnostic with no code, and with no position.
 	diag.Print(out, pu.New(diag.Diagnostic{Msg: "no code, no position"}), false)
@@ -202,7 +202,7 @@ func syntaxCases(out *compat.Builder) {
 		d := diag.FromSyntax(mk(c.line, 2, c.msg), b)
 		diag.Print(out, d, false)
 		diag.Print(out, d, true)
-		fmt.Fprintf(out, "code %s\n", d.Code)
+		compat.Fprintfb(out, "code %s\n", compat.ArgS(string(d.Code)))
 	}
 	// With no source at all.
 	diag.Print(out, diag.FromSyntax(mk(3, 1, "expected declaration, found y"), nil), false)
@@ -235,7 +235,7 @@ func toolCases(out *compat.Builder) {
 	for _, c := range cases {
 		d := diag.FromTool(c.tool, c.notFound, c.cause, c.output, rename)
 		diag.Print(out, d, false)
-		fmt.Fprintf(out, "code %s\n", d.Code)
+		compat.Fprintfb(out, "code %s\n", compat.ArgS(string(d.Code)))
 	}
 }
 
@@ -244,19 +244,19 @@ func listCases(out *compat.Builder) {
 	section(out, "lists")
 	pos := func(l int) token.Position { return token.Position{Filename: "l.p", Offset: l, Line: l, Column: 1} }
 	list := pu.Alloc[diag.List]()
-	fmt.Fprintf(out, "empty: %v\n", list.Err() == nil)
+	compat.Fprintfb(out, "empty: %v\n", compat.ArgB(list.Err() == nil))
 	(*list) = diag.List(compat.Append((*list), diag.New(pos(4), diag.Code("E0101"), "declared and not used: %s", "x")))
 	(*list) = diag.List(compat.Append((*list), diag.New(pos(5), diag.Code("E0105"), "non-boolean condition in %s statement", "if")))
 	(*list) = diag.List(compat.Append((*list), diag.New(pos(9), diag.Code("E0105"), "non-boolean condition in %s statement", "if")))
 	err := list.Err()
-	fmt.Fprintf(out, "error:\n%s\n", err.Error())
+	compat.Fprintfb(out, "error:\n%s\n", compat.ArgS(err.Error()))
 	l := pu.Alloc[*diag.List]()
 	if errors.As(err, l) {
-		fmt.Fprintf(out, "as list: %d\n", len(*(*l)))
+		compat.Fprintfb(out, "as list: %d\n", compat.ArgI(int64(len(*(*l)))))
 	}
 	d := pu.Alloc[*diag.Diagnostic]()
 	if errors.As(err, d) {
-		fmt.Fprintf(out, "as diagnostic: %s\n", (*d).Error())
+		compat.Fprintfb(out, "as diagnostic: %s\n", compat.ArgS((*d).Error()))
 	}
 	diag.Print(out, err, false)
 	diag.Print(out, err, true)

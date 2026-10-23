@@ -117,18 +117,18 @@ func explainOSName(s *spec) bool {
 	if typ, name, found := strings.Cut(key, "."); found {
 		what = compat.Concat(typ, ".", name)
 	}
-	s.d.Text = compat.Sprintf("%s returns %s. A name or value that the operating system gives the program is bytes, and the system does not promise that they are valid UTF-8, which a string must be. Plutonium never changes the bytes into a string without saying so: when they are not valid UTF-8 the call returns a *os.NameError that holds them, and a use that takes fewer values would leave that error out. (Go's version returns a string holding the bytes as they are, which a Plutonium string cannot hold.)\nAssign every result and check the error. If you only display the value, %s returns a string with each invalid byte replaced by U+FFFD, and its name says so. If you need the exact bytes, for example to open the file, %s returns them.",
-		what, f.results, f.lossy, f.raw)
+	s.d.Text = compat.Sprintfb("%s returns %s. A name or value that the operating system gives the program is bytes, and the system does not promise that they are valid UTF-8, which a string must be. Plutonium never changes the bytes into a string without saying so: when they are not valid UTF-8 the call returns a *os.NameError that holds them, and a use that takes fewer values would leave that error out. (Go's version returns a string holding the bytes as they are, which a Plutonium string cannot hold.)\nAssign every result and check the error. If you only display the value, %s returns a string with each invalid byte replaced by U+FFFD, and its name says so. If you need the exact bytes, for example to open the file, %s returns them.",
+		compat.ArgS(what), compat.ArgS(f.results), compat.ArgS(f.lossy), compat.ArgS(f.raw))
 	s.d.Fix = pu.New(Fix{
 		Intro: "To use the value and handle a name that is not valid UTF-8",
-		Code:  compat.Sprintf("%s := %s\nif err != nil {\n\t// err is a *os.NameError: err.Bytes holds the exact bytes\n}", f.vars, callText),
+		Code:  compat.Sprintfb("%s := %s\nif err != nil {\n\t// err is a *os.NameError: err.Bytes holds the exact bytes\n}", compat.ArgS(f.vars), compat.ArgS(callText)),
 	})
-	rawCode := compat.Sprintf("b := %s%s(%s)", recv, f.raw, list)
+	rawCode := compat.Sprintfb("b := %s%s(%s)", compat.ArgS(recv), compat.ArgS(f.raw), compat.ArgS(list))
 	if key == "Getenv" || key == "LookupEnv" {
 		rawCode = compat.Concat(rawCode, " // the name is a []byte")
 	}
 	s.d.More = compat.Clone([]*Fix{
-		pu.New(Fix{Intro: "To display it, with U+FFFD for each invalid byte", Code: compat.Sprintf("s := %s%s(%s)", recv, f.lossy, list)}),
+		pu.New(Fix{Intro: "To display it, with U+FFFD for each invalid byte", Code: compat.Sprintfb("s := %s%s(%s)", compat.ArgS(recv), compat.ArgS(f.lossy), compat.ArgS(list))}),
 		pu.New(Fix{Intro: "To get the exact bytes", Code: rawCode}),
 	})
 	return true

@@ -167,9 +167,9 @@ func (s *spec) exprAt() ast.Expr {
 func (s *spec) where(pos token.Pos) string {
 	p := s.Fset.Position(pos)
 	if p.Filename != s.d.Pos.Filename {
-		return compat.Sprintf("line %d of %s", p.Line, filepath.Base(p.Filename))
+		return compat.Sprintfb("line %d of %s", compat.ArgI(int64(p.Line)), compat.ArgS(filepath.Base(p.Filename)))
 	}
-	return compat.Sprintf("line %d", p.Line)
+	return compat.Sprintfb("line %d", compat.ArgI(int64(p.Line)))
 }
 
 func (s *spec) typeOf(e ast.Expr) types2.Type {
@@ -296,7 +296,7 @@ func plural(n int, what string) string {
 	if n == 1 {
 		return compat.Concat("1 ", what)
 	}
-	return compat.Sprintf("%d %ss", n, what)
+	return compat.Sprintfb("%d %ss", compat.ArgI(int64(n)), compat.ArgS(what))
 }
 
 // ----------------------------------------------------------------------------
@@ -325,14 +325,14 @@ func explainAssign(s *spec) {
 		if mm := matchConsumesRecv(cause); mm != nil {
 			s.explainConsumes(src, V, T, mm[3])
 			if target != "" && s.d.Text != "" {
-				s.d.Text = compat.Sprintf("%s, so it can only hold values whose type has every method of %s.\n%s", target, s.str(T), s.d.Text)
+				s.d.Text = compat.Sprintfb("%s, so it can only hold values whose type has every method of %s.\n%s", compat.ArgS(target), compat.ArgS(s.str(T)), compat.ArgS(s.d.Text))
 			}
 			return
 		}
 		if mm := matchDoesNotImpl(cause); mm != nil {
 			s.explainImplements(src, V, T, mm[4], mm[5] != ")", context == "return statement")
 			if target != "" && s.d.Text != "" {
-				s.d.Text = compat.Sprintf("%s, so it can only hold values whose type has every method of %s.\n%s", target, s.str(T), s.d.Text)
+				s.d.Text = compat.Sprintfb("%s, so it can only hold values whose type has every method of %s.\n%s", compat.ArgS(target), compat.ArgS(s.str(T)), compat.ArgS(s.d.Text))
 			}
 			return
 		}
@@ -344,9 +344,9 @@ func explainAssign(s *spec) {
 	}
 	switch {
 	case dt != "" && dv != "" && dt != dv:
-		text = compat.Append(text, compat.Sprintf("%s, so it can only hold %s; %s holds %s.", target, dt, src, dv))
+		text = compat.Append(text, compat.Sprintfb("%s, so it can only hold %s; %s holds %s.", compat.ArgS(target), compat.ArgS(dt), compat.ArgS(src), compat.ArgS(dv)))
 	default:
-		text = compat.Append(text, compat.Sprintf("%s, so it can only hold values of that type; %s is %s.", target, src, what))
+		text = compat.Append(text, compat.Sprintfb("%s, so it can only hold values of that type; %s is %s.", compat.ArgS(target), compat.ArgS(src), compat.ArgS(what)))
 	}
 	textual := isKind(T, types2.IsString) != isKind(V, types2.IsString)
 	numeric := isKind(T, types2.IsNumeric) && isKind(V, types2.IsNumeric)
@@ -355,9 +355,9 @@ func explainAssign(s *spec) {
 		text = compat.Append(text, "Plutonium, like Go, never converts between text and numbers automatically.")
 		if isKind(T, types2.IsInteger) && !isUntyped(V) {
 			if s.str(T) == "int" {
-				s.d.Fix = pu.New(Fix{Intro: "To parse a number from text", Code: compat.Sprintf("n, err := strconv.Atoi(%s)", src)})
+				s.d.Fix = pu.New(Fix{Intro: "To parse a number from text", Code: compat.Sprintfb("n, err := strconv.Atoi(%s)", compat.ArgS(src))})
 			} else {
-				s.d.Fix = pu.New(Fix{Intro: "To parse a number from text", Code: compat.Sprintf("n, err := strconv.ParseInt(%s, 10, 64)", src)})
+				s.d.Fix = pu.New(Fix{Intro: "To parse a number from text", Code: compat.Sprintfb("n, err := strconv.ParseInt(%s, 10, 64)", compat.ArgS(src))})
 			}
 		}
 		if isKind(T, types2.IsString) {
@@ -365,16 +365,16 @@ func explainAssign(s *spec) {
 		}
 	case numeric && !isUntyped(V):
 		text = compat.Append(text, "Plutonium, like Go, never converts between number types automatically, even when the value would fit. Write the conversion, so that the change of type is visible.")
-		conv := compat.Sprintf("%s(%s)", s.str(T), src)
+		conv := compat.Sprintfb("%s(%s)", compat.ArgS(s.str(T)), compat.ArgS(src))
 		if as, ok := find[*ast.AssignStmt](s); ok && len(as.Lhs) == 1 && context == "assignment" {
 			conv = compat.Concat(types2.ExprString(as.Lhs[0]), " ", as.Tok.String(), " ", conv)
 		}
 		s.d.Fix = pu.New(Fix{Intro: "To convert explicitly", Code: conv})
 	case isPointerTo(V, T):
-		text = compat.Append(text, compat.Sprintf("%s is a pointer to a %s, not a %s itself.", src, s.str(T), s.str(T)))
+		text = compat.Append(text, compat.Sprintfb("%s is a pointer to a %s, not a %s itself.", compat.ArgS(src), compat.ArgS(s.str(T)), compat.ArgS(s.str(T))))
 		s.d.Fix = pu.New(Fix{Intro: "To use the value it points to", Code: compat.Concat("*", src)})
 	case isPointerTo(T, V):
-		text = compat.Append(text, compat.Sprintf("A pointer to a %s is needed, and %s is the %s itself.", s.str(V), src, s.str(V)))
+		text = compat.Append(text, compat.Sprintfb("A pointer to a %s is needed, and %s is the %s itself.", compat.ArgS(s.str(V)), compat.ArgS(src), compat.ArgS(s.str(V))))
 		if _, ok := rhs.(*ast.Ident); ok {
 			s.d.Fix = pu.New(Fix{Intro: "To pass its address", Code: compat.Concat("&", src)})
 		}
@@ -407,11 +407,11 @@ func (s *spec) assignTarget(rhs ast.Expr, context string) (string, types2.Type) 
 			T := s.typeOf(lhs)
 			if id, ok := lhs.(*ast.Ident); ok {
 				if obj := s.objOf(id); obj != nil && obj.Pos().IsValid() {
-					return compat.Sprintf("%s is declared as %s on %s", id.Name, s.str(obj.Type()), s.where(obj.Pos())), obj.Type()
+					return compat.Sprintfb("%s is declared as %s on %s", compat.ArgS(id.Name), compat.ArgS(s.str(obj.Type())), compat.ArgS(s.where(obj.Pos()))), obj.Type()
 				}
 			}
 			if T != nil {
-				return compat.Sprintf("%s has type %s", types2.ExprString(lhs), s.str(T)), T
+				return compat.Sprintfb("%s has type %s", compat.ArgS(types2.ExprString(lhs)), compat.ArgS(s.str(T))), T
 			}
 		}
 	case context == "variable declaration":
@@ -422,7 +422,7 @@ func (s *spec) assignTarget(rhs ast.Expr, context string) (string, types2.Type) 
 		for i, v := range vs.Values {
 			if v == rhs && i < len(vs.Names) {
 				if obj := s.Info.Defs[vs.Names[i]]; obj != nil {
-					return compat.Sprintf("%s is declared as %s", vs.Names[i].Name, s.str(obj.Type())), obj.Type()
+					return compat.Sprintfb("%s is declared as %s", compat.ArgS(vs.Names[i].Name), compat.ArgS(s.str(obj.Type()))), obj.Type()
 				}
 			}
 		}
@@ -451,13 +451,13 @@ func (s *spec) assignTarget(rhs ast.Expr, context string) (string, types2.Type) 
 			}
 			name := p.Name()
 			if name == "" {
-				name = compat.Sprintf("#%d", j+1)
+				name = compat.Sprintfb("#%d", compat.ArgI(int64(j+1)))
 			}
 			callee := types2.ExprString(call.Fun)
 			if fn := s.callee(call); fn != nil && fn.Pos().IsValid() {
 				callee = compat.Concat(callee, compat.Concat(" (declared on ", s.where(fn.Pos()), ")"))
 			}
-			return compat.Sprintf("Parameter %s of %s has type %s", name, callee, s.str(T)), T
+			return compat.Sprintfb("Parameter %s of %s has type %s", compat.ArgS(name), compat.ArgS(callee), compat.ArgS(s.str(T))), T
 		}
 	case context == "return statement":
 		ret, ok := find[*ast.ReturnStmt](s)
@@ -471,7 +471,7 @@ func (s *spec) assignTarget(rhs ast.Expr, context string) (string, types2.Type) 
 		for i, r := range ret.Results {
 			if r == rhs && i < sig.Results().Len() {
 				T := sig.Results().At(i).Type()
-				return compat.Sprintf("%s is declared on %s to return %s", name, s.where(decl), s.str(T)), T
+				return compat.Sprintfb("%s is declared on %s to return %s", compat.ArgS(name), compat.ArgS(s.where(decl)), compat.ArgS(s.str(T))), T
 			}
 		}
 	}
@@ -537,24 +537,24 @@ func (s *spec) explainImplements(src string, V, T types2.Type, method string, po
 	}
 	recv := s.str(V)
 	if pointer {
-		s.d.Text = compat.Sprintf("%s needs a method %s%s%s. %s has it, but the method is declared on *%s, so only a pointer to a %s has it, not a %s value. A type satisfies an interface only if its own method set has every method.", s.str(T), method, s.signature(sig), where, recv, recv, recv, recv)
+		s.d.Text = compat.Sprintfb("%s needs a method %s%s%s. %s has it, but the method is declared on *%s, so only a pointer to a %s has it, not a %s value. A type satisfies an interface only if its own method set has every method.", compat.ArgS(s.str(T)), compat.ArgS(method), compat.ArgS(s.signature(sig)), compat.ArgS(where), compat.ArgS(recv), compat.ArgS(recv), compat.ArgS(recv), compat.ArgS(recv))
 		if returned {
 			// &src would point into this function's frame, which is gone
 			// when the function returns (E3001): the value goes on the heap.
 			s.d.Text = compat.Concat(s.d.Text, " A pointer to a value made here would point into the frame of the function, which is reclaimed when it returns (language spec section 18.3).")
 			s.d.Fix = pu.New(Fix{Intro: "Build the value on the heap with new, which the caller owns", Code: compat.Concat("new(", strings.ReplaceAll(src, "…", "..."), ")")})
 			if !types2.IsOwner(T) {
-				s.d.More = compat.Clone([]*Fix{pu.New(Fix{Intro: "The interface takes ownership of what it holds only if it is declared owner (language spec section 7.9)", Code: compat.Sprintf("type %s owner interface {\n\t...\n}", s.str(T))})})
+				s.d.More = compat.Clone([]*Fix{pu.New(Fix{Intro: "The interface takes ownership of what it holds only if it is declared owner (language spec section 7.9)", Code: compat.Sprintfb("type %s owner interface {\n\t...\n}", compat.ArgS(s.str(T)))})})
 			}
 			return
 		}
 		s.d.Fix = pu.New(Fix{Intro: "Use a pointer", Code: compat.Concat("&", src)})
 		return
 	}
-	s.d.Text = compat.Sprintf("%s needs a method %s%s%s, and %s has no method of that name. A type satisfies an interface by having all its methods; nothing else needs to be declared.", s.str(T), method, s.signature(sig), where, recv)
+	s.d.Text = compat.Sprintfb("%s needs a method %s%s%s, and %s has no method of that name. A type satisfies an interface by having all its methods; nothing else needs to be declared.", compat.ArgS(s.str(T)), compat.ArgS(method), compat.ArgS(s.signature(sig)), compat.ArgS(where), compat.ArgS(recv))
 	if named, ok := types2.Unalias(V).(*types2.Named); ok && named.Obj().Pkg() == s.Pkg {
 		r := strings.ToLower(strings.Slice(named.Obj().Name(), 0, 1))
-		s.d.Fix = pu.New(Fix{Intro: compat.Concat("Add the method to ", recv), Code: compat.Sprintf("func (%s %s) %s%s {\n\t...\n}", r, recv, method, s.signature(sig))})
+		s.d.Fix = pu.New(Fix{Intro: compat.Concat("Add the method to ", recv), Code: compat.Sprintfb("func (%s %s) %s%s {\n\t...\n}", compat.ArgS(r), compat.ArgS(recv), compat.ArgS(method), compat.ArgS(s.signature(sig)))})
 	}
 }
 
@@ -564,8 +564,8 @@ func (s *spec) explainImplements(src string, V, T types2.Type, method string, po
 func (s *spec) explainConsumes(src string, V, T types2.Type, method string) {
 	recv := s.str(V)
 	r := strings.ToLower(strings.Slice(recv, 0, 1))
-	s.d.Text = compat.Sprintf("%s needs a method %s. %s has one, but with a value receiver: %s is an owner, so calling the method moves the value into it, and the method drops it when it returns. An interface does not own what it holds, so a call through the interface could not give the value up; such a method never satisfies an interface method.", s.str(T), method, recv, recv)
-	s.d.Fix = pu.New(Fix{Intro: "Declare the method on a pointer, so that it borrows the value, and convert a pointer", Code: compat.Sprintf("func (%s *%s) %s(...) ...\n\n... = &%s", r, recv, method, src)})
+	s.d.Text = compat.Sprintfb("%s needs a method %s. %s has one, but with a value receiver: %s is an owner, so calling the method moves the value into it, and the method drops it when it returns. An interface does not own what it holds, so a call through the interface could not give the value up; such a method never satisfies an interface method.", compat.ArgS(s.str(T)), compat.ArgS(method), compat.ArgS(recv), compat.ArgS(recv))
+	s.d.Fix = pu.New(Fix{Intro: "Declare the method on a pointer, so that it borrows the value, and convert a pointer", Code: compat.Sprintfb("func (%s *%s) %s(...) ...\n\n... = &%s", compat.ArgS(r), compat.ArgS(recv), compat.ArgS(method), compat.ArgS(src))})
 }
 
 // intRanges gives the range of each integer type.
@@ -595,7 +595,7 @@ func explainOverflow(s *spec) {
 	if rhs == nil {
 		return
 	}
-	s.d.Text = compat.Sprintf("%s holds whole numbers from %s to %s, and %s is outside that range. A constant must fit the type it is used as; the compiler will not cut it down silently.\nUse a wider type, or a value inside the range.", T, r[0], r[1], types2.ExprString(rhs))
+	s.d.Text = compat.Sprintfb("%s holds whole numbers from %s to %s, and %s is outside that range. A constant must fit the type it is used as; the compiler will not cut it down silently.\nUse a wider type, or a value inside the range.", compat.ArgS(T), compat.ArgS(r[0]), compat.ArgS(r[1]), compat.ArgS(types2.ExprString(rhs)))
 }
 
 // ----------------------------------------------------------------------------
@@ -623,15 +623,15 @@ func explainUndeclared(s *spec) {
 	name := m[1]
 	line := s.where(s.pos)
 	if path, ok := stdPackages[name]; ok {
-		s.d.Text = compat.Sprintf("%s is not declared in this file. If you meant the standard library package %s, the file must import it; each file lists the packages it uses.", name, path)
-		s.d.Fix = pu.New(Fix{Intro: "Add the import", Code: compat.Sprintf("import %q", path)})
+		s.d.Text = compat.Sprintfb("%s is not declared in this file. If you meant the standard library package %s, the file must import it; each file lists the packages it uses.", compat.ArgS(name), compat.ArgS(path))
+		s.d.Fix = pu.New(Fix{Intro: "Add the import", Code: compat.Sprintfb("import %q", compat.ArgS(path))})
 		return
 	}
 	// A local declared later in the same function.
 	if fn, _ := find[*ast.FuncDecl](s); fn != nil {
 		for id := range s.Info.Defs {
 			if id.Name == name && id.Pos() > s.pos && id.Pos() < fn.End() && id.Pos() > fn.Pos() {
-				s.d.Text = compat.Sprintf("%s is declared on %s, after this use on %s. A local variable can only be used after its declaration. Move the declaration up, or the use down.", name, s.where(id.Pos()), line)
+				s.d.Text = compat.Sprintfb("%s is declared on %s, after this use on %s. A local variable can only be used after its declaration. Move the declaration up, or the use down.", compat.ArgS(name), compat.ArgS(s.where(id.Pos())), compat.ArgS(line))
 				return
 			}
 		}
@@ -655,14 +655,14 @@ func explainUndeclared(s *spec) {
 			}
 		}
 	}
-	base := compat.Sprintf("%s is not declared in any scope that reaches %s.", name, line)
+	base := compat.Sprintfb("%s is not declared in any scope that reaches %s.", compat.ArgS(name), compat.ArgS(line))
 	if alt := closest(name, names); alt != "" {
 		obj := declared[alt]
 		where := "a builtin"
 		if obj.Pos().IsValid() {
 			where = compat.Concat("declared on ", s.where(obj.Pos()))
 		}
-		s.d.Text = compat.Sprintf("%s Did you mean %s (%s)? Names are case-sensitive.", base, alt, where)
+		s.d.Text = compat.Sprintfb("%s Did you mean %s (%s)? Names are case-sensitive.", compat.ArgS(base), compat.ArgS(alt), compat.ArgS(where))
 		return
 	}
 	s.d.Text = compat.Concat(base, " Check the spelling (names are case-sensitive), declare it before this point with var or :=, or import the package it belongs to.")
@@ -693,9 +693,9 @@ func explainImportedName(s *spec) {
 			exported = compat.Append(exported, n)
 		}
 	}
-	text := compat.Sprintf("Package %s has no exported name %s.", pkg.Path(), m[2])
+	text := compat.Sprintfb("Package %s has no exported name %s.", compat.ArgS(pkg.Path()), compat.ArgS(m[2]))
 	if alt := closest(m[2], exported); alt != "" {
-		text = compat.Concat(text, compat.Sprintf(" Did you mean %s.%s?", m[1], alt))
+		text = compat.Concat(text, compat.Sprintfb(" Did you mean %s.%s?", compat.ArgS(m[1]), compat.ArgS(alt)))
 	} else if !ast.IsExported(m[2]) {
 		text = compat.Concat(text, " Only names that start with an upper-case letter can be used from another package.")
 	}
@@ -733,15 +733,15 @@ func explainFieldOrMethod(s *spec) {
 		}
 	}
 	x := types2.ExprString(sel.X)
-	text := compat.Sprintf("%s has type %s", x, s.str(T))
+	text := compat.Sprintfb("%s has type %s", compat.ArgS(x), compat.ArgS(s.str(T)))
 	if named, ok := types2.Unalias(base).(*types2.Named); ok && named.Obj().Pos().IsValid() {
-		text = compat.Concat(text, compat.Sprintf(", declared on %s", s.where(named.Obj().Pos())))
+		text = compat.Concat(text, compat.Sprintfb(", declared on %s", compat.ArgS(s.where(named.Obj().Pos()))))
 	}
-	text = compat.Concat(text, compat.Sprintf(", which has no field or method %s.", sel.Sel.Name))
+	text = compat.Concat(text, compat.Sprintfb(", which has no field or method %s.", compat.ArgS(sel.Sel.Name)))
 	if alt := closest(sel.Sel.Name, names); alt != "" {
-		text = compat.Concat(text, compat.Sprintf(" Did you mean %s.%s? Names are case-sensitive.", x, alt))
+		text = compat.Concat(text, compat.Sprintfb(" Did you mean %s.%s? Names are case-sensitive.", compat.ArgS(x), compat.ArgS(alt)))
 	} else if len(names) > 0 && len(names) <= 8 {
-		text = compat.Concat(text, compat.Sprintf(" Its fields and methods are %s.", compat.Join(names, ", ")))
+		text = compat.Concat(text, compat.Sprintfb(" Its fields and methods are %s.", compat.ArgS(compat.Join(names, ", "))))
 	} else if len(names) == 0 {
 		text = compat.Concat(text, " It has no fields or methods at all.")
 	}
@@ -767,7 +767,7 @@ func explainArgCount(s *spec) {
 	if fn := s.callee(call); fn != nil && fn.Pos().IsValid() {
 		text = compat.Concat(text, compat.Concat(" on ", s.where(fn.Pos())))
 	}
-	text = compat.Concat(text, compat.Sprintf(" with %s: %s. This call passes %s.", plural(sig.Params().Len(), "parameter"), s.signature(sig), plural(len(call.Args), "argument")))
+	text = compat.Concat(text, compat.Sprintfb(" with %s: %s. This call passes %s.", compat.ArgS(plural(sig.Params().Len(), "parameter")), compat.ArgS(s.signature(sig)), compat.ArgS(plural(len(call.Args), "argument"))))
 	if strings.HasPrefix(s.first, "too many") {
 		text = compat.Concat(text, " Remove the extra arguments, or check that you are calling the function you meant.")
 	} else {
@@ -789,9 +789,9 @@ func explainResultCount(s *spec) {
 	}
 	switch len(types) {
 	case 0:
-		s.d.Text = compat.Sprintf("%s is declared on %s with no results, so its return statements cannot give values.", name, s.where(decl))
+		s.d.Text = compat.Sprintfb("%s is declared on %s with no results, so its return statements cannot give values.", compat.ArgS(name), compat.ArgS(s.where(decl)))
 	default:
-		s.d.Text = compat.Sprintf("%s is declared on %s to return %s (%s), so each return statement gives exactly that many values, in that order.", name, s.where(decl), plural(len(types), "value"), compat.Join(types, ", "))
+		s.d.Text = compat.Sprintfb("%s is declared on %s to return %s (%s), so each return statement gives exactly that many values, in that order.", compat.ArgS(name), compat.ArgS(s.where(decl)), compat.ArgS(plural(len(types), "value")), compat.ArgS(compat.Join(types, ", ")))
 	}
 }
 
@@ -819,8 +819,8 @@ func explainInfer(s *spec) {
 	for _, a := range call.Args {
 		args = compat.Append(args, types2.ExprString(a))
 	}
-	s.d.Text = compat.Sprintf("%s is generic: it has the type parameter list [%s], and a call normally works the types out from its arguments. %s does not appear in the type of any argument given here (it may appear only in the results, or in parameters left out), so the compiler cannot tell which type to use.", fn, compat.Join(tparams, ", "), m[2])
-	s.d.Fix = pu.New(Fix{Intro: "Give the type arguments in square brackets, with the types you want", Code: compat.Sprintf("%s[%s](%s)", fn, compat.Join(tparams, ", "), compat.Join(args, ", "))})
+	s.d.Text = compat.Sprintfb("%s is generic: it has the type parameter list [%s], and a call normally works the types out from its arguments. %s does not appear in the type of any argument given here (it may appear only in the results, or in parameters left out), so the compiler cannot tell which type to use.", compat.ArgS(fn), compat.ArgS(compat.Join(tparams, ", ")), compat.ArgS(m[2]))
+	s.d.Fix = pu.New(Fix{Intro: "Give the type arguments in square brackets, with the types you want", Code: compat.Sprintfb("%s[%s](%s)", compat.ArgS(fn), compat.ArgS(compat.Join(tparams, ", ")), compat.ArgS(compat.Join(args, ", ")))})
 }
 
 // explainMissingReturn explains a function whose end can be reached
@@ -856,7 +856,7 @@ func explainMissingReturn(s *spec) {
 		zeros = compat.Append(zeros, s.zeroValue(r.Type()))
 		named = named || r.Name() != ""
 	}
-	s.d.Text = compat.Sprintf("%s is declared on %s to return %s, but the end of its body on %s can be reached without a return statement. Every path through a function with results must end in a return, a panic, or a loop that never exits.", name, s.where(decl), compat.Join(types, ", "), s.where(s.pos))
+	s.d.Text = compat.Sprintfb("%s is declared on %s to return %s, but the end of its body on %s can be reached without a return statement. Every path through a function with results must end in a return, a panic, or a loop that never exits.", compat.ArgS(name), compat.ArgS(s.where(decl)), compat.ArgS(compat.Join(types, ", ")), compat.ArgS(s.where(s.pos)))
 	code := compat.Concat("return ", compat.Join(zeros, ", "))
 	if named {
 		code = "return"
@@ -874,7 +874,7 @@ func explainUnusedVar(s *spec) {
 		return
 	}
 	name := compat.Concat(m[1], m[2])
-	s.d.Text = compat.Sprintf("%s is declared on %s, but its value is never used. Plutonium, like Go, treats this as an error, because an unused variable often means a mistake, such as assigning to the wrong variable or forgetting a check.\nDelete the variable, use it, or replace it with _ where it is declared if you only need the other values.", name, s.where(s.pos))
+	s.d.Text = compat.Sprintfb("%s is declared on %s, but its value is never used. Plutonium, like Go, treats this as an error, because an unused variable often means a mistake, such as assigning to the wrong variable or forgetting a check.\nDelete the variable, use it, or replace it with _ where it is declared if you only need the other values.", compat.ArgS(name), compat.ArgS(s.where(s.pos)))
 	s.d.Fix = pu.New(Fix{Intro: "To keep it for now", Code: compat.Concat("_ = ", name)})
 }
 
@@ -900,7 +900,7 @@ func explainUnusedImport(s *spec) {
 	if name == "" {
 		name = strings.SliceFrom(path, strings.LastIndex(path, "/")+1)
 	}
-	s.d.Text = compat.Sprintf("This file imports %s on %s, but nothing in the file uses %s. Plutonium, like Go, treats an unused import as an error, so that each file's imports show what it depends on. Delete the import, or use the package.", path, s.where(s.pos), name)
+	s.d.Text = compat.Sprintfb("This file imports %s on %s, but nothing in the file uses %s. Plutonium, like Go, treats an unused import as an error, so that each file's imports show what it depends on. Delete the import, or use the package.", compat.ArgS(path), compat.ArgS(s.where(s.pos)), compat.ArgS(name))
 }
 
 // ----------------------------------------------------------------------------
@@ -928,11 +928,11 @@ func explainMismatched(s *spec) {
 	x, y := types2.ExprString(bin.X), types2.ExprString(bin.Y)
 	what := func(e string, T types2.Type) string {
 		if isUntyped(T) {
-			return compat.Sprintf("%s is an %s constant", e, s.str(T))
+			return compat.Sprintfb("%s is an %s constant", compat.ArgS(e), compat.ArgS(s.str(T)))
 		}
-		return compat.Sprintf("%s has type %s", e, s.str(T))
+		return compat.Sprintfb("%s has type %s", compat.ArgS(e), compat.ArgS(s.str(T)))
 	}
-	text := compat.Sprintf("%s and %s. The operands of %s must have the same type, and Plutonium, like Go, never converts one to match the other.", what(x, X), what(y, Y), bin.Op)
+	text := compat.Sprintfb("%s and %s. The operands of %s must have the same type, and Plutonium, like Go, never converts one to match the other.", compat.ArgS(what(x, X)), compat.ArgS(what(y, Y)), compat.ArgS((bin.Op).String()))
 	numeric := isKind(X, types2.IsNumeric) && isKind(Y, types2.IsNumeric)
 	switch {
 	case isKind(X, types2.IsString) != isKind(Y, types2.IsString) && (isKind(X, types2.IsNumeric) || isKind(Y, types2.IsNumeric)):
@@ -942,7 +942,7 @@ func explainMismatched(s *spec) {
 	case numeric:
 		text = compat.Concat(text, " This holds even between number types such as int and int64.")
 		if !isUntyped(X) && !isUntyped(Y) {
-			s.d.Fix = pu.New(Fix{Intro: "Convert one operand to the other's type", Code: compat.Sprintf("%s(%s) %s %s", s.str(Y), x, bin.Op, y)})
+			s.d.Fix = pu.New(Fix{Intro: "Convert one operand to the other's type", Code: compat.Sprintfb("%s(%s) %s %s", compat.ArgS(s.str(Y)), compat.ArgS(x), compat.ArgS((bin.Op).String()), compat.ArgS(y))})
 		}
 	}
 	s.d.Text = text
@@ -989,7 +989,7 @@ func explainUndefinedOp(s *spec) {
 	default:
 		return
 	}
-	s.d.Text = compat.Sprintf("%s has type %s, and the operator %s works only on %s.", types2.ExprString(operand), s.str(T), op, kinds)
+	s.d.Text = compat.Sprintfb("%s has type %s, and the operator %s works only on %s.", compat.ArgS(types2.ExprString(operand)), compat.ArgS(s.str(T)), compat.ArgS(op), compat.ArgS(kinds))
 }
 
 // Closest returns the candidate most like name, if one is close enough to
@@ -1050,8 +1050,8 @@ func explainAppend(s *spec) {
 			types2.ExprString(hi.X) == types2.ExprString(lo.X) {
 			base := types2.ExprString(lo.X)
 			s.d.Fix = pu.New(Fix{Intro: "To delete elements from a slice in place, use slices.Delete",
-				Code: compat.Sprintf("import \"pluto/slices\"\n\n%s = slices.Delete(%s, %s, %s)", base, base,
-					types2.ExprString(lo.High), types2.ExprString(hi.Low))})
+				Code: compat.Sprintfb("import \"pluto/slices\"\n\n%s = slices.Delete(%s, %s, %s)", compat.ArgS(base), compat.ArgS(base),
+					compat.ArgS(types2.ExprString(lo.High)), compat.ArgS(types2.ExprString(hi.Low)))})
 			return
 		}
 	}
@@ -1066,39 +1066,39 @@ func explainAppend(s *spec) {
 			if dots && len(rest) == 1 && isKind(s.typeOf(rest[0]), types2.IsString) {
 				add = compat.Concat("vec.AppendString(&b, ", list, ")")
 			}
-			s.d.Fix = pu.New(Fix{Intro: compat.Sprintf("To fill %s without allocating, use a vec.Fixed over it, which keeps what fits", arr),
-				Code: compat.Sprintf("import \"pluto/vec\"\n\nb := vec.NewFixed(%s[:])\n%s\n// b.Slice() holds the elements; b.Truncated() reports what did not fit", arr, add)})
+			s.d.Fix = pu.New(Fix{Intro: compat.Sprintfb("To fill %s without allocating, use a vec.Fixed over it, which keeps what fits", compat.ArgS(arr)),
+				Code: compat.Sprintfb("import \"pluto/vec\"\n\nb := vec.NewFixed(%s[:])\n%s\n// b.Slice() holds the elements; b.Truncated() reports what did not fit", compat.ArgS(arr), compat.ArgS(add))})
 			return
 		}
 	}
 	// append([]T(nil), s...) and append([]T{}, s...): copying.
 	if dots && len(rest) == 1 && isEmptySlice(x) {
 		s.d.Fix = pu.New(Fix{Intro: "To copy a slice into new storage, use slices.Clone, which returns a vec.Vec that owns the copy",
-			Code: compat.Sprintf("import \"pluto/slices\"\n\n%s := slices.Clone(%s)\ndefer %s.Free()", result, list, result)})
+			Code: compat.Sprintfb("import \"pluto/slices\"\n\n%s := slices.Clone(%s)\ndefer %s.Free()", compat.ArgS(result), compat.ArgS(list), compat.ArgS(result))})
 		return
 	}
 	// append(b, s...) with a string s.
 	if dots && len(rest) == 1 && isKind(s.typeOf(rest[0]), types2.IsString) {
-		s.d.Fix = pu.New(Fix{Intro: compat.Sprintf("Keep %s in a vec.Vec[byte], which grows, and append the string's bytes with vec.AppendString", xs),
-			Code: compat.Sprintf("import \"pluto/vec\"\n\n%s := vec.New[byte]()\ndefer %s.Free()\nvec.AppendString(&%s, %s)", xs, xs, xs, list)})
+		s.d.Fix = pu.New(Fix{Intro: compat.Sprintfb("Keep %s in a vec.Vec[byte], which grows, and append the string's bytes with vec.AppendString", compat.ArgS(xs)),
+			Code: compat.Sprintfb("import \"pluto/vec\"\n\n%s := vec.New[byte]()\ndefer %s.Free()\nvec.AppendString(&%s, %s)", compat.ArgS(xs), compat.ArgS(xs), compat.ArgS(xs), compat.ArgS(list))})
 		return
 	}
 	// x = append(x, ...): growing x.
 	if lhs != xs && dots && len(rest) == 1 {
 		s.d.Fix = pu.New(Fix{Intro: "To join two slices into new storage, use slices.Concat, which returns a vec.Vec that owns the result",
-			Code: compat.Sprintf("import \"pluto/slices\"\n\n%s := slices.Concat(%s, %s)\ndefer %s.Free()", result, xs, list, result)})
+			Code: compat.Sprintfb("import \"pluto/slices\"\n\n%s := slices.Concat(%s, %s)\ndefer %s.Free()", compat.ArgS(result), compat.ArgS(xs), compat.ArgS(list), compat.ArgS(result))})
 		return
 	}
-	add := compat.Sprintf("%s.Push(%s)", xs, list)
+	add := compat.Sprintfb("%s.Push(%s)", compat.ArgS(xs), compat.ArgS(list))
 	if len(rest) != 1 || dots {
-		add = compat.Sprintf("%s.Append(%s%s)", xs, list, dotsText(dots))
+		add = compat.Sprintfb("%s.Append(%s%s)", compat.ArgS(xs), compat.ArgS(list), compat.ArgS(dotsText(dots)))
 	}
 	if _, ok := x.(*ast.Ident); !ok {
-		s.d.Fix = pu.New(Fix{Intro: compat.Sprintf("Make %s a vec.Vec[%s], which grows from an allocator", xs, elem), Code: add})
+		s.d.Fix = pu.New(Fix{Intro: compat.Sprintfb("Make %s a vec.Vec[%s], which grows from an allocator", compat.ArgS(xs), compat.ArgS(elem)), Code: add})
 		return
 	}
-	s.d.Fix = pu.New(Fix{Intro: compat.Sprintf("Keep %s in a vec.Vec[%s], which grows from an allocator", xs, elem),
-		Code: compat.Sprintf("import \"pluto/vec\"\n\n%s := vec.New[%s]()\ndefer %s.Free()\n%s", xs, elem, xs, add)})
+	s.d.Fix = pu.New(Fix{Intro: compat.Sprintfb("Keep %s in a vec.Vec[%s], which grows from an allocator", compat.ArgS(xs), compat.ArgS(elem)),
+		Code: compat.Sprintfb("import \"pluto/vec\"\n\n%s := vec.New[%s]()\ndefer %s.Free()\n%s", compat.ArgS(xs), compat.ArgS(elem), compat.ArgS(xs), compat.ArgS(add))})
 }
 
 func dotsText(dots bool) string {
@@ -1173,26 +1173,26 @@ func explainMakeSlice(s *spec) {
 	n := types2.ExprString(sizes[0])
 	if tv, ok := s.Info.Types[sizes[0]]; ok && !tv.Value.IsNil() && len(sizes) == 1 && alloc == "" && name != "v" {
 		s.d.Fix = pu.New(Fix{Intro: "The size is a constant, so an array needs no allocation",
-			Code: compat.Sprintf("var %s [%s]%s", name, n, el)})
+			Code: compat.Sprintfb("var %s [%s]%s", compat.ArgS(name), compat.ArgS(n), compat.ArgS(el))})
 		return
 	}
 	if ret, ok := find[*ast.ReturnStmt](s); ok && len(ret.Results) == 1 && ret.Results[0] == ast.Expr(call) {
-		mk := compat.Sprintf("vec.Make[%s](%s%s)", el, n, alloc)
+		mk := compat.Sprintfb("vec.Make[%s](%s%s)", compat.ArgS(el), compat.ArgS(n), compat.ArgS(alloc))
 		if len(sizes) == 2 && n == "0" {
-			mk = compat.Sprintf("vec.WithCapacity[%s](%s%s)", el, types2.ExprString(sizes[1]), alloc)
+			mk = compat.Sprintfb("vec.WithCapacity[%s](%s%s)", compat.ArgS(el), compat.ArgS(types2.ExprString(sizes[1])), compat.ArgS(alloc))
 		}
-		s.d.Fix = pu.New(Fix{Intro: compat.Sprintf("Return a vec.Vec[%s], which owns the array, and have the caller free it", el),
+		s.d.Fix = pu.New(Fix{Intro: compat.Sprintfb("Return a vec.Vec[%s], which owns the array, and have the caller free it", compat.ArgS(el)),
 			Code: compat.Concat("import \"pluto/vec\"\n\nreturn ", mk)})
 		return
 	}
 	var code string
 	switch {
 	case len(sizes) == 1 || n == types2.ExprString(sizes[1]):
-		code = compat.Sprintf("%s := vec.Make[%s](%s%s)\ndefer %s.Free()", name, el, n, alloc, name)
+		code = compat.Sprintfb("%s := vec.Make[%s](%s%s)\ndefer %s.Free()", compat.ArgS(name), compat.ArgS(el), compat.ArgS(n), compat.ArgS(alloc), compat.ArgS(name))
 	case n == "0":
-		code = compat.Sprintf("%s := vec.WithCapacity[%s](%s%s)\ndefer %s.Free()", name, el, types2.ExprString(sizes[1]), alloc, name)
+		code = compat.Sprintfb("%s := vec.WithCapacity[%s](%s%s)\ndefer %s.Free()", compat.ArgS(name), compat.ArgS(el), compat.ArgS(types2.ExprString(sizes[1])), compat.ArgS(alloc), compat.ArgS(name))
 	default:
-		code = compat.Sprintf("%s := vec.Make[%s](%s%s)\ndefer %s.Free()\n%s.Reserve(%s - %s)", name, el, n, alloc, name, name, types2.ExprString(sizes[1]), n)
+		code = compat.Sprintfb("%s := vec.Make[%s](%s%s)\ndefer %s.Free()\n%s.Reserve(%s - %s)", compat.ArgS(name), compat.ArgS(el), compat.ArgS(n), compat.ArgS(alloc), compat.ArgS(name), compat.ArgS(name), compat.ArgS(types2.ExprString(sizes[1])), compat.ArgS(n))
 	}
 	s.d.Fix = pu.New(Fix{Intro: "Make a vec.Vec, which owns the array", Code: compat.Concat("import \"pluto/vec\"\n\n", code)})
 }

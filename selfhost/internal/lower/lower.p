@@ -363,7 +363,7 @@ func funcSymName(fn *types2.Func, targs []types2.Type) string {
 			if tn := n.Obj(); tn.Parent() != nil && tn.Pkg() != nil && tn.Parent() != tn.Pkg().Scope() {
 				// Methods of types declared in functions (enum String
 				// methods) need names that tell such types apart.
-				name = compat.Concat(name, compat.Sprintf("·%d", tn.Pos()))
+				name = compat.Concat(name, compat.Sprintfb("·%d", compat.ArgI(int64(tn.Pos()))))
 			}
 		}
 		if nr := sig.RecvTypeParams().Len(); nr > 0 && sig.TypeParams().Len() > 0 && len(targs) >= nr {
@@ -612,7 +612,7 @@ func (l *Lowerer) stringData(s string) *ssa.Sym {
 	if sym := l.strs[s]; sym != nil {
 		return sym
 	}
-	sym := l.out.Sym(compat.Sprintf(".str.%d", len(l.strs)), ssa.SymData)
+	sym := l.out.Sym(compat.Sprintfb(".str.%d", compat.ArgI(int64(len(l.strs)))), ssa.SymData)
 	l.strs[s] = sym
 	l.out.Data = compat.Append(l.out.Data, pu.New(ssa.Data{
 		Sym: sym, Size: int64(len(s)), Align: 1, Bytes: compat.Bytes(s), ReadOnly: true, Local: true,

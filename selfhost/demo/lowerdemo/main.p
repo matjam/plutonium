@@ -63,15 +63,15 @@ func main() {
 
 // lowerDir loads and lowers the program in dir and dumps it.
 func lowerDir(out *compat.Buffer, cfg *load.Config, level int, full bool, dir string) {
-	fmt.Fprintf(out, "dir %s\n", dir)
+	compat.Fprintfb(out, "dir %s\n", compat.ArgS(dir))
 	prog, err := load.Load(cfg, dir)
 	if err != nil {
-		fmt.Fprintf(out, "error\n%s\n", strings.TrimRight(err.Error(), "\n"))
+		compat.Fprintfb(out, "error\n%s\n", compat.ArgS(strings.TrimRight(err.Error(), "\n")))
 		return
 	}
 	sp, err := lowerProgram(cfg, prog)
 	if err != nil {
-		fmt.Fprintf(out, "error\n%s\n", strings.TrimRight(err.Error(), "\n"))
+		compat.Fprintfb(out, "error\n%s\n", compat.ArgS(strings.TrimRight(err.Error(), "\n")))
 		return
 	}
 	text := pu.Alloc[compat.Buffer]()
@@ -80,14 +80,14 @@ func lowerDir(out *compat.Buffer, cfg *load.Config, level int, full bool, dir st
 		// print the functions.
 		pipeline := opt.ForLevel(level)
 		if err := pipeline.Run(sp, func(pass string, f *ssa.Func) {}); err != nil {
-			fmt.Fprintf(out, "error\ninternal compiler error: %s\n", err.Error())
+			compat.Fprintfb(out, "error\ninternal compiler error: %s\n", compat.ArgS(err.Error()))
 			return
 		}
 		for _, f := range sp.Funcs {
 			text.WriteString(f.String())
 		}
 	} else if err := ssawrite.Write(text, sp, prog.Fset); err != nil {
-		fmt.Fprintf(out, "error\nwrite: %s\n", err.Error())
+		compat.Fprintfb(out, "error\nwrite: %s\n", compat.ArgS(err.Error()))
 		return
 	}
 	if full {
@@ -99,7 +99,7 @@ func lowerDir(out *compat.Buffer, cfg *load.Config, level int, full bool, dir st
 		h ^= uint64(b)
 		h *= 1099511628211
 	}
-	fmt.Fprintf(out, "ssa %d bytes %d funcs %016x\n", text.Len(), len(sp.Funcs), h)
+	compat.Fprintfb(out, "ssa %d bytes %d funcs %016x\n", compat.ArgI(int64(text.Len())), compat.ArgI(int64(len(sp.Funcs))), compat.ArgU(h))
 }
 
 // lowerProgram runs the checks and lowering as the driver does

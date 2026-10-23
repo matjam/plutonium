@@ -46,11 +46,11 @@ func main() {
 		return
 	}
 	out := buf.Bytes()
-	fmt.Printf("%d bytes\n", len(out))
+	compat.Printfb("%d bytes\n", compat.ArgI(int64(len(out))))
 	for i := 0; i < len(out); i += 32 {
 		end := min(i+32, len(out))
 		for _, x := range out[i:end] {
-			fmt.Printf("%02x", x)
+			compat.Printfb("%02x", compat.ArgU(uint64(x)))
 		}
 		fmt.Println()
 	}
@@ -61,5 +61,5 @@ func main() {
 	t.Append([]byte{0xc3}, 16)
 	t.Relocs = compat.Append(t.Relocs, objfile.Reloc{Off: 0, Sym: "", Type: elf.R_X86_64_PC32})
 	buf.Reset()
-	fmt.Println("empty symbol name:", bad.Write(buf) == nil)
+	compat.Printfb("%v %v\n", compat.ArgS("empty symbol name:"), compat.ArgB(bad.Write(buf) == nil))
 }

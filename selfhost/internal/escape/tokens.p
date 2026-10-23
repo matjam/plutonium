@@ -926,7 +926,7 @@ func (r *reason) String() string {
 // shortPos prints a position as file:line, without the directory, which is
 // enough to find it and keeps chained explanations short.
 func shortPos(p token.Position) string {
-	return compat.Sprintf("%s:%d", filepath.Base(p.Filename), p.Line)
+	return compat.Sprintfb("%s:%d", compat.ArgS(filepath.Base(p.Filename)), compat.ArgI(int64(p.Line)))
 }
 
 // A function is a declared function, method or function literal, with the
@@ -996,7 +996,7 @@ func (f *function) paramName(idx int) string {
 	if idx < len(f.params) && f.params[idx].Name() != "" && f.params[idx].Name() != "_" {
 		return f.params[idx].Name()
 	}
-	return compat.Sprintf("argument %d", idx+1)
+	return compat.Sprintfb("argument %d", compat.ArgI(int64(idx+1)))
 }
 
 // paramDesc names the memory a pkey denotes inside f, for messages.

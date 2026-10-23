@@ -143,7 +143,7 @@ func ndigits(x int) int {
 
 // dump is only needed for debugging
 func (check *Checker) dump(format string, args ...any) {
-	fmt.Println(sprintf(check.fset, check.qualifier, true, format, args...))
+	compat.Printfb("%v\n", compat.ArgS(sprintf(check.fset, check.qualifier, true, format, args...)))
 }
 
 func (check *Checker) qualifier(pkg *Package) string {

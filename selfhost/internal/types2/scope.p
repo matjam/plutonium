@@ -136,7 +136,7 @@ func (s *Scope) WriteTo(w io.Writer, n int, recurse bool) {
 		}
 	}
 
-	_, _ = fmt.Fprintf(w, "%s}\n", indn)
+	_, _ = compat.Fprintfb(w, "%s}\n", compat.ArgS(indn))
 }
 
 // String returns a string representation of the scope, for debugging.

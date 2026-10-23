@@ -48,7 +48,6 @@
 package ssatext
 
 import (
-	"pluto/fmt"
 	"pluto/strconv"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
@@ -86,7 +85,7 @@ func Read(data []byte) (*ssa.Program, *token.FileSet, error) {
 // fail records the first error, with the line it is on.
 func (r *reader) fail(format string, args ...any) {
 	if r.err == nil {
-		r.err = fmt.Errorf("ssatext: line %d: %s", r.line, compat.Sprintf(format, args...))
+		r.err = compat.NewError(compat.Sprintfb("ssatext: line %d: %s", compat.ArgI(int64(r.line)), compat.ArgS(compat.Sprintf(format, args...))))
 	}
 }
 

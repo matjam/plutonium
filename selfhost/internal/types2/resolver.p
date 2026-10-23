@@ -131,7 +131,7 @@ func (check *Checker) filename(fileNo int) string {
 	if pos := file.Pos(); pos.IsValid() {
 		return check.fset.File(pos).Name()
 	}
-	return compat.Sprintf("file[%d]", fileNo)
+	return compat.Sprintfb("file[%d]", compat.ArgI(int64(fileNo)))
 }
 
 func (check *Checker) importPackage(at positioner, path, dir string) *Package {
@@ -162,18 +162,18 @@ func (check *Checker) importPackage(at positioner, path, dir string) *Package {
 		} else if importerFrom, ok := importer.(ImporterFrom); ok {
 			imp, err = importerFrom.ImportFrom(path, dir, 0)
 			if imp == nil && err == nil {
-				err = fmt.Errorf("Config.Importer.ImportFrom(%s, %s, 0) returned nil but no error", path, dir)
+				err = compat.NewError(compat.Sprintfb("Config.Importer.ImportFrom(%s, %s, 0) returned nil but no error", compat.ArgS(path), compat.ArgS(dir)))
 			}
 		} else {
 			imp, err = importer.Import(path)
 			if imp == nil && err == nil {
-				err = fmt.Errorf("Config.Importer.Import(%s) returned nil but no error", path)
+				err = compat.NewError(compat.Sprintfb("Config.Importer.Import(%s) returned nil but no error", compat.ArgS(path)))
 			}
 		}
 		// make sure we have a valid package name
 		// (errors here can only happen through manipulation of packages after creation)
 		if err == nil && imp != nil && (imp.name == "_" || imp.name == "") {
-			err = fmt.Errorf("invalid package name: %q", imp.name)
+			err = compat.NewError(compat.Sprintfb("invalid package name: %q", compat.ArgS(imp.name)))
 			imp = nil // create fake package below
 		}
 		if err != nil {

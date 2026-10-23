@@ -124,7 +124,7 @@ func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 	litSig := s.subst(s.info.Types[lit].Type).(*types2.Signature)
 
 	s.taskStmts++
-	name := compat.Sprintf("%s.task%d", s.f.Name, s.taskStmts)
+	name := compat.Sprintfb("%s.task%d", compat.ArgS(s.f.Name), compat.ArgI(int64(s.taskStmts)))
 	thunk := s.l.out.Sym(name, ssa.SymFunc)
 	unsafePtr := types2.Typ[types2.UnsafePointer]
 	tsig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(compat.Clone([]*types2.Var{types2.NewParam(token.NoPos, nil, "p", unsafePtr)})...), nil, false)

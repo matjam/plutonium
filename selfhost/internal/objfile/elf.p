@@ -4,7 +4,6 @@
 package objfile
 
 import (
-	"pluto/fmt"
 	"pluto/io"
 	"pluto/sort"
 	"selfhost/compat"
@@ -208,7 +207,7 @@ func (o *Object) Write(w io.Writer) error {
 		for _, r := range s.Relocs {
 			idx, ok := symIndex[r.Sym]
 			if !ok {
-				return fmt.Errorf("objfile: relocation against unknown symbol %q", r.Sym)
+				return compat.NewError(compat.Sprintfb("objfile: relocation against unknown symbol %q", compat.ArgS(r.Sym)))
 			}
 			e := elf.Rela64{Off: r.Off, Info: elf.R_INFO(uint32(idx), uint32(r.Type)), Addend: r.Addend}
 			_ = goWriteLERela64Ptr(buf, &e)

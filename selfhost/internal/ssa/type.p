@@ -75,7 +75,7 @@ func IntType(size int64) *Type {
 	case 8:
 		return TI64
 	}
-	panic(pu.Box(compat.Sprintf("ssa: no integer type of size %d", size)))
+	panic(pu.Box(compat.Sprintfb("ssa: no integer type of size %d", compat.ArgI(size))))
 }
 
 // FloatType returns the float type of the given size in bytes.
@@ -86,7 +86,7 @@ func FloatType(size int64) *Type {
 	case 8:
 		return TF64
 	}
-	panic(pu.Box(compat.Sprintf("ssa: no float type of size %d", size)))
+	panic(pu.Box(compat.Sprintfb("ssa: no float type of size %d", compat.ArgI(size))))
 }
 
 // TupleOf returns a tuple type.
@@ -145,15 +145,15 @@ func (t *Type) String() string {
 	case KBool:
 		return "bool"
 	case KInt:
-		return compat.Sprintf("i%d", t.Size*8)
+		return compat.Sprintfb("i%d", compat.ArgI(t.Size*8))
 	case KFloat:
-		return compat.Sprintf("f%d", t.Size*8)
+		return compat.Sprintfb("f%d", compat.ArgI(t.Size*8))
 	case KPtr:
 		return "ptr"
 	case KFlags:
 		return "flags"
 	case KVec:
-		return compat.Sprintf("%sx%d", t.Elems[0], len(t.Elems))
+		return compat.Sprintfb("%sx%d", compat.ArgS(compat.StringOf(t.Elems[0])), compat.ArgI(int64(len(t.Elems))))
 	case KTuple:
 		s := "("
 		for i, e := range t.Elems {

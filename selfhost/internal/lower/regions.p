@@ -101,14 +101,14 @@ type regionCand struct {
 // identical but for parameter names have the same key.
 func (l *Lowerer) sigKey(sig *types2.Signature) string {
 	plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
-	bucket := compat.Sprintf("%d/%d/%v", sig.Params().Len(), sig.Results().Len(), sig.Variadic())
+	bucket := compat.Sprintfb("%d/%d/%v", compat.ArgI(int64(sig.Params().Len())), compat.ArgI(int64(sig.Results().Len())), compat.ArgB(sig.Variadic()))
 	for i, other := range l.sigKeys[bucket] {
 		if types2.Identical(plain, other) {
-			return compat.Sprintf("%s#%d", bucket, i)
+			return compat.Sprintfb("%s#%d", compat.ArgS(bucket), compat.ArgI(int64(i)))
 		}
 	}
 	l.sigKeys[bucket] = compat.Append(l.sigKeys[bucket], plain)
-	return compat.Sprintf("%s#%d", bucket, len(l.sigKeys[bucket])-1)
+	return compat.Sprintfb("%s#%d", compat.ArgS(bucket), compat.ArgI(int64(len(l.sigKeys[bucket])-1)))
 }
 
 // A regionLayout describes the region of one function.
@@ -735,8 +735,8 @@ func (l *Lowerer) regionCycle(rl *regionLayout, n *regionNested) {
 	}
 	l.report(n.pos, pu.New(diag.Diagnostic{
 		Code: diag.ClosureRegionCycle,
-		Msg:  compat.Sprintf("%s cannot return the closures of this call: the call reaches %s again, so its region would have no fixed size", name, name),
-		Text: compat.Sprintf("A function that returns a closure builds it in a region its caller provides, and the region holds the regions of the calls whose closures it returns in turn (spec section 11.5). %s returns closures that hold those of this call, and the call can reach %s again, directly, through other functions, or through a func value or an interface, so its region would have to hold itself.\nBuild the closures in a loop instead of by recursion, or keep their state in a value the caller owns, such as a struct with a method.", name, name),
+		Msg:  compat.Sprintfb("%s cannot return the closures of this call: the call reaches %s again, so its region would have no fixed size", compat.ArgS(name), compat.ArgS(name)),
+		Text: compat.Sprintfb("A function that returns a closure builds it in a region its caller provides, and the region holds the regions of the calls whose closures it returns in turn (spec section 11.5). %s returns closures that hold those of this call, and the call can reach %s again, directly, through other functions, or through a func value or an interface, so its region would have to hold itself.\nBuild the closures in a loop instead of by recursion, or keep their state in a value the caller owns, such as a struct with a method.", compat.ArgS(name), compat.ArgS(name)),
 	}))
 }
 

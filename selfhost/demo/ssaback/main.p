@@ -121,6 +121,6 @@ func sample() *ssa.Program {
 }
 
 func fail(msg string) {
-	fmt.Fprintf(os.Stderr, "ssaback: %s\n", msg)
+	compat.Fprintfb(os.Stderr, "ssaback: %s\n", compat.ArgS(msg))
 	os.Exit(1)
 }

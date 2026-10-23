@@ -111,14 +111,14 @@ func (p *parser) printTrace(a ...any) {
 	const dots = ". . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . "
 	const n = len(dots)
 	pos := p.file.Position(p.pos)
-	fmt.Printf("%5d:%3d: ", pos.Line, pos.Column)
+	compat.Printfb("%5d:%3d: ", compat.ArgI(int64(pos.Line)), compat.ArgI(int64(pos.Column)))
 	i := 2 * p.indent
 	for i > n {
-		fmt.Print(dots)
+		compat.Printfb("%v", compat.ArgS(dots))
 		i -= n
 	}
 	// i <= n
-	fmt.Print(strings.Slice(dots, 0, i))
+	compat.Printfb("%v", compat.ArgS(strings.Slice(dots, 0, i)))
 	fmt.Println(a...)
 }
 
@@ -2346,7 +2346,7 @@ func (p *parser) parseOrClause(orPos token.Pos) ast.Stmt {
 func (p *parser) parseCallExpr(callType string) *ast.CallExpr {
 	x := p.parseRhs() // could be a conversion: (some type)(x)
 	if t := ast.Unparen(x); t != x {
-		p.error(x.Pos(), compat.Sprintf("expression in %s must not be parenthesized", callType))
+		p.error(x.Pos(), compat.Sprintfb("expression in %s must not be parenthesized", compat.ArgS(callType)))
 		x = t
 	}
 	if call, isCall := x.(*ast.CallExpr); isCall {
@@ -2354,7 +2354,7 @@ func (p *parser) parseCallExpr(callType string) *ast.CallExpr {
 	}
 	if _, isBad := x.(*ast.BadExpr); !isBad {
 		// only report error if it's a new one
-		p.error(x.End(), compat.Sprintf("expression in %s must be function call", callType))
+		p.error(x.End(), compat.Sprintfb("expression in %s must be function call", compat.ArgS(callType)))
 	}
 	return nil
 }
@@ -2530,7 +2530,7 @@ func (p *parser) makeExpr(s ast.Stmt, want string) ast.Expr {
 	if _, isAss := s.(*ast.AssignStmt); isAss {
 		found = "assignment"
 	}
-	p.error(s.Pos(), compat.Sprintf("expected %s, found %s (missing parentheses around composite literal?)", want, found))
+	p.error(s.Pos(), compat.Sprintfb("expected %s, found %s (missing parentheses around composite literal?)", compat.ArgS(want), compat.ArgS(found)))
 	return pu.New(ast.BadExpr{From: s.Pos(), To: s.End()})
 }
 

@@ -46,7 +46,7 @@ type Code string
 
 // CheckerCode returns the Code of a type checker error code.
 func CheckerCode(c typerr.Code) Code {
-	return Code(compat.Sprintf("E%04d", int(c)))
+	return Code(compat.Sprintfb("E%04d", compat.ArgI(int64(int(c)))))
 }
 
 // A Diagnostic is an error in a program.

@@ -29,7 +29,7 @@ func (l *Lowerer) rtType(name string) types2.Type {
 			}
 		}
 	}
-	panic(pu.Box(compat.Sprintf("lower: pluto/rt.%s is missing", name)))
+	panic(pu.Box(compat.Sprintfb("lower: pluto/rt.%s is missing", compat.ArgS(name))))
 }
 
 // chanElem returns the element type of channel type T.
@@ -149,7 +149,7 @@ func (s *fnState) frameClosure(e ast.Expr, depth int) string {
 	switch e := ast.Unparen(e).(type) {
 	case *ast.FuncLit:
 		if caps := s.capturedVars(e); len(caps) > 0 {
-			return compat.Sprintf("a function literal that captures %s (%s)", caps[0].Name(), s.l.shortPos(e.Pos()))
+			return compat.Sprintfb("a function literal that captures %s (%s)", compat.ArgS(caps[0].Name()), compat.ArgS(s.l.shortPos(e.Pos())))
 		}
 	case *ast.SelectorExpr:
 		if sel := s.info.Selections[e]; sel != nil && sel.Kind() == types2.MethodVal {
@@ -167,7 +167,7 @@ func (s *fnState) frameClosure(e ast.Expr, depth int) string {
 		if g := calledFunc(s.info, e); g != nil && regionSig(g.Type().(*types2.Signature)) {
 			f := &closureFlow{l: s.l, info: s.info, tmap: s.tmap, ts: s}
 			if _, targs := f.callee(e); s.l.closureSummary(g, targs).builds {
-				return compat.Sprintf("the closure %s returns (%s), built in this frame", shortExpr(e), s.l.shortPos(e.Pos()))
+				return compat.Sprintfb("the closure %s returns (%s), built in this frame", compat.ArgS(shortExpr(e)), compat.ArgS(s.l.shortPos(e.Pos())))
 			}
 		}
 	}
@@ -322,7 +322,7 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 	q := s.sourceQualifier(lit.Pos())
 	str := func(T types2.Type) string { return types2.TypeString(T, q) }
 	d := pu.New(diag.Diagnostic{Code: diag.GoCapturingLiteral})
-	prefix := compat.Sprintf("a function literal that captures variables cannot be started with a task statement: %s lives in the starting frame, which may be gone before the task runs (spec section 12.12); ", caps[0].Name())
+	prefix := compat.Sprintfb("a function literal that captures variables cannot be started with a task statement: %s lives in the starting frame, which may be gone before the task runs (spec section 12.12); ", compat.ArgS(caps[0].Name()))
 
 	var params, args, news []string
 	var shared []*types2.Var
@@ -332,7 +332,7 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 			shared = compat.Append(shared, v)
 			sharedT = compat.Append(sharedT, bad)
 			params = compat.Append(params, compat.Concat(v.Name(), " *", str(v.Type())))
-			news = compat.Append(news, compat.Sprintf("var %s %s // at package level", v.Name(), str(v.Type())))
+			news = compat.Append(news, compat.Sprintfb("var %s %s // at package level", compat.ArgS(v.Name()), compat.ArgS(str(v.Type()))))
 			args = compat.Append(args, compat.Concat("&", v.Name()))
 			continue
 		}
@@ -344,15 +344,15 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 		if len(caps) == 1 {
 			them = it
 		}
-		d.Msg = compat.Concat(prefix, compat.Sprintf("pass %s instead: task func(%s) {...}(%s)", them, compat.Join(params, ", "), compat.Join(args, ", ")))
+		d.Msg = compat.Concat(prefix, compat.Sprintfb("pass %s instead: task func(%s) {...}(%s)", compat.ArgS(them), compat.ArgS(compat.Join(params, ", ")), compat.ArgS(compat.Join(args, ", "))))
 		s.l.report(lit.Pos(), d)
 		return
 	}
 
 	v, bad := shared[0], sharedT[0]
-	what := compat.Sprintf("%s has type %s, which", v.Name(), str(v.Type()))
+	what := compat.Sprintfb("%s has type %s, which", compat.ArgS(v.Name()), compat.ArgS(str(v.Type())))
 	if unwrap(v.Type()) != bad {
-		what = compat.Sprintf("%s has type %s, which holds a value of type %s and", v.Name(), str(v.Type()), str(bad))
+		what = compat.Sprintfb("%s has type %s, which holds a value of type %s and", compat.ArgS(v.Name()), compat.ArgS(str(v.Type())), compat.ArgS(str(bad)))
 	}
 	sname := "s"
 	for _, c := range caps {
@@ -366,15 +366,15 @@ func (s *fnState) goCapturingLiteral(lit *ast.FuncLit, caps []*types2.Var) {
 	if n, ok := unwrap(bad).(*types2.Named); ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "pluto/sync" {
 		scope = compat.Concat(q(n.Obj().Pkg()), ".Scope")
 	}
-	d.Msg = compat.Concat(prefix, compat.Sprintf("%s must not be copied, so start the literal with a %s, which waits for it and lets it use %s: var %s %s; %s.Task(func() {...})", what, scope, v.Name(), sname, scope, sname))
-	d.Text = compat.Concat(diag.Lookup(diag.GoCapturingLiteral).Text, compat.Sprintf("\n%s holds a value of type %s. Passing it as an argument would copy it, and a copy is a separate value: calling Done or Unlock on the copy never reaches the original, so a Wait or Lock on the original may never return. A sync.Scope declared in this function waits for the tasks it starts before its block ends, so they may use %s where it is.", v.Name(), str(bad), v.Name()))
+	d.Msg = compat.Concat(prefix, compat.Sprintfb("%s must not be copied, so start the literal with a %s, which waits for it and lets it use %s: var %s %s; %s.Task(func() {...})", compat.ArgS(what), compat.ArgS(scope), compat.ArgS(v.Name()), compat.ArgS(sname), compat.ArgS(scope), compat.ArgS(sname)))
+	d.Text = compat.Concat(diag.Lookup(diag.GoCapturingLiteral).Text, compat.Sprintfb("\n%s holds a value of type %s. Passing it as an argument would copy it, and a copy is a separate value: calling Done or Unlock on the copy never reaches the original, so a Wait or Lock on the original may never return. A sync.Scope declared in this function waits for the tasks it starts before its block ends, so they may use %s where it is.", compat.ArgS(v.Name()), compat.ArgS(str(bad)), compat.ArgS(v.Name())))
 	d.Fix = pu.New(diag.Fix{
 		Intro: compat.Concat("Start the literal with a ", scope),
-		Code:  compat.Sprintf("var %s %s\n%s.Task(func() {\n\t...\n})", sname, scope, sname),
+		Code:  compat.Sprintfb("var %s %s\n%s.Task(func() {\n\t...\n})", compat.ArgS(sname), compat.ArgS(scope), compat.ArgS(sname)),
 	})
 	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{
 		Intro: "Or declare it at package level and pass a pointer",
-		Code:  compat.Concat(compat.Join(news, "\n"), compat.Sprintf("\ntask func(%s) {\n\t...\n}(%s)", compat.Join(params, ", "), compat.Join(args, ", "))),
+		Code:  compat.Concat(compat.Join(news, "\n"), compat.Sprintfb("\ntask func(%s) {\n\t...\n}(%s)", compat.ArgS(compat.Join(params, ", ")), compat.ArgS(compat.Join(args, ", ")))),
 	})})
 	s.l.report(lit.Pos(), d)
 }
@@ -562,7 +562,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 
 	// The thunk: func(p unsafe.Pointer), which loads the values and calls.
 	s.taskStmts++
-	name := compat.Sprintf("%s.task%d", s.f.Name, s.taskStmts)
+	name := compat.Sprintfb("%s.task%d", compat.ArgS(s.f.Name), compat.ArgI(int64(s.taskStmts)))
 	thunk := s.l.out.Sym(name, ssa.SymFunc)
 	unsafePtr := types2.Typ[types2.UnsafePointer]
 	tsig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(compat.Clone([]*types2.Var{types2.NewParam(token.NoPos, nil, "p", unsafePtr)})...), nil, false)

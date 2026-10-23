@@ -26,7 +26,7 @@ type Package struct {
 // NewPackage returns a new Package for the given package path and name.
 // The package is not complete and contains no explicit imports.
 func NewPackage(path, name string) *Package {
-	scope := NewScope(Universe, nopos, nopos, compat.Sprintf("package %q", path))
+	scope := NewScope(Universe, nopos, nopos, compat.Sprintfb("package %q", compat.ArgS(path)))
 	return pu.New(Package{path: path, name: name, scope: scope})
 }
 
@@ -79,5 +79,5 @@ func (pkg *Package) Imports() []*Package { return pkg.imports }
 func (pkg *Package) SetImports(list []*Package) { pkg.imports = list }
 
 func (pkg *Package) String() string {
-	return compat.Sprintf("package %s (%q)", pkg.name, pkg.path)
+	return compat.Sprintfb("package %s (%q)", compat.ArgS(pkg.name), compat.ArgS(pkg.path))
 }

@@ -8,7 +8,6 @@
 package main
 
 import (
-	"pluto/fmt"
 	"pluto/hash"
 	"pluto/sort"
 	"pluto/strings"
@@ -35,7 +34,7 @@ func walk(out *strings.Builder, n *node, depth int) {
 	for i := 0; i < depth; i++ {
 		out.WriteString("  ")
 	}
-	fmt.Fprintf(out, "%s (%d attrs)\n", n.name, n.attrs.Len())
+	compat.Fprintfb(out, "%s (%d attrs)\n", compat.ArgS(n.name), compat.ArgI(int64(n.attrs.Len())))
 	for _, c := range n.children.Slice() {
 		walk(out, c, depth+1)
 	}
@@ -71,7 +70,7 @@ func main() {
 	v.Insert(0, -1)
 	removed := v.Remove(3)
 	swapped := v.SwapRemove(1)
-	fmt.Println("vec", v.Len(), last, popped, removed, swapped, v.At(0), v.At(v.Len()-1))
+	compat.Printfb("%v %v %v %v %v %v %v %v\n", compat.ArgS("vec"), compat.ArgI(int64(v.Len())), compat.ArgI(int64(last)), compat.ArgI(int64(popped)), compat.ArgI(int64(removed)), compat.ArgI(int64(swapped)), compat.ArgI(int64(v.At(0))), compat.ArgI(int64(v.At(v.Len()-1))))
 	*v.Ptr(2) = 42
 	v.Set(3, 43)
 	sum := 0
@@ -81,38 +80,38 @@ func main() {
 	c := v.Clone()
 	c.Truncate(2)
 	v.Reserve(100)
-	fmt.Println("sum", sum, "clone", c.Len(), c.At(1), "cap", v.Cap() >= v.Len()+100)
+	compat.Printfb("%v %v %v %v %v %v %v\n", compat.ArgS("sum"), compat.ArgI(int64(sum)), compat.ArgS("clone"), compat.ArgI(int64(c.Len())), compat.ArgI(int64(c.At(1))), compat.ArgS("cap"), compat.ArgB(v.Cap() >= v.Len()+100))
 	c.Drop()
 	w := vec.WithCapacity[string](4)
 	w.Push("a")
 	w.Push("b")
-	fmt.Println("with capacity", w.Len(), w.Cap() >= 4, w.At(1))
+	compat.Printfb("%v %v %v %v\n", compat.ArgS("with capacity"), compat.ArgI(int64(w.Len())), compat.ArgB(w.Cap() >= 4), compat.ArgS(w.At(1)))
 	w.Clear()
-	fmt.Println("cleared", w.Len())
+	compat.Printfb("%v %v\n", compat.ArgS("cleared"), compat.ArgI(int64(w.Len())))
 
 	// Map, Set and their iterators, in a structure that owns them.
 	var syms symbols
 	for _, word := range []string{"func", "main", "func", "x", "main", "y", "func"} {
 		syms.intern(word)
 	}
-	fmt.Println("symbols", syms.byName.Len(), syms.order.Len(), syms.seen.Len(), syms.byName.At("x"), syms.byName.At("missing"))
+	compat.Printfb("%v %v %v %v %v %v\n", compat.ArgS("symbols"), compat.ArgI(int64(syms.byName.Len())), compat.ArgI(int64(syms.order.Len())), compat.ArgI(int64(syms.seen.Len())), compat.ArgI(int64(syms.byName.At("x"))), compat.ArgI(int64(syms.byName.At("missing"))))
 	keys := vec.New[string]()
 	it := syms.byName.Iter()
 	for k, id, ok := it.Next(); ok; k, id, ok = it.Next() {
-		keys.Push(compat.Sprint(k, "=", id))
+		keys.Push(compat.Sprintfb("%v%v%v", compat.ArgS(k), compat.ArgS("="), compat.ArgI(int64(id))))
 	}
 	ks := keys.Slice()
 	sort.SortFunc(ks, func(a, b string) bool { return a < b })
 	for _, k := range ks {
-		fmt.Println(" ", k)
+		compat.Printfb("%v %v\n", compat.ArgS(" "), compat.ArgS(k))
 	}
 	if id, ok := syms.byName.Get("y"); ok {
-		fmt.Println("get y", id, syms.byName.Has("y"))
+		compat.Printfb("%v %v %v\n", compat.ArgS("get y"), compat.ArgI(int64(id)), compat.ArgB(syms.byName.Has("y")))
 	}
 	syms.byName.Set("y", 99)
 	*syms.byName.Ptr("x") += 1000
-	fmt.Println("set", syms.byName.At("y"), syms.byName.At("x"), syms.byName.Ptr("nope") == nil)
-	fmt.Println("delete", syms.byName.Delete("y"), syms.byName.Delete("y"), syms.byName.Len())
+	compat.Printfb("%v %v %v %v\n", compat.ArgS("set"), compat.ArgI(int64(syms.byName.At("y"))), compat.ArgI(int64(syms.byName.At("x"))), compat.ArgB(syms.byName.Ptr("nope") == nil))
+	compat.Printfb("%v %v %v %v\n", compat.ArgS("delete"), compat.ArgB(syms.byName.Delete("y")), compat.ArgB(syms.byName.Delete("y")), compat.ArgI(int64(syms.byName.Len())))
 	counts := hash.NewMap[int, int](8)
 	for i := 0; i < 100; i++ {
 		p, _ := counts.Upsert(i % 7)
@@ -124,15 +123,15 @@ func main() {
 		total += n
 		*cit.Value() = 0
 	}
-	fmt.Println("counts", counts.Len(), total, counts.At(3))
+	compat.Printfb("%v %v %v %v\n", compat.ArgS("counts"), compat.ArgI(int64(counts.Len())), compat.ArgI(int64(total)), compat.ArgI(int64(counts.At(3))))
 	copied := syms.byName.Clone()
 	copied.Set("z", 1)
-	fmt.Println("map clone", copied.Len(), syms.byName.Len())
+	compat.Printfb("%v %v %v\n", compat.ArgS("map clone"), compat.ArgI(int64(copied.Len())), compat.ArgI(int64(syms.byName.Len())))
 	copied.Drop()
 	counts.Clear()
-	fmt.Println("map cleared", counts.Len())
+	compat.Printfb("%v %v\n", compat.ArgS("map cleared"), compat.ArgI(int64(counts.Len())))
 	set := hash.NewSet[string](4)
-	fmt.Println("set", set.Add("a"), set.Add("a"), set.Add("b"), set.Has("a"), set.Delete("a"), set.Has("a"), set.Len())
+	compat.Printfb("%v %v %v %v %v %v %v %v\n", compat.ArgS("set"), compat.ArgB(set.Add("a")), compat.ArgB(set.Add("a")), compat.ArgB(set.Add("b")), compat.ArgB(set.Has("a")), compat.ArgB(set.Delete("a")), compat.ArgB(set.Has("a")), compat.ArgI(int64(set.Len())))
 	n := 0
 	sit := set.Iter()
 	for _, ok := sit.Next(); ok; _, ok = sit.Next() {
@@ -140,17 +139,17 @@ func main() {
 	}
 	sc := set.Clone()
 	sc.Add("c")
-	fmt.Println("set iter", n, sc.Len(), set.Len())
+	compat.Printfb("%v %v %v %v\n", compat.ArgS("set iter"), compat.ArgI(int64(n)), compat.ArgI(int64(sc.Len())), compat.ArgI(int64(set.Len())))
 	sc.Drop()
 	set.Clear()
 
 	// A pointer graph allocated with New, printed into a Buf.
 	root := newNode("root")
 	for i := 0; i < 3; i++ {
-		child := newNode(compat.Sprint("child", i))
+		child := newNode(compat.Sprintfb("%v%v", compat.ArgS("child"), compat.ArgI(int64(i))))
 		child.attrs.Set("index", i)
 		for j := 0; j < i; j++ {
-			grand := newNode(compat.Sprint("leaf", i, j))
+			grand := newNode(compat.Sprintfb("%v%v %v", compat.ArgS("leaf"), compat.ArgI(int64(i)), compat.ArgI(int64(j))))
 			grand.attrs.Set("i", i)
 			grand.attrs.Set("j", j)
 			child.add(grand)
@@ -159,8 +158,8 @@ func main() {
 	}
 	out := pu.Alloc[strings.Builder]()
 	walk(out, root, 0)
-	fmt.Print(out.String())
-	fmt.Println("buf", out.Len(), out.Cap() >= out.Len(), len(out.Bytes()))
+	compat.Printfb("%v", compat.ArgS(out.String()))
+	compat.Printfb("%v %v %v %v\n", compat.ArgS("buf"), compat.ArgI(int64(out.Len())), compat.ArgB(out.Cap() >= out.Len()), compat.ArgI(int64(len(out.Bytes()))))
 	out.Reset()
 	out.Grow(10)
 	out.WriteByte('[')
@@ -168,8 +167,8 @@ func main() {
 	out.Write(compat.Bytes("bytes"))
 	out.WriteString("]")
 	msg := pu.Sprintf("%s has %d bytes", pu.Box(out.String()), out.Len())
-	fmt.Println(msg.String())
+	compat.Printfb("%v\n", compat.ArgS(msg.String()))
 	msg.Drop()
 	unsafe.Drop(out)
-	fmt.Println("dropped", out.Len())
+	compat.Printfb("%v %v\n", compat.ArgS("dropped"), compat.ArgI(int64(out.Len())))
 }

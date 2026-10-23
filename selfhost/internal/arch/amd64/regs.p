@@ -97,9 +97,9 @@ func (r Reg) Name(size int) string {
 	case r == NoReg:
 		return "<none>"
 	case r.IsVirtual():
-		return compat.Sprintf("v%d", r-FirstVirtual)
+		return compat.Sprintfb("v%d", compat.ArgI(int64(r-FirstVirtual)))
 	case r >= X0 && r <= X15:
-		return compat.Sprintf("xmm%d", r-X0)
+		return compat.Sprintfb("xmm%d", compat.ArgI(int64(r-X0)))
 	case r >= 0 && r < 16:
 		switch size {
 		case 1:
@@ -111,7 +111,7 @@ func (r Reg) Name(size int) string {
 		}
 		return gpNames64[r]
 	}
-	return compat.Sprintf("r?%d", int32(r))
+	return compat.Sprintfb("r?%d", compat.ArgI(int64(int32(r))))
 }
 
 func (r Reg) String() string { return r.Name(8) }

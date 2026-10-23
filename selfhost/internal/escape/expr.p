@@ -1429,9 +1429,9 @@ func (w *walker) destOf(lhs ast.Expr) dest {
 // why phrases, for a summary reason, a store of desc into d at pos.
 func (d dest) why(desc string, pos token.Position) string {
 	if d.callee != "" {
-		return compat.Sprintf("passes %s to %s (%s), which %s", desc, d.callee, shortPos(pos), d.calleeWhy.String())
+		return compat.Sprintfb("passes %s to %s (%s), which %s", compat.ArgS(desc), compat.ArgS(d.callee), compat.ArgS(shortPos(pos)), compat.ArgS(d.calleeWhy.String()))
 	}
-	return compat.Sprintf("stores %s in %s (%s)", desc, d.text, shortPos(pos))
+	return compat.Sprintfb("stores %s in %s (%s)", compat.ArgS(desc), compat.ArgS(d.text), compat.ArgS(shortPos(pos)))
 }
 
 // store records that the pointers in vals are stored into the memory the

@@ -3,7 +3,6 @@
 package ssa
 
 import (
-	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/syntax/token"
 	"selfhost/pu"
@@ -41,7 +40,7 @@ func (f *Func) Verify() error {
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("ssa: %s is invalid:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
+		return compat.NewError(compat.Sprintfb("ssa: %s is invalid:\n  %s\n%s", compat.ArgS(f.Name), compat.ArgS(compat.Join(errs, "\n  ")), compat.ArgS(compat.StringOf(f))))
 	}
 
 	// vals[id] is the value with that ID listed in a block, and where[id]
@@ -69,7 +68,7 @@ func (f *Func) Verify() error {
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("ssa: %s is invalid:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
+		return compat.NewError(compat.Sprintfb("ssa: %s is invalid:\n  %s\n%s", compat.ArgS(f.Name), compat.ArgS(compat.Join(errs, "\n  ")), compat.ArgS(compat.StringOf(f))))
 	}
 	whereOf := func(v *Value) *Block {
 		if listed(v) {
@@ -219,7 +218,7 @@ func (f *Func) Verify() error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("ssa: %s is invalid:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
+		return compat.NewError(compat.Sprintfb("ssa: %s is invalid:\n  %s\n%s", compat.ArgS(f.Name), compat.ArgS(compat.Join(errs, "\n  ")), compat.ArgS(compat.StringOf(f))))
 	}
 	return nil
 }
@@ -238,7 +237,7 @@ func (f *Func) VerifyPos() error {
 	// formatting every value made this check slow.
 	check := func(what func() string, pos token.Pos, inl int32) {
 		if inl < 0 || int(inl) > len(f.Inlines) {
-			errs = compat.Append(errs, compat.Sprintf("%s: inline site %d out of range (%d sites)", what(), inl, len(f.Inlines)))
+			errs = compat.Append(errs, compat.Sprintfb("%s: inline site %d out of range (%d sites)", compat.ArgS(what()), compat.ArgI(int64(inl)), compat.ArgI(int64(len(f.Inlines)))))
 			return
 		}
 		if !pos.IsValid() {
@@ -252,7 +251,7 @@ func (f *Func) VerifyPos() error {
 		if !end.IsValid() || start <= pos && pos <= end {
 			return
 		}
-		errs = compat.Append(errs, compat.Sprintf("%s: position %d (inline site %d) is outside %s [%d, %d]", what(), pos, inl, in, start, end))
+		errs = compat.Append(errs, compat.Sprintfb("%s: position %d (inline site %d) is outside %s [%d, %d]", compat.ArgS(what()), compat.ArgI(int64(pos)), compat.ArgI(int64(inl)), compat.ArgS(in), compat.ArgI(int64(start)), compat.ArgI(int64(end))))
 	}
 	for _, b := range f.Blocks {
 		check(b.String, b.Pos, b.Inl)
@@ -261,7 +260,7 @@ func (f *Func) VerifyPos() error {
 		}
 	}
 	if len(errs) > 0 {
-		return fmt.Errorf("ssa: %s has misplaced positions:\n  %s\n%s", f.Name, compat.Join(errs, "\n  "), f)
+		return compat.NewError(compat.Sprintfb("ssa: %s has misplaced positions:\n  %s\n%s", compat.ArgS(f.Name), compat.ArgS(compat.Join(errs, "\n  ")), compat.ArgS(compat.StringOf(f))))
 	}
 	return nil
 }

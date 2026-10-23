@@ -51,7 +51,7 @@ func hasClone(T types2.Type) bool {
 
 // ownerIntro says what makes T an owner.
 func (c *checker) ownerIntro(T types2.Type) string {
-	return compat.Sprintf("%s is an owner type: its values own what they hold and release it when they are dropped.", c.typeName(T))
+	return compat.Sprintfb("%s is an owner type: its values own what they hold and release it when they are dropped.", compat.ArgS(c.typeName(T)))
 }
 
 // howMoved says how a value left a variable: "moved to n", "moved into
@@ -61,13 +61,13 @@ func (c *checker) howMoved(mv *move) string {
 	case mvAssign:
 		return compat.Concat("moved to ", mv.to)
 	case mvArg:
-		return compat.Sprintf("moved into %s (its parameter takes %s by value)", mv.to, article(c.typeName(mv.typ)))
+		return compat.Sprintfb("moved into %s (its parameter takes %s by value)", compat.ArgS(mv.to), compat.ArgS(article(c.typeName(mv.typ))))
 	case mvRecv:
 		name := mv.to
 		if i := strings.LastIndexByte(name, '.'); i >= 0 {
 			name = strings.SliceFrom(name, i+1)
 		}
-		return compat.Sprintf("moved by the call %s() (%s has a value receiver)", mv.to, name)
+		return compat.Sprintfb("moved by the call %s() (%s has a value receiver)", compat.ArgS(mv.to), compat.ArgS(name))
 	case mvReturn:
 		return "returned"
 	case mvSend:
@@ -114,20 +114,20 @@ func (c *checker) deferUseDiag(v *types2.Var, s vstate) *diag.Diagnostic {
 	switch s.dl.kind {
 	case deferView:
 		what = "the deferred call"
-		runs = compat.Sprintf(" The call deferred at line %d keeps a view of %s in its receiver or arguments and runs when the function returns, after line %d, so it would look at what %s no longer holds.", at, name, mvLine, name)
+		runs = compat.Sprintfb(" The call deferred at line %d keeps a view of %s in its receiver or arguments and runs when the function returns, after line %d, so it would look at what %s no longer holds.", compat.ArgI(int64(at)), compat.ArgS(name), compat.ArgI(int64(mvLine)), compat.ArgS(name))
 	case deferStored:
-		runs = compat.Sprintf(" The function %s, which holds a function literal that uses %s, is deferred at line %d and runs when the function returns, after line %d, so it would use what %s no longer holds.", s.dl.via, name, at, mvLine, name)
+		runs = compat.Sprintfb(" The function %s, which holds a function literal that uses %s, is deferred at line %d and runs when the function returns, after line %d, so it would use what %s no longer holds.", compat.ArgS(s.dl.via), compat.ArgS(name), compat.ArgI(int64(at)), compat.ArgI(int64(mvLine)), compat.ArgS(name))
 	default:
-		runs = compat.Sprintf(" The function literal deferred at line %d runs when the function returns, after line %d, so it would use what %s no longer holds.", at, mvLine, name)
+		runs = compat.Sprintfb(" The function literal deferred at line %d runs when the function returns, after line %d, so it would use what %s no longer holds.", compat.ArgI(int64(at)), compat.ArgI(int64(mvLine)), compat.ArgS(name))
 	}
 	if s.st == maybe {
-		d.Msg = compat.Sprintf("%s may have been %s at line %d, but %s (line %d) uses it when the function returns", name, how, mvLine, what, at)
+		d.Msg = compat.Sprintfb("%s may have been %s at line %d, but %s (line %d) uses it when the function returns", compat.ArgS(name), compat.ArgS(how), compat.ArgI(int64(mvLine)), compat.ArgS(what), compat.ArgI(int64(at)))
 	} else {
-		d.Msg = compat.Sprintf("%s was %s at line %d, but %s (line %d) uses it when the function returns", name, how, mvLine, what, at)
+		d.Msg = compat.Sprintfb("%s was %s at line %d, but %s (line %d) uses it when the function returns", compat.ArgS(name), compat.ArgS(how), compat.ArgI(int64(mvLine)), compat.ArgS(what), compat.ArgI(int64(at)))
 	}
 	d.Text = compat.Concat(d.Text, runs)
-	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Give %s a new value after line %d, so that the deferred call finds one", name, mvLine), Code: compat.Sprintf("%s = %s", name, c.newValue(v.Type()))})
-	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintf("Or do the work of the deferred call at the end of the function, before line %d, instead of deferring it", mvLine)})})
+	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Give %s a new value after line %d, so that the deferred call finds one", compat.ArgS(name), compat.ArgI(int64(mvLine))), Code: compat.Sprintfb("%s = %s", compat.ArgS(name), compat.ArgS(c.newValue(v.Type())))})
+	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or do the work of the deferred call at the end of the function, before line %d, instead of deferring it", compat.ArgI(int64(mvLine)))})})
 	return d
 }
 
@@ -148,17 +148,17 @@ func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic 
 	if name != v.Name() {
 		holder = compat.Concat(name, ", part of ", v.Name(), ",")
 	}
-	lost := compat.Sprintf("At line %d %s was %s", at, owner, how)
+	lost := compat.Sprintfb("At line %d %s was %s", compat.ArgI(int64(at)), compat.ArgS(owner), compat.ArgS(how))
 	if w.maybe {
-		lost = compat.Sprintf("At line %d %s was %s on some paths to this point", at, owner, how)
+		lost = compat.Sprintfb("At line %d %s was %s on some paths to this point", compat.ArgI(int64(at)), compat.ArgS(owner), compat.ArgS(how))
 	}
-	d.Text = compat.Sprintf("%s looks at memory that %s owns, without owning it: the view was made by %s at line %d. A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from. %s, so the view may look at memory that was released, or at a value that now belongs to something else.", holder, owner, w.text, made, lost)
+	d.Text = compat.Sprintfb("%s looks at memory that %s owns, without owning it: the view was made by %s at line %d. A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from. %s, so the view may look at memory that was released, or at a value that now belongs to something else.", compat.ArgS(holder), compat.ArgS(owner), compat.ArgS(w.text), compat.ArgI(int64(made)), compat.ArgS(lost))
 	switch w.stale.kind {
 	case mvNewValue:
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Use %s before line %d, or give %s its new value only after the last use of %s", name, at, owner, name)})
-		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintf("Or make the view again after line %d", at), Code: compat.Sprintf("%s = %s", name, w.text)})})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before line %d, or give %s its new value only after the last use of %s", compat.ArgS(name), compat.ArgI(int64(at)), compat.ArgS(owner), compat.ArgS(name))})
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or make the view again after line %d", compat.ArgI(int64(at))), Code: compat.Sprintfb("%s = %s", compat.ArgS(name), compat.ArgS(w.text))})})
 	case mvScopeEnd:
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Declare %s in a block that encloses every use of %s, or use %s only inside the block of %s", owner, name, name, owner)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Declare %s in a block that encloses every use of %s, or use %s only inside the block of %s", compat.ArgS(owner), compat.ArgS(name), compat.ArgS(name), compat.ArgS(owner))})
 	default:
 		act := compat.Concat("move ", owner)
 		switch w.stale.kind {
@@ -167,9 +167,9 @@ func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic 
 		case mvTake:
 			act = compat.Concat("empty ", owner)
 		}
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Use %s before line %d, or %s only after the last use of %s", name, at, act, name)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before line %d, or %s only after the last use of %s", compat.ArgS(name), compat.ArgI(int64(at)), compat.ArgS(act), compat.ArgS(name))})
 		if hasClone(w.of.Type()) && w.stale.kind != mvDrop && w.stale.kind != mvTake {
-			d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintf("Or move a copy at line %d, so that %s keeps its value", at, owner), Code: compat.Concat(owner, ".Clone()")})})
+			d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or move a copy at line %d, so that %s keeps its value", compat.ArgI(int64(at)), compat.ArgS(owner)), Code: compat.Concat(owner, ".Clone()")})})
 		}
 	}
 	return d
@@ -186,8 +186,8 @@ func (c *checker) lostVerb(mv move) string {
 func (c *checker) pinnedDiag(v *types2.Var, p *pinMark, mv move) *diag.Diagnostic {
 	owner := v.Name()
 	d := c.newDiag(mv.pos, diag.LostView, "%s %s here, but a view of it (%s, line %d) was %s at line %d, where the compiler cannot check its uses", pu.Box(owner), pu.Box(c.lostVerb(mv)), pu.Box(p.text), c.line(p.pos), pu.Box(p.how), c.line(p.where))
-	d.Text = compat.Sprintf("A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from. The compiler follows views through local variables and their fields, and into the arguments of the calls that store them there, but the view of %s made by %s at line %d went into memory it does not follow, so it cannot check that the view is not used after line %d.", owner, p.text, c.line(p.pos), c.line(mv.pos))
-	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Keep the view in a local variable or a field of one, where the compiler follows it, or do not %s while the view is kept", strings.TrimPrefix(c.lostVerbBase(mv), "is "))})
+	d.Text = compat.Sprintfb("A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from. The compiler follows views through local variables and their fields, and into the arguments of the calls that store them there, but the view of %s made by %s at line %d went into memory it does not follow, so it cannot check that the view is not used after line %d.", compat.ArgS(owner), compat.ArgS(p.text), compat.ArgI(int64(c.line(p.pos))), compat.ArgI(int64(c.line(mv.pos))))
+	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Keep the view in a local variable or a field of one, where the compiler follows it, or do not %s while the view is kept", compat.ArgS(strings.TrimPrefix(c.lostVerbBase(mv), "is ")))})
 	return d
 }
 
@@ -249,19 +249,19 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 	at := c.line(mv.pos)
 	if s.st == maybe && mv.loop {
 		d := c.newDiag(id.Pos(), diag.UseMaybeMoved, "%s was %s at line %d in the previous iteration of this loop", pu.Box(name), pu.Box(c.howMoved(mv)), at)
-		d.Text = compat.Sprintf("%s %s is declared outside the loop, and the loop moves its value away at line %d without giving it a new one, so when the next iteration starts %s holds nothing.", c.ownerIntro(T), name, at, name)
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Declare %s inside the loop, so that each iteration has its own", name), Code: compat.Sprintf("for ... {\n\tvar %s %s\n\t...\n}", name, c.typeName(T))})
-		more := pu.New(diag.Fix{Intro: compat.Sprintf("Or give %s a new value after line %d", name, at), Code: compat.Sprintf("%s = %s", name, c.newValue(T))})
+		d.Text = compat.Sprintfb("%s %s is declared outside the loop, and the loop moves its value away at line %d without giving it a new one, so when the next iteration starts %s holds nothing.", compat.ArgS(c.ownerIntro(T)), compat.ArgS(name), compat.ArgI(int64(at)), compat.ArgS(name))
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Declare %s inside the loop, so that each iteration has its own", compat.ArgS(name)), Code: compat.Sprintfb("for ... {\n\tvar %s %s\n\t...\n}", compat.ArgS(name), compat.ArgS(c.typeName(T)))})
+		more := pu.New(diag.Fix{Intro: compat.Sprintfb("Or give %s a new value after line %d", compat.ArgS(name), compat.ArgI(int64(at))), Code: compat.Sprintfb("%s = %s", compat.ArgS(name), compat.ArgS(c.newValue(T)))})
 		d.More = compat.Clone([]*diag.Fix{more})
 		if hasClone(T) {
-			d.More = compat.Append(d.More, pu.New(diag.Fix{Intro: compat.Sprintf("Or move a copy at line %d", at), Code: compat.Concat(name, ".Clone()")}))
+			d.More = compat.Append(d.More, pu.New(diag.Fix{Intro: compat.Sprintfb("Or move a copy at line %d", compat.ArgI(int64(at))), Code: compat.Concat(name, ".Clone()")}))
 		}
 		return d
 	}
 	if s.st == maybe {
 		d := c.newDiag(id.Pos(), diag.UseMaybeMoved, "%s may have been moved at line %d, so it cannot be used here", pu.Box(name), at)
-		d.Text = compat.Sprintf("%s %s is %s at line %d on some paths to this point and not on others. On those paths %s holds nothing afterwards, and the compiler cannot let a value be used where it may already belong to someone else.", c.ownerIntro(T), name, c.howMoved(mv), at, name)
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Use %s before line %d, or give it a new value on the path that moves it", name, at), Code: compat.Sprintf("%s = %s", name, c.newValue(T))})
+		d.Text = compat.Sprintfb("%s %s is %s at line %d on some paths to this point and not on others. On those paths %s holds nothing afterwards, and the compiler cannot let a value be used where it may already belong to someone else.", compat.ArgS(c.ownerIntro(T)), compat.ArgS(name), compat.ArgS(c.howMoved(mv)), compat.ArgI(int64(at)), compat.ArgS(name))
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before line %d, or give it a new value on the path that moves it", compat.ArgS(name), compat.ArgI(int64(at))), Code: compat.Sprintfb("%s = %s", compat.ArgS(name), compat.ArgS(c.newValue(T)))})
 		return d
 	}
 	d := c.newDiag(id.Pos(), diag.UseAfterMove, "%s was %s at line %d, so it can no longer be used here", pu.Box(name), pu.Box(c.howMoved(mv)), at)
@@ -286,41 +286,41 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 	if mv.kind == mvAssign || mv.kind == mvStore {
 		holder = mv.to
 	}
-	text := compat.Sprintf("%s %s instead of copying it, so that what it owns has exactly one owner.", c.ownerIntro(T), what)
+	text := compat.Sprintfb("%s %s instead of copying it, so that what it owns has exactly one owner.", compat.ArgS(c.ownerIntro(T)), compat.ArgS(what))
 	if mv.kind == mvDrop {
-		text = compat.Sprintf("%s %s: what %s owned has been released.", c.ownerIntro(T), what, name)
+		text = compat.Sprintfb("%s %s: what %s owned has been released.", compat.ArgS(c.ownerIntro(T)), compat.ArgS(what), compat.ArgS(name))
 	} else if holder != "it" {
-		text = compat.Concat(text, compat.Sprintf(" Since line %d, %s owns it and %s holds nothing.", at, holder, name))
+		text = compat.Concat(text, compat.Sprintfb(" Since line %d, %s owns it and %s holds nothing.", compat.ArgI(int64(at)), compat.ArgS(holder), compat.ArgS(name)))
 	} else {
-		text = compat.Concat(text, compat.Sprintf(" Since line %d, %s holds nothing.", at, name))
+		text = compat.Concat(text, compat.Sprintfb(" Since line %d, %s holds nothing.", compat.ArgI(int64(at)), compat.ArgS(name)))
 	}
 	d.Text = text
 	var fixes []*diag.Fix
 	switch mv.kind {
 	case mvAssign:
 		if hasClone(T) {
-			fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintf("If you need two independent values, copy it explicitly at line %d", at), Code: compat.Sprintf("%s := %s.Clone()", mv.to, name)}))
+			fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintfb("If you need two independent values, copy it explicitly at line %d", compat.ArgI(int64(at))), Code: compat.Sprintfb("%s := %s.Clone()", compat.ArgS(mv.to), compat.ArgS(name))}))
 		}
-		fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintf("If %s only needs to look at the value, give it a pointer instead", mv.to), Code: compat.Sprintf("%s := &%s", mv.to, name)}))
+		fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintfb("If %s only needs to look at the value, give it a pointer instead", compat.ArgS(mv.to)), Code: compat.Sprintfb("%s := &%s", compat.ArgS(mv.to), compat.ArgS(name))}))
 	case mvArg:
-		fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintf("If %s only needs to look at the value, change its parameter to *%s and pass a pointer", mv.to, c.typeName(T)), Code: compat.Sprintf("%s(&%s)", mv.to, name)}))
+		fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintfb("If %s only needs to look at the value, change its parameter to *%s and pass a pointer", compat.ArgS(mv.to), compat.ArgS(c.typeName(T))), Code: compat.Sprintfb("%s(&%s)", compat.ArgS(mv.to), compat.ArgS(name))}))
 		if hasClone(T) {
-			fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: "If both need a value, pass a copy", Code: compat.Sprintf("%s(%s.Clone())", mv.to, name)}))
+			fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: "If both need a value, pass a copy", Code: compat.Sprintfb("%s(%s.Clone())", compat.ArgS(mv.to), compat.ArgS(name))}))
 		}
 	case mvRecv:
 		method := mv.to
 		if i := strings.LastIndexByte(method, '.'); i >= 0 {
 			method = strings.SliceFrom(method, i+1)
 		}
-		fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintf("Declare %s with a pointer receiver so that calling it does not consume %s", method, name), Code: compat.Sprintf("func (x *%s) %s(...)", c.typeName(T), method)}))
+		fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintfb("Declare %s with a pointer receiver so that calling it does not consume %s", compat.ArgS(method), compat.ArgS(name)), Code: compat.Sprintfb("func (x *%s) %s(...)", compat.ArgS(c.typeName(T)), compat.ArgS(method))}))
 	case mvGoRecv:
-		fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintf("To keep using %s while the task runs, make it a synced box: the task then takes a reference of its own", name), Code: compat.Sprintf("%s := alloc.Synced[%s]()", name, boxElem(c, T))}))
+		fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintfb("To keep using %s while the task runs, make it a synced box: the task then takes a reference of its own", compat.ArgS(name)), Code: compat.Sprintfb("%s := alloc.Synced[%s]()", compat.ArgS(name), compat.ArgS(boxElem(c, T)))}))
 	default:
 		if hasClone(T) {
-			fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintf("If both need a value, move a copy at line %d", at), Code: compat.Concat(name, ".Clone()")}))
+			fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintfb("If both need a value, move a copy at line %d", compat.ArgI(int64(at))), Code: compat.Concat(name, ".Clone()")}))
 		}
 	}
-	fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintf("If this is the last use of %s, move it before line %d, where %s still holds its value.", name, at, name)}))
+	fixes = compat.Append(fixes, pu.New(diag.Fix{Intro: compat.Sprintfb("If this is the last use of %s, move it before line %d, where %s still holds its value.", compat.ArgS(name), compat.ArgI(int64(at)), compat.ArgS(name))}))
 	d.Fix, d.More = fixes[0], fixes[1:]
 	return d
 }
@@ -329,8 +329,8 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 func (c *checker) capturedDiag(id *ast.Ident, v *types2.Var) *diag.Diagnostic {
 	name := v.Name()
 	d := c.newDiag(id.Pos(), diag.MoveCaptured, "cannot move %s inside a function literal: the literal may run more than once, or never", pu.Box(name))
-	d.Text = compat.Sprintf("%s is a variable of the function around the literal (declared at %s), which the literal uses where it lives. Moving it here would leave %s empty after the first call, and the function could not tell whether %s still needs to be dropped.", name, c.basePos(v.Pos()), name, name)
-	d.Fix = pu.New(diag.Fix{Intro: "Pass the value to the literal as an argument", Code: compat.Sprintf("do := func(%s %s) { ... }\ndo(%s)", name, c.typeName(v.Type()), name)})
+	d.Text = compat.Sprintfb("%s is a variable of the function around the literal (declared at %s), which the literal uses where it lives. Moving it here would leave %s empty after the first call, and the function could not tell whether %s still needs to be dropped.", compat.ArgS(name), compat.ArgS(c.basePos(v.Pos())), compat.ArgS(name), compat.ArgS(name))
+	d.Fix = pu.New(diag.Fix{Intro: "Pass the value to the literal as an argument", Code: compat.Sprintfb("do := func(%s %s) { ... }\ndo(%s)", compat.ArgS(name), compat.ArgS(c.typeName(v.Type())), compat.ArgS(name))})
 	return d
 }
 
@@ -340,7 +340,7 @@ func (c *checker) basePos(p token.Pos) string {
 	if i := strings.LastIndexByte(f, '/'); i >= 0 {
 		f = strings.SliceFrom(f, i+1)
 	}
-	return compat.Sprintf("%s:%d", f, pp.Line)
+	return compat.Sprintfb("%s:%d", compat.ArgS(f), compat.ArgI(int64(pp.Line)))
 }
 
 // placeDiag explains a move out of something other than a variable.
@@ -354,23 +354,23 @@ func (c *checker) placeDiag(e ast.Expr, k placeKind) *diag.Diagnostic {
 		if se, ok := ast.Unparen(e).(*ast.SelectorExpr); ok {
 			root = exprText(se.X)
 		}
-		first = compat.Sprintf("cannot move %s out of %s: %s is a field, not a variable", x, root, x)
+		first = compat.Sprintfb("cannot move %s out of %s: %s is a field, not a variable", compat.ArgS(x), compat.ArgS(root), compat.ArgS(x))
 	case placeEmbedded:
 		se := ast.Unparen(e).(*ast.SelectorExpr)
 		root = exprText(se.X)
-		first = compat.Sprintf("cannot call %s: its value receiver would move an embedded field out of %s", x, root)
+		first = compat.Sprintfb("cannot call %s: its value receiver would move an embedded field out of %s", compat.ArgS(x), compat.ArgS(root))
 	case placeElem:
 		if ix, ok := ast.Unparen(e).(*ast.IndexExpr); ok {
 			root = exprText(ix.X)
 		}
-		first = compat.Sprintf("cannot move %s out of %s: %s is an element, not a variable", x, root, x)
+		first = compat.Sprintfb("cannot move %s out of %s: %s is an element, not a variable", compat.ArgS(x), compat.ArgS(root), compat.ArgS(x))
 	case placePointer:
 		if st, ok := ast.Unparen(e).(*ast.StarExpr); ok {
 			root = exprText(st.X)
 		}
-		first = compat.Sprintf("cannot move %s out of the value %s points to", x, root)
+		first = compat.Sprintfb("cannot move %s out of the value %s points to", compat.ArgS(x), compat.ArgS(root))
 	case placeGlobal:
-		first = compat.Sprintf("cannot move package variable %s: only a local variable can be moved out of", x)
+		first = compat.Sprintfb("cannot move package variable %s: only a local variable can be moved out of", compat.ArgS(x))
 	}
 	d := c.newDiag(e.Pos(), diag.MoveOutOfPlace, "%s", pu.Box(first))
 	tn := "the value"
@@ -379,26 +379,26 @@ func (c *checker) placeDiag(e ast.Expr, k placeKind) *diag.Diagnostic {
 	}
 	switch k {
 	case placeGlobal:
-		d.Text = compat.Sprintf("%s is an owner type, so using %s here would move it. But a package variable lives for the whole program and would still believe it holds the value.", tn, x)
+		d.Text = compat.Sprintfb("%s is an owner type, so using %s here would move it. But a package variable lives for the whole program and would still believe it holds the value.", compat.ArgS(tn), compat.ArgS(x))
 	case placePointer:
-		d.Text = compat.Sprintf("%s is an owner type, so using %s here would move it. But the value belongs to whatever %s points into, which would free it again when it is dropped.", tn, x, root)
+		d.Text = compat.Sprintfb("%s is an owner type, so using %s here would move it. But the value belongs to whatever %s points into, which would free it again when it is dropped.", compat.ArgS(tn), compat.ArgS(x), compat.ArgS(root))
 	default:
-		d.Text = compat.Sprintf("%s is an owner type, so taking %s would move it. But %s would still believe it owns %s and would free it again when %s is dropped.", tn, x, root, x, root)
+		d.Text = compat.Sprintfb("%s is an owner type, so taking %s would move it. But %s would still believe it owns %s and would free it again when %s is dropped.", compat.ArgS(tn), compat.ArgS(x), compat.ArgS(root), compat.ArgS(x), compat.ArgS(root))
 	}
 	if k == placeEmbedded {
 		d.Fix = pu.New(diag.Fix{Intro: "Declare the method with a pointer receiver, so that calling it borrows the field instead of moving it."})
 		return d
 	}
-	d.Fix = pu.New(diag.Fix{Intro: "To move it out and leave an empty value in its place", Code: compat.Sprintf("v := take(&%s)", x)})
+	d.Fix = pu.New(diag.Fix{Intro: "To move it out and leave an empty value in its place", Code: compat.Sprintfb("v := take(&%s)", compat.ArgS(x))})
 	if k == placePointer {
-		d.Fix.Code = compat.Sprintf("v := take(%s)", root)
+		d.Fix.Code = compat.Sprintfb("v := take(%s)", compat.ArgS(root))
 	}
-	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To look at it without moving it", Code: compat.Sprintf("v := &%s", x)})})
+	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To look at it without moving it", Code: compat.Sprintfb("v := &%s", compat.ArgS(x))})})
 	if k == placePointer {
-		d.More[0].Code = compat.Sprintf("v := %s", root)
+		d.More[0].Code = compat.Sprintfb("v := %s", compat.ArgS(root))
 	}
 	if T != nil && hasClone(T) {
-		d.More = compat.Append(d.More, pu.New(diag.Fix{Intro: "To copy it", Code: compat.Sprintf("v := %s.Clone()", x)}))
+		d.More = compat.Append(d.More, pu.New(diag.Fix{Intro: "To copy it", Code: compat.Sprintfb("v := %s.Clone()", compat.ArgS(x))}))
 	}
 	return d
 }
@@ -407,8 +407,8 @@ func (c *checker) placeDiag(e ast.Expr, k placeKind) *diag.Diagnostic {
 func (c *checker) rangeDiag(st *ast.RangeStmt, elem types2.Type) *diag.Diagnostic {
 	x := exprText(st.X)
 	d := c.newDiag(st.Value.Pos(), diag.RangeCopiesOwner, "cannot copy the elements of %s in a range loop: %s is an owner type", pu.Box(x), pu.Box(c.typeName(elem)))
-	d.Text = compat.Sprintf("A range loop copies each element into %s. Copying an owner would leave two values that both release what it owns, and the element in %s would still believe it owns it.", exprText(st.Value), x)
-	d.Fix = pu.New(diag.Fix{Intro: "Range over the indexes and use a pointer to each element", Code: compat.Sprintf("for i := range %s {\n\t%s := &%s[i]\n\t...\n}", x, exprText(st.Value), x)})
+	d.Text = compat.Sprintfb("A range loop copies each element into %s. Copying an owner would leave two values that both release what it owns, and the element in %s would still believe it owns it.", compat.ArgS(exprText(st.Value)), compat.ArgS(x))
+	d.Fix = pu.New(diag.Fix{Intro: "Range over the indexes and use a pointer to each element", Code: compat.Sprintfb("for i := range %s {\n\t%s := &%s[i]\n\t...\n}", compat.ArgS(x), compat.ArgS(exprText(st.Value)), compat.ArgS(x))})
 	return d
 }
 
@@ -416,8 +416,8 @@ func (c *checker) rangeDiag(st *ast.RangeStmt, elem types2.Type) *diag.Diagnosti
 func (c *checker) deferDiag(st *ast.DeferStmt, id *ast.Ident, v *types2.Var, b *ast.BlockStmt) *diag.Diagnostic {
 	end := c.line(b.End())
 	d := c.newDiag(st.Pos(), diag.DeferInnerOwner, "the deferred call uses %s, which is dropped at the end of its block (line %d)", pu.Box(v.Name()), end)
-	d.Text = compat.Sprintf("Deferred calls run when the function returns. %s is declared in the block that ends at line %d and is dropped there, before this call would run, so the call would use what %s had released.", v.Name(), end, v.Name())
-	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Declare %s at the top level of the function, or do the work at the end of the block instead of deferring it.", v.Name())})
+	d.Text = compat.Sprintfb("Deferred calls run when the function returns. %s is declared in the block that ends at line %d and is dropped there, before this call would run, so the call would use what %s had released.", compat.ArgS(v.Name()), compat.ArgI(int64(end)), compat.ArgS(v.Name()))
+	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Declare %s at the top level of the function, or do the work at the end of the block instead of deferring it.", compat.ArgS(v.Name()))})
 	return d
 }
 
@@ -443,21 +443,21 @@ func (c *checker) dropDiag(se *ast.SelectorExpr, k dropKind) *diag.Diagnostic {
 			el = p
 		}
 		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop(): %s is %s, which only points at %s that something else owns", pu.Box(x), pu.Box(x), pu.Box(article(c.typeName(xt))), pu.Box(article(c.typeName(el))))
-		d.Text = compat.Sprintf("Drop releases what an owner holds. The %s %s points to belongs to another variable or place, which will drop it when its life ends, so dropping it here would release it twice.", c.typeName(el), x)
-		d.Fix = pu.New(diag.Fix{Intro: "To end an owner's life early, call Drop on the variable that holds it; it cannot be used afterwards", Code: compat.Sprintf("v.Drop() // v is the %s variable itself", c.typeName(el))})
-		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To leave an empty value behind instead", Code: compat.Sprintf("old := take(%s)", x)})})
+		d.Text = compat.Sprintfb("Drop releases what an owner holds. The %s %s points to belongs to another variable or place, which will drop it when its life ends, so dropping it here would release it twice.", compat.ArgS(c.typeName(el)), compat.ArgS(x))
+		d.Fix = pu.New(diag.Fix{Intro: "To end an owner's life early, call Drop on the variable that holds it; it cannot be used afterwards", Code: compat.Sprintfb("v.Drop() // v is the %s variable itself", compat.ArgS(c.typeName(el)))})
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To leave an empty value behind instead", Code: compat.Sprintfb("old := take(%s)", compat.ArgS(x))})})
 	case dropField:
 		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop(): %s is part of another value, which drops it when it is dropped", pu.Box(x), pu.Box(x))
-		d.Text = compat.Sprintf("Drop releases what an owner holds. %s belongs to the value it is part of, which will drop it again when its own life ends.", x)
-		d.Fix = pu.New(diag.Fix{Intro: "To release it now and leave an empty value in its place", Code: compat.Sprintf("old := take(&%s)\nold.Drop()", x)})
+		d.Text = compat.Sprintfb("Drop releases what an owner holds. %s belongs to the value it is part of, which will drop it again when its own life ends.", compat.ArgS(x))
+		d.Fix = pu.New(diag.Fix{Intro: "To release it now and leave an empty value in its place", Code: compat.Sprintfb("old := take(&%s)\nold.Drop()", compat.ArgS(x))})
 	case dropIface:
 		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot call %s.Drop() through %s, %s: an ordinary interface only lends the value it holds", pu.Box(x), pu.Box(x), pu.Box(article(c.typeName(xt))))
-		d.Text = compat.Sprintf("Converting an owner to an ordinary interface lends it: the owner still belongs to the variable that was converted, which will drop it. Dropping it through %s would release it twice.", x)
+		d.Text = compat.Sprintfb("Converting an owner to an ordinary interface lends it: the owner still belongs to the variable that was converted, which will drop it. Dropping it through %s would release it twice.", compat.ArgS(x))
 		d.Fix = pu.New(diag.Fix{Intro: "Call Drop on the owner itself, or declare an owning interface (type R owner interface {...}) to move the owner into it."})
 	case dropMethodValue:
 		d = c.newDiag(se.Pos(), diag.DropThroughView, "cannot use %s.Drop as a value: Drop can only be called on the owner itself", pu.Box(x))
 		d.Text = "A method value could be called at any time, by anyone, and each call would release what the owner holds."
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Call %s.Drop() where the owner's life should end.", x)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Call %s.Drop() where the owner's life should end.", compat.ArgS(x))})
 	}
 	return d
 }
@@ -465,7 +465,7 @@ func (c *checker) dropDiag(se *ast.SelectorExpr, k dropKind) *diag.Diagnostic {
 // copyDiag explains copy or append(s, t...) of owner elements.
 func (c *checker) copyDiag(e *ast.CallExpr, elem types2.Type, what string) *diag.Diagnostic {
 	d := c.newDiag(e.Pos(), diag.CopyOwners, "cannot %s elements of type %s: each element is an owner", pu.Box(what), pu.Box(c.typeName(elem)))
-	d.Text = compat.Sprintf("%s duplicates elements, and duplicating an owner would leave two values that both release what it owns.", what)
+	d.Text = compat.Sprintfb("%s duplicates elements, and duplicating an owner would leave two values that both release what it owns.", compat.ArgS(what))
 	src := "src"
 	if len(e.Args) == 2 {
 		a := ast.Unparen(e.Args[1])
@@ -474,9 +474,9 @@ func (c *checker) copyDiag(e *ast.CallExpr, elem types2.Type, what string) *diag
 		}
 		src = exprText(a)
 	}
-	d.Fix = pu.New(diag.Fix{Intro: "Move the elements one at a time", Code: compat.Sprintf("for i := range %s {\n\tdst[i] = take(&%s[i])\n}", src, src)})
+	d.Fix = pu.New(diag.Fix{Intro: "Move the elements one at a time", Code: compat.Sprintfb("for i := range %s {\n\tdst[i] = take(&%s[i])\n}", compat.ArgS(src), compat.ArgS(src))})
 	if hasClone(elem) {
-		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "or copy each one explicitly", Code: compat.Sprintf("for i := range %s {\n\tdst[i] = %s[i].Clone()\n}", src, src)})})
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "or copy each one explicitly", Code: compat.Sprintfb("for i := range %s {\n\tdst[i] = %s[i].Clone()\n}", compat.ArgS(src), compat.ArgS(src))})})
 	}
 	return d
 }
@@ -484,7 +484,7 @@ func (c *checker) copyDiag(e *ast.CallExpr, elem types2.Type, what string) *diag
 // variadicDiag explains owners passed as variadic arguments.
 func (c *checker) variadicDiag(a ast.Expr, callee string, elem types2.Type) *diag.Diagnostic {
 	d := c.newDiag(a.Pos(), diag.VariadicOwners, "cannot pass %s to %s as a variadic argument: %s is an owner type", pu.Box(exprText(a)), pu.Box(callee), pu.Box(c.typeName(elem)))
-	d.Text = compat.Sprintf("Variadic arguments are passed in an array that %s sees as a slice. A slice is a view and never owns its elements, so %s would be released by nobody.", callee, exprText(a))
+	d.Text = compat.Sprintfb("Variadic arguments are passed in an array that %s sees as a slice. A slice is a view and never owns its elements, so %s would be released by nobody.", compat.ArgS(callee), compat.ArgS(exprText(a)))
 	d.Fix = pu.New(diag.Fix{Intro: "Pass the owners one at a time to a parameter that takes them by value, or collect them in an owner such as a vec.Vec."})
 	return d
 }
@@ -493,7 +493,7 @@ func (c *checker) variadicDiag(a ast.Expr, callee string, elem types2.Type) *dia
 func (c *checker) sliceLitDiag(e *ast.CompositeLit, elem types2.Type) *diag.Diagnostic {
 	d := c.newDiag(e.Pos(), diag.SliceLitOwners, "a slice literal cannot hold owners: %s is an owner type, and nothing would drop the elements", pu.Box(c.typeName(elem)))
 	d.Text = "A slice literal keeps its elements in an array that the slice only looks at. Owners stored there would be released by nobody."
-	d.Fix = pu.New(diag.Fix{Intro: "Use an array literal, which owns its elements", Code: compat.Sprintf("[...]%s{...}", c.typeName(elem))})
+	d.Fix = pu.New(diag.Fix{Intro: "Use an array literal, which owns its elements", Code: compat.Sprintfb("[...]%s{...}", compat.ArgS(c.typeName(elem)))})
 	return d
 }
 
@@ -501,8 +501,8 @@ func (c *checker) sliceLitDiag(e *ast.CompositeLit, elem types2.Type) *diag.Diag
 func (c *checker) assertDiag(x ast.Expr, xt, T types2.Type, pos token.Pos) *diag.Diagnostic {
 	xs := exprText(x)
 	d := c.newDiag(pos, diag.OwnerFromLender, "cannot assert %s to %s: %s is %s, which only lends the value it holds", pu.Box(xs), pu.Box(c.typeName(T)), pu.Box(xs), pu.Box(article(c.typeName(xt))))
-	d.Text = compat.Sprintf("Converting an owner to an ordinary interface such as %s lends it: the interface looks at the owner, which still belongs to the variable that was converted. Taking %s out of %s would create a second owner.", c.typeName(xt), article(c.typeName(T)), xs)
-	d.Fix = pu.New(diag.Fix{Intro: "Call the value's methods through an interface type instead", Code: compat.Sprintf("if s, ok := %s.(fmt.Stringer); ok {\n\tuse(s.String())\n}", xs)})
+	d.Text = compat.Sprintfb("Converting an owner to an ordinary interface such as %s lends it: the interface looks at the owner, which still belongs to the variable that was converted. Taking %s out of %s would create a second owner.", compat.ArgS(c.typeName(xt)), compat.ArgS(article(c.typeName(T))), compat.ArgS(xs))
+	d.Fix = pu.New(diag.Fix{Intro: "Call the value's methods through an interface type instead", Code: compat.Sprintfb("if s, ok := %s.(fmt.Stringer); ok {\n\tuse(s.String())\n}", compat.ArgS(xs))})
 	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "or move it into an owning interface in the first place", Code: "type Text owner interface{ String() string }"})})
 	return d
 }
@@ -512,9 +512,9 @@ func (c *checker) indexDiag(e *ast.IndexExpr) *diag.Diagnostic {
 	x := exprText(e.X)
 	T := c.typeOf(e)
 	d := c.newDiag(e.Pos(), diag.IndexOwner, "cannot read %s: the elements of %s are owners, and %s would be a copy", pu.Box(exprText(e)), pu.Box(x), pu.Box(exprText(e)))
-	d.Text = compat.Sprintf("%s on %s calls its Index method, which returns a copy of the element. %s is an owner type, so the copy would be a second owner of what the element owns.", exprText(e), c.typeName(c.typeOf(e.X)), c.typeName(T))
-	d.Fix = pu.New(diag.Fix{Intro: "To look at the element, use a method that returns a pointer to it", Code: compat.Sprintf("p := %s.Ptr(%s)", x, exprText(e.Index))})
-	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To move it out, use a method that removes or replaces it, or take it through such a pointer", Code: compat.Sprintf("elem := take(%s.Ptr(%s))", x, exprText(e.Index))})})
+	d.Text = compat.Sprintfb("%s on %s calls its Index method, which returns a copy of the element. %s is an owner type, so the copy would be a second owner of what the element owns.", compat.ArgS(exprText(e)), compat.ArgS(c.typeName(c.typeOf(e.X))), compat.ArgS(c.typeName(T)))
+	d.Fix = pu.New(diag.Fix{Intro: "To look at the element, use a method that returns a pointer to it", Code: compat.Sprintfb("p := %s.Ptr(%s)", compat.ArgS(x), compat.ArgS(exprText(e.Index)))})
+	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To move it out, use a method that removes or replaces it, or take it through such a pointer", Code: compat.Sprintfb("elem := take(%s.Ptr(%s))", compat.ArgS(x), compat.ArgS(exprText(e.Index)))})})
 	return d
 }
 

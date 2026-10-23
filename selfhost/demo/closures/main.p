@@ -11,7 +11,6 @@
 package main
 
 import (
-	"pluto/fmt"
 	"pluto/strings"
 	"selfhost/compat"
 	"selfhost/pu"
@@ -123,7 +122,7 @@ func makeInfos(vals []int) []*deferInfo {
 		default:
 			run = pu.New(goClosure_makeInfos_3{i: i})
 		}
-		infos = compat.Append(infos, pu.New(deferInfo{run: run, tag: compat.Sprint("t", i)}))
+		infos = compat.Append(infos, pu.New(deferInfo{run: run, tag: compat.Sprintfb("%v%v", compat.ArgS("t"), compat.ArgI(int64(i)))}))
 	}
 	return infos
 }
@@ -171,10 +170,10 @@ func keep() {
 
 		kept = compat.Append(kept, v)
 	}
-	fmt.Println(a, (*h), p, (*q))
+	compat.Printfb("%v %v %v %v\n", compat.ArgI(int64(a)), compat.ArgI(int64((*h))), compat.ArgI(int64(p)), compat.ArgI(int64((*q))))
 	(*h) = 10
 	for _, k := range kept {
-		fmt.Println(*k)
+		compat.Printfb("%v\n", compat.ArgI(int64(*k)))
 	}
 }
 
@@ -186,7 +185,7 @@ func main() {
 	c.enqueueOthers()
 	c.drain()
 	for _, l := range c.st.out {
-		fmt.Println(l)
+		compat.Printfb("%v\n", compat.ArgS(l))
 	}
 
 	ch := pu.New(checker{})
@@ -194,31 +193,31 @@ func main() {
 	ch.decl("y")
 	ch.process()
 	for _, l := range ch.log {
-		fmt.Println(l)
+		compat.Printfb("%v\n", compat.ArgS(l))
 	}
 	for _, a := range [...]string{"x", "y"} {
-		fmt.Println(a)
+		compat.Printfb("%v\n", compat.ArgS(a))
 	}
 
 	st := pu.Alloc[state]()
 	n := 7
 	for _, info := range makeInfos([]int{3, 4, 5, 6}) {
 		n = info.run.Call(st, n)
-		fmt.Println(info.tag, n)
+		compat.Printfb("%v %v\n", compat.ArgS(info.tag), compat.ArgI(int64(n)))
 	}
 	for _, l := range st.out {
-		fmt.Println(l)
+		compat.Printfb("%v\n", compat.ArgS(l))
 	}
 
 	m := newMaker(3)
 	f1, f2 := m.mk.Call(10), m.mk.Call(100)
-	fmt.Println(f1(), f2(), f1(), f2())
+	compat.Printfb("%v %v %v %v\n", compat.ArgI(int64(f1())), compat.ArgI(int64(f2())), compat.ArgI(int64(f1())), compat.ArgI(int64(f2())))
 
 	mp := newMapper(1)
-	fmt.Println(strings.Map(mp.f.Call, "HAL"))
+	compat.Printfb("%v\n", compat.ArgS(strings.Map(mp.f.Call, "HAL")))
 
 	setHook(">> ")
-	fmt.Println(hook.Call("done"))
+	compat.Printfb("%v\n", compat.ArgS(hook.Call("done")))
 }
 
 // goFn1 stands for func(*state), which a closure that outlives its frame cannot be
@@ -274,7 +273,7 @@ type goClosure_decl_1 struct {
 
 func (goSelf *goClosure_decl_1) Call() {
 	(*goSelf.count)++
-	goSelf.ch.log = compat.Append(goSelf.ch.log, compat.Sprintf("%s: count=%d result=%s", goSelf.name, (*goSelf.count), (*goSelf.result)))
+	goSelf.ch.log = compat.Append(goSelf.ch.log, compat.Sprintfb("%s: count=%d result=%s", compat.ArgS(goSelf.name), compat.ArgI(int64((*goSelf.count))), compat.ArgS((*goSelf.result))))
 }
 
 // goClosure_decl_2 is the function literal at main.go:97, converted to a struct

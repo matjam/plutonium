@@ -12,7 +12,7 @@ import (
 // String formats the function as text, for tests and debugging.
 func (f *Func) String() string {
 	sb := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(sb, "func %s", f.Name)
+	compat.Fprintfb(sb, "func %s", compat.ArgS(f.Name))
 	sb.WriteByte('(')
 	for i, t := range f.Params {
 		if i > 0 {
@@ -39,25 +39,25 @@ func (f *Func) String() string {
 }
 
 func (f *Func) writeBlock(sb *compat.Builder, b *Block) {
-	fmt.Fprintf(sb, "  %s:", b)
+	compat.Fprintfb(sb, "  %s:", compat.ArgS(compat.StringOf(b)))
 	if len(b.Preds) > 0 {
 		sb.WriteString(" <-")
 		for _, e := range b.Preds {
-			fmt.Fprintf(sb, " %s", e.B)
+			compat.Fprintfb(sb, " %s", compat.ArgS(compat.StringOf(e.B)))
 		}
 	}
 	sb.WriteByte('\n')
 	for _, v := range b.Values {
-		fmt.Fprintf(sb, "    %s\n", v.LongString())
+		compat.Fprintfb(sb, "    %s\n", compat.ArgS(v.LongString()))
 	}
-	fmt.Fprintf(sb, "    %s", b.Kind)
+	compat.Fprintfb(sb, "    %s", compat.ArgS((b.Kind).String()))
 	for _, c := range b.Controls {
-		fmt.Fprintf(sb, " %s", c)
+		compat.Fprintfb(sb, " %s", compat.ArgS(compat.StringOf(c)))
 	}
 	if len(b.Succs) > 0 {
 		sb.WriteString(" ->")
 		for _, e := range b.Succs {
-			fmt.Fprintf(sb, " %s", e.B)
+			compat.Fprintfb(sb, " %s", compat.ArgS(compat.StringOf(e.B)))
 		}
 	}
 	switch b.Likely {
@@ -72,13 +72,13 @@ func (f *Func) writeBlock(sb *compat.Builder, b *Block) {
 // LongString formats a value with its operation and arguments.
 func (v *Value) LongString() string {
 	sb := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(sb, "%s = %s", v, v.Op)
+	compat.Fprintfb(sb, "%s = %s", compat.ArgS(compat.StringOf(v)), compat.ArgS((v.Op).String()))
 	if v.Type != nil {
-		fmt.Fprintf(sb, " <%s>", v.Type)
+		compat.Fprintfb(sb, " <%s>", compat.ArgS(compat.StringOf(v.Type)))
 	}
 	switch v.Op {
 	case OpConst, OpArg, OpOffPtr, OpSelectN, OpZero, OpMove:
-		fmt.Fprintf(sb, " [%d]", v.AuxInt)
+		compat.Fprintfb(sb, " [%d]", compat.ArgI(v.AuxInt))
 	case OpConstFloat:
 		fmt.Fprintf(sb, " [%g]", math.Float64frombits(uint64(v.AuxInt)))
 	case OpLoad, OpStore:
@@ -90,14 +90,14 @@ func (v *Value) LongString() string {
 		}
 	default:
 		if v.AuxInt != 0 {
-			fmt.Fprintf(sb, " [%d]", v.AuxInt)
+			compat.Fprintfb(sb, " [%d]", compat.ArgI(v.AuxInt))
 		}
 	}
 	if v.Aux != nil {
 		fmt.Fprintf(sb, " {%v}", v.Aux)
 	}
 	for _, a := range v.Args {
-		fmt.Fprintf(sb, " %s", a)
+		compat.Fprintfb(sb, " %s", compat.ArgS(compat.StringOf(a)))
 	}
 	return sb.String()
 }

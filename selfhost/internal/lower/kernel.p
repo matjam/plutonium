@@ -43,10 +43,10 @@ func (s *fnState) floatErrorAt(pos token.Pos, t *ssa.Type, what string) {
 		name = "float32"
 	}
 	d := pu.New(diag.Diagnostic{Code: diag.KernelFloat,
-		Msg: compat.Sprintf("%s %s is not allowed in kernel mode (no FPU state is saved; mark the function //pu:fpu to use floats)", name, what)})
+		Msg: compat.Sprintfb("%s %s is not allowed in kernel mode (no FPU state is saved; mark the function //pu:fpu to use floats)", compat.ArgS(name), compat.ArgS(what))})
 	if s.job != nil && s.job.decl != nil {
 		fn := s.job.decl.Name.Name
-		d.Text = compat.Sprintf("The function %s uses floating point here (%s %s), and this is a kernel-mode build, where only functions marked //pu:fpu may use floating point. When an interrupt or system call enters the kernel, the processor does not save the floating-point registers, so kernel code that used them would corrupt the values of the program it interrupted.\nCopying a struct with float fields is allowed, since that uses only integer registers.", fn, name, what)
+		d.Text = compat.Sprintfb("The function %s uses floating point here (%s %s), and this is a kernel-mode build, where only functions marked //pu:fpu may use floating point. When an interrupt or system call enters the kernel, the processor does not save the floating-point registers, so kernel code that used them would corrupt the values of the program it interrupted.\nCopying a struct with float fields is allowed, since that uses only integer registers.", compat.ArgS(fn), compat.ArgS(name), compat.ArgS(what))
 		d.Fix = pu.New(diag.Fix{Intro: "Mark the function, and have its callers save the floating-point state with x86.FPUBegin and x86.FPUEnd",
 			Code: compat.Concat("//pu:fpu\nfunc ", fn, "(...)")})
 	}

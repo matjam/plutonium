@@ -12,7 +12,6 @@
 package main
 
 import (
-	"pluto/fmt"
 	"pluto/math"
 	"pluto/strings"
 	"selfhost/compat"
@@ -41,9 +40,9 @@ func (r *rng) digits(alphabet string, n int) string {
 func (r *rng) intLit() string {
 	switch r.intn(6) {
 	case 0:
-		return compat.Sprint(r.intn(1000))
+		return compat.Sprintfb("%v", compat.ArgI(int64(r.intn(1000))))
 	case 1:
-		return compat.Sprint(r.next())
+		return compat.Sprintfb("%v", compat.ArgU(r.next()))
 	case 2:
 		return compat.Concat("0x", r.digits("0123456789abcdef", 1+r.intn(40)))
 	case 3:
@@ -51,7 +50,7 @@ func (r *rng) intLit() string {
 	case 4:
 		return compat.Concat("0b1", r.digits("01", r.intn(130)))
 	}
-	return compat.Sprint(int64(1) << uint(r.intn(63)))
+	return compat.Sprintfb("%v", compat.ArgI(int64(1)<<uint(r.intn(63))))
 }
 
 func (r *rng) floatLit() string {
@@ -71,9 +70,9 @@ func (r *rng) floatLit() string {
 	case 3:
 		exp = r.intn(4000) - 2000
 	default:
-		return compat.Concat("0x", r.digits("0123456789abcdef", 1+r.intn(20)), "p", compat.Sprint(r.intn(9000)-4500))
+		return compat.Concat("0x", r.digits("0123456789abcdef", 1+r.intn(20)), "p", compat.Sprintfb("%v", compat.ArgI(int64(r.intn(9000)-4500))))
 	}
-	return compat.Concat(mant, "e", compat.Sprint(exp))
+	return compat.Concat(mant, "e", compat.Sprintfb("%v", compat.ArgI(int64(exp))))
 }
 
 func (r *rng) leaf() constant.Value {
@@ -96,12 +95,12 @@ var cmpOps = []token.Token{token.EQL, token.NEQ, token.LSS, token.LEQ, token.GTR
 
 // describe prints everything the API tells about x.
 func describe(label string, x constant.Value) {
-	s := compat.Sprintf("%s: %s %s %s", label, x.Kind(), x.String(), x.ExactString())
+	s := compat.Sprintfb("%s: %s %s %s", compat.ArgS(label), compat.ArgS((x.Kind()).String()), compat.ArgS(x.String()), compat.ArgS(x.ExactString()))
 	switch x.Kind() {
 	case constant.Bool:
-		s = compat.Concat(s, compat.Sprintf(" %v", constant.BoolVal(x)))
+		s = compat.Concat(s, compat.Sprintfb(" %v", compat.ArgB(constant.BoolVal(x))))
 	case constant.String:
-		s = compat.Concat(s, compat.Sprintf(" %q %d", constant.StringVal(x), constant.StringLen(x)))
+		s = compat.Concat(s, compat.Sprintfb(" %q %d", compat.ArgS(constant.StringVal(x)), compat.ArgI(constant.StringLen(x))))
 	case constant.Int:
 		i, iok := constant.Int64Val(x)
 		u, uok := constant.Uint64Val(x)
@@ -110,20 +109,20 @@ func describe(label string, x constant.Value) {
 	if k := x.Kind(); k == constant.Int || k == constant.Float {
 		f32, e32 := constant.Float32Val(x)
 		f64, e64 := constant.Float64Val(x)
-		s = compat.Concat(s, compat.Sprintf(" sign=%d f32=%v,%v f64=%v,%v", constant.Sign(x), math.Float32bits(f32), e32, math.Float64bits(f64), e64))
-		s = compat.Concat(s, compat.Sprintf(" num=%s den=%s toint=%s tofloat=%s",
-			constant.Num(x).ExactString(), constant.Denom(x).ExactString(), constant.ToInt(x).ExactString(), constant.ToFloat(x).ExactString()))
-		s = compat.Concat(s, compat.Sprintf(" real=%s imag=%s", constant.Real(x).ExactString(), constant.Imag(x).ExactString()))
+		s = compat.Concat(s, compat.Sprintfb(" sign=%d f32=%v,%v f64=%v,%v", compat.ArgI(int64(constant.Sign(x))), compat.ArgU(uint64(math.Float32bits(f32))), compat.ArgB(e32), compat.ArgU(math.Float64bits(f64)), compat.ArgB(e64)))
+		s = compat.Concat(s, compat.Sprintfb(" num=%s den=%s toint=%s tofloat=%s",
+			compat.ArgS(constant.Num(x).ExactString()), compat.ArgS(constant.Denom(x).ExactString()), compat.ArgS(constant.ToInt(x).ExactString()), compat.ArgS(constant.ToFloat(x).ExactString())))
+		s = compat.Concat(s, compat.Sprintfb(" real=%s imag=%s", compat.ArgS(constant.Real(x).ExactString()), compat.ArgS(constant.Imag(x).ExactString())))
 	}
-	fmt.Println(s)
+	compat.Printfb("%v\n", compat.ArgS(s))
 }
 
 func compare(label string, x, y constant.Value) {
 	s := compat.Concat(label, ":")
 	for _, op := range cmpOps {
-		s = compat.Concat(s, compat.Sprintf(" %v", constant.Compare(x, op, y)))
+		s = compat.Concat(s, compat.Sprintfb(" %v", compat.ArgB(constant.Compare(x, op, y))))
 	}
-	fmt.Println(s)
+	compat.Printfb("%v\n", compat.ArgS(s))
 }
 
 // expr builds a random expression of the given depth and describes every
@@ -146,7 +145,7 @@ func (r *rng) expr(depth int, label string) constant.Value {
 		precs := []int{0, 0, 8, 16, 32, 64, 100}
 		prec := uint(precs[r.intn(len(precs))])
 		p = constant.UnaryOp(op, x, prec)
-		label = compat.Concat(label, compat.Sprintf(" unary %s [%d]", op, prec))
+		label = compat.Concat(label, compat.Sprintfb(" unary %s [%d]", compat.ArgS((op).String()), compat.ArgU(uint64(prec))))
 	case 1: // shift
 		if x.Kind() != constant.Int {
 			x = constant.ToInt(x)
@@ -158,7 +157,7 @@ func (r *rng) expr(depth int, label string) constant.Value {
 		op := ops[r.intn(2)]
 		n := uint(r.intn(200))
 		p = constant.Shift(x, op, n)
-		label = compat.Concat(label, compat.Sprintf(" shift %s %d", op, n))
+		label = compat.Concat(label, compat.Sprintfb(" shift %s %d", compat.ArgS((op).String()), compat.ArgU(uint64(n))))
 	case 2: // conversion
 		if r.intn(2) == 0 {
 			p = constant.ToInt(x)
@@ -182,7 +181,7 @@ func (r *rng) expr(depth int, label string) constant.Value {
 			return x
 		}
 		p = constant.BinaryOp(x, op, y)
-		label = compat.Concat(label, compat.Sprintf(" binary %s", op))
+		label = compat.Concat(label, compat.Sprintfb(" binary %s", compat.ArgS((op).String())))
 	}
 	describe(label, p)
 	return p
@@ -247,19 +246,19 @@ func makers() {
 	describe("false", constant.MakeBool(false))
 	describe("string", constant.MakeString("héllo"))
 	for _, x := range []int64{0, 1, -1, math.MaxInt64, math.MinInt64, 1 << 40} {
-		describe(compat.Sprint("int64 ", x), constant.MakeInt64(x))
+		describe(compat.Sprintfb("%v%v", compat.ArgS("int64 "), compat.ArgI(x)), constant.MakeInt64(x))
 	}
 	for _, x := range []uint64{0, 1, 1<<63 - 1, 1 << 63, math.MaxUint64} {
-		describe(compat.Sprint("uint64 ", x), constant.MakeUint64(x))
+		describe(compat.Sprintfb("%v%v", compat.ArgS("uint64 "), compat.ArgU(x)), constant.MakeUint64(x))
 	}
 	for _, x := range []float64{0, math.Copysign(0, -1), 1, -1.5, 0.1, math.MaxFloat64, math.SmallestNonzeroFloat64,
 		1e-310, math.Inf(1), math.NaN(), 0x1p-1022, 0x1p1023, 0x1p-1074 * 3, math.Ldexp(1, 4095), math.Ldexp(1, -4096)} {
-		describe(compat.Sprint("float64 ", math.Float64bits(x)), constant.MakeFloat64(x))
+		describe(compat.Sprintfb("%v%v", compat.ArgS("float64 "), compat.ArgU(math.Float64bits(x))), constant.MakeFloat64(x))
 	}
 	for _, b := range [][]byte{nil, compat.Clone([]byte{0}), compat.Clone([]byte{1}), compat.Clone([]byte{0, 0, 1}), compat.Clone([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}), compat.Clone([]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff})} {
 		describe(compat.Sprintf("bytes %x", b), constant.MakeFromBytes(b))
 	}
-	fmt.Println(constant.Kind(42).String(), constant.Float.String())
+	compat.Printfb("%v %v\n", compat.ArgS(constant.Kind(42).String()), compat.ArgS(constant.Float.String()))
 }
 
 // bigFloats combines values held as 512-bit floats in every sign
@@ -273,14 +272,14 @@ func bigFloats() {
 	big := vals[0]
 	vals = compat.Append(vals, constant.BinaryOp(big, token.SUB, big), constant.MakeInt64(3), constant.MakeFloat64(-2.5), constant.MakeFromLiteral("123456789012345678901234567890123456789012345678901234567890", token.INT, 0))
 	for i, x := range vals {
-		describe(compat.Sprint("big value ", i), x)
+		describe(compat.Sprintfb("%v%v", compat.ArgS("big value "), compat.ArgI(int64(i))), x)
 		for j, y := range vals {
-			compare(compat.Sprint("big ", i, " ", j), x, y)
+			compare(compat.Sprintfb("%v%v%v%v", compat.ArgS("big "), compat.ArgI(int64(i)), compat.ArgS(" "), compat.ArgI(int64(j))), x, y)
 			for _, op := range binOps {
 				if op == token.QUO && constant.Sign(y) == 0 {
 					continue
 				}
-				describe(compat.Sprint("big ", i, " ", op, " ", j), constant.BinaryOp(x, op, y))
+				describe(compat.Sprintfb("%v%v%v%v%v%v", compat.ArgS("big "), compat.ArgI(int64(i)), compat.ArgS(" "), compat.ArgS((op).String()), compat.ArgS(" "), compat.ArgI(int64(j))), constant.BinaryOp(x, op, y))
 			}
 		}
 	}
@@ -295,7 +294,7 @@ func others() {
 		describe(compat.Concat("bool ", op.String()), constant.BinaryOp(b, op, f))
 	}
 	describe("not", constant.UnaryOp(token.NOT, b, 0))
-	fmt.Println("bools", constant.Compare(b, token.EQL, f), constant.Compare(b, token.NEQ, f))
+	compat.Printfb("%v %v %v\n", compat.ArgS("bools"), compat.ArgB(constant.Compare(b, token.EQL, f)), compat.ArgB(constant.Compare(b, token.NEQ, f)))
 	u := constant.MakeUnknown()
 	describe("unknown op", constant.BinaryOp(u, token.ADD, constant.MakeInt64(1)))
 	describe("unknown shift", constant.Shift(u, token.SHL, 3))
@@ -310,6 +309,6 @@ func main() {
 	bigFloats()
 	r := &rng{s: 1}
 	for i := 0; i < 3000; i++ {
-		r.expr(1+r.intn(4), compat.Sprint("expr ", i))
+		r.expr(1+r.intn(4), compat.Sprintfb("%v%v", compat.ArgS("expr "), compat.ArgI(int64(i))))
 	}
 }

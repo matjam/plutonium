@@ -136,7 +136,7 @@ func show(f *ssa.Func) {
 	ssa.SplitCriticalEdges(f)
 	ssa.Schedule(f)
 	fmt.Printf("-- after passes\n%s", f)
-	fmt.Print("layout:")
+	compat.Printfb("%v", compat.ArgS("layout:"))
 	for _, b := range ssa.Layout(f) {
 		fmt.Printf(" %s", b)
 	}
@@ -155,9 +155,9 @@ func program() {
 	for _, s := range p.Syms() {
 		fmt.Printf("sym %s kind=%d\n", s, s.Kind)
 	}
-	fmt.Println(p.LookupSym("main.a") != nil, p.LookupSym("nope") == nil)
+	compat.Printfb("%v %v\n", compat.ArgB(p.LookupSym("main.a") != nil), compat.ArgB(p.LookupSym("nope") == nil))
 	fmt.Println(ssa.TupleOf(compat.Clone([]*ssa.Type{ssa.TI64, ssa.TMem, ssa.TF32})...), ssa.IntType(2), ssa.FloatType(4))
-	fmt.Println(ssa.Canon(ssa.TI8, 200), ssa.ZeroExt(ssa.TI8, -56), ssa.OpAdd.IsCommutative(), ssa.OpStore.HasMemArg())
+	compat.Printfb("%v %v %v %v\n", compat.ArgI(ssa.Canon(ssa.TI8, 200)), compat.ArgU(ssa.ZeroExt(ssa.TI8, -56)), compat.ArgB(ssa.OpAdd.IsCommutative()), compat.ArgB(ssa.OpStore.HasMemArg()))
 }
 
 // broken has one invariant violation for Verify to report.

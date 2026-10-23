@@ -53,7 +53,7 @@ func (a *analyzer) loopBodyFunc(st *ast.RangeStmt, ysig *types2.Signature, pkg *
 	}
 	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(params...), ysig.Results(), false)
 	p := a.fset.Position(st.Pos())
-	f := pu.New(function{name: compat.Sprintf("the loop body at %s", shortPos(p)), pkg: pkg, sig: sig, params: params, loopBody: true})
+	f := pu.New(function{name: compat.Sprintfb("the loop body at %s", compat.ArgS(shortPos(p))), pkg: pkg, sig: sig, params: params, loopBody: true})
 	if a.bodies == nil {
 		a.bodies = map[*ast.RangeStmt]*function{}
 	}

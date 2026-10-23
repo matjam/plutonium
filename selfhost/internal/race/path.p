@@ -169,14 +169,14 @@ func (r root) key() string {
 	case rFunc:
 		return compat.Concat("func ", r.fn.FullName())
 	case rLit:
-		return compat.Sprintf("lit@%d", r.node.Pos())
+		return compat.Sprintfb("lit@%d", compat.ArgI(int64(r.node.Pos())))
 	case rRegion:
-		return compat.Sprintf("region%d@%d", r.idx, r.pos)
+		return compat.Sprintfb("region%d@%d", compat.ArgI(int64(r.idx)), compat.ArgI(int64(r.pos)))
 	case rUnknown:
 		if r.v != nil {
-			return compat.Sprintf("unknown(%s@%d)", r.v.Name(), r.v.Pos())
+			return compat.Sprintfb("unknown(%s@%d)", compat.ArgS(r.v.Name()), compat.ArgI(int64(r.v.Pos())))
 		}
-		return compat.Sprintf("unknown@%d.%d", r.pos, r.idx)
+		return compat.Sprintfb("unknown@%d.%d", compat.ArgI(int64(r.pos)), compat.ArgI(int64(r.idx)))
 	}
 	return "?"
 }

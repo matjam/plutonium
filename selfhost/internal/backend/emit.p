@@ -8,7 +8,6 @@
 package backend
 
 import (
-	"pluto/fmt"
 	"pluto/io"
 	"pluto/sort"
 	"selfhost/compat"
@@ -48,7 +47,7 @@ func Emit(cfg *Config, p *ssa.Program, dbg *debuginfo.Table) (*objfile.Object, e
 		f.Verify() or return
 		code := amd64.Compile(f, cfg.Listing != nil) or return
 		if cfg.Listing != nil {
-			fmt.Fprintln(cfg.Listing, code.Asm) or return
+			compat.Fprintfb(cfg.Listing, "%v\n", compat.ArgS(code.Asm)) or return
 		}
 		sec := text
 		if f.Section != "" {

@@ -74,13 +74,13 @@ func maps() {
 	counts["a"] += 10
 	counts["b"]++
 	if v, ok := counts["c"]; ok {
-		fmt.Println("c is", v)
+		compat.Printfb("%v %v\n", compat.ArgS("c is"), compat.ArgI(int64(v)))
 	}
 	var v, ok = counts["zz"]
-	fmt.Println("zz", v, ok, len(counts))
+	compat.Printfb("%v %v %v %v\n", compat.ArgS("zz"), compat.ArgI(int64(v)), compat.ArgB(ok), compat.ArgI(int64(len(counts))))
 	delete(counts, "b")
 	for _, k := range sortedKeys(counts) {
-		fmt.Println(k, counts[k])
+		compat.Printfb("%v %v\n", compat.ArgS(k), compat.ArgI(int64(counts[k])))
 	}
 	sum := 0
 	for _, n := range counts {
@@ -92,7 +92,7 @@ func maps() {
 		sum += n - n
 	}
 	_ = k
-	fmt.Println("sum", sum)
+	compat.Printfb("%v %v\n", compat.ArgS("sum"), compat.ArgI(int64(sum)))
 
 	// Labeled loops over a map.
 	found := 0
@@ -105,33 +105,33 @@ outer:
 			}
 		}
 	}
-	fmt.Println("found", found)
+	compat.Printfb("%v %v\n", compat.ArgS("found"), compat.ArgI(int64(found)))
 	clear(counts)
-	fmt.Println("cleared", len(counts))
+	compat.Printfb("%v %v\n", compat.ArgS("cleared"), compat.ArgI(int64(len(counts))))
 
 	var nilMap map[string]int
-	fmt.Println("nil map", nilMap["x"], len(nilMap))
+	compat.Printfb("%v %v %v\n", compat.ArgS("nil map"), compat.ArgI(int64(nilMap["x"])), compat.ArgI(int64(len(nilMap))))
 
 	// Pointer and interface keys.
 	a, b := newNode("a"), newNode("b")
 	seen := map[*node]bool{a: true}
 	seen[b] = true
-	fmt.Println("seen", seen[a], seen[b], seen[newNode("c")])
+	compat.Printfb("%v %v %v %v\n", compat.ArgS("seen"), compat.ArgB(seen[a]), compat.ArgB(seen[b]), compat.ArgB(seen[newNode("c")]))
 	byIface := map[named]int{}
 	byIface[a] = 1
 	byIface[b] = 2
-	fmt.Println("iface", byIface[a], byIface[b], len(byIface))
+	compat.Printfb("%v %v %v %v\n", compat.ArgS("iface"), compat.ArgI(int64(byIface[a])), compat.ArgI(int64(byIface[b])), compat.ArgI(int64(len(byIface))))
 
 	// Literals with elided element types.
 	pts := map[string]point{"o": {0, 0}, "x": {1, 0}}
 	ptrs := map[string]*point{"p": pu.New(point{2, 3})}
 	nested := map[string]map[string]bool{"outer": {"inner": true}}
-	fmt.Println("lits", pts["x"].x, ptrs["p"].y, nested["outer"]["inner"], len(nested["none"]))
+	compat.Printfb("%v %v %v %v %v\n", compat.ArgS("lits"), compat.ArgI(int64(pts["x"].x)), compat.ArgI(int64(ptrs["p"].y)), compat.ArgB(nested["outer"]["inner"]), compat.ArgI(int64(len(nested["none"]))))
 
 	var t table
 	t.add(a)
 	t.add(b)
-	fmt.Println("table", t.byName["b"].name, len(t.order))
+	compat.Printfb("%v %v %v\n", compat.ArgS("table"), compat.ArgS(t.byName["b"].name), compat.ArgI(int64(len(t.order))))
 }
 
 // bs0 returns the bytes of s as a slice, which Go slices like a string but
@@ -142,32 +142,32 @@ func stringsAndBytes() {
 	s := "go"
 	s = compat.Concat(s, "2")
 	t := compat.Concat(s, "pu", "!", s)
-	fmt.Println(t, len(t))
+	compat.Printfb("%v %v\n", compat.ArgS(t), compat.ArgI(int64(len(t))))
 	// A slice expression on a string becomes strings.Slice and
 	// strings.SliceFrom, whose bounds must be rune boundaries.
 	n := 2
-	fmt.Println(strings.Slice(t, 1, n), strings.SliceFrom(t, n), strings.Slice(t, 0, n), t, compat.String(bs0(t)[1:3]))
+	compat.Printfb("%v %v %v %v %v\n", compat.ArgS(strings.Slice(t, 1, n)), compat.ArgS(strings.SliceFrom(t, n)), compat.ArgS(strings.Slice(t, 0, n)), compat.ArgS(t), compat.ArgS(compat.String(bs0(t)[1:3])))
 	bs := compat.Bytes(t)
 	bs[0] = 'G'
-	fmt.Println(compat.String(bs), string(rune(0x263A)))
+	compat.Printfb("%v %v\n", compat.ArgS(compat.String(bs)), compat.ArgS(string(rune(0x263A))))
 	bs = compat.AppendString(bs, " tail")
-	fmt.Println(compat.String(bs))
+	compat.Printfb("%v\n", compat.ArgS(compat.String(bs)))
 	num := compat.AppendInt(nil, -42, 10)
 	num = compat.Append(num, ' ')
 	num = compat.AppendFloat(num, 2.5e-7, 'g', -1, 64)
 	num = compat.AppendRune(num, '☺')
 	num = compat.Appendf(num, " %d|%q", 7, "x")
-	fmt.Println(compat.String(num))
+	compat.Printfb("%v\n", compat.ArgS(compat.String(num)))
 
 	sb := pu.Alloc[compat.Builder]()
 	for i := 0; i < 3; i++ {
-		fmt.Fprintf(sb, "[%d]", i)
+		compat.Fprintfb(sb, "[%d]", compat.ArgI(int64(i)))
 	}
 	sb.WriteString("end")
-	fmt.Println(sb.String(), sb.Len())
-	fmt.Println(compat.Join([]string{"x", "y", "z"}, "-"))
+	compat.Printfb("%v %v\n", compat.ArgS(sb.String()), compat.ArgI(int64(sb.Len())))
+	compat.Printfb("%v\n", compat.ArgS(compat.Join([]string{"x", "y", "z"}, "-")))
 
-	msg := compat.Sprintf("%s=%d", "k", 42)
+	msg := compat.Sprintfb("%s=%d", compat.ArgS("k"), compat.ArgI(int64(42)))
 	err := fmt.Errorf("wrapped %q: %w", msg, errBase)
 	fmt.Println(err, errors.Is(err, errBase), errors.Unwrap(err) == errBase)
 	for i := 0; i < 3; i++ {
@@ -187,11 +187,11 @@ func sorting() {
 	stable := compat.Append([]item(nil), items...)
 	sort.SortStableFunc(stable, func(a, b item) bool { return a.key < b.key })
 	for _, it := range unstable {
-		fmt.Print(it.key, ":", it.seq, " ")
+		compat.Printfb("%v%v%v%v", compat.ArgI(int64(it.key)), compat.ArgS(":"), compat.ArgI(int64(it.seq)), compat.ArgS(" "))
 	}
 	fmt.Println()
 	for _, it := range stable {
-		fmt.Print(it.key, ":", it.seq, " ")
+		compat.Printfb("%v%v%v%v", compat.ArgI(int64(it.key)), compat.ArgS(":"), compat.ArgI(int64(it.seq)), compat.ArgS(" "))
 	}
 	fmt.Println()
 }
@@ -205,7 +205,7 @@ func encoding() {
 	compat.PutUint16(tail[4:], 0xCAFE)
 	buf.Write(tail[:])
 	for _, x := range buf.Bytes() {
-		fmt.Printf("%02x", x)
+		compat.Printfb("%02x", compat.ArgU(uint64(x)))
 	}
 	fmt.Println()
 }
@@ -276,40 +276,40 @@ func propagate() {
 	fmt.Println(parsePair("1", "2"))
 	fmt.Println(double("21"))
 	d, ds, err := double("z")
-	fmt.Println(d, ds == "", err != nil)
+	compat.Printfb("%v %v %v\n", compat.ArgI(int64(d)), compat.ArgB(ds == ""), compat.ArgB(err != nil))
 	_, err = parsePair("x", "2")
-	fmt.Println(err != nil)
+	compat.Printfb("%v\n", compat.ArgB(err != nil))
 	_, err = parsePair("-1", "2")
 	fmt.Println(err)
 	_, err = parsePair("1", "y")
-	fmt.Println(err != nil)
+	compat.Printfb("%v\n", compat.ArgB(err != nil))
 	fmt.Println(checkAll([]int{1, 2}), checkAll([]int{1, -2}))
 	_, err = lookup(&table{}, "q")
-	fmt.Println(err != nil)
+	compat.Printfb("%v\n", compat.ArgB(err != nil))
 }
 
 // osNames: Go's os name functions return a string; pluto/os's return an
 // error as well for a name that is not valid UTF-8 (language spec F.9), so
 // the translation takes the display forms.
 func osNames() {
-	fmt.Println(compat.Getenv("PLUTO_REWRITES_UNSET") == "")
+	compat.Printfb("%v\n", compat.ArgB(compat.Getenv("PLUTO_REWRITES_UNSET") == ""))
 	v, ok := compat.LookupEnv("PLUTO_REWRITES_UNSET")
-	fmt.Println(v == "", ok)
-	fmt.Println(compat.TempDir() != "")
+	compat.Printfb("%v %v\n", compat.ArgB(v == ""), compat.ArgB(ok))
+	compat.Printfb("%v\n", compat.ArgB(compat.TempDir() != ""))
 	fi, err := os.Stat("/")
-	fmt.Println(err == nil, fi.NameLossy())
+	compat.Printfb("%v %v\n", compat.ArgB(err == nil), compat.ArgS(fi.NameLossy()))
 }
 
 func main() {
 	h := keep(41)
-	fmt.Println(*h.p, h.q.x, h.q.y, *h.r)
+	compat.Printfb("%v %v %v %v\n", compat.ArgI(int64(*h.p)), compat.ArgI(int64(h.q.x)), compat.ArgI(int64(h.q.y)), compat.ArgS(*h.r))
 	maps()
 	stringsAndBytes()
 	sorting()
 	encoding()
 	p := pair(4, 5)
 	n := newNode("solo")
-	fmt.Println(p[0]+p[1], n.Name())
+	compat.Printfb("%v %v\n", compat.ArgI(int64(p[0]+p[1])), compat.ArgS(n.Name()))
 	propagate()
 	osNames()
 }

@@ -9,7 +9,6 @@
 package types2
 
 import (
-	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/pu"
 )
@@ -174,7 +173,7 @@ func SelectionString(s *Selection, qf Qualifier) string {
 	buf.WriteString(k)
 	buf.WriteByte('(')
 	WriteType(buf, s.Recv(), qf)
-	fmt.Fprintf(buf, ") %s", s.obj.Name())
+	compat.Fprintfb(buf, ") %s", compat.ArgS(s.obj.Name()))
 	if T := s.Type(); s.kind == FieldVal {
 		buf.WriteByte(' ')
 		WriteType(buf, T, qf)

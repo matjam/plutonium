@@ -509,7 +509,7 @@ func (s *fnState) unprintable(a ast.Node, T types2.Type) {
 	if types2.IsOwner(T) {
 		d.Text = "An owner cannot be printed, even when its underlying type is an integer: printing it would raise the question of whether the value moves. print and println write a boolean, an integer, a floating-point number, a string, or an address."
 		if b, ok := T.Underlying().(*types2.Basic); ok && b.Info()&types2.IsInteger != 0 {
-			d.Fix = pu.New(diag.Fix{Intro: "To print the number inside an owner, convert it; the conversion reads the value without moving it", Code: compat.Sprintf("println(%s(%s))", b.Name(), exprText(a))})
+			d.Fix = pu.New(diag.Fix{Intro: "To print the number inside an owner, convert it; the conversion reads the value without moving it", Code: compat.Sprintfb("println(%s(%s))", compat.ArgS(b.Name()), compat.ArgS(exprText(a)))})
 			d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To print other values, use pluto/fmt", Code: "import \"pluto/fmt\"\n\nfmt.Println(x)"})})
 		}
 	}
@@ -651,7 +651,7 @@ func (l *Lowerer) ringMethodFunc(fn *types2.Func, w *types2.Wrapper, pos token.P
 	ptr := types2.NewPointer(w)
 	obj, _, _ := types2.LookupFieldOrMethod(ptr, false, nil, fn.Name())
 	full := obj.(*types2.Func).Type().(*types2.Signature)
-	name := compat.Sprintf("builtin.(*ring[%s,%d]).%s", typeString(w.Elem()), w.N(), fn.Name())
+	name := compat.Sprintfb("builtin.(*ring[%s,%d]).%s", compat.ArgS(typeString(w.Elem())), compat.ArgI(w.N()), compat.ArgS(fn.Name()))
 	if sym := l.funcs[name]; sym != nil {
 		return sym, full
 	}
@@ -691,7 +691,7 @@ func (s *fnState) ringIterator(name string, w *types2.Wrapper, p *ssa.Value, T t
 // push count: each step skips to the oldest element if the body popped the
 // position's element, and stops once the position reaches the push count.
 func (l *Lowerer) ringIterFunc(name string, w *types2.Wrapper, sig *types2.Signature) *ssa.Sym {
-	symName := compat.Sprintf("builtin.(*ring[%s,%d]).%s.func1", typeString(w.Elem()), w.N(), name)
+	symName := compat.Sprintfb("builtin.(*ring[%s,%d]).%s.func1", compat.ArgS(typeString(w.Elem())), compat.ArgI(w.N()), compat.ArgS(name))
 	if sym := l.funcs[symName]; sym != nil {
 		return sym
 	}

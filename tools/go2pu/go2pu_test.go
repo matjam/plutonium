@@ -60,6 +60,7 @@ var translations = []struct {
 	{dir: "testdata/constdemo", demo: true},             // the constant package
 	{dir: "testdata/parsecheck", demo: true},            // the syntax packages, over the repository (TestParseCheck)
 	{dir: "testdata/closures", demo: true},              // closures that outlive their frame, converted to structs
+	{dir: "testdata/stringers", demo: true},             // formatting operands replaced by their String or Error call
 	{dir: "testdata/diagdemo", demo: true, slow: true},  // the diagnostics, over the golden files (TestDiagDemoRecords)
 	{dir: "testdata/typecheck", demo: true, slow: true}, // the loader and the type checker, over the repository (TestTypeCheck)
 	{dir: "testdata/lowerdemo", demo: true, slow: true}, // the front end as a program: SSA of the repository's programs (TestLower)

@@ -28,7 +28,7 @@ type Value struct {
 	argStorage [3]*Value
 }
 
-func (v *Value) String() string { return compat.Sprintf("v%d", v.ID) }
+func (v *Value) String() string { return compat.Sprintfb("v%d", compat.ArgI(int64(v.ID))) }
 
 // CopyPos gives v the source position of w together with its inline site.
 // A pass that copies or replaces a value copies its position this way,
@@ -145,7 +145,7 @@ type Block struct {
 	Inl      int32 // inline site of Pos, as for Value.Inl
 }
 
-func (b *Block) String() string { return compat.Sprintf("b%d", b.ID) }
+func (b *Block) String() string { return compat.Sprintfb("b%d", compat.ArgI(int64(b.ID))) }
 
 // CopyPos gives b the source position of c together with its inline site.
 func (b *Block) CopyPos(c *Block) { b.Pos, b.Inl = c.Pos, c.Inl }
@@ -289,7 +289,9 @@ type Slot struct {
 	Offset int64
 }
 
-func (s *Slot) String() string { return compat.Sprintf("%s#%d", s.Name, s.ID) }
+func (s *Slot) String() string {
+	return compat.Sprintfb("%s#%d", compat.ArgS(s.Name), compat.ArgI(int64(s.ID)))
+}
 
 // A Part is one piece of a closure region: a variable, a closure record, or
 // the region of a call nested in it.

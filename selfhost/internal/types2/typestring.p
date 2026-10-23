@@ -391,7 +391,7 @@ func (w *typeWriter) typ(typ Type) {
 			// The names of type parameters that are declared by the type being
 			// hashed are not part of the type identity. Replace them with a
 			// placeholder indicating their index.
-			w.string(compat.Sprintf("$%d", i))
+			w.string(compat.Sprintfb("$%d", compat.ArgI(int64(i))))
 		} else {
 			w.string(t.obj.name)
 			if w.tpSubscripts || w.ctxt != nil {

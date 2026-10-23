@@ -804,5 +804,5 @@ type goClosure_returnVal_1 struct {
 }
 
 func (goSelf *goClosure_returnVal_1) Call() string {
-	return compat.Sprintf("returns %s from %s (%s)", goSelf.t.sc.fn.paramDesc(keyOf(goSelf.t)), goSelf.w.scopeName(goSelf.sc), shortPos(goSelf.w.a.fset.Position(goSelf.pos)))
+	return compat.Sprintfb("returns %s from %s (%s)", compat.ArgS(goSelf.t.sc.fn.paramDesc(keyOf(goSelf.t))), compat.ArgS(goSelf.w.scopeName(goSelf.sc)), compat.ArgS(shortPos(goSelf.w.a.fset.Position(goSelf.pos))))
 }

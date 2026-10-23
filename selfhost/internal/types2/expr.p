@@ -1412,7 +1412,7 @@ func nth(n int, what string) string {
 	default:
 		ext = "th"
 	}
-	return compat.Sprintf("%d%s %s", n, ext, what)
+	return compat.Sprintfb("%d%s %s", compat.ArgI(int64(n)), compat.ArgS(ext), compat.ArgS(what))
 }
 
 // exprOrType typechecks expression or type e and initializes x with the expression value or type.

@@ -127,7 +127,7 @@ func (w *walker) dropGlue(ptr tset, T types2.Type, v string, cs *callSite, seen 
 		if pointerElem(m.Type().(*types2.Signature).Recv().Type()) == nil {
 			recv = w.load(ptr) // a value receiver: a copy of the owner
 		}
-		label := compat.Sprintf("%s (called when %s is dropped)", w.funcLabel(f, m), v)
+		label := compat.Sprintfb("%s (called when %s is dropped)", compat.ArgS(w.funcLabel(f, m)), compat.ArgS(v))
 		cs.sig = m.Type().(*types2.Signature)
 		w.apply(f, []tset{recv}, cs, label, recvExact, 0)
 	}
@@ -148,7 +148,7 @@ func (w *walker) dropGlue(ptr tset, T types2.Type, v string, cs *callSite, seen 
 		// An owning interface drops its dynamic value: the Drop methods of
 		// the types converted to it.
 		sig := types2.NewSignatureType(nil, nil, nil, nil, nil, false)
-		t := callTarget{sig: sig, method: "Drop", name: compat.Sprintf("the dynamic value of %s (dropped with %s)", v, v)}
+		t := callTarget{sig: sig, method: "Drop", name: compat.Sprintfb("the dynamic value of %s (dropped with %s)", compat.ArgS(v), compat.ArgS(v))}
 		w.dynIface(t, []tset{w.load(ptr)}, cs, 0)
 	case *types2.TaggedUnion:
 		for i := 0; i < u.NumVariants(); i++ {

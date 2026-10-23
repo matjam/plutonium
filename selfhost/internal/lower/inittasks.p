@@ -116,7 +116,7 @@ func (l *Lowerer) reportInitTask(g *callGraph, r initRoot, n *ctxNode, last *hop
 	}
 	who := "the initializer of a package-level variable"
 	if r.decl != nil {
-		who = compat.Sprintf("the init function of package %s at %s", r.pkg.Types.Name(), l.shortPos(r.decl.Pos()))
+		who = compat.Sprintfb("the init function of package %s at %s", compat.ArgS(r.pkg.Types.Name()), compat.ArgS(l.shortPos(r.decl.Pos())))
 	} else if v := l.initVarAt(r.pkg, pos); v != nil {
 		who = compat.Concat("the initializer of ", v.Name())
 	}
@@ -125,7 +125,7 @@ func (l *Lowerer) reportInitTask(g *callGraph, r initRoot, n *ctxNode, last *hop
 		phrases = compat.Append(phrases, l.hopPhrase(&visible[i], op == nil && i == len(visible)-1, opSpawn))
 	}
 	if op != nil {
-		phrases = compat.Append(phrases, compat.Sprintf("starts a task (%s)", l.shortPos(op.pos)))
+		phrases = compat.Append(phrases, compat.Sprintfb("starts a task (%s)", compat.ArgS(l.shortPos(op.pos))))
 	}
 	d := pu.New(diag.Diagnostic{Code: diag.InitSpawns, Msg: compat.Concat(who, " can start a task during package initialization")})
 	subject := compat.Concat("The", strings.TrimPrefix(who, "the"))

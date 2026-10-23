@@ -540,7 +540,7 @@ func (w *writer) function(f *ssa.Func) {
 	w.int(int64(len(f.Blocks)))
 	w.end()
 	for _, b := range f.Blocks {
-		where = compat.Sprintf("the controls of b%d", b.ID)
+		where = compat.Sprintfb("the controls of b%d", compat.ArgI(int64(b.ID)))
 		w.tag("block")
 		w.int(int64(b.ID))
 		w.int(int64(b.Kind))
@@ -572,7 +572,7 @@ func (w *writer) function(f *ssa.Func) {
 		w.int(int64(len(b.Values)))
 		w.end()
 		for _, v := range b.Values {
-			where = compat.Sprintf("v%d (%s)", v.ID, v.Op)
+			where = compat.Sprintfb("v%d (%s)", compat.ArgI(int64(v.ID)), compat.ArgS((v.Op).String()))
 			w.value(f, v, id)
 		}
 	}
@@ -580,7 +580,7 @@ func (w *writer) function(f *ssa.Func) {
 	w.int(int64(len(dead)))
 	w.end()
 	for _, v := range dead {
-		where = compat.Sprintf("the detached v%d (%s)", v.ID, v.Op)
+		where = compat.Sprintfb("the detached v%d (%s)", compat.ArgI(int64(v.ID)), compat.ArgS((v.Op).String()))
 		w.value(f, v, id)
 	}
 	w.tag("endfunc")

@@ -24,7 +24,7 @@ func assert(p bool) {
 		// Include information about the assertion location. Due to panic recovery,
 		// this location is otherwise buried in the middle of the panicking stack.
 		if _, file, line, ok := compat.Caller(1); ok {
-			msg = compat.Sprintf("%s:%d: %s", file, line, msg)
+			msg = compat.Sprintfb("%s:%d: %s", compat.ArgS(file), compat.ArgI(int64(line)), compat.ArgS(msg))
 		}
 		panic(pu.Box(msg))
 	}
@@ -96,7 +96,7 @@ func (err *error_) msg() string {
 	for i := range err.desc {
 		p := &err.desc[i]
 		if i > 0 {
-			fmt.Fprint(buf, "\n\t")
+			compat.Fprintfb(buf, "%v", compat.ArgS("\n\t"))
 			if p.posn.Pos().IsValid() {
 				fmt.Fprintf(buf, "%s: ", err.check.fset.Position(p.posn.Pos()))
 			}

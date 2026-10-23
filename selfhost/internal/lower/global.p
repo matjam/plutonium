@@ -134,7 +134,7 @@ func (l *Lowerer) staticObject(T types2.Type) *ssa.Sym {
 
 // staticBytes allocates an anonymous static object of the given size.
 func (l *Lowerer) staticBytes(size, align int64) *ssa.Sym {
-	sym := l.out.Sym(compat.Sprintf(".static.%d", l.statics), ssa.SymData)
+	sym := l.out.Sym(compat.Sprintfb(".static.%d", compat.ArgI(int64(l.statics))), ssa.SymData)
 	l.statics++
 	l.out.Data = compat.Append(l.out.Data, pu.New(ssa.Data{Sym: sym, Size: max(size, 1), Align: align, Local: true}))
 	return sym
@@ -361,7 +361,7 @@ func (l *Lowerer) queueInit(p *load.Package, static map[*types2.Var]bool) {
 	for _, f := range p.Files {
 		for _, d := range f.Decls {
 			if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == "init" && fd.Recv == nil && fd.Body != nil {
-				isym := l.out.Sym(compat.Sprintf("%s.init.%d", p.Path, len((*inits))), ssa.SymFunc)
+				isym := l.out.Sym(compat.Sprintfb("%s.init.%d", compat.ArgS(p.Path), compat.ArgI(int64(len((*inits))))), ssa.SymFunc)
 				(*inits) = compat.Append((*inits), isym)
 				l.initRoots = compat.Append(l.initRoots, initRoot{sym: isym, pkg: p, decl: fd})
 				l.queue = compat.Append(l.queue, pu.New(funcJob{sym: isym, pkg: p, decl: fd, sig: sig}))

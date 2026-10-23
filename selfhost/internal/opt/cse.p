@@ -81,7 +81,7 @@ func cseKey(v *ssa.Value) string {
 		args = []*ssa.Value{args[1], args[0]}
 	}
 	for _, a := range args {
-		fmt.Fprintf(sb, "v%d,", a.ID)
+		compat.Fprintfb(sb, "v%d,", compat.ArgI(int64(a.ID)))
 	}
 	return sb.String()
 }

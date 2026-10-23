@@ -19,6 +19,10 @@
 //     only valid UTF-8; []byte(s) and []rune(s) copy into memory from
 //     alloc.Default() that nothing frees);
 //   - fmt.Sprintf and fmt.Errorf become compat.Sprintf and compat.Errorf;
+//     a fmt printing call whose operands are all strings, integers and
+//     booleans (or have a String or Error method the translation can call
+//     itself) becomes compat.Sprintfb, Fprintfb or Printfb, which formats
+//     them without interfaces (stringers.go);
 //   - bytes.Buffer and strings.Builder become compat.Buffer;
 //   - sort.Slice with a comparison of x[i] and x[j] becomes sort.SortFunc;
 //   - encoding/binary.Write of a fixed-size struct becomes a generated

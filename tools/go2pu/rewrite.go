@@ -14,6 +14,16 @@ import (
 // rewrite returns the translation of n if n itself needs one, and false if
 // n translates to its own source with its descendants translated.
 func (t *fileTr) rewrite(n ast.Node) (string, bool) {
+	// A routed formatting operand wraps its own translation, which may be
+	// a substitution (stringers.go).
+	if s, ok := t.basicText(n); ok {
+		return s, true
+	}
+	if e, ok := n.(ast.Expr); ok {
+		if s, ok := t.stringerText(e); ok {
+			return s, true
+		}
+	}
 	if s, ok := t.subst[n]; ok {
 		return s, true
 	}

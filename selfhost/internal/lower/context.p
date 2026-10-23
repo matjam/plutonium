@@ -327,7 +327,7 @@ func (g *callGraph) targets(site *callSite) []*ssa.Sym {
 		return out
 	}
 	if site.iface != nil {
-		key := compat.Sprintf("%s.%d", typeString(site.iface), site.method)
+		key := compat.Sprintfb("%s.%d", compat.ArgS(typeString(site.iface)), compat.ArgI(int64(site.method)))
 		if t, ok := g.ifaceTargets[key]; ok {
 			return t
 		}
@@ -471,7 +471,7 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxN
 	}
 	pos := token.NoPos
 	if op != nil {
-		phrases = compat.Append(phrases, compat.Sprintf("%s (%s)", op.what, l.shortPos(op.pos)))
+		phrases = compat.Append(phrases, compat.Sprintfb("%s (%s)", compat.ArgS(op.what), compat.ArgS(l.shortPos(op.pos))))
 		pos = op.pos
 	}
 	if len(vis) > 0 {
@@ -520,7 +520,7 @@ func (l *Lowerer) reportContext(g *callGraph, root *ssa.Sym, rl ctxRole, n *ctxN
 	if indirect != nil {
 		text = compat.Concat(text, compat.Concat("\n", indirectNote(indirect)))
 	}
-	d := pu.New(diag.Diagnostic{Code: code, Msg: compat.Sprintf("%s %s, so it must not %s", name, role, verb)})
+	d := pu.New(diag.Diagnostic{Code: code, Msg: compat.Sprintfb("%s %s, so it must not %s", compat.ArgS(name), compat.ArgS(role), compat.ArgS(verb))})
 	switch {
 	case kind == opWait && throughFile(hops):
 		text = compat.Concat(text, "\nThe path goes through an os.File. Writing to a file waits for the poller "+
@@ -587,18 +587,18 @@ func (l *Lowerer) hopPhrase(h *hop, final bool, kind opKind) string {
 	var s string
 	switch {
 	case final && kind == opWait && h.site != nil && h.site.recv != "" && !h.indirect():
-		return compat.Sprintf("waits on %s (%s)", h.site.recv, at)
+		return compat.Sprintfb("waits on %s (%s)", compat.ArgS(h.site.recv), compat.ArgS(at))
 	case h.site == nil && allocCalls[h.to.Name]:
-		s = compat.Sprintf("allocates (%s)", at)
+		s = compat.Sprintfb("allocates (%s)", compat.ArgS(at))
 	case h.site == nil && strings.HasSuffix(h.to.Name, ").Drop"):
 		// The compiler adds the call where a value is dropped.
-		s = compat.Sprintf("drops a value with %s (%s)", displayName(h.to), at)
+		s = compat.Sprintfb("drops a value with %s (%s)", compat.ArgS(displayName(h.to)), compat.ArgS(at))
 	case h.site == nil || h.site.desc == "":
-		s = compat.Sprintf("calls %s (%s)", displayName(h.to), at)
+		s = compat.Sprintfb("calls %s (%s)", compat.ArgS(displayName(h.to)), compat.ArgS(at))
 	case h.indirect():
-		s = compat.Sprintf("calls %s (%s), which may be %s", h.site.desc, at, displayName(h.to))
+		s = compat.Sprintfb("calls %s (%s), which may be %s", compat.ArgS(h.site.desc), compat.ArgS(at), compat.ArgS(displayName(h.to)))
 	default:
-		s = compat.Sprintf("calls %s (%s)", h.site.desc, at)
+		s = compat.Sprintfb("calls %s (%s)", compat.ArgS(h.site.desc), compat.ArgS(at))
 	}
 	switch {
 	case final && kind == opSpawn:
@@ -617,9 +617,9 @@ func indirectNote(h *hop) string {
 		if it, ok := I.Underlying().(*types2.Interface); ok && h.site.method < it.NumMethods() {
 			method = it.Method(h.site.method).Name()
 		}
-		return compat.Sprintf("%s calls through an interface, so it counts as calling the %s method "+
-			"of every type the program converts to %s.", h.site.desc, method, types2.TypeString(I, qual))
+		return compat.Sprintfb("%s calls through an interface, so it counts as calling the %s method "+
+			"of every type the program converts to %s.", compat.ArgS(h.site.desc), compat.ArgS(method), compat.ArgS(types2.TypeString(I, qual)))
 	}
-	return compat.Sprintf("%s calls through a func value, so it counts as calling every function "+
-		"of type %s whose value the program takes.", h.site.desc, types2.TypeString(h.site.fsig, qual))
+	return compat.Sprintfb("%s calls through a func value, so it counts as calling every function "+
+		"of type %s whose value the program takes.", compat.ArgS(h.site.desc), compat.ArgS(types2.TypeString(h.site.fsig, qual)))
 }

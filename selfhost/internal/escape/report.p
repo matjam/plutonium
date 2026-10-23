@@ -112,7 +112,7 @@ func exprText(e ast.Expr) string {
 // basePos writes a position as file:line, without the directory.
 func (a *analyzer) basePos(p token.Pos) string {
 	pp := a.fset.Position(p)
-	return compat.Sprintf("%s:%d", filepath.Base(pp.Filename), pp.Line)
+	return compat.Sprintfb("%s:%d", compat.ArgS(filepath.Base(pp.Filename)), compat.ArgI(int64(pp.Line)))
 }
 
 func (a *analyzer) line(p token.Pos) int { return a.fset.Position(p).Line }
@@ -250,51 +250,51 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 	at := a.basePos(l.pos)
 	switch l.kind {
 	case lkVar, lkParam, lkResult:
-		s := compat.Sprintf("%s is %s of %s (declared at %s).", l.v.Name(), l.kindWord(), l.fn, at)
+		s := compat.Sprintfb("%s is %s of %s (declared at %s).", compat.ArgS(l.v.Name()), compat.ArgS(l.kindWord()), compat.ArgS(l.fn), compat.ArgS(at))
 		if l.kind != lkVar {
 			s = compat.Concat(s, compat.Concat(" It lives in ", possessive(l.fn), " frame, like a local variable."))
 		}
 		return s
 	case lkResultN:
-		return compat.Sprintf("The result lives in %s frame.", possessive(l.fn))
+		return compat.Sprintfb("The result lives in %s frame.", compat.ArgS(possessive(l.fn)))
 	case lkTemp:
-		return compat.Sprintf("Taking the address of a value that is not a variable (at %s) copies the value to a temporary in %s frame.", at, possessive(l.fn))
+		return compat.Sprintfb("Taking the address of a value that is not a variable (at %s) copies the value to a temporary in %s frame.", compat.ArgS(at), compat.ArgS(possessive(l.fn)))
 	case lkRecv:
-		return compat.Sprintf("Calling a pointer method on a value that is not a variable (at %s) copies the value to a temporary in %s frame, and the method gets a pointer to the copy.", at, possessive(l.fn))
+		return compat.Sprintfb("Calling a pointer method on a value that is not a variable (at %s) copies the value to a temporary in %s frame, and the method gets a pointer to the copy.", compat.ArgS(at), compat.ArgS(possessive(l.fn)))
 	case lkStmtTemp:
 		if l.object {
-			return compat.Sprintf("The %s made at %s is a temporary: nothing keeps it, so its object is dropped at the end of the statement. A view of the object may be passed to calls in that statement but may not outlive it.", typeText(l.typ, q), at)
+			return compat.Sprintfb("The %s made at %s is a temporary: nothing keeps it, so its object is dropped at the end of the statement. A view of the object may be passed to calls in that statement but may not outlive it.", compat.ArgS(typeText(l.typ, q)), compat.ArgS(at))
 		}
-		return compat.Sprintf("The %s that %s returns (at %s) is a temporary: nothing keeps it, so it is the receiver of the method only until the end of the statement. A view of it may be passed to calls in that statement but may not outlive it.", typeText(l.typ, q), exprText(l.node.(ast.Expr)), at)
+		return compat.Sprintfb("The %s that %s returns (at %s) is a temporary: nothing keeps it, so it is the receiver of the method only until the end of the statement. A view of it may be passed to calls in that statement but may not outlive it.", compat.ArgS(typeText(l.typ, q)), compat.ArgS(exprText(l.node.(ast.Expr))), compat.ArgS(at))
 	case lkLit:
-		return compat.Sprintf("A composite literal whose address is taken (at %s) is made in %s frame, as a local variable would be.", at, possessive(l.fn))
+		return compat.Sprintfb("A composite literal whose address is taken (at %s) is made in %s frame, as a local variable would be.", compat.ArgS(at), compat.ArgS(possessive(l.fn)))
 	case lkSliceLit:
-		return compat.Sprintf("A slice literal (at %s) keeps its elements in an array in %s frame, and the slice looks at that array.", at, possessive(l.fn))
+		return compat.Sprintfb("A slice literal (at %s) keeps its elements in an array in %s frame, and the slice looks at that array.", compat.ArgS(at), compat.ArgS(possessive(l.fn)))
 	case lkVarargs:
-		return compat.Sprintf("A call with variadic arguments (at %s) passes them in an array in %s frame, and the function gets a slice of that array.", at, possessive(l.fn))
+		return compat.Sprintfb("A call with variadic arguments (at %s) passes them in an array in %s frame, and the function gets a slice of that array.", compat.ArgS(at), compat.ArgS(possessive(l.fn)))
 	case lkBox:
-		return compat.Sprintf("Converting a value larger than one word to an interface puts a copy of the value in the frame of the function that converts it (here %s, at %s), and the interface points at that copy.", l.fn, at)
+		return compat.Sprintfb("Converting a value larger than one word to an interface puts a copy of the value in the frame of the function that converts it (here %s, at %s), and the interface points at that copy.", compat.ArgS(l.fn), compat.ArgS(at))
 	case lkClosure:
 		decl := ""
 		if len(l.captures) > 0 {
-			decl = compat.Sprintf(" (%s is declared at %s)", l.captures[0].Name(), a.basePos(l.captures[0].Pos()))
+			decl = compat.Sprintfb(" (%s is declared at %s)", compat.ArgS(l.captures[0].Name()), compat.ArgS(a.basePos(l.captures[0].Pos())))
 		}
-		return compat.Sprintf("A function literal that uses variables of the function around it refers to those variables where they live, in %s frame%s.", possessive(l.fn), decl)
+		return compat.Sprintfb("A function literal that uses variables of the function around it refers to those variables where they live, in %s frame%s.", compat.ArgS(possessive(l.fn)), compat.ArgS(decl))
 	case lkMethodValue:
-		return compat.Sprintf("A method value (at %s) is a record in %s frame that holds its receiver, and calling it calls the method on that receiver.", at, possessive(l.fn))
+		return compat.Sprintfb("A method value (at %s) is a record in %s frame that holds its receiver, and calling it calls the method on that receiver.", compat.ArgS(at), compat.ArgS(possessive(l.fn)))
 	case lkLoopBody:
-		return compat.Sprintf("A range loop over a function (at %s) calls the function with a yield function whose body is the loop body, a closure built in %s frame (section 12.11); yield may be called only while the loop runs.", at, possessive(l.fn))
+		return compat.Sprintfb("A range loop over a function (at %s) calls the function with a yield function whose body is the loop body, a closure built in %s frame (section 12.11); yield may be called only while the loop runs.", compat.ArgS(at), compat.ArgS(possessive(l.fn)))
 	case lkCtor:
-		return compat.Sprintf("%s returns a closure, which it builds in a region of its caller's frame, %s (at %s); the closure lives as long as that frame (section 4.5).", exprText(l.node.(ast.Expr)), possessive(l.fn), at)
+		return compat.Sprintfb("%s returns a closure, which it builds in a region of its caller's frame, %s (at %s); the closure lives as long as that frame (section 4.5).", compat.ArgS(exprText(l.node.(ast.Expr))), compat.ArgS(possessive(l.fn)), compat.ArgS(at))
 	case lkArena:
 		if l.explicit {
-			return compat.Sprintf("%s (a local arena of %s, declared at %s) was given as an allocator to a call that returns a string, or to a value that returns one, and such text may have been allocated from the arena. What lives in the arena is gone when the arena is.", l.v.Name(), l.fn, at)
+			return compat.Sprintfb("%s (a local arena of %s, declared at %s) was given as an allocator to a call that returns a string, or to a value that returns one, and such text may have been allocated from the arena. What lives in the arena is gone when the arena is.", compat.ArgS(l.v.Name()), compat.ArgS(l.fn), compat.ArgS(at))
 		}
 		name := "a local arena"
 		if l.v != nil {
 			name = compat.Concat(l.v.Name(), " (a local arena of ", l.fn, ")")
 		}
-		return compat.Sprintf("%s (at %s) makes %s the default allocator, so what is allocated through the default allocator from there on (by new, a string operation, or a call that allocates and leaves out its allocator) lives in the arena, and is gone when the arena is.", exprText(l.node.(ast.Expr)), at, name)
+		return compat.Sprintfb("%s (at %s) makes %s the default allocator, so what is allocated through the default allocator from there on (by new, a string operation, or a call that allocates and leaves out its allocator) lives in the arena, and is gone when the arena is.", compat.ArgS(exprText(l.node.(ast.Expr))), compat.ArgS(at), compat.ArgS(name))
 	case lkObject:
 		ref := refNoun(l.typ)
 		if l.v != nil && ref != "" {
@@ -302,15 +302,15 @@ func (a *analyzer) intro(l *loc, q types2.Qualifier) string {
 			if ref == "channel" {
 				what = "a channel"
 			}
-			return compat.Sprintf("%s (declared at %s) is %s, a counted reference to %s: an ordinary interface that lends the %s does not count a reference of its own, so it may not outlive %s, whose reference is dropped at the end of its scope in %s.", l.v.Name(), at, article(typeText(l.typ, q)), what, ref, l.v.Name(), l.fn)
+			return compat.Sprintfb("%s (declared at %s) is %s, a counted reference to %s: an ordinary interface that lends the %s does not count a reference of its own, so it may not outlive %s, whose reference is dropped at the end of its scope in %s.", compat.ArgS(l.v.Name()), compat.ArgS(at), compat.ArgS(article(typeText(l.typ, q))), compat.ArgS(what), compat.ArgS(ref), compat.ArgS(l.v.Name()), compat.ArgS(l.fn))
 		}
 		if l.v != nil {
-			return compat.Sprintf("%s (declared at %s) is %s: the object it refers to lives only while %s holds it, and is dropped when %s is dropped at the end of its scope in %s, or released when it is the last reference. A pointer into the object, or an interface that lends it, is a view that may not outlive %s.", l.v.Name(), at, article(typeText(l.typ, q)), l.v.Name(), l.v.Name(), l.fn, l.v.Name())
+			return compat.Sprintfb("%s (declared at %s) is %s: the object it refers to lives only while %s holds it, and is dropped when %s is dropped at the end of its scope in %s, or released when it is the last reference. A pointer into the object, or an interface that lends it, is a view that may not outlive %s.", compat.ArgS(l.v.Name()), compat.ArgS(at), compat.ArgS(article(typeText(l.typ, q))), compat.ArgS(l.v.Name()), compat.ArgS(l.v.Name()), compat.ArgS(l.fn), compat.ArgS(l.v.Name()))
 		}
 		if ref != "" {
-			return compat.Sprintf("The %s made at %s is a temporary: nothing keeps a reference to it after the statement, and an ordinary interface that lends it counts no reference of its own, so the interface may not outlive that statement.", typeText(l.typ, q), at)
+			return compat.Sprintfb("The %s made at %s is a temporary: nothing keeps a reference to it after the statement, and an ordinary interface that lends it counts no reference of its own, so the interface may not outlive that statement.", compat.ArgS(typeText(l.typ, q)), compat.ArgS(at))
 		}
-		return compat.Sprintf("The %s made at %s is a temporary: nothing keeps it, so its object is dropped at the end of the statement, and a view of the object may not outlive that statement.", typeText(l.typ, q), at)
+		return compat.Sprintfb("The %s made at %s is a temporary: nothing keeps it, so its object is dropped at the end of the statement, and a view of the object may not outlive that statement.", compat.ArgS(typeText(l.typ, q)), compat.ArgS(at))
 	}
 	return ""
 }
@@ -424,20 +424,20 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		}
 	}
 	// "When f returns, x's memory is reclaimed".
-	reclaimed := compat.Sprintf("When %s returns, %s memory is reclaimed", l.fn, possessive(l.name()))
+	reclaimed := compat.Sprintfb("When %s returns, %s memory is reclaimed", compat.ArgS(l.fn), compat.ArgS(possessive(l.name())))
 	switch {
 	case l.kind == lkArena:
-		reclaimed = compat.Sprintf("When %s returns, the arena %s is gone", l.fn, l.name())
+		reclaimed = compat.Sprintfb("When %s returns, the arena %s is gone", compat.ArgS(l.fn), compat.ArgS(l.name()))
 	case l.kind == lkObject && l.v != nil && refNoun(l.typ) != "":
-		reclaimed = compat.Sprintf("When %s returns, %s drops its reference, and the %s is freed if that was the last one", l.fn, l.v.Name(), refNoun(l.typ))
+		reclaimed = compat.Sprintfb("When %s returns, %s drops its reference, and the %s is freed if that was the last one", compat.ArgS(l.fn), compat.ArgS(l.v.Name()), compat.ArgS(refNoun(l.typ)))
 	case l.kind == lkObject && l.v != nil:
-		reclaimed = compat.Sprintf("When %s returns, %s is dropped and the object freed", l.fn, l.v.Name())
+		reclaimed = compat.Sprintfb("When %s returns, %s is dropped and the object freed", compat.ArgS(l.fn), compat.ArgS(l.v.Name()))
 	case l.kind == lkObject:
 		reclaimed = "At the end of the statement, the temporary is dropped and its object freed"
 	case l.kind == lkStmtTemp:
 		reclaimed = "At the end of the statement, the temporary is dropped"
 	case !l.isVarLoc() && l.kind != lkClosure:
-		reclaimed = compat.Sprintf("When %s returns, its frame is reclaimed", l.fn)
+		reclaimed = compat.Sprintfb("When %s returns, its frame is reclaimed", compat.ArgS(l.fn))
 	}
 	// What would be left pointing at reclaimed memory.
 	pointer := x
@@ -451,7 +451,7 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		d.Code = diag.ReturnFrameView
 		d.Msg = compat.Concat("cannot return ", x, a.viewPhrase(x, e.expr, l, q))
 		if l.kind == lkBox && e.expr != nil && !isInterfaceExpr(a, e.expr) {
-			d.Msg = compat.Sprintf("cannot return %s as an interface: the interface would hold a copy of it in %s frame", x, possessive(l.fn))
+			d.Msg = compat.Sprintfb("cannot return %s as an interface: the interface would hold a copy of it in %s frame", compat.ArgS(x), compat.ArgS(possessive(l.fn)))
 		}
 		var ref string // "map" or "channel" when the interface lends one
 		var exprT types2.Type
@@ -464,87 +464,87 @@ func (a *analyzer) viewDiag(e *viewErr) *diag.Diagnostic {
 		}
 		lendsRef := ref != ""
 		if lends {
-			d.Msg = compat.Sprintf("cannot return %s as an interface: an ordinary interface only borrows the box, which is dropped when %s returns", x, e.fn)
+			d.Msg = compat.Sprintfb("cannot return %s as an interface: an ordinary interface only borrows the box, which is dropped when %s returns", compat.ArgS(x), compat.ArgS(e.fn))
 			if lendsRef {
-				d.Msg = compat.Sprintf("cannot return %s as an interface: an ordinary interface only borrows the %s, whose reference %s drops when it returns", x, ref, e.fn)
+				d.Msg = compat.Sprintfb("cannot return %s as an interface: an ordinary interface only borrows the %s, whose reference %s drops when it returns", compat.ArgS(x), compat.ArgS(ref), compat.ArgS(e.fn))
 			}
 		}
 		switch {
 		case l.kind == lkArena:
-			add(sentence(about, compat.Sprintf("%s, so %s would point at memory that is no longer allocated.", reclaimed, x)))
+			add(sentence(about, compat.Sprintfb("%s, so %s would point at memory that is no longer allocated.", compat.ArgS(reclaimed), compat.ArgS(x))))
 		case ref == "map":
-			add(sentence(about, compat.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the map's table without a reference of its own.", x)))
+			add(sentence(about, compat.Sprintfb("Converting %s to an ordinary interface lends it: the interface points at the map's table without a reference of its own.", compat.ArgS(x))))
 		case ref == "channel":
-			add(sentence(about, compat.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the channel without a reference of its own.", x)))
+			add(sentence(about, compat.Sprintfb("Converting %s to an ordinary interface lends it: the interface points at the channel without a reference of its own.", compat.ArgS(x))))
 		case lends:
-			add(sentence(about, compat.Sprintf("Converting %s to an ordinary interface lends it: the interface points at the object, and %s still owns it.", x, x)))
+			add(sentence(about, compat.Sprintfb("Converting %s to an ordinary interface lends it: the interface points at the object, and %s still owns it.", compat.ArgS(x), compat.ArgS(x))))
 		case l.kind == lkObject:
-			add(sentence(about, compat.Sprintf("%s, so %s would point at freed memory.", reclaimed, x)))
+			add(sentence(about, compat.Sprintfb("%s, so %s would point at freed memory.", compat.ArgS(reclaimed), compat.ArgS(x))))
 		case l.kind == lkStmtTemp:
-			add(sentence(about, compat.Sprintf("%s, before the caller gets %s, so it would point at a value that has been dropped.", reclaimed, x)))
+			add(sentence(about, compat.Sprintfb("%s, before the caller gets %s, so it would point at a value that has been dropped.", compat.ArgS(reclaimed), compat.ArgS(x))))
 		case l.isVarLoc():
-			add(sentence(about, compat.Sprintf("Its memory is reclaimed when %s returns, so %s would point at memory that no longer holds %s.", e.fn, x, l.v.Name())))
+			add(sentence(about, compat.Sprintfb("Its memory is reclaimed when %s returns, so %s would point at memory that no longer holds %s.", compat.ArgS(e.fn), compat.ArgS(x), compat.ArgS(l.v.Name()))))
 		case l.kind == lkClosure:
-			add(sentence(about, compat.Sprintf("That frame is reclaimed when %s returns.", e.fn)))
+			add(sentence(about, compat.Sprintfb("That frame is reclaimed when %s returns.", compat.ArgS(e.fn))))
 		default:
-			add(sentence(about, compat.Sprintf("That frame is reclaimed when %s returns, so %s would point at memory that no longer holds the value.", e.fn, pointer)))
+			add(sentence(about, compat.Sprintfb("That frame is reclaimed when %s returns, so %s would point at memory that no longer holds the value.", compat.ArgS(e.fn), compat.ArgS(pointer))))
 		}
 		if lendsRef {
-			d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Return the %s itself, changing the result type to %s: the caller gets a reference of its own", ref, typeText(exprT, q)), Code: compat.Concat("return ", x)})
+			d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Return the %s itself, changing the result type to %s: the caller gets a reference of its own", compat.ArgS(ref), compat.ArgS(typeText(exprT, q))), Code: compat.Concat("return ", x)})
 		} else if lends {
 			name := x
-			d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Return the box itself, changing the result type to %s", typeText(a.types[e.expr].Type, q)), Code: compat.Concat("return ", name)})
+			d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Return the box itself, changing the result type to %s", compat.ArgS(typeText(a.types[e.expr].Type, q))), Code: compat.Concat("return ", name)})
 			d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "Or declare the interface as an owning interface, which takes ownership of what is converted into it (language spec section 18.5)", Code: "type I owner interface {\n\t...\n}"})})
 		} else {
 			a.returnFixes(d, e, l, q)
 		}
 	case sinkStore:
 		d.Code = diag.StoreFrameView
-		d.Msg = compat.Sprintf("cannot store %s in %s, which outlives %s", x, e.dst, l.name())
+		d.Msg = compat.Sprintfb("cannot store %s in %s, which outlives %s", compat.ArgS(x), compat.ArgS(e.dst), compat.ArgS(l.name()))
 		var why string
 		switch e.where {
 		case storeGlobal:
-			why = compat.Sprintf("%s, but package variables live for the whole program, so %s would be left pointing at reclaimed memory.", reclaimed, e.dst)
+			why = compat.Sprintfb("%s, but package variables live for the whole program, so %s would be left pointing at reclaimed memory.", compat.ArgS(reclaimed), compat.ArgS(e.dst))
 		case storeParam:
-			why = compat.Sprintf("%s, but %s is reached through %s, which points to memory that %s caller owns and that lives longer. It would be left pointing at reclaimed memory.", reclaimed, e.dst, e.via, possessive(e.fn))
+			why = compat.Sprintfb("%s, but %s is reached through %s, which points to memory that %s caller owns and that lives longer. It would be left pointing at reclaimed memory.", compat.ArgS(reclaimed), compat.ArgS(e.dst), compat.ArgS(e.via), compat.ArgS(possessive(e.fn)))
 		case storeHeap:
-			why = compat.Sprintf("%s, but %s may be on the heap and live longer, so it would be left pointing at reclaimed memory.", reclaimed, e.dst)
+			why = compat.Sprintfb("%s, but %s may be on the heap and live longer, so it would be left pointing at reclaimed memory.", compat.ArgS(reclaimed), compat.ArgS(e.dst))
 			if e.inMap != "" {
-				why = compat.Sprintf("%s, but a map keeps its keys and elements in a table on the heap, which every copy of the map shares and which may live longer, so it would be left pointing at reclaimed memory.", reclaimed)
+				why = compat.Sprintfb("%s, but a map keeps its keys and elements in a table on the heap, which every copy of the map shares and which may live longer, so it would be left pointing at reclaimed memory.", compat.ArgS(reclaimed))
 			}
 		case storeOuter:
-			why = compat.Sprintf("The function literal's frame is reclaimed each time the literal returns, but %s belongs to the function around it and lives longer.", e.dst)
+			why = compat.Sprintfb("The function literal's frame is reclaimed each time the literal returns, but %s belongs to the function around it and lives longer.", compat.ArgS(e.dst))
 		case storeStmt:
-			why = compat.Sprintf("%s, but %s lives longer, so it would be left pointing at a value that has been dropped.", reclaimed, e.dst)
+			why = compat.Sprintfb("%s, but %s lives longer, so it would be left pointing at a value that has been dropped.", compat.ArgS(reclaimed), compat.ArgS(e.dst))
 		}
 		add(sentence(about, why))
 		a.storeFixes(d, e, l, q)
 	case sinkCall:
 		d.Code = diag.PassFrameView
-		d.Msg = compat.Sprintf("cannot pass %s to %s, which keeps it after returning", x, e.callee)
-		add(sentence(about, compat.Sprintf("%s %s, so %s would outlive %s.", e.callee, e.calleeWhy.String(), pointer, l.name())))
+		d.Msg = compat.Sprintfb("cannot pass %s to %s, which keeps it after returning", compat.ArgS(x), compat.ArgS(e.callee))
+		add(sentence(about, compat.Sprintfb("%s %s, so %s would outlive %s.", compat.ArgS(e.callee), compat.ArgS(e.calleeWhy.String()), compat.ArgS(pointer), compat.ArgS(l.name()))))
 		a.passFixes(d, e, l, q)
 	case sinkGo:
 		d.Code = diag.GoFrameView
-		d.Msg = compat.Sprintf("cannot pass %s to a task statement: the new task may outlive %s", x, l.name())
-		add(sentence(about, compat.Sprintf("The task started here runs on its own, and may still be running after %s returns and %s memory is reclaimed.", e.fn, possessive(l.name()))))
+		d.Msg = compat.Sprintfb("cannot pass %s to a task statement: the new task may outlive %s", compat.ArgS(x), compat.ArgS(l.name()))
+		add(sentence(about, compat.Sprintfb("The task started here runs on its own, and may still be running after %s returns and %s memory is reclaimed.", compat.ArgS(e.fn), compat.ArgS(possessive(l.name())))))
 		a.handOffFixes(d, e, l, "task")
 		if e.call != nil {
-			d.More = compat.Append(d.More, pu.New(diag.Fix{Intro: compat.Sprintf("Or start it with a sync.Scope, which waits for its tasks before its block ends, so that they may use %s variables", possessive(e.fn)),
-				Code: compat.Sprintf("var s sync.Scope\ns.Task(func() { %s })", exprText(e.call))}))
+			d.More = compat.Append(d.More, pu.New(diag.Fix{Intro: compat.Sprintfb("Or start it with a sync.Scope, which waits for its tasks before its block ends, so that they may use %s variables", compat.ArgS(possessive(e.fn))),
+				Code: compat.Sprintfb("var s sync.Scope\ns.Task(func() { %s })", compat.ArgS(exprText(e.call)))}))
 		}
 	case sinkSend:
 		d.Code = diag.SendFrameView
-		d.Msg = compat.Sprintf("cannot send %s on %s: the receiver may outlive %s", x, exprText(e.ch), l.name())
-		add(sentence(about, compat.Sprintf("The value sent here may be received after %s returns and %s memory is reclaimed.", e.fn, possessive(l.name()))))
+		d.Msg = compat.Sprintfb("cannot send %s on %s: the receiver may outlive %s", compat.ArgS(x), compat.ArgS(exprText(e.ch)), compat.ArgS(l.name()))
+		add(sentence(about, compat.Sprintfb("The value sent here may be received after %s returns and %s memory is reclaimed.", compat.ArgS(e.fn), compat.ArgS(possessive(l.name())))))
 		a.handOffFixes(d, e, l, "send")
 	case sinkLoop:
 		d.Code = diag.LoopFrameView
 		a.loopDiag(d, e, x, add)
 	case sinkBox:
 		d.Code = diag.StaleView
-		d.Msg = compat.Sprintf("cannot convert %s to an interface: it points into %s, which is gone before the interface's copy is released", x, a.noun(l, q))
-		add(sentence(about, compat.Sprintf("Converting %s to an interface puts a copy of it in %s frame, and the copy holds a reference to the text until %s returns. That is after the arena %s is dropped, and releasing the reference would write into the arena's memory.", x, possessive(e.fn), e.fn, l.name())))
+		d.Msg = compat.Sprintfb("cannot convert %s to an interface: it points into %s, which is gone before the interface's copy is released", compat.ArgS(x), compat.ArgS(a.noun(l, q)))
+		add(sentence(about, compat.Sprintfb("Converting %s to an interface puts a copy of it in %s frame, and the copy holds a reference to the text until %s returns. That is after the arena %s is dropped, and releasing the reference would write into the arena's memory.", compat.ArgS(x), compat.ArgS(possessive(e.fn)), compat.ArgS(e.fn), compat.ArgS(l.name()))))
 		d.Fix = pu.New(diag.Fix{
 			Intro: "Use the text without converting it to an interface, for example by writing its bytes",
 			Code:  "os.Stdout.Write(b.Bytes())",
@@ -614,39 +614,39 @@ func (a *analyzer) returnFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.
 		}
 		d.Fix = pu.New(diag.Fix{
 			Intro: "Return a value that carries its own state instead, such as a struct with a method",
-			Code:  compat.Sprintf("type state struct{ %s }\n\nfunc (s *state) Call() { ... } // uses s.%s", compat.Join(fields, "; "), l.captures[0].Name()),
+			Code:  compat.Sprintfb("type state struct{ %s }\n\nfunc (s *state) Call() { ... } // uses s.%s", compat.ArgS(compat.Join(fields, "; ")), compat.ArgS(l.captures[0].Name())),
 		})
 	case l.kind == lkMethodValue:
 		d.Fix = pu.New(diag.Fix{Intro: "Return the receiver itself, and let the caller call the method on it."})
 	case l.kind == lkBox:
 		d.Fix = pu.New(diag.Fix{
-			Intro: compat.Sprintf("Return a pointer to memory that outlives %s, such as a field of a longer-lived value", e.fn),
-			Code:  compat.Sprintf("p.err = %s{...}\nreturn &p.err", typeText(l.typ, q)),
+			Intro: compat.Sprintfb("Return a pointer to memory that outlives %s, such as a field of a longer-lived value", compat.ArgS(e.fn)),
+			Code:  compat.Sprintfb("p.err = %s{...}\nreturn &p.err", compat.ArgS(typeText(l.typ, q))),
 		})
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "or return a value that fits in one word, such as an error code."})})
 	case l.kind == lkLit:
 		T := typeText(l.typ, q)
-		d.Fix = pu.New(diag.Fix{Intro: "To give the value to the caller, return it instead. This copies it, or moves it if it is an owner", Code: compat.Sprintf("return %s{...}", T)})
-		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintf("To keep it at a fixed address after %s returns, allocate it and return its owner, an owned[%s]", e.fn, T), Code: compat.Sprintf("p := new(%s)\n...\nreturn p", T)})})
+		d.Fix = pu.New(diag.Fix{Intro: "To give the value to the caller, return it instead. This copies it, or moves it if it is an owner", Code: compat.Sprintfb("return %s{...}", compat.ArgS(T))})
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("To keep it at a fixed address after %s returns, allocate it and return its owner, an owned[%s]", compat.ArgS(e.fn), compat.ArgS(T)), Code: compat.Sprintfb("p := new(%s)\n...\nreturn p", compat.ArgS(T))})})
 	case l.kind == lkSliceLit || (sliceOfVar(e.expr, l) && isArrayVar(l.v)):
 		d.Fix = pu.New(diag.Fix{Intro: "To give the caller the elements, return an owner of them, such as a vec.Vec", Code: "v := vec.New[T]()\nv.Push(...)\nreturn v"})
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "or copy them into memory the caller passes in", Code: "func fill(dst []T) int {\n\t...\n\treturn copy(dst, buf[:n])\n}"})})
 	case l.isVarLoc() && addrOfVar(e.expr, l):
 		name := l.v.Name()
 		d.Fix = pu.New(diag.Fix{Intro: "To give the value to the caller, return it instead. This copies it, or moves it if it is an owner", Code: compat.Concat("return ", name)})
-		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintf("To keep it at a fixed address after %s returns, allocate it and return its owner, an owned[%s]", e.fn, varType(l, q)), Code: compat.Sprintf("%s := new(%s)\n...\nreturn %s", name, varType(l, q), name)})})
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("To keep it at a fixed address after %s returns, allocate it and return its owner, an owned[%s]", compat.ArgS(e.fn), compat.ArgS(varType(l, q))), Code: compat.Sprintfb("%s := new(%s)\n...\nreturn %s", compat.ArgS(name), compat.ArgS(varType(l, q)), compat.ArgS(name))})})
 	case l.kind == lkObject && l.v != nil:
 		name := l.v.Name()
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Return %s itself: an owned box moves to the caller, and a shared or synced one gives the caller its own reference", name), Code: compat.Concat("return ", name)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Return %s itself: an owned box moves to the caller, and a shared or synced one gives the caller its own reference", compat.ArgS(name)), Code: compat.Concat("return ", name)})
 	case l.kind == lkObject:
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Return the box itself, changing the result type to %s", typeText(l.typ, q)), Code: compat.Concat("return ", exprText(l.node.(ast.Expr)))})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Return the box itself, changing the result type to %s", compat.ArgS(typeText(l.typ, q))), Code: compat.Concat("return ", exprText(l.node.(ast.Expr)))})
 	case l.kind == lkArena:
 		arenaFixes(d, l)
 	case l.kind == lkStmtTemp:
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Return the %s itself, which keeps its memory alive in the caller, or a copy of what the view looks at.", typeText(l.typ, q))})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Return the %s itself, which keeps its memory alive in the caller, or a copy of what the view looks at.", compat.ArgS(typeText(l.typ, q)))})
 	case l.isVarLoc():
 		name := l.v.Name()
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Return values instead of views of %s, or allocate %s and return its owner, an owned[%s]", name, name, varType(l, q)), Code: compat.Sprintf("%s := new(%s)\n...\nreturn %s", name, varType(l, q), name)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Return values instead of views of %s, or allocate %s and return its owner, an owned[%s]", compat.ArgS(name), compat.ArgS(name), compat.ArgS(varType(l, q))), Code: compat.Sprintfb("%s := new(%s)\n...\nreturn %s", compat.ArgS(name), compat.ArgS(varType(l, q)), compat.ArgS(name))})
 	default:
 		d.Fix = pu.New(diag.Fix{Intro: "Return the value itself, which copies it, or allocate it so that it outlives the function."})
 	}
@@ -655,29 +655,29 @@ func (a *analyzer) returnFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.
 func (a *analyzer) storeFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Qualifier) {
 	switch {
 	case e.inMap != "":
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Store the value itself instead of a view of %s, changing the map's %s type to match.", l.name(), e.inMap)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store the value itself instead of a view of %s, changing the map's %s type to match.", compat.ArgS(l.name()), compat.ArgS(e.inMap))})
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "Or keep what the map refers to in memory that lives as long as the map, such as a package variable, or in a counted reference (shared[T] or synced[T]) stored in the map."})})
 	case l.kind == lkClosure:
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Store a value that carries its own state instead of the function literal, such as a struct with a method, or make %s a package variable if it must outlive %s.", l.captureList(), l.fn)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store a value that carries its own state instead of the function literal, such as a struct with a method, or make %s a package variable if it must outlive %s.", compat.ArgS(l.captureList()), compat.ArgS(l.fn))})
 	case l.isVarLoc() && addrOfVar(e.expr, l) && !strings.Contains(trimAddr(e.dst), " "):
 		name := l.v.Name()
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Store the value instead of a pointer to it, changing the type of %s to match. This copies %s, or moves it if it is an owner", trimAddr(e.dst), name), Code: compat.Sprintf("%s = %s", trimAddr(e.dst), name)})
-		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintf("Or allocate %s and store its owner, an owned[%s], which moves into %s", name, varType(l, q), trimAddr(e.dst)), Code: compat.Sprintf("%s = new(%s)", trimAddr(e.dst), varType(l, q))})})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store the value instead of a pointer to it, changing the type of %s to match. This copies %s, or moves it if it is an owner", compat.ArgS(trimAddr(e.dst)), compat.ArgS(name)), Code: compat.Sprintfb("%s = %s", compat.ArgS(trimAddr(e.dst)), compat.ArgS(name))})
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or allocate %s and store its owner, an owned[%s], which moves into %s", compat.ArgS(name), compat.ArgS(varType(l, q)), compat.ArgS(trimAddr(e.dst))), Code: compat.Sprintfb("%s = new(%s)", compat.ArgS(trimAddr(e.dst)), compat.ArgS(varType(l, q)))})})
 	case l.kind == lkArena:
 		arenaFixes(d, l)
 	case l.kind == lkStmtTemp:
 		d.Fix = stmtTempFix(l)
 	case l.kind == lkObject && l.v != nil && refNoun(l.typ) != "":
 		name := l.v.Name()
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Store %s itself, changing the type of %s to %s: it then counts a reference of its own", name, trimAddr(e.dst), typeText(l.typ, q)), Code: compat.Sprintf("%s = %s", trimAddr(e.dst), name)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store %s itself, changing the type of %s to %s: it then counts a reference of its own", compat.ArgS(name), compat.ArgS(trimAddr(e.dst)), compat.ArgS(typeText(l.typ, q))), Code: compat.Sprintfb("%s = %s", compat.ArgS(trimAddr(e.dst)), compat.ArgS(name))})
 	case l.kind == lkObject && l.v != nil:
 		name := l.v.Name()
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Store %s itself, changing the type of %s to match: an owned box moves there, and a shared or synced one is counted", name, trimAddr(e.dst)), Code: compat.Sprintf("%s = %s", trimAddr(e.dst), name)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store %s itself, changing the type of %s to match: an owned box moves there, and a shared or synced one is counted", compat.ArgS(name), compat.ArgS(trimAddr(e.dst))), Code: compat.Sprintfb("%s = %s", compat.ArgS(trimAddr(e.dst)), compat.ArgS(name))})
 	case l.isVarLoc():
 		name := l.v.Name()
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Store values instead of views of %s, or allocate %s and store its owner, an owned[%s], which moves there", name, name, varType(l, q)), Code: compat.Sprintf("%s = new(%s)", trimAddr(e.dst), varType(l, q))})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store values instead of views of %s, or allocate %s and store its owner, an owned[%s], which moves there", compat.ArgS(name), compat.ArgS(name), compat.ArgS(varType(l, q))), Code: compat.Sprintfb("%s = new(%s)", compat.ArgS(trimAddr(e.dst)), compat.ArgS(varType(l, q)))})
 	default:
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Store the value itself instead of a view of %s frame, or allocate it so that it lives as long as %s.", possessive(l.fn), e.dst)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store the value itself instead of a view of %s frame, or allocate it so that it lives as long as %s.", compat.ArgS(possessive(l.fn)), compat.ArgS(e.dst))})
 	}
 }
 
@@ -686,11 +686,11 @@ func (a *analyzer) storeFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Q
 // of its scope.
 func stmtTempFix(l *loc) *diag.Fix {
 	if l.object {
-		return pu.New(diag.Fix{Intro: "Keep the owner in a variable, so that it lives until the end of its scope, and take the view through that variable", Code: compat.Sprintf("v := %s\n... v ...", exprText(l.node.(ast.Expr)))})
+		return pu.New(diag.Fix{Intro: "Keep the owner in a variable, so that it lives until the end of its scope, and take the view through that variable", Code: compat.Sprintfb("v := %s\n... v ...", compat.ArgS(exprText(l.node.(ast.Expr))))})
 	}
 	return pu.New(diag.Fix{
 		Intro: "Keep the owner in a variable, so that it lives until the end of its scope, and call the method on the variable",
-		Code:  compat.Sprintf("v := %s\n... v.%s() ...", exprText(l.node.(ast.Expr)), l.method),
+		Code:  compat.Sprintfb("v := %s\n... v.%s() ...", compat.ArgS(exprText(l.node.(ast.Expr))), compat.ArgS(l.method)),
 	})
 }
 
@@ -702,14 +702,14 @@ func trimAddr(dst string) string {
 
 func (a *analyzer) passFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Qualifier) {
 	if l.kind == lkLoopBody {
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Change %s to call yield only while it runs, without keeping it (language spec section 12.11).", e.callee)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Change %s to call yield only while it runs, without keeping it (language spec section 12.11).", compat.ArgS(e.callee))})
 		return
 	}
 	if l.isVarLoc() {
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("If %s should keep its own copy of %s, change it to take the value, not a pointer, or an owner it can keep: an owned[%s] from new, a shared[%s], or a library owner such as a vec.Vec.", e.callee, l.v.Name(), varType(l, q), varType(l, q))})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("If %s should keep its own copy of %s, change it to take the value, not a pointer, or an owner it can keep: an owned[%s] from new, a shared[%s], or a library owner such as a vec.Vec.", compat.ArgS(e.callee), compat.ArgS(l.v.Name()), compat.ArgS(varType(l, q)), compat.ArgS(varType(l, q)))})
 		return
 	}
-	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Change %s to take a value or an owner, which it can keep: an owned[T] from new, a shared[T], or a library owner such as a vec.Vec.", e.callee)})
+	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Change %s to take a value or an owner, which it can keep: an owned[T] from new, a shared[T], or a library owner such as a vec.Vec.", compat.ArgS(e.callee))})
 }
 
 func (a *analyzer) handOffFixes(d *diag.Diagnostic, e *viewErr, l *loc, how string) {
@@ -730,10 +730,10 @@ func (a *analyzer) handOffFixes(d *diag.Diagnostic, e *viewErr, l *loc, how stri
 					args = compat.Append(args, exprText(arg))
 				}
 			}
-			code = compat.Sprintf("task %s(%s)", exprText(e.call.Fun), compat.Join(args, ", "))
+			code = compat.Sprintfb("task %s(%s)", compat.ArgS(exprText(e.call.Fun)), compat.ArgS(compat.Join(args, ", ")))
 		}
 	case "send":
-		code = compat.Sprintf("%s <- %s", exprText(e.ch), val)
+		code = compat.Sprintfb("%s <- %s", compat.ArgS(exprText(e.ch)), compat.ArgS(val))
 	}
 	if code == "" {
 		d.Fix = pu.New(diag.Fix{Intro: "Pass the value itself. This copies it, or moves it if it is an owner."})
@@ -751,13 +751,13 @@ func (a *analyzer) loopDiag(d *diag.Diagnostic, e *viewErr, x string, add func(s
 	// head starts the message and holder is what would see the next
 	// iteration's value. keeps is the callee's own sentence, if a callee
 	// keeps the view.
-	head := compat.Sprintf("cannot keep %s in %s after this iteration", x, e.dst)
+	head := compat.Sprintfb("cannot keep %s in %s after this iteration", compat.ArgS(x), compat.ArgS(e.dst))
 	holder := e.dst
 	var keeps string
 	if e.callee != "" {
-		head = compat.Sprintf("cannot pass %s to %s, which keeps it after this iteration", x, e.callee)
+		head = compat.Sprintfb("cannot pass %s to %s, which keeps it after this iteration", compat.ArgS(x), compat.ArgS(e.callee))
 		holder = compat.Concat("what ", e.callee, " kept")
-		keeps = compat.Sprintf("%s %s.", e.callee, e.calleeWhy.String())
+		keeps = compat.Sprintfb("%s %s.", compat.ArgS(e.callee), compat.ArgS(e.calleeWhy.String()))
 	}
 	if v := e.iterVar; l.kind == lkClosure && v != nil {
 		name, T := v.Name(), typeText(v.Type(), q)
@@ -765,45 +765,45 @@ func (a *analyzer) loopDiag(d *diag.Diagnostic, e *viewErr, x string, add func(s
 		if e.callee != "" {
 			kept = compat.Concat("the literal kept by ", e.callee)
 		}
-		d.Msg = compat.Sprintf("%s: it uses %s, which the loop at line %d reuses in every iteration", head, name, line)
+		d.Msg = compat.Sprintfb("%s: it uses %s, which the loop at line %d reuses in every iteration", compat.ArgS(head), compat.ArgS(name), compat.ArgI(int64(line)))
 		add(sentence(
-			compat.Sprintf("A function literal refers to the variables it uses where they live, and %s lives in %s frame, where every iteration of the loop at line %d reuses the same memory for it.", name, possessive(l.fn), line),
+			compat.Sprintfb("A function literal refers to the variables it uses where they live, and %s lives in %s frame, where every iteration of the loop at line %d reuses the same memory for it.", compat.ArgS(name), compat.ArgS(possessive(l.fn)), compat.ArgI(int64(line))),
 			keeps,
-			compat.Sprintf("When the next iteration starts, %s would see that iteration's %s, not this one's.", kept, name)))
-		saved := compat.Sprintf("var saved %s // declared before the loop\n...\nsaved = %s", T, name)
+			compat.Sprintfb("When the next iteration starts, %s would see that iteration's %s, not this one's.", compat.ArgS(kept), compat.ArgS(name))))
+		saved := compat.Sprintfb("var saved %s // declared before the loop\n...\nsaved = %s", compat.ArgS(T), compat.ArgS(name))
 		if e.callee != "" {
-			d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("If %s needs the function literal only during the call, change it so it does not keep it. To use %s later, keep its value instead of the function literal", e.callee, name), Code: saved})
-			d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintf("Or have the function literal take %s as a parameter, and pass it where the literal is called.", name)})})
+			d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("If %s needs the function literal only during the call, change it so it does not keep it. To use %s later, keep its value instead of the function literal", compat.ArgS(e.callee), compat.ArgS(name)), Code: saved})
+			d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or have the function literal take %s as a parameter, and pass it where the literal is called.", compat.ArgS(name))})})
 			return
 		}
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("If the function literal is needed only in this iteration, call it before the iteration ends. To use %s later, keep its value instead of the function literal", name), Code: saved})
-		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintf("Or pass %s to the function literal as a parameter when it is called", name), Code: compat.Sprintf("%s = func(%s %s) { ... }\n...\n%s(%s)", e.dst, name, T, e.dst, name)})})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("If the function literal is needed only in this iteration, call it before the iteration ends. To use %s later, keep its value instead of the function literal", compat.ArgS(name)), Code: saved})
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or pass %s to the function literal as a parameter when it is called", compat.ArgS(name)), Code: compat.Sprintfb("%s = func(%s %s) { ... }\n...\n%s(%s)", compat.ArgS(e.dst), compat.ArgS(name), compat.ArgS(T), compat.ArgS(e.dst), compat.ArgS(name))})})
 		return
 	}
 	if l.isVarLoc() {
 		name := l.v.Name()
-		d.Msg = compat.Sprintf("%s: the loop at line %d reuses %s in every iteration", head, line, name)
+		d.Msg = compat.Sprintfb("%s: the loop at line %d reuses %s in every iteration", compat.ArgS(head), compat.ArgI(int64(line)), compat.ArgS(name))
 		add(sentence(a.subject(x, e.expr, l, q),
-			compat.Sprintf("%s lives in %s frame, where every iteration of the loop at line %d reuses the same memory for it.", name, possessive(l.fn), line),
+			compat.Sprintfb("%s lives in %s frame, where every iteration of the loop at line %d reuses the same memory for it.", compat.ArgS(name), compat.ArgS(possessive(l.fn)), compat.ArgI(int64(line))),
 			keeps,
-			compat.Sprintf("When the next iteration starts, %s would see that iteration's %s, not this one's.", holder, name)))
-		saved := compat.Sprintf("var saved %s // declared before the loop\n...\nsaved = %s", varType(l, q), name)
+			compat.Sprintfb("When the next iteration starts, %s would see that iteration's %s, not this one's.", compat.ArgS(holder), compat.ArgS(name))))
+		saved := compat.Sprintfb("var saved %s // declared before the loop\n...\nsaved = %s", compat.ArgS(varType(l, q)), compat.ArgS(name))
 		if e.callee != "" {
-			d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("If %s needs the view only during the call, change it so it does not keep it. To use the value later, keep the value instead of a view of it", e.callee), Code: saved})
+			d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("If %s needs the view only during the call, change it so it does not keep it. To use the value later, keep the value instead of a view of it", compat.ArgS(e.callee)), Code: saved})
 			return
 		}
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("If %s is needed only in this iteration, use it before the iteration ends. To use the value later, keep the value instead of a view of it", e.dst), Code: saved})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("If %s is needed only in this iteration, use it before the iteration ends. To use the value later, keep the value instead of a view of it", compat.ArgS(e.dst)), Code: saved})
 		return
 	}
-	d.Msg = compat.Sprintf("%s: the loop at line %d makes it in the same memory in every iteration", head, line)
+	d.Msg = compat.Sprintfb("%s: the loop at line %d makes it in the same memory in every iteration", compat.ArgS(head), compat.ArgI(int64(line)))
 	add(a.intro(l, q))
-	add(sentence(compat.Sprintf("Every iteration of the loop at line %d reuses that memory.", line), keeps,
-		compat.Sprintf("When the next iteration starts, %s would see that iteration's value, not this one's.", holder)))
+	add(sentence(compat.Sprintfb("Every iteration of the loop at line %d reuses that memory.", compat.ArgI(int64(line))), keeps,
+		compat.Sprintfb("When the next iteration starts, %s would see that iteration's value, not this one's.", compat.ArgS(holder))))
 	if e.callee != "" {
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Change %s so it does not keep the view, or pass a copy of the value instead of a view of it.", e.callee)})
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Change %s so it does not keep the view, or pass a copy of the value instead of a view of it.", compat.ArgS(e.callee))})
 		return
 	}
-	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintf("Use %s before the iteration ends, or keep a copy of the value instead of a view of it.", x)})
+	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before the iteration ends, or keep a copy of the value instead of a view of it.", compat.ArgS(x))})
 }
 
 // arenaFixes are the fixes for memory from a local arena that would outlive

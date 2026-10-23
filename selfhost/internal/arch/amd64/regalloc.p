@@ -4,7 +4,6 @@ package amd64
 
 import (
 	"pluto/bits"
-	"pluto/fmt"
 	"pluto/math"
 	"pluto/sort"
 	"selfhost/compat"
@@ -255,7 +254,7 @@ func allocate(f *MFunc) error {
 	spillTemps := map[Reg]bool{}
 	for round := 0; ; round++ {
 		if round > 50 {
-			return fmt.Errorf("amd64: register allocation of %s did not converge", f.Name)
+			return compat.NewError(compat.Sprintfb("amd64: register allocation of %s did not converge", compat.ArgS(f.Name)))
 		}
 		liveOut := liveness(f)
 		done := true
@@ -745,7 +744,7 @@ func (a *allocator) rewrite(spillTemps map[Reg]bool) {
 	slots := map[Reg]*ssa.Slot{}
 	for _, r := range a.spilled {
 		n := int64(f.spillSize(r))
-		slots[r] = f.newSlot(compat.Sprintf("spill%d", r-FirstVirtual), n, n)
+		slots[r] = f.newSlot(compat.Sprintfb("spill%d", compat.ArgI(int64(r-FirstVirtual))), n, n)
 	}
 	var buf []Reg
 	for _, b := range f.Blocks {
@@ -809,7 +808,7 @@ func applyColors(f *MFunc, color map[Reg]Reg) {
 				if r.IsVirtual() {
 					c, ok := color[r]
 					if !ok {
-						panic(pu.Box(compat.Sprintf("amd64: %s: no color for %s", f.Name, r)))
+						panic(pu.Box(compat.Sprintfb("amd64: %s: no color for %s", compat.ArgS(f.Name), compat.ArgS((r).String()))))
 					}
 					r = c
 				}

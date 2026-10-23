@@ -39,7 +39,7 @@ func (w *walker) countedAsReport(e *viewErr) bool {
 			if sig := f.obj.Type().(*types2.Signature); sig.TypeParams().Len() > 0 {
 				for _, T := range w.a.tparamTypes(sig.TypeParams().At(0)) {
 					if p, ok := types2.Unalias(T).(*types2.Pointer); ok {
-						d.Fix.Code = compat.Sprintf("var target synced[%s]\nerrors.As(err, &target)", types2.TypeString(p.Elem(), types2.RelativeTo(child.pkg.Types)))
+						d.Fix.Code = compat.Sprintfb("var target synced[%s]\nerrors.As(err, &target)", compat.ArgS(types2.TypeString(p.Elem(), types2.RelativeTo(child.pkg.Types))))
 						break
 					}
 				}

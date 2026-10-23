@@ -250,7 +250,7 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 			g := callTarget(v, funcs)
 			if size+sizes[g]-callSize > limit {
 				if why != nil {
-					note(why, v, g, compat.Sprintf("%s would grow past its limit of %d values", f.Name, limit))
+					note(why, v, g, compat.Sprintfb("%s would grow past its limit of %d values", compat.ArgS(f.Name), compat.ArgI(int64(limit))))
 				}
 				continue
 			}

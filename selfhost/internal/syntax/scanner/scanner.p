@@ -153,7 +153,7 @@ func (s *Scanner) InitList(file *token.File, src []byte, errs *ErrorList, mode M
 func (s *Scanner) init(file *token.File, src []byte, err ErrorHandler, errs *ErrorList, mode Mode) {
 	// Explicitly initialize all fields since a scanner may be reused.
 	if file.Size() != len(src) {
-		panic(pu.Box(compat.Sprintf("file size (%d) does not match src len (%d)", file.Size(), len(src))))
+		panic(pu.Box(compat.Sprintfb("file size (%d) does not match src len (%d)", compat.ArgI(int64(file.Size())), compat.ArgI(int64(len(src))))))
 	}
 
 	dir, _ := filepath.Split(file.Name())

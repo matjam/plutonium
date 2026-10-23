@@ -141,7 +141,7 @@ func (c *command) usage() string {
 	if c.name == "run" {
 		use = "pluto run [dir] [-- args...]"
 	}
-	return compat.Concat("Usage:\n  ", use, " [flags]\n\n", compat.Sprintf(buildFlagUsage, c.name))
+	return compat.Concat("Usage:\n  ", use, " [flags]\n\n", compat.Sprintfb(buildFlagUsage, compat.ArgS(c.name)))
 }
 
 // short returns the command's one-line description.
@@ -193,11 +193,11 @@ func (c *command) set(f flagDef, value string) error {
 	switch f.kind {
 	case boolFlag:
 		if _, ok := parseBool(value); !ok {
-			return pu.New(usageError{msg: compat.Sprintf("invalid argument %q for %q flag: strconv.ParseBool: parsing %q: invalid syntax", value, flagTitle(f), value)})
+			return pu.New(usageError{msg: compat.Sprintfb("invalid argument %q for %q flag: strconv.ParseBool: parsing %q: invalid syntax", compat.ArgS(value), compat.ArgS(flagTitle(f)), compat.ArgS(value))})
 		}
 	case intFlag:
 		if _, err := strconv.ParseInt(value, 0, 64); err != nil {
-			return pu.New(usageError{msg: compat.Sprintf("invalid argument %q for %q flag: %s", value, flagTitle(f), err.Error())})
+			return pu.New(usageError{msg: compat.Sprintfb("invalid argument %q for %q flag: %s", compat.ArgS(value), compat.ArgS(flagTitle(f)), compat.ArgS(err.Error()))})
 		}
 	case sliceFlag:
 		if !c.changed[f.name] {
@@ -252,7 +252,7 @@ func parse(name string, args []string) (*command, error) {
 				shorts = strings.SliceFrom(shorts, 1)
 				f, ok := lookup("", s)
 				if !ok {
-					return c, pu.New(usageError{msg: compat.Sprintf("unknown shorthand flag: '%s' in -%s", s, at)})
+					return c, pu.New(usageError{msg: compat.Sprintfb("unknown shorthand flag: '%s' in -%s", compat.ArgS(s), compat.ArgS(at))})
 				}
 				var value string
 				switch {
@@ -268,7 +268,7 @@ func parse(name string, args []string) (*command, error) {
 					i++
 					value = args[i]
 				default:
-					return c, pu.New(usageError{msg: compat.Sprintf("flag needs an argument: '%s' in -%s", s, at)})
+					return c, pu.New(usageError{msg: compat.Sprintfb("flag needs an argument: '%s' in -%s", compat.ArgS(s), compat.ArgS(at))})
 				}
 				if err := c.set(f, value); err != nil {
 					return c, err
@@ -379,7 +379,7 @@ func checkArgs(c *command) error {
 		}
 	}
 	if n > 1 {
-		return pu.New(usageError{msg: compat.Sprintf("accepts at most 1 arg(s), received %d", n)})
+		return pu.New(usageError{msg: compat.Sprintfb("accepts at most 1 arg(s), received %d", compat.ArgI(int64(n)))})
 	}
 	return nil
 }

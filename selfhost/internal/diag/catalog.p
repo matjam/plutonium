@@ -3,7 +3,6 @@
 package diag
 
 import (
-	"pluto/fmt"
 	"pluto/slices"
 	"pluto/strings"
 	"selfhost/compat"
@@ -69,10 +68,10 @@ func Codes() []Code {
 func Explain(code Code) (string, error) {
 	e := catalog[Code(strings.ToUpper(string(code)))]
 	if e == nil {
-		return "", fmt.Errorf("no such error code %q (codes look like E0024)", code)
+		return "", compat.NewError(compat.Sprintfb("no such error code %q (codes look like E0024)", compat.ArgS(string(code))))
 	}
 	b := pu.Alloc[compat.Builder]()
-	fmt.Fprintf(b, "%s: %s\n", e.Code, e.Name)
+	compat.Fprintfb(b, "%s: %s\n", compat.ArgS(string(e.Code)), compat.ArgS(e.Name))
 	for _, para := range compat.Split(compat.Concat(e.Text, "\n", e.Why), "\n") {
 		if strings.TrimSpace(para) != "" {
 			b.WriteByte('\n')
@@ -88,11 +87,11 @@ func Explain(code Code) (string, error) {
 		writeCode(b, e.Fixed, "    ")
 	}
 	if e.Fix != nil && e.Fixed == "" {
-		fmt.Fprintf(b, "\n%s:\n\n", e.Fix.Intro)
+		compat.Fprintfb(b, "\n%s:\n\n", compat.ArgS(e.Fix.Intro))
 		writeCode(b, e.Fix.Code, "    ")
 	}
 	if e.Spec != "" {
-		fmt.Fprintf(b, "\nSee %s.\n", e.Spec)
+		compat.Fprintfb(b, "\nSee %s.\n", compat.ArgS(e.Spec))
 	}
 	return b.String(), nil
 }
