@@ -43,7 +43,7 @@ func (s *solver) funcCall(in *eir.Instr) {
 	funcs := s.env.Program().Funcs
 	for x := range target {
 		if fn, ok := s.ownRecord(x); ok {
-			s.applyBound(in, fn, s.recBinder(c, funcs[fn], single(x)))
+			s.applyBound(in, fn, s.recBinder(c, funcs[fn], single(x)), -1)
 		}
 	}
 	rest := s.rest(target)

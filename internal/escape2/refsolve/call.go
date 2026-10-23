@@ -163,12 +163,22 @@ func (s *solver) fieldPath(f domain.PathID, ge bool) (domain.PathID, bool) {
 
 // applySummary applies every entry of sm at the call of in.
 func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int) value, callee eir.FuncID) {
+	s.applySummarySkip(in, sm, bind, callee, -1)
+}
+
+// applySummarySkip is applySummary less the entries that name input skip
+// alone, when skip >= 0 (solve/call.go, applySkip).
+func (s *solver) applySummarySkip(in *eir.Instr, sm *summary.Summary, bind func(int) value, callee eir.FuncID, skip int) {
 	c := in.Call
 	ctx := func(entry int) callCtx {
 		return callCtx{isCall: true, site: c.Site, callee: callee, entry: entry}
 	}
 	entry := 0
 	for _, k := range sm.Esc { // Esc k: sink(val(k, β), E3003)
+		if k.Input() == skip {
+			entry++
+			continue
+		}
 		v := s.valueOfKey(k, bind)
 		if c.Implicit == eir.ImplTask {
 			// A task starter: a local sync.WaitGroup is E3004 (12.12).
@@ -187,6 +197,10 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 		entry++
 	}
 	for _, p := range sm.Store { // Store (a, b): store(val(b, β), val(a, β), call)
+		if p.Src.Input() == skip && p.Dst.Input() == skip {
+			entry++
+			continue
+		}
 		v := s.valueOfKey(p.Src, bind)
 		if p.Dst.FieldsGE() {
 			v = anywhere(v)
@@ -196,6 +210,9 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 	}
 	heap := single(ptr(tok{kind: kHeap}))
 	for _, k := range sm.HeapStore { // HeapStore k: store(val(k, β), <Heap>, call)
+		if k.Input() == skip {
+			continue
+		}
 		v := heap
 		if k.FieldsGE() {
 			v = anywhere(v)
@@ -208,6 +225,9 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 		}
 		dst := c.Results[r]
 		for _, rk := range res.From { // Results[r] ⊇ pre(val(k, β), F)
+			if rk.Key.Input() == skip {
+				continue
+			}
 			f, ge := s.fieldPath(rk.Field, rk.FieldGE)
 			s.def(dst, s.pre(s.valueOfKey(rk.Key, bind), f, ge))
 		}
@@ -220,7 +240,7 @@ func (s *solver) applySummary(in *eir.Instr, sm *summary.Summary, bind func(int)
 			s.def(dst, single(tv{t: tok{kind: kCHeap}, tag: f, g: true}))
 		}
 	}
-	s.deferredOf(in, sm, bind)                 // defer.go
+	s.deferredOf(in, sm, bind, skip)           // defer.go
 	for _, r := range sm.Region.OuterResults { // Results[r] ⊇ <Obj(Reg(site), Root, true), Root, true>
 		if r < len(c.Results) && c.Results[r] != 0 && s.f.Key.Init != nil {
 			// A package's initialization: the region is static memory.

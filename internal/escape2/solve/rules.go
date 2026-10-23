@@ -189,19 +189,30 @@ package solve
 //	    with Callee C: apply C's summary, input i bound to argument i and the
 //	    record input (when C has one input more) to <t>
 //	t = In(i, P, kg): the summary's Deferred gets (key of t, the
-//	    arguments' keys: the keys of their In tokens, and Heap when they
-//	    hold heap memory, Origin, Site); when an argument token is an Obj
-//	    token or has a tag other than <Root, false>, or the function is
-//	    External, the fallback instead, and no Deferred entry
+//	    arguments' keys, Origin, Site): the keys of their In tokens (GE
+//	    for a token whose tag is not <Root, false>: its value anywhere,
+//	    and what it reaches), and Heap when they hold heap memory. When an
+//	    argument holds an Obj token (a frame pointer, which no caller's
+//	    key names), the entry has no arguments, and the fallback applies
+//	    as well. When the function is External, the fallback instead, and
+//	    no Deferred entry
 //	otherwise: the fallback
 // The
 // fallback, once per dcall: the summaries of Env.Candidates(Origin's
 // function, the call at Site), each with input i bound to argument i and
-// the record input to the rest of the function value (below); when the
-// solve may not read one of them (Env.CanRead), the default of a bodyless
-// callee with the arguments and the function value as its inputs instead.
-// A deferred call is thus resolved precisely at a caller, or as it would
-// be without deferral.
+// the record input (when the candidate has one input more than the
+// arguments) to the rest of the function value (below). Unless the
+// function is External, the rest's In tokens are bound apart, with the
+// candidate's entries that name the record input alone (Esc, HeapStore and
+// Res keys of that input, Store pairs with both keys of it, Deferred
+// entries whose function value and argument keys are all of it) left out:
+// those are the callers', through the Deferred entries of those tokens,
+// and a caller resolves them against the closure it actually passes,
+// whose record layout is that closure's own. When the solve may not read a
+// candidate (Env.CanRead), the default of a bodyless callee with the
+// arguments and the function value as its inputs instead. A deferred call
+// is thus resolved precisely at a caller, or as it would be without
+// deferral.
 //
 // # Calls of function values
 //

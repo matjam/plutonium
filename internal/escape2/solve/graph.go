@@ -49,6 +49,8 @@ const (
 	xNoBox          // identity, without pointers to interface boxes (OpAssert to a direct type)
 	xImpl           // identity, without pointers to boxes whose type does not implement assertT[path] (OpAssert to an interface)
 	xNoRec          // identity, without the closure records ownRecord resolves (funccall.go)
+	xOnlyIn         // identity, In tokens only (defer.go, splitNode)
+	xNoIn           // identity, without In tokens
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -338,6 +340,14 @@ func (s *solver) transform(x uint64, t tok) {
 			return
 		}
 		s.buf.push(s.a, s.intern(t))
+	case xOnlyIn:
+		if t.kind == tIn {
+			s.buf.push(s.a, s.intern(t))
+		}
+	case xNoIn:
+		if t.kind != tIn {
+			s.buf.push(s.a, s.intern(t))
+		}
 	case xNoRec:
 		if _, ok := s.ownRecord(t); ok {
 			return

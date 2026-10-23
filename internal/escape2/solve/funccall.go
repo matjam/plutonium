@@ -75,7 +75,7 @@ func (s *solver) fireFRec(i int, t tok) {
 	if n == len(c.Args)+1 {
 		bind[n-1] = uint64(s.tokNode(t))
 	}
-	s.applyBound(fc.in, fn, bind)
+	s.applyBound(fc.in, fn, bind, -1)
 }
 
 // fireFRest applies the candidates of fcall i, once, when the rest of its

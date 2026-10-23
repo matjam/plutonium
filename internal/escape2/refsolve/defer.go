@@ -75,8 +75,11 @@ func (s *solver) ownDcall(in *eir.Instr) {
 
 // deferredOf makes the dcalls of sm's Deferred entries, applied at in with
 // binding bind.
-func (s *solver) deferredOf(in *eir.Instr, sm *summary.Summary, bind func(int) value) {
+func (s *solver) deferredOf(in *eir.Instr, sm *summary.Summary, bind func(int) value, skip int) {
 	for _, d := range sm.Deferred {
+		if skip >= 0 && deferredOnly(d, skip) {
+			continue
+		}
 		args := make([]value, len(d.Args))
 		for j, a := range d.Args {
 			v := value{}
@@ -99,7 +102,7 @@ func (s *solver) resolve() {
 		argsBad := false
 		for _, a := range dc.args {
 			for x := range a {
-				if x.t.kind == kObj || x.tag != domain.Root || x.g {
+				if x.t.kind == kObj {
 					argsBad = true
 				}
 			}
@@ -108,12 +111,15 @@ func (s *solver) resolve() {
 			switch t := x.t; {
 			case t.kind == kObj && !t.ge && t.path == domain.Root && s.closureOf[t.id] != 0:
 				s.applyClosure(dc, s.closureOf[t.id]-1, x)
-			case t.kind == kIn && (argsBad || s.f.External):
+			case t.kind == kIn && s.f.External:
 				s.fallback(dc)
 			case t.kind == kIn:
 				if k := keyOf(t); !dc.keys[k] {
 					dc.keys[k] = true
 					s.changed = true
+				}
+				if argsBad {
+					s.fallback(dc)
 				}
 			default:
 				s.fallback(dc)
@@ -156,7 +162,7 @@ func (s *solver) applyClosure(dc *dcall, fn eir.FuncID, x tv) {
 		return
 	}
 	f := s.env.Program().Funcs[fn]
-	s.applyBound(dc.in, fn, bindArgs(dc, len(f.Inputs), single(x)))
+	s.applyBound(dc.in, fn, bindArgs(dc, len(f.Inputs), single(x)), -1)
 }
 
 // fallback applies the per-signature join of the origin call's candidates
@@ -187,8 +193,24 @@ func (s *solver) fallback(dc *dcall) {
 			n = sm.Inputs
 		}
 		// The rest of the value: the closures it holds that this function
-		// made resolve themselves (applyClosure).
-		s.applyBound(dc.in, cand, bindArgs(dc, n, s.rest(dc.target)))
+		// made resolve themselves (applyClosure). Its In tokens are
+		// Deferred entries, whose callers apply the entries that name the
+		// record alone: here, only those that name an argument.
+		rest := s.rest(dc.target)
+		if s.f.External || n != len(dc.args)+1 {
+			s.applyBound(dc.in, cand, bindArgs(dc, n, rest), -1)
+			continue
+		}
+		ins, other := value{}, value{}
+		for x := range rest {
+			if x.t.kind == kIn {
+				ins.add(x)
+			} else {
+				other.add(x)
+			}
+		}
+		s.applyBound(dc.in, cand, bindArgs(dc, n, other), -1)
+		s.applyBound(dc.in, cand, bindArgs(dc, n, ins), n-1)
 	}
 }
 
@@ -206,7 +228,7 @@ func siteCall(f *eir.Func, site eir.SiteID) *eir.Call {
 
 // applyBound applies the summary of cand at in with binding bind: nil is
 // the bottom summary, except for a bodyless function.
-func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind func(int) value) {
+func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind func(int) value, skip int) {
 	funcs := s.env.Program().Funcs
 	var sm *summary.Summary
 	switch {
@@ -220,22 +242,44 @@ func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind func(int) value
 	if sm == nil {
 		return
 	}
-	s.applySummary(in, sm, bind, cand)
+	s.applySummarySkip(in, sm, bind, cand, skip)
+}
+
+// deferredOnly reports whether Deferred entry d names input i alone.
+func deferredOnly(d summary.Deferred, i int) bool {
+	if d.Fn.Input() != i {
+		return false
+	}
+	for _, a := range d.Args {
+		for _, k := range a.Keys {
+			if k.Input() != i {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // deferredOut is the Deferred entries of the summary (solve/defer.go).
 func (s *solver) deferredOut() []summary.Deferred {
 	var out []summary.Deferred
 	for _, dc := range s.dcalls {
-		if dc.argsBad || len(dc.keys) == 0 {
+		if len(dc.keys) == 0 {
 			continue
 		}
 		args := make([]summary.DeferredArg, len(dc.args))
 		for j, a := range dc.args {
+			if dc.argsBad {
+				continue // resolved here with its arguments (fallback)
+			}
 			for x := range a {
 				switch x.t.kind {
 				case kIn:
-					args[j].Keys = append(args[j].Keys, keyOf(x.t))
+					k := keyOf(x.t)
+					if x.tag != domain.Root || x.g {
+						k = k.WithPath(k.Path(), true) // anywhere in the value (solve/defer.go, argKey)
+					}
+					args[j].Keys = append(args[j].Keys, k)
 				case kHeap, kCHeap:
 					args[j].Heap = true
 				}

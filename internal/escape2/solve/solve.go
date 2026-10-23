@@ -588,13 +588,15 @@ func (s *solver) checkStore(m uint32, u tok, why uint64) {
 // --- derived nodes for summary keys ---
 
 const (
-	dVal    = 0
-	dReach  = 1
-	dTok    = 2
-	dShared = 1 << 62 // in the first word: a shared subscription node
-	dJoin   = 1 << 61 // in the first word: a node joining two receivers
-	dRetag  = 1 << 60 // in the first word: a node with its tags made (Root, GE)
-	dRest   = 1 << 59 // in the first word: a function value less its own closures (funccall.go)
+	dVal        = 0
+	dReach      = 1
+	dTok        = 2
+	dShared     = 1 << 62 // in the first word: a shared subscription node
+	dJoin       = 1 << 61 // in the first word: a node joining two receivers
+	dRetag      = 1 << 60 // in the first word: a node with its tags made (Root, GE)
+	dRest       = 1 << 59 // in the first word: a function value less its own closures (funccall.go)
+	dSplitIn    = 1 << 58 // in the first word: the In tokens of a node (defer.go, splitNode)
+	dSplitOther = 1 << 57 // in the first word: the other tokens of a node
 )
 
 // valNode returns the node of val(k) for an input bound to node base

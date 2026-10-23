@@ -77,7 +77,7 @@ func (s *solver) applyCandidateRec(in *eir.Instr, cand eir.FuncID, rec uint32) {
 	}
 	if !bodyless {
 		// A resumed solve applies what this summary gains (State.Resume).
-		s.applied = append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum})
+		s.applied = append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum, skip: -1})
 	}
 	if sum == nil {
 		if bodyless {
@@ -94,6 +94,7 @@ type application struct {
 	cand eir.FuncID
 	bind []uint64
 	sum  *summary.Summary
+	skip int // applySkip's skipped input, or -1
 }
 
 // reapply applies again the summaries of callees that changed since they
@@ -109,7 +110,7 @@ func (s *solver) reapply() {
 			continue
 		}
 		ap.sum = sum
-		s.apply(ap.in, ap.bind, sum, ap.cand)
+		s.applySkip(ap.in, ap.bind, sum, ap.cand, ap.skip)
 	}
 }
 
@@ -235,6 +236,12 @@ func (s *solver) canonBase(r eir.Reg) uint32 {
 
 // apply applies summary sum of callee cand at the call in.
 func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand eir.FuncID) {
+	s.applySkip(in, bind, sum, cand, -1)
+}
+
+// applySkip is apply, less the entries that name input skip alone (when
+// skip >= 0): a deferred call's caller applies those (defer.go, fallback).
+func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, cand eir.FuncID, skip int) {
 	c := in.Call
 	why := func(entry int) uint64 { return s.why(in.Pos, whyCall, 0, c.Site, cand, entry) }
 	val := func(k domain.Key) (uint32, bool) {
@@ -245,6 +252,9 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		return s.valNode(uint32(bind[i]), k.Path(), k.GE()), true
 	}
 	for e, k := range sum.Esc {
+		if k.Input() == skip {
+			continue
+		}
 		if v, ok := val(k); ok {
 			// A key kept by starting a task, here or in the callee (its
 			// reason says so): a local sync.WaitGroup is E3004 (12.12).
@@ -256,6 +266,9 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		}
 	}
 	for j, p := range sum.Store {
+		if p.Src.Input() == skip && p.Dst.Input() == skip {
+			continue
+		}
 		dst, ok1 := val(p.Dst)
 		src, ok2 := val(p.Src)
 		if ok1 && ok2 {
@@ -266,6 +279,9 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		}
 	}
 	for _, k := range sum.HeapStore {
+		if k.Input() == skip {
+			continue
+		}
 		if dst, ok := val(k); ok {
 			src := s.heapNode
 			if k.FieldsGE() {
@@ -280,6 +296,9 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 		}
 		dst := uint32(c.Results[r])
 		for _, rk := range res.From {
+			if rk.Key.Input() == skip {
+				continue
+			}
 			if v, ok := val(rk.Key); ok {
 				f, ge := s.fieldPath(rk.Field, rk.FieldGE)
 				s.addEdge(v, dst, xw(xPre, f, ge), 0)
@@ -296,7 +315,7 @@ func (s *solver) apply(in *eir.Instr, bind []uint64, sum *summary.Summary, cand 
 			s.addTok(dst, tok{kind: tCHeap, tag: f, tagGE: true})
 		}
 	}
-	s.applyDeferred(in, bind, sum) // defer.go
+	s.applyDeferred(in, bind, sum, skip) // defer.go
 	for _, r := range sum.Region.OuterResults {
 		if r >= len(c.Results) || c.Results[r] == 0 {
 			continue

@@ -88,7 +88,7 @@ func TestDeferredOwnFrameArgument(t *testing.T) {
 	e.cands[c] = []eir.FuncID{keeper.f.ID}
 	r := e.solve(t, b.f)
 	wantFindings(t, r, "E3003@6")
-	e.wantSummary(t, r, "")
+	e.wantSummary(t, r, "defer f1@0 0()")
 }
 
 // A candidate the solve may not read is not applied: the call is kept as
@@ -108,7 +108,7 @@ func TestDeferredOwnFrameArgumentUnread(t *testing.T) {
 	e.cands[c] = []eir.FuncID{keeper.f.ID}
 	r := e.solve(t, b.f)
 	wantFindings(t, r, "E3003@6")
-	e.wantSummary(t, r, "esc 0+")
+	e.wantSummary(t, r, "defer f1@0 0(); esc 0+")
 }
 
 // A caller that passes its own input as the function value but a frame
@@ -122,7 +122,26 @@ func TestDeferredFrameArgumentFallsBack(t *testing.T) {
 	b.at(3).static(iter.f, 0, b.addr(x), b.input(0))
 	r := e.solve(t, b.f)
 	wantFindings(t, r, "E3003@3")
-	e.wantSummary(t, r, "")
+	e.wantSummary(t, r, "defer f1@0 0()")
+}
+
+// A call whose argument is a frame pointer applies here only the entries
+// of its candidates that name an argument; those that name the record
+// alone are its callers', through a Deferred entry with no arguments.
+func TestDeferredBadArgumentSplit(t *testing.T) {
+	e := newEnv()
+	lit := e.fn("lit", 2, 0) // (u, record): keeps what its first capture points to
+	lit.sink(eir.SinkGlobal, lit.load(lit.field(lit.input(1), 0)))
+	e.solve(t, lit.f)
+	b := e.fn("f", 1, 0)
+	x := b.obj("x", eir.LifeFrame, -1)
+	c := &eir.Call{Kind: eir.CallFunc, Target: b.input(0), Args: []eir.Reg{b.addr(x)}}
+	b.at(6).call(c)
+	e.deferred[c] = true
+	e.cands[c] = []eir.FuncID{lit.f.ID}
+	r := e.solve(t, b.f)
+	wantFindings(t, r, "")
+	e.wantSummary(t, r, "defer f1@0 0()")
 }
 
 // A recursive function defers its own deferred calls through its recursive

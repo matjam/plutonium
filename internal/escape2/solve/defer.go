@@ -99,10 +99,8 @@ func (s *solver) fireDcall(i int, t tok) {
 			return
 		}
 	case tIn:
-		if dc.argsBad || s.f.External {
-			// Not to be deferred further (an argument a caller's key does
-			// not name, or no caller binds the function): the origin
-			// call's candidates.
+		if s.f.External {
+			// No caller binds the function: the origin call's candidates.
 			s.fallback(i)
 			return
 		}
@@ -113,18 +111,24 @@ func (s *solver) fireDcall(i int, t tok) {
 			}
 		}
 		dc.keys = append(dc.keys, k)
+		if dc.argsBad {
+			// An argument a caller's key does not name: what the call
+			// does with its arguments is resolved here (fallback), and
+			// what it does with the function value alone at the callers.
+			s.fallback(i)
+		}
 		return
 	}
 	s.fallback(i)
 }
 
-// fireDarg handles token t of an argument of dcall i. A frame token, or a
-// pointer held in a field of a value (a key keeps no tag), is nothing a
-// caller's key names: the call cannot be deferred further, and the
-// function values it would have been deferred for fall back.
+// fireDarg handles token t of an argument of dcall i. A frame token is
+// nothing a caller's key names: what the call does with its arguments is
+// resolved here (fallback), and its Deferred entries have no arguments. A
+// pointer held in a field of a value is passed as a GE key (argKey).
 func (s *solver) fireDarg(i int, t tok) {
 	dc := s.dcalls[i]
-	if dc.argsBad || (t.kind != tObj && t.tag == domain.Root && !t.tagGE) {
+	if dc.argsBad || t.kind != tObj {
 		return
 	}
 	dc.argsBad = true
@@ -174,7 +178,7 @@ func (s *solver) applyClosure(i int, fn eir.FuncID, t tok) {
 	if len(f.Inputs) == len(dc.args)+1 {
 		bind[len(f.Inputs)-1] = uint64(s.tokNode(t))
 	}
-	s.applyBound(dc.in, fn, bind)
+	s.applyBound(dc.in, fn, bind, -1)
 }
 
 // fallback applies the per-signature join of the origin call's candidates
@@ -214,13 +218,45 @@ func (s *solver) fallback(i int) {
 				bind[j] = uint64(dc.args[j])
 			}
 		}
-		if n == len(dc.args)+1 {
-			// The rest of the value: the closures it holds that this
-			// function made resolve themselves (applyClosure).
-			bind[n-1] = uint64(s.restNode(dc.target))
+		if n != len(dc.args)+1 {
+			s.applyBound(dc.in, cand, bind, -1)
+			continue
 		}
-		s.applyBound(dc.in, cand, bind)
+		// The record input is bound to the rest of the value: the closures
+		// it holds that this function made resolve themselves
+		// (applyClosure). Its In tokens are Deferred entries
+		// (deferredOut), whose callers apply the entries that name the
+		// record alone: here, only the entries that name an argument.
+		rest := s.restNode(dc.target)
+		if s.f.External {
+			bind[n-1] = uint64(rest)
+			s.applyBound(dc.in, cand, bind, -1)
+			continue
+		}
+		bind[n-1] = uint64(s.splitNode(rest, false))
+		s.applyBound(dc.in, cand, bind, -1)
+		bindIn := s.a.Alloc(n)
+		copy(bindIn, bind)
+		bindIn[n-1] = uint64(s.splitNode(rest, true))
+		s.applyBound(dc.in, cand, bindIn, n-1)
 	}
+}
+
+// splitNode returns the node of the In tokens of node n (in), or of its
+// other tokens.
+func (s *solver) splitNode(n uint32, in bool) uint32 {
+	kind := uint64(dSplitOther)
+	x := xNoIn
+	if in {
+		kind, x = dSplitIn, xOnlyIn
+	}
+	if r, ok := s.derived.get(kind|uint64(n)<<20, 0); ok {
+		return uint32(r)
+	}
+	r := s.newNode(nkPinned)
+	s.derived.put(s.a, kind|uint64(n)<<20, 0, uint64(r))
+	s.addEdge(n, r, xw(x, 0, false), 0)
+	return r
 }
 
 // siteCall is the call at site of function f.
@@ -236,8 +272,9 @@ func siteCall(f *eir.Func, site eir.SiteID) *eir.Call {
 }
 
 // applyBound applies the summary of cand with binding bind at call in (or
-// the default of a bodyless function), and records it for State.Resume.
-func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind []uint64) {
+// the default of a bodyless function), less the entries that name input
+// skip alone (applySkip), and records it for State.Resume.
+func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind []uint64, skip int) {
 	bodyless := cand == eir.NoFunc
 	var sum *summary.Summary
 	if !bodyless {
@@ -247,7 +284,7 @@ func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind []uint64) {
 		sum = s.env.Summary(cand)
 	}
 	if !bodyless {
-		s.applied = append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum})
+		s.applied = append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum, skip: skip})
 	}
 	if sum == nil {
 		if bodyless {
@@ -255,13 +292,17 @@ func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind []uint64) {
 		}
 		return
 	}
-	s.apply(in, bind, sum, cand)
+	s.applySkip(in, bind, sum, cand, skip)
 }
 
 // applyDeferred makes a dcall for each Deferred entry of sum, applied at
-// call in with binding bind.
-func (s *solver) applyDeferred(in *eir.Instr, bind []uint64, sum *summary.Summary) {
+// call in with binding bind, less those that name input skip alone
+// (applySkip).
+func (s *solver) applyDeferred(in *eir.Instr, bind []uint64, sum *summary.Summary, skip int) {
 	for _, d := range sum.Deferred {
+		if skip >= 0 && deferredOnly(d, skip) {
+			continue
+		}
 		fi := d.Fn.Input()
 		if fi >= len(bind) || bind[fi] == 0 {
 			continue
@@ -273,6 +314,33 @@ func (s *solver) applyDeferred(in *eir.Instr, bind []uint64, sum *summary.Summar
 		}
 		s.newDcall(in, target, args, d.Origin, d.Site)
 	}
+}
+
+// argKey is the key a Deferred entry's argument gives In token t: its own,
+// and for a token in a field of the value (a tag other than <Root,
+// false>), GE: what the key leads to, anywhere in the value, covers the
+// token wherever it sits.
+func argKey(t tok) domain.Key {
+	k := key(asPointer(t))
+	if t.tag != domain.Root || t.tagGE {
+		k = k.WithPath(k.Path(), true)
+	}
+	return k
+}
+
+// deferredOnly reports whether Deferred entry d names input i alone.
+func deferredOnly(d summary.Deferred, i int) bool {
+	if d.Fn.Input() != i {
+		return false
+	}
+	for _, a := range d.Args {
+		for _, k := range a.Keys {
+			if k.Input() != i {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // argNode is the node of what a deferred call's argument holds at a call
@@ -312,18 +380,21 @@ func (s *solver) argNode(a summary.DeferredArg, bind []uint64) uint32 {
 func (s *solver) deferredOut() []summary.Deferred {
 	var out []summary.Deferred
 	for _, dc := range s.dcalls {
-		if dc.argsBad || len(dc.keys) == 0 {
+		if len(dc.keys) == 0 {
 			continue
 		}
 		args := make([]summary.DeferredArg, len(dc.args))
 		for j, a := range dc.args {
-			if a == 0 {
+			if a == 0 || dc.argsBad {
+				// With an argument no caller's key names, what the call
+				// does with its arguments was resolved here: the callers
+				// resolve it with no arguments (fallback).
 				continue
 			}
 			for _, id := range s.pts(s.find(a)) {
 				switch t := s.tokAt(id); t.kind {
 				case tIn:
-					args[j].Keys = append(args[j].Keys, key(asPointer(t)))
+					args[j].Keys = append(args[j].Keys, argKey(t))
 				case tHeap, tCHeap:
 					args[j].Heap = true
 				}
