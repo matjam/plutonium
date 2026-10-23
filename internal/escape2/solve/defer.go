@@ -1,8 +1,8 @@
 package solve
 
 import (
+	"encoding/binary"
 	"fmt"
-	"strings"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
@@ -349,22 +349,26 @@ func deferredOnly(d summary.Deferred, i int) bool {
 // argNode is the node of what a deferred call's argument holds at a call
 // with binding bind: the values of its keys, and heap memory.
 func (s *solver) argNode(a summary.DeferredArg, bind []uint64) uint32 {
-	var b strings.Builder
+	// The key: the (node, key) pairs, and a last byte for Heap. The lookup
+	// converts the reused buffer without allocating; only a new key is
+	// copied.
+	b := s.argBuf[:0]
 	for _, k := range a.Keys {
 		i := k.Input()
 		if i < len(bind) && bind[i] != 0 {
-			fmt.Fprintf(&b, "%d/%d ", bind[i], uint64(k))
+			b = binary.LittleEndian.AppendUint64(b, bind[i])
+			b = binary.LittleEndian.AppendUint64(b, uint64(k))
 		}
 	}
 	if a.Heap {
-		b.WriteString("h")
+		b = append(b, 'h')
 	}
-	key := b.String()
-	if n, ok := s.argNodes[key]; ok {
+	s.argBuf = b
+	if n, ok := s.argNodes[string(b)]; ok {
 		return n
 	}
 	n := s.newNode(nkPinned)
-	s.argNodes[key] = n
+	s.argNodes[string(b)] = n
 	for _, k := range a.Keys {
 		i := k.Input()
 		if i < len(bind) && bind[i] != 0 {

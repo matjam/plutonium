@@ -161,6 +161,7 @@ type solver struct {
 	dcallIdx                map[string]int
 	dcallDone               map[[2]uint64]bool
 	fcalls                  []*fcall // calls of function values (funccall.go)
+	argBuf                  []byte   // argNode's key
 	argNodes                map[string]uint32
 	whyIdx                  table // whys by content, so that a constraint is made once
 }
