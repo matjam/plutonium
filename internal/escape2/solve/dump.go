@@ -194,7 +194,16 @@ func (s *solver) dump(res *summary.Summary) {
 		}
 		fmt.Fprintf(&b, "  summary: esc %d, store %d, heapstore %d, res %d\n", len(res.Esc), len(res.Store), len(res.HeapStore), n)
 		ks := func(k domain.Key) string {
-			return fmt.Sprintf("in%d%v%s", k.Input(), s.ps.Steps(k.Path()), map[bool]string{true: "+"}[k.GE()])
+			f := ""
+			switch {
+			case k.GE():
+				f = "+"
+			case k.FieldsGE():
+				f = "~"
+			case k.Deep():
+				f = "*"
+			}
+			return fmt.Sprintf("in%d%v%s", k.Input(), s.ps.Steps(k.Path()), f)
 		}
 		for k, p := range res.Store {
 			if k == 16 {

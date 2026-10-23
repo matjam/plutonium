@@ -242,13 +242,14 @@ func PathBytes(ps Paths) int {
 	return 0
 }
 
-// ExtendKey returns k with its path followed by s. A GE key is returned
-// unchanged: it already stands for every extension, and extending its path
-// would narrow it. A FieldsGE key is returned unchanged by an offset step,
-// which it already stands for; a load through it becomes GE on its path,
-// unless its last segment is full, when the key is exact and extended as one.
+// ExtendKey returns k with its path followed by s. A GE or Deep key is
+// returned unchanged: it already stands for every extension, and extending
+// its path would narrow it. A FieldsGE key is returned unchanged by an
+// offset step, which it already stands for; a load through it becomes Deep
+// on its path (its offsets, then the load), unless its last segment is
+// full, when the key is exact and extended as one.
 func ExtendKey(ps Paths, k Key, s Step) Key {
-	if k.GE() {
+	if k.GE() || k.Deep() {
 		return k
 	}
 	if k.FieldsGE() {
@@ -256,7 +257,7 @@ func ExtendKey(ps Paths, k Key, s Step) Key {
 			return k
 		}
 		if !segmentFull(ps, k.Path()) {
-			return k.WithPath(k.Path(), true)
+			return k.WithDeep()
 		}
 	}
 	q, cut := ps.Extend(k.Path(), s)
@@ -277,34 +278,57 @@ func segmentFull(ps Paths, p PathID) bool {
 	return n == MaxFieldNest
 }
 
-// AppendTail returns k with its path followed by tail's, and tail's GE or
-// FieldsGE: the re-rooting of a callee's key tail on the caller's key k.
-// tail's input and its other flags are not read.
+// AppendTail returns k with its path followed by tail's, and tail's GE,
+// FieldsGE or Deep: the re-rooting of a callee's key tail on the caller's
+// key k. tail's input and its other flags are not read.
 func AppendTail(ps Paths, k Key, tail Key) Key {
 	k = AppendKey(ps, k, tail.Path(), tail.GE())
-	if tail.FieldsGE() {
+	switch {
+	case tail.FieldsGE():
 		k = k.WithFieldsGE()
+	case tail.Deep():
+		k = k.WithDeep()
 	}
 	return k
 }
 
 // KeyMatches reports whether the concrete access path w is one of those key
-// k stands for, by its path and its GE or FieldsGE bit (see PathMatches).
+// k stands for, by its path and its GE, FieldsGE or Deep bit (see
+// PathMatches).
 func KeyMatches(ps Paths, k Key, w []Step) bool {
+	if k.Deep() {
+		return deepMatches(ps, k.Path(), w)
+	}
 	return pathMatches(ps, k.Path(), k.GE(), k.FieldsGE(), w)
 }
 
+// deepMatches reports whether w is p followed by any offset steps, a load,
+// and then anything: one of the words a Deep key on p stands for.
+func deepMatches(ps Paths, p PathID, w []Step) bool {
+	// w must start with a word p stands for (with its offsets after, as
+	// FieldsGE) and go on with a load; the words p stands for followed by
+	// offsets are those of FieldsGE p, so try each prefix of w ending
+	// before a load.
+	for j, s := range w {
+		if s == StepLoad && pathMatches(ps, p, false, true, w[:j]) {
+			return true
+		}
+	}
+	return false
+}
+
 // AppendKey returns k with its path followed by the steps of p, and GE if k
-// or the extension is GE (ge says whether p stands for its extensions too).
-// It is how a caller re-roots a callee's key on what the caller passed.
+// or the extension is GE (ge says whether p stands for its extensions too);
+// a Deep k stays Deep, standing for every extension already. It is how a
+// caller re-roots a callee's key on what the caller passed.
 func AppendKey(ps Paths, k Key, p PathID, ge bool) Key {
 	for _, s := range ps.Steps(p) {
-		if k.GE() {
+		if k.GE() || k.Deep() {
 			return k
 		}
 		k = ExtendKey(ps, k, s)
 	}
-	if ge {
+	if ge && !k.Deep() {
 		k = k.WithPath(k.Path(), true)
 	}
 	return k

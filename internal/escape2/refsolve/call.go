@@ -205,7 +205,7 @@ func (s *solver) applySummarySkip(in *eir.Instr, sm *summary.Summary, bind func(
 		if p.Dst.FieldsGE() {
 			v = anywhere(v)
 		}
-		s.store(s.valueOfKey(p.Dst, bind), v, in.Pos, ctx(entry))
+		s.store(s.valueOfDst(p.Dst, bind), v, in.Pos, ctx(entry))
 		entry++
 	}
 	heap := single(ptr(tok{kind: kHeap}))
@@ -217,7 +217,7 @@ func (s *solver) applySummarySkip(in *eir.Instr, sm *summary.Summary, bind func(
 		if k.FieldsGE() {
 			v = anywhere(v)
 		}
-		s.store(s.valueOfKey(k, bind), v, in.Pos, ctx(-1))
+		s.store(s.valueOfDst(k, bind), v, in.Pos, ctx(-1))
 	}
 	for r, res := range sm.Res {
 		if r >= len(c.Results) || c.Results[r] == 0 {

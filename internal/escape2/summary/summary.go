@@ -6,6 +6,15 @@
 //
 // Every set is an antichain under domain.Covers, sorted by key.
 //
+// A key of any set may be exact, GE, FieldsGE or Deep (domain.Key). A Deep
+// key stands for what the pointers of its path point at, anywhere in their
+// objects, transitively, never those pointers themselves: what a walk that
+// offsets anywhere in an object and loads (pluto/fmt's, eir/fmtwalk.go)
+// reaches from a parameter. Its value at a caller is reach of a load at any
+// offset of the path's value (rules.go, OpCall), so a box passed to such a
+// walk is not kept by what the walk keeps of its contents. Deep keys came
+// with cache format version 4 (cache/file.go).
+//
 // Deferred dispatches and obligations (plan section (c)) are not in this
 // format: they belong to stage 3, which waits for the owner's decision on a
 // rule for dynamic calls.
@@ -21,7 +30,8 @@ import (
 
 // Caps on one input's keys (plan section (a), "Caps and widening"). Past a
 // cap the input's keys are replaced by their domain.Paths.Cut with GE set,
-// which covers them: monotone and sound (invariant I8).
+// which covers them: monotone and sound (invariant I8); a Deep key with no
+// load on its path, by Deep on the input's root (CutKey, Widen).
 const (
 	MaxEscPerInput   = 64
 	MaxStorePerInput = 128

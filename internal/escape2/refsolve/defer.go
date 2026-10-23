@@ -405,7 +405,7 @@ func (s *solver) deferredOut() []summary.Deferred {
 				switch x.t.kind {
 				case kIn:
 					k := keyOf(x.t)
-					if x.tag != domain.Root || x.g {
+					if (x.tag != domain.Root || x.g) && !k.Deep() {
 						k = k.WithPath(k.Path(), true) // anywhere in the value (solve/defer.go, argKey)
 					}
 					args[j].Keys = append(args[j].Keys, k)

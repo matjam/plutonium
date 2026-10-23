@@ -6,8 +6,9 @@ import "slices"
 // Covers, sorted by key (summary package comment). These functions keep them
 // so without a quadratic scan: the keys that can cover k are the GE keys on
 // the prefixes of k's path (its own included) and, unless k is GE, the
-// FieldsGE keys on the prefixes with as many loads as k's path; at most
-// 2*(MaxSteps+1) of them, each found by a binary search.
+// FieldsGE keys on the prefixes with as many loads as k's path, and the Deep
+// keys on the prefixes with fewer loads (all of them when k is Deep); at
+// most 3*(MaxSteps+1) of them, each found by a binary search.
 
 // CoveredBy reports whether some key of the sorted set keys covers k
 // (k itself included).
@@ -27,8 +28,13 @@ func coveredByOther(ps Paths, keys []Key, k Key) bool {
 		if g := k.WithPath(p, true); g != k && hasKey(keys, g) {
 			return true
 		}
-		if !k.GE() && ps.Loads(p) == loads {
+		if !k.GE() && !k.Deep() && ps.Loads(p) == loads {
 			if g := k.WithPath(p, false).WithFieldsGE(); g != k && hasKey(keys, g) {
+				return true
+			}
+		}
+		if ps.Loads(p) < loads || k.Deep() {
+			if g := k.WithPath(p, false).WithDeep(); g != k && hasKey(keys, g) {
 				return true
 			}
 		}

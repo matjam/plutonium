@@ -134,7 +134,18 @@ func (g *gen) randKey(inputs int) domain.Key {
 		p, cut = g.ps.Extend(p, steps[g.rng.Intn(len(steps))])
 		ge = ge || cut
 	}
-	return domain.MakeKey(g.rng.Intn(inputs), p, domain.KeyFlags{GE: ge})
+	f := domain.KeyFlags{GE: ge}
+	if !ge {
+		// Callee keys of every form: FieldsGE (pluto/fmt's walk and
+		// stores through a GE tag make them) and Deep (the walk's loads).
+		switch g.rng.Intn(8) {
+		case 0:
+			f.FieldsGE = true
+		case 1:
+			f.Deep = true
+		}
+	}
+	return domain.MakeKey(g.rng.Intn(inputs), p, f)
 }
 
 func (g *gen) randSummary(inputs, results int) *summary.Summary {

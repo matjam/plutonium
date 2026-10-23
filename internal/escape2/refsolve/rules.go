@@ -193,27 +193,7 @@ func (s *solver) offsetAll(in *eir.Instr, q domain.PathID, qcut bool) {
 func (s *solver) ruleField(in *eir.Instr) {
 	if slices.Contains(in.Path, eir.AnyStep) {
 		// An unknown offset: anywhere in the object.
-		out := value{}
-		for x := range s.val(in.X) {
-			t := x.t
-			switch t.kind {
-			case kObj:
-				t.path, t.ge = domain.Root, true
-			case kIn:
-				steps := s.ps.Steps(t.path)
-				i := len(steps)
-				for i > 0 && steps[i-1] != domain.StepLoad {
-					i--
-				}
-				p := domain.Root
-				for _, st := range steps[:i] {
-					p, _ = s.ps.Extend(p, st)
-				}
-				t.path, t.ge = p, true
-			}
-			out.add(ptr(t))
-		}
-		s.def(in.Dst, out)
+		s.def(in.Dst, s.anyOffset(s.val(in.X)))
 		return
 	}
 	q, c := s.pathOf(in.Path)
@@ -368,7 +348,7 @@ func (s *solver) ruleReturn(in *eir.Instr, x value) {
 			s.finding(diag.ReturnFrameView, in.Pos, u.id, in.Sink, own)
 		case u.kind == kIn:
 			k, f := keyOf(u), v.tag
-			if rk := (summary.ResultKey{Key: k, Field: f, FieldGE: v.g && !k.GE()}); !r.from[rk] {
+			if rk := (summary.ResultKey{Key: k, Field: f, FieldGE: v.g && !k.GE() && !k.Deep()}); !r.from[rk] {
 				r.from[rk] = true
 				s.changed = true
 			}

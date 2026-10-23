@@ -224,6 +224,18 @@ types and the limits.
 counted-error flags of today stay (16.5 to 16.7; `call.go:286-306`). There is no filter, no filter
 position and no shape in a key: those dimensions are what multiplied keys and what R2 §1 broke.
 
+*As built, three key forms besides exact* (`domain.Key`, bits 40, 44, 45; cache format version 4):
+`ge` (the path and every extension), `fieldsGE` (the path and its extensions by offset steps only:
+the path's pointers at any offset in their object) and `deep` (the path, any offset steps, one load,
+then anything: what the path's pointers point at, anywhere in their objects, transitively, never
+those pointers themselves). They exclude each other; `ge` covers both others, which are incomparable.
+A `deep` key covers a key whose path extends its own with more loads, and a `deep` key on such an
+extension; a load through a `fieldsGE` key is `deep`, and a cap cuts a `deep` key with no load to
+`deep` on the input's root. `deep` is what an offset anywhere in an object followed by a load makes
+(pluto/fmt's walk, `eir/fmtwalk.go`): the walk's view of its parameter's contents no longer covers the
+parameter itself, so a box passed to fmt is not kept by what the walk keeps of what the box holds.
+At a caller, `val` of a `deep` key is reach of a load at any offset of the path's value.
+
 **Summary of f.** All sets are antichains under subsumption (a `ge` key covers every key of the same
 input and flags whose path extends it), kept sorted:
 

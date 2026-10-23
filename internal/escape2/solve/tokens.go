@@ -9,8 +9,14 @@ import (
 // interned in the solver's token table; sets hold token numbers.
 //
 // Word 0: kind (bits 0-1), the token's own GE (pg or kg, bit 2), the tag's
-// GE (bit 3), base (bits 8-39: object or input). Word 1: path (bits 0-31),
-// tag (bits 32-63).
+// GE (bit 3), an In token's FieldsGE (bit 4) and Deep (bit 5), base (bits
+// 8-39: object or input). Word 1: path (bits 0-31), tag (bits 32-63).
+//
+// An In token stands for the pointers of its key (key, domain.Key): exact,
+// GE (ge), FieldsGE (fge: the path's pointers at any offset, what an
+// offset anywhere in an object gives, anyOffset) or Deep (deep: what those
+// point at, transitively, what a load through an fge token gives). At most
+// one of ge, fge and deep is set.
 
 type tokKind uint8
 
@@ -25,6 +31,8 @@ type tok struct {
 	kind  tokKind
 	ge    bool // pg for Obj, kg for In
 	tagGE bool
+	fge   bool // In: the key is FieldsGE
+	deep  bool // In: the key is Deep
 	base  uint32
 	path  domain.PathID
 	tag   domain.PathID
@@ -38,6 +46,12 @@ func (t tok) words() (uint64, uint64) {
 	if t.tagGE {
 		w0 |= 8
 	}
+	if t.fge {
+		w0 |= 16
+	}
+	if t.deep {
+		w0 |= 32
+	}
 	return w0, uint64(t.path) | uint64(t.tag)<<32
 }
 
@@ -46,10 +60,23 @@ func tokOf(w0, w1 uint64) tok {
 		kind:  tokKind(w0 & 3),
 		ge:    w0&4 != 0,
 		tagGE: w0&8 != 0,
+		fge:   w0&16 != 0,
+		deep:  w0&32 != 0,
 		base:  uint32(w0 >> 8),
 		path:  domain.PathID(uint32(w1)),
 		tag:   domain.PathID(uint32(w1 >> 32)),
 	}
+}
+
+// wide reports whether an In token's path stands for its extensions by
+// every step (GE or Deep): extending it changes nothing.
+func (t tok) wide() bool { return t.ge || t.deep }
+
+// setGE makes t's own path GE (an In token's FieldsGE or Deep dropped,
+// which GE covers).
+func setGE(t tok) tok {
+	t.ge, t.fge, t.deep = true, false, false
+	return t
 }
 
 // heapTok is the one heap token; tags do not matter for heap pointers.
@@ -58,7 +85,7 @@ var heapTok = tok{kind: tHeap}
 // intern returns the number of a tagged token.
 func (s *solver) intern(t tok) uint64 {
 	if t.kind == tHeap || t.kind == tCHeap {
-		t.base, t.path, t.ge = 0, domain.Root, false // heap tokens keep their tag only
+		t.base, t.path, t.ge, t.fge, t.deep = 0, domain.Root, false, false, false // heap tokens keep their tag only
 	}
 	w0, w1 := t.words()
 	if id, ok := s.tokIdx.get(w0, w1); ok {
@@ -77,7 +104,7 @@ func (s *solver) tokAt(id uint64) tok {
 
 // key is the summary key of an In token.
 func key(t tok) domain.Key {
-	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge})
+	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep})
 }
 
 // extend appends one step to p; ge reports that the step went past the
@@ -149,8 +176,8 @@ func eirSteps(path []int, buf []domain.Step) []domain.Step {
 func (s *solver) off(t tok, steps []domain.Step) tok {
 	switch t.kind {
 	case tObj, tIn:
-		if t.ge || len(steps) == 0 {
-			return t
+		if t.wide() || t.fge || len(steps) == 0 {
+			return t // (an fge token's offsets are among those it stands for)
 		}
 		p, cut := s.extendAll(t.path, steps)
 		t.path = p
@@ -161,20 +188,40 @@ func (s *solver) off(t tok, steps []domain.Step) tok {
 
 // anyOffset is pointer t offset by an unknown amount within its object
 // (eir.AnyStep): Obj(o, Root, true); for an In token, the path back to its
-// last load (the start of the object it points into), GE; Heap stays.
+// last load (the start of the object it points into), FieldsGE (GE for a GE
+// token, whose path may end inside a field of what it stands for); a Deep
+// token stays, standing for every offset of its pointers; Heap stays.
 func (s *solver) anyOffset(t tok) tok {
 	t = asPointer(t)
 	switch t.kind {
 	case tObj:
 		t.path, t.ge = domain.Root, true
 	case tIn:
+		if t.deep {
+			return t
+		}
 		steps := s.ps.Steps(t.path)
 		i := len(steps)
 		for i > 0 && steps[i-1] != domain.StepLoad {
 			i--
 		}
 		t.path, _ = s.pathOf(steps[:i])
-		t.ge = true
+		if !t.ge {
+			t.fge = true
+		}
+	}
+	return t
+}
+
+// loadIn is In token t loaded through: its path followed by a load; a GE or
+// Deep token stays; an fge token becomes Deep on its path.
+func (s *solver) loadIn(t tok) tok {
+	switch {
+	case t.wide():
+	case t.fge:
+		t.fge, t.deep = false, true
+	default:
+		t.path, t.ge = s.extend(t.path, domain.StepLoad)
 	}
 	return t
 }
@@ -215,8 +262,8 @@ func (s *solver) pre(t tok, q domain.PathID, ge bool) tok {
 // (rules.go, reach).
 func geify(t tok) tok {
 	t.tag, t.tagGE = domain.Root, true
-	if t.kind == tIn {
-		t.ge = true
+	if t.kind == tIn && !t.deep {
+		t = setGE(t) // (a Deep token stands for what it reaches already)
 	}
 	return t
 }

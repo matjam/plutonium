@@ -76,7 +76,7 @@ func (s *solver) strip(t, q domain.PathID) domain.PathID {
 func (s *solver) off(t tok, q domain.PathID, qcut bool) tok {
 	switch t.kind {
 	case kObj, kIn:
-		if t.ge {
+		if t.ge || t.fge || t.deep {
 			return t // anywhere under its path already covers the offset
 		}
 		if t.kind == kObj {
@@ -151,8 +151,13 @@ func (s *solver) load(v value) value {
 			}
 			s.loadObj(out, x.t)
 		case kIn:
-			if x.t.ge {
-				out.add(ptr(x.t)) // kg covers every extension
+			if x.t.ge || x.t.deep {
+				out.add(ptr(x.t)) // kg covers every extension, as Deep does
+				continue
+			}
+			if x.t.fge {
+				// The path's pointers at any offset, loaded through: Deep.
+				out.add(ptr(tok{kind: kIn, id: x.t.id, path: x.t.path, deep: true}))
 				continue
 			}
 			p, c := s.extend(x.t.path, domain.StepLoad)
@@ -192,8 +197,8 @@ func (s *solver) loadObj(out value, t tok) {
 // token itself covering every extension.
 func normal(x tv) tv {
 	x.tag, x.g = domain.Root, true
-	if x.t.kind == kIn {
-		x.t.ge = true
+	if x.t.kind == kIn && !x.t.deep { // (Deep is closed under reach already)
+		x.t.ge, x.t.fge = true, false
 	}
 	return x
 }
@@ -225,14 +230,65 @@ func (s *solver) reach(v value) value {
 }
 
 // valueOfKey is val(k, β): the value key k names at a call whose input i is
-// bound to bind(i).
+// bound to bind(i): for a GE key reach of its path's value, for a FieldsGE
+// key its path's value at any offset, for a Deep key reach of what a load at
+// any offset of its path's value reads.
 func (s *solver) valueOfKey(k domain.Key, bind func(int) value) value {
 	v := bind(k.Input())
 	for _, st := range s.ps.Steps(k.Path()) {
 		v = s.step(v, st)
 	}
-	if k.GE() {
+	switch {
+	case k.GE():
 		v = s.reach(v)
+	case k.FieldsGE():
+		v = s.anyOffset(v)
+	case k.Deep():
+		v = s.reach(s.load(s.anyOffset(v)))
 	}
 	return v
+}
+
+// valueOfDst is val(k, β) for a store's destination key: a FieldsGE one is
+// its path's value, the store landing anywhere under it (anywhere).
+func (s *solver) valueOfDst(k domain.Key, bind func(int) value) value {
+	if k.FieldsGE() {
+		k = k.WithPath(k.Path(), false)
+	}
+	return s.valueOfKey(k, bind)
+}
+
+// anyOffset is v's pointers offset anywhere in their objects (eir.AnyStep,
+// rules.go OpField): Obj(o, Root, true); an In token at the path back to its
+// last load (the start of the object it points into), FieldsGE (GE for a GE
+// token, whose path may end inside a field of what it stands for); a Deep
+// token stays; Heap stays.
+func (s *solver) anyOffset(v value) value {
+	out := value{}
+	for x := range v {
+		t := x.t
+		switch t.kind {
+		case kObj:
+			t.path, t.ge = domain.Root, true
+		case kIn:
+			if t.deep {
+				break
+			}
+			steps := s.ps.Steps(t.path)
+			i := len(steps)
+			for i > 0 && steps[i-1] != domain.StepLoad {
+				i--
+			}
+			p := domain.Root
+			for _, st := range steps[:i] {
+				p, _ = s.ps.Extend(p, st)
+			}
+			t.path = p
+			if !t.ge {
+				t.fge = true
+			}
+		}
+		out.add(ptr(t))
+	}
+	return out
 }

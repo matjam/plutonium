@@ -90,6 +90,7 @@ func TestAntichainIndex(t *testing.T) {
 			f := domain.KeyFlags{GE: rng.Intn(3) == 0, Borrowed: rng.Intn(5) == 0, Counts: rng.Intn(7) == 0}
 			if !f.GE {
 				f.FieldsGE = rng.Intn(4) == 0
+				f.Deep = !f.FieldsGE && rng.Intn(4) == 0
 			}
 			return domain.MakeKey(rng.Intn(3), paths[rng.Intn(len(paths))], f)
 		}

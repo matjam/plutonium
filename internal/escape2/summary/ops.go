@@ -111,7 +111,7 @@ func resultCovers(ps domain.Paths, a, b ResultKey) bool {
 	if !domain.Covers(ps, a.Key, b.Key) {
 		return false
 	}
-	anywhere := a.FieldGE || a.Key.GE()
+	anywhere := a.FieldGE || a.Key.GE() || a.Key.Deep()
 	if a.Field == b.Field {
 		return anywhere || !b.FieldGE
 	}
@@ -133,7 +133,9 @@ func coveredResult(ps domain.Paths, rk ResultKey, by []ResultKey) bool {
 //
 // The cap on Esc applies to HeapStore and to each result's keys as well. If
 // the cut keys of an input are still past the cap, they are replaced by the
-// input's root with GE, which covers every key of the input. Reasons, when
+// input's root with GE, which covers every key of the input, or, for a key
+// that stands for no pointer of the input's own object (a Deep key, or one
+// whose path has a load), by Deep on the root (rootKey). Reasons, when
 // present, follow their entries; an entry that absorbs others keeps its own.
 func Widen(ps domain.Paths, s *Summary) {
 	if s == nil {
@@ -174,15 +176,27 @@ func Widen(ps domain.Paths, s *Summary) {
 // 30,000.
 const MaxRawStorePerInput = 64 * MaxStorePerInput
 
-// CutKey is the widening of one key: its path cut, GE set.
+// CutKey is the widening of one key: its path cut, GE set; a Deep key whose
+// path has no load stays Deep, on Root (what the input points at, anywhere
+// in its object, transitively, covers it and never the input's own
+// pointers).
 func CutKey(ps domain.Paths, k domain.Key) domain.Key {
+	if k.Deep() && ps.Loads(k.Path()) == 0 {
+		return k.WithPath(domain.Root, false).WithDeep()
+	}
 	return k.WithPath(ps.Cut(k.Path()), true)
 }
 
 func cutKey(ps domain.Paths, k domain.Key) domain.Key { return CutKey(ps, k) }
 
-// rootKey covers every key of k's input with k's flags.
-func rootKey(k domain.Key) domain.Key {
+// rootKey covers k with a key on its input's root, with k's flags: Deep on
+// Root when k stands for no pointer of the input's object itself (k is Deep,
+// or its path has a load), else GE on Root, which covers every key of the
+// input.
+func rootKey(ps domain.Paths, k domain.Key) domain.Key {
+	if k.Deep() || ps.Loads(k.Path()) > 0 {
+		return k.WithPath(domain.Root, false).WithDeep()
+	}
 	return k.WithPath(domain.Root, true)
 }
 
@@ -213,7 +227,7 @@ func widenKeys(ps domain.Paths, keys []domain.Key, why []Reason, limit int) ([]d
 				if pass == 0 {
 					keys[i] = cutKey(ps, k)
 				} else {
-					keys[i] = rootKey(k)
+					keys[i] = rootKey(ps, k)
 				}
 			}
 		}
@@ -305,7 +319,7 @@ func widenPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, 
 				if pass == 0 {
 					pairs[i] = StorePair{cutKey(ps, p.Src), cutKey(ps, p.Dst)}
 				} else {
-					pairs[i] = StorePair{rootKey(p.Src), rootKey(p.Dst)}
+					pairs[i] = StorePair{rootKey(ps, p.Src), rootKey(ps, p.Dst)}
 				}
 			}
 		}
@@ -411,7 +425,7 @@ func widenResults(ps domain.Paths, from []ResultKey) []ResultKey {
 				if pass == 0 {
 					from[i].Key = cutKey(ps, rk.Key)
 				} else {
-					from[i] = ResultKey{Key: rootKey(rk.Key), Field: domain.Root}
+					from[i] = ResultKey{Key: rootKey(ps, rk.Key), Field: domain.Root}
 				}
 			}
 		}
@@ -508,7 +522,7 @@ func widenDeferred(ps domain.Paths, ds []Deferred) []Deferred {
 			if pass == 0 {
 				return cutKey(ps, k)
 			}
-			return rootKey(k)
+			return rootKey(ps, k)
 		})
 	}
 	for i := range ds {

@@ -68,7 +68,13 @@ type Paths interface {
 // Key names pointers relative to an input of a function: those found by
 // following Path from input Input, or any extension of it when GE is set, or
 // any extension of it by offset steps (fields and elements, no load) when
-// FieldsGE is set. GE and FieldsGE exclude each other; GE is the wider.
+// FieldsGE is set, or, when Deep is set, what the pointers found by
+// following Path and then any offset steps point at, transitively: Path
+// followed by any offset steps, one load and then any steps ("anywhere in
+// the object, then load"), never the pointers of Path themselves. GE,
+// FieldsGE and Deep exclude each other; GE is the widest, covering the
+// other two, which are incomparable (FieldsGE stops before the load Deep
+// needs).
 // It packs into a uint64 (plan section (a), "Keys"):
 //
 //	bits  0-31 path
@@ -78,8 +84,9 @@ type Paths interface {
 //	bit  42    Counts (conversion of the input to a counted error, 16.5-16.7)
 //	bit  43    DirectCount (a definite strong-box conversion)
 //	bit  44    FieldsGE ("GE within the object")
+//	bit  45    Deep ("anywhere in the object, then load")
 //
-// Bits 45-63 are zero.
+// Bits 46-63 are zero.
 type Key uint64
 
 const (
@@ -88,6 +95,7 @@ const (
 	keyCounts      Key = 1 << 42
 	keyDirectCount Key = 1 << 43
 	keyFieldsGE    Key = 1 << 44
+	keyDeep        Key = 1 << 45
 )
 
 // MaxInputs is the number of inputs a key can name.
@@ -99,6 +107,9 @@ type KeyFlags struct {
 	// FieldsGE: the path or any extension of it by offset steps. With GE
 	// it is ignored.
 	FieldsGE bool
+	// Deep: the path, any offset steps, a load, then anything. With GE it
+	// is ignored; with FieldsGE the key is GE (their union).
+	Deep bool
 }
 
 // MakeKey packs a key. input must be in [0, MaxInputs): a larger one would
@@ -109,10 +120,13 @@ func MakeKey(input int, path PathID, f KeyFlags) Key {
 		panic("internal compiler error: escape2/domain: key input out of range")
 	}
 	k := Key(path) | Key(uint8(input))<<32
-	if f.GE {
+	switch {
+	case f.GE || f.FieldsGE && f.Deep:
 		k |= keyGE
-	} else if f.FieldsGE {
+	case f.FieldsGE:
 		k |= keyFieldsGE
+	case f.Deep:
+		k |= keyDeep
 	}
 	if f.Borrowed {
 		k |= keyBorrowed
@@ -134,42 +148,63 @@ func (k Key) Path() PathID { return PathID(uint32(k)) }
 
 // Flags returns the key's flags.
 func (k Key) Flags() KeyFlags {
-	return KeyFlags{GE: k&keyGE != 0, Borrowed: k&keyBorrowed != 0, Counts: k&keyCounts != 0, DirectCount: k&keyDirectCount != 0, FieldsGE: k&keyFieldsGE != 0}
+	return KeyFlags{GE: k&keyGE != 0, Borrowed: k&keyBorrowed != 0, Counts: k&keyCounts != 0, DirectCount: k&keyDirectCount != 0, FieldsGE: k&keyFieldsGE != 0, Deep: k&keyDeep != 0}
 }
 
 // FieldsGE reports whether the key stands for its path and every extension of
 // it by offset steps (fields and elements), but no load.
 func (k Key) FieldsGE() bool { return k&keyFieldsGE != 0 }
 
-// WithFieldsGE returns k standing for its path and every extension of it by
-// offset steps. A GE key, which stands for more, is returned unchanged.
+// WithFieldsGE returns k followed by any offset steps: for an exact key, its
+// path and every extension of it by offset steps. A GE or Deep key, which
+// already stands for every offset of its pointers, is returned unchanged.
 func (k Key) WithFieldsGE() Key {
-	if k.GE() {
+	if k.GE() || k.Deep() {
 		return k
 	}
 	return k | keyFieldsGE
 }
 
+// Deep reports whether the key stands for what its path's pointers point at,
+// transitively: its path, any offset steps, a load, then any steps.
+func (k Key) Deep() bool { return k&keyDeep != 0 }
+
+// WithDeep returns k followed by any offset steps, a load and then any steps:
+// what k's pointers point at, anywhere in their objects, transitively. An
+// exact or FieldsGE key becomes Deep on its path (a FieldsGE key's offsets
+// are among the offsets Deep allows before its load); a GE or Deep key is
+// returned unchanged.
+func (k Key) WithDeep() Key {
+	if k.GE() || k.Deep() {
+		return k
+	}
+	return k&^keyFieldsGE | keyDeep
+}
+
 // GE reports whether the key stands for its path and every extension.
 func (k Key) GE() bool { return k&keyGE != 0 }
 
-// WithPath returns k with another path and GE bit, FieldsGE clear, its input
-// and other flags unchanged.
+// WithPath returns k with another path and GE bit, FieldsGE and Deep clear,
+// its input and other flags unchanged.
 func (k Key) WithPath(p PathID, ge bool) Key {
-	k = k&^(keyGE|keyFieldsGE|0xffffffff) | Key(p)
+	k = k&^(keyGE|keyFieldsGE|keyDeep|0xffffffff) | Key(p)
 	if ge {
 		k |= keyGE
 	}
 	return k
 }
 
-// Covers reports whether a covers b: same input and flags other than GE and
-// FieldsGE, and
+// Covers reports whether a covers b: same input and flags other than GE,
+// FieldsGE and Deep, and
 //
 //   - a is GE and its path is a prefix of b's (b's included), or
-//   - a is FieldsGE, b is not GE, and b's path is a's followed by offset
-//     steps only (a prefix of it with as many loads), or
-//   - neither is GE or FieldsGE and the paths are equal.
+//   - a is FieldsGE, b is neither GE nor Deep, and b's path is a's followed
+//     by offset steps only (a prefix of it with as many loads), or
+//   - a is Deep, a's path is a prefix of b's, and either b's path has more
+//     loads (it is a's followed by offset steps, a load and more), or b is
+//     Deep too (its path is a's followed by offset steps only); never a b
+//     that may stand for a's pointers or their offsets themselves, or
+//   - none is GE, FieldsGE or Deep and the paths are equal.
 //
 // (An exact key whose last segment is full stands for the same pointers as
 // its FieldsGE twin; Covers says only that the twin covers it, so that Covers
@@ -184,12 +219,17 @@ func Covers(ps Paths, a, b Key) bool {
 	case a.GE():
 		return a.Path() == b.Path() || ps.HasPrefix(b.Path(), a.Path())
 	case a.FieldsGE():
-		if b.GE() {
+		if b.GE() || b.Deep() {
 			return false
 		}
 		return a.Path() == b.Path() || ps.HasPrefix(b.Path(), a.Path()) && ps.Loads(b.Path()) == ps.Loads(a.Path())
+	case a.Deep():
+		if a.Path() != b.Path() && !ps.HasPrefix(b.Path(), a.Path()) {
+			return false
+		}
+		return ps.Loads(b.Path()) > ps.Loads(a.Path()) || b.Deep()
 	default:
-		return a.Path() == b.Path() && !b.GE() && !b.FieldsGE()
+		return a.Path() == b.Path() && !b.GE() && !b.FieldsGE() && !b.Deep()
 	}
 }
 

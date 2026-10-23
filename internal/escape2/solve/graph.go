@@ -139,9 +139,10 @@ func (s *solver) addID(n uint32, id uint64) bool {
 
 func (s *solver) nodeKind(n uint32) int { return int(s.nodeInfo.s[n] & 0xff) }
 
-// coveredIn reports whether node n holds a GE In token, other than id, that
-// covers token id: a prefix of its path (itself included) with GE, and a tag
-// that holds its tag.
+// coveredIn reports whether node n holds a GE or Deep In token, other than
+// id, that covers token id: a prefix of its path (itself included) with GE,
+// or with Deep when the token's path has more loads than the prefix (or the
+// token is Deep too), and a tag that holds its tag.
 func (s *solver) coveredIn(n uint32, id uint64) bool {
 	t := s.tokAt(id)
 	if t.kind != tIn {
@@ -149,25 +150,34 @@ func (s *solver) coveredIn(n uint32, id uint64) bool {
 	}
 	steps := s.ps.Steps(t.path)
 	tsteps := s.ps.Steps(t.tag)
+	loads := s.ps.Loads(t.path)
 	p := domain.Root
 	for i := 0; ; i++ {
 		// Candidate coverers at path p: the same tag (GE, or exact when
 		// t's is exact), and every prefix of the tag with GE.
-		q := domain.Root
-		for j := 0; ; j++ {
-			c := tok{kind: tIn, base: t.base, path: p, ge: true, tag: q, tagGE: true}
-			if s.holdsTok(n, c, id) {
-				return true
+		c := tok{kind: tIn, base: t.base, path: p, ge: true}
+		for {
+			q := domain.Root
+			for j := 0; ; j++ {
+				c.tag, c.tagGE = q, true
+				if s.holdsTok(n, c, id) {
+					return true
+				}
+				if j == len(tsteps) {
+					break
+				}
+				q, _ = s.ps.Extend(q, tsteps[j])
 			}
-			if j == len(tsteps) {
+			if !t.tagGE {
+				c.tag, c.tagGE = t.tag, false
+				if s.holdsTok(n, c, id) {
+					return true
+				}
+			}
+			if c.deep || !t.deep && s.ps.Loads(p) == loads {
 				break
 			}
-			q, _ = s.ps.Extend(q, tsteps[j])
-		}
-		if !t.tagGE {
-			if s.holdsTok(n, tok{kind: tIn, base: t.base, path: p, ge: true, tag: t.tag}, id) {
-				return true
-			}
+			c.ge, c.deep = false, true // then the Deep coverers at p
 		}
 		if i == len(steps) {
 			return false
@@ -299,8 +309,8 @@ func (s *solver) transform(x uint64, t tok) {
 		s.buf.push(s.a, s.intern(s.pre(t, path, flag)))
 	case xOff:
 		u := asPointer(s.off(t, s.ps.Steps(path))) // the result is a pointer
-		if flag && (u.kind == tObj || u.kind == tIn) {
-			u.ge = true // the path was cut: anywhere under it
+		if flag && (u.kind == tObj || u.kind == tIn && !u.deep) {
+			u = setGE(u) // the path was cut: anywhere under it
 		}
 		s.buf.push(s.a, s.intern(u))
 	case xStep:

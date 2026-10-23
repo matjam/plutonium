@@ -15,12 +15,16 @@ const (
 )
 
 // tok is a token. id is the object (kObj) or the input (kIn); path and ge are
-// p and pg, or P and kg.
+// p and pg, or P and kg. An In token's fge and deep make its key FieldsGE or
+// Deep (domain.Key): its path's pointers at any offset, or what those point
+// at, transitively. At most one of ge, fge and deep is set.
 type tok struct {
 	kind tokKind
 	id   int
 	path domain.PathID
 	ge   bool
+	fge  bool
+	deep bool
 }
 
 // tv is a tagged token <t, T, g>.

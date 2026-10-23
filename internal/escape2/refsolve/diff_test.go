@@ -139,3 +139,37 @@ func TestSeed5401(t *testing.T) {
 		t.Fatalf("ran %d cases", got)
 	}
 }
+
+// TestRandomMakesDeep: the random cases make Deep and FieldsGE keys of their
+// own (an offset anywhere in an object, eir.AnyStep, then a load), so the
+// differential test compares the two solvers on them, not only on callee
+// summaries that hold them.
+func TestRandomMakesDeep(t *testing.T) {
+	deep, fge := 0, 0
+	for seed := int64(0); seed < 3000; seed++ {
+		ps := domain.NewPaths()
+		c := Random(seed, ps)
+		sm := Solve(c.F, c.Env).Summary
+		keys := append(append([]domain.Key(nil), sm.Esc...), sm.HeapStore...)
+		for _, p := range sm.Store {
+			keys = append(keys, p.Src, p.Dst)
+		}
+		for _, r := range sm.Res {
+			for _, rk := range r.From {
+				keys = append(keys, rk.Key)
+			}
+		}
+		for _, k := range keys {
+			if k.Deep() {
+				deep++
+			}
+			if k.FieldsGE() {
+				fge++
+			}
+		}
+	}
+	if deep == 0 || fge == 0 {
+		t.Fatalf("3000 random cases made %d Deep and %d FieldsGE keys", deep, fge)
+	}
+	t.Logf("%d Deep, %d FieldsGE keys", deep, fge)
+}

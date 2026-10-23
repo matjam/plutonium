@@ -27,7 +27,7 @@ import (
 //	deferred := string(origin stable ID) uvarint(site) key(fn) uvarint(n) (byte(heap) keys)*
 //	keys     := uvarint(n) key*            (sorted by bytes)
 //	pairs    := uvarint(n) (key key)*      (sorted by bytes)
-//	key      := uvarint(input) byte(flags: 1 GE, 2 Borrowed, 4 Counts, 8 DirectCount, 16 FieldsGE) path
+//	key      := uvarint(input) byte(flags: 1 GE, 2 Borrowed, 4 Counts, 8 DirectCount, 16 FieldsGE, 32 Deep) path
 //	path     := uvarint(n) varint(step)*   (StepLoad -2, StepElem -1, field >= 0)
 //	result   := uvarint(n) (key path byte(fieldGE))* paths(heap) paths(counted)
 //	paths    := uvarint(n) path*           (sorted by bytes)
@@ -38,6 +38,7 @@ const (
 	flagCounts      = 4
 	flagDirectCount = 8
 	flagFieldsGE    = 16
+	flagDeep        = 32
 )
 
 func appendPath(b []byte, ps domain.Paths, p domain.PathID) []byte {
@@ -67,6 +68,9 @@ func appendKey(b []byte, ps domain.Paths, k domain.Key) []byte {
 	}
 	if f.FieldsGE {
 		fl |= flagFieldsGE
+	}
+	if f.Deep {
+		fl |= flagDeep
 	}
 	b = append(b, fl)
 	return appendPath(b, ps, k.Path())
@@ -277,12 +281,12 @@ func (r *reader) key(ps domain.Paths, inputs int) domain.Key {
 	if r.err != nil {
 		return 0
 	}
-	if in >= uint64(inputs) || in >= domain.MaxInputs || fl&^0x1f != 0 {
+	if in >= uint64(inputs) || in >= domain.MaxInputs || fl&^0x3f != 0 {
 		r.fail()
 		return 0
 	}
 	return domain.MakeKey(int(in), p, domain.KeyFlags{
-		GE: fl&flagGE != 0, Borrowed: fl&flagBorrowed != 0, Counts: fl&flagCounts != 0, DirectCount: fl&flagDirectCount != 0, FieldsGE: fl&flagFieldsGE != 0,
+		GE: fl&flagGE != 0, Borrowed: fl&flagBorrowed != 0, Counts: fl&flagCounts != 0, DirectCount: fl&flagDirectCount != 0, FieldsGE: fl&flagFieldsGE != 0, Deep: fl&flagDeep != 0,
 	})
 }
 

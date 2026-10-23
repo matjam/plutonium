@@ -479,7 +479,7 @@ func (s *solver) applyDeferred(in *eir.Instr, bind []uint64, sum *summary.Summar
 		if fi >= len(bind) || bind[fi] == 0 {
 			continue
 		}
-		target := s.valNode(uint32(bind[fi]), d.Fn.Path(), d.Fn.GE())
+		target := s.keyNode(uint32(bind[fi]), d.Fn)
 		args := make([]uint32, len(d.Args))
 		for j, a := range d.Args {
 			args[j] = s.argNode(a, bind)
@@ -494,8 +494,8 @@ func (s *solver) applyDeferred(in *eir.Instr, bind []uint64, sum *summary.Summar
 // token wherever it sits.
 func argKey(t tok) domain.Key {
 	k := key(asPointer(t))
-	if t.tag != domain.Root || t.tagGE {
-		k = k.WithPath(k.Path(), true)
+	if (t.tag != domain.Root || t.tagGE) && !k.Deep() {
+		k = k.WithPath(k.Path(), true) // (a Deep key's value has GE tags: keyNode)
 	}
 	return k
 }
@@ -541,7 +541,7 @@ func (s *solver) argNode(a summary.DeferredArg, bind []uint64) uint32 {
 	for _, k := range a.Keys {
 		i := k.Input()
 		if i < len(bind) && bind[i] != 0 {
-			s.addEdge(s.valNode(uint32(bind[i]), k.Path(), k.GE()), n, xw(xID, 0, false), 0)
+			s.addEdge(s.keyNode(uint32(bind[i]), k), n, xw(xID, 0, false), 0)
 		}
 	}
 	if a.Heap {

@@ -327,7 +327,7 @@ func (r *reporter) storeDest(pos token.Pos) string {
 func (r *reporter) keyDesc(g *eir.Func, k domain.Key) string {
 	name := inputName(g, k.Input())
 	switch {
-	case k.GE():
+	case k.GE(), k.Deep():
 		return "a pointer reachable from " + name
 	case k.Path() == domain.Root:
 		return name

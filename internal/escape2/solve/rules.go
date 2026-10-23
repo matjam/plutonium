@@ -17,7 +17,14 @@ package solve
 //	In(i, P, kg)    the pointers found by following access path P from input
 //	                i (fields, elements and loads, cut by domain.Paths.Extend);
 //	                kg: or any extension of P. This is exactly the key
-//	                domain.MakeKey(i, P, {GE: kg}).
+//	                domain.MakeKey(i, P, {GE: kg}). Two more forms come of
+//	                an offset anywhere in an object (OpField with
+//	                eir.AnyStep): In(i, P, fge), P's pointers at any offset
+//	                (the key's FieldsGE), and In(i, P, deep), what those
+//	                point at, transitively: P, any offsets, a load, then
+//	                anything (the key's Deep), never P's pointers
+//	                themselves. Each stands for its key; at most one of kg,
+//	                fge and deep is set.
 //	Heap, CHeap     heap or static memory; CHeap a counted reference
 //	                (eir.HeapCounted). Never a frame.
 //
@@ -65,7 +72,9 @@ package solve
 // GE subsumption: a value never needs an In token that a GE In token of the
 // same value covers (same input, a path that is a prefix of the token's,
 // and a tag that holds its tag: the same tag, GE or exact for an exact one,
-// or a GE prefix of it). A solver may drop such a token when it arrives, and
+// or a GE prefix of it), nor one a Deep In token covers (likewise, and the
+// token's path has more loads than the Deep token's, or the token is Deep
+// too: domain.Covers). A solver may drop such a token when it arrives, and
 // may drop the tokens a GE token covers when it arrives; everything the
 // covered token leads to (loads, offsets, fields, summary keys) the covering
 // one leads to, so the summary after Widen and the findings are the same.
@@ -90,7 +99,8 @@ package solve
 //
 //	off(t, Q)    pointer t offset by field path Q:
 //	             Obj(o,p,pg) -> Obj(o, p+Q, pg or cut) (unchanged when pg);
-//	             In(i,P,kg) -> In(i, P+Q, kg or cut) (unchanged when kg);
+//	             In(i,P,kg) -> In(i, P+Q, kg or cut) (unchanged when kg,
+//	             fge or deep);
 //	             Heap -> Heap; CHeap -> CHeap. Tags are kept.
 //	sel(v, Q)    field Q of the struct value v, for each <t,T,g> in v, the
 //	             first case that applies, in this order (Q = Root: v):
@@ -117,19 +127,23 @@ package solve
 //	                 (any other r: not the same memory)
 //	             In(i,P,false): <In(i, P+load, cut), Root, false>;
 //	             In(i,P,true): <In(i,P,true), Root, false> (it covers P+load)
+//	             In(i,P,fge): <In(i,P,deep), Root, false>
+//	             In(i,P,deep): <In(i,P,deep), Root, false> (it covers P+load)
 //	             Heap, CHeap: <Heap, Root, false>
 //	             With pg, every token of every place with r = p+R or p = r+R
 //	             gets the tag <_, Root, true> instead.
 //	             A load of a heap-only field (Env.HeapOnly, invariant I6) is
 //	             <Heap, Root, false> instead, whatever t is.
 //	reach(v)     the closure of v under load, every token of the result
-//	             geified: tag made <_, Root, true>, an In token made kg; Obj
+//	             geified: tag made <_, Root, true>, an In token made kg (a deep one stays deep); Obj
 //	             tokens keep their path and pg. (Field steps add nothing: a load through an offset
 //	             pointer reads a subset of what the load through the pointer
 //	             reads, and kg covers the extensions of In tokens.)
 //	val(k, β)    the value key k = (i, P, kg) names at a call with input
 //	             binding β: step(...step(β(i), P[0])..., P[n-1]), then reach
-//	             if kg.
+//	             if kg; for a FieldsGE k, then any offset (OpField's
+//	             eir.AnyStep); for a Deep k, then any offset, load, and
+//	             reach.
 //
 // # The store check (one check for E3002, E3003, E3006, E3009, E3101)
 //
@@ -258,9 +272,11 @@ package solve
 //	             (whatever t's tag: the result is a pointer)
 //	             A Path holding eir.AnyStep (an offset that is not known:
 //	             unsafe.Add, a reinterpreted pointer) makes, for each token:
-//	             Obj(o, Root, true); for In(i, P, kg), In(i, P', true) with
-//	             P' the prefix of P through its last load (the start of the
-//	             object P points into); Heap stays Heap.
+//	             Obj(o, Root, true); for In(i, P, kg), In(i, P', fge)
+//	             (In(i, P', true) when kg) with P' the prefix of P through
+//	             its last load (the start of the object P points into);
+//	             In(i, P, deep) stays (it stands for every offset of what
+//	             it stands for); Heap stays Heap.
 //	OpElem       Dst ⊇ <off(t, [ElemStep]), Root, false> likewise
 //	OpSelect     Dst ⊇ sel(X, Path)
 //	OpCompose    Dst ⊇ pre(Args[i], Fields[i]) for each i

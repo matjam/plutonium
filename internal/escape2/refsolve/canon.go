@@ -122,6 +122,9 @@ func CanonKey(ps domain.Paths, k domain.Key) string {
 	if f.FieldsGE {
 		s += "~"
 	}
+	if f.Deep {
+		s += "*"
+	}
 	if f.Borrowed {
 		s += "b"
 	}

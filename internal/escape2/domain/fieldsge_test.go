@@ -101,13 +101,14 @@ func TestFieldsGECovers(t *testing.T) {
 			t.Errorf("Covers(%s, %s) = %v, want %v", showKey(ps, c.a), showKey(ps, c.b), got, c.want)
 		}
 	}
-	// Extending: an offset is absorbed, a load makes GE on the path, or
-	// extends normally when the segment is full.
+	// Extending: an offset is absorbed, a load makes Deep on the path (the
+	// offsets, then the load), or extends normally when the segment is
+	// full.
 	if x := ExtendKey(ps, fge(F(1)), E); x != fge(F(1)) {
 		t.Errorf("FieldsGE + offset = %s", showKey(ps, x))
 	}
-	if x := ExtendKey(ps, fge(F(1)), L); x != ge(F(1)) {
-		t.Errorf("FieldsGE + load = %s", showKey(ps, x))
+	if x := ExtendKey(ps, fge(F(1)), L); x != k(F(1)).WithDeep() {
+		t.Errorf("FieldsGE + load = %s", showDeep(ps, x))
 	}
 	if x := ExtendKey(ps, fge(F(1), F(2)), L); x != k(F(1), F(2), L) {
 		t.Errorf("full FieldsGE + load = %s", showKey(ps, x))
@@ -115,8 +116,8 @@ func TestFieldsGECovers(t *testing.T) {
 	if x := AppendTail(ps, k(L), fge(F(1))); x != fge(L, F(1)) {
 		t.Errorf("AppendTail = %s", showKey(ps, x))
 	}
-	if x := AppendTail(ps, fge(F(0)), k(L, F(1))); x != ge(F(0)) {
-		t.Errorf("AppendTail through a FieldsGE key = %s", showKey(ps, x))
+	if x := AppendTail(ps, fge(F(0)), k(L, F(1))); x != k(F(0)).WithDeep() {
+		t.Errorf("AppendTail through a FieldsGE key = %s", showDeep(ps, x))
 	}
 }
 

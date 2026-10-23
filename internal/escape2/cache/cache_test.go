@@ -259,7 +259,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 	p, ps := res.Env.Program(), res.Env.Paths()
 	other := domain.NewPaths()
-	n := 0
+	n, deep := 0, 0
 	for id, s := range res.Summaries {
 		b := cache.EncodeSummary(ps, s)
 		f := p.Funcs[id]
@@ -273,9 +273,19 @@ func TestRoundTrip(t *testing.T) {
 		if s != nil && len(s.Esc)+len(s.Store)+len(s.Res) > 0 {
 			n++
 		}
+		if s != nil {
+			for _, k := range append(append([]domain.Key(nil), s.Esc...), s.HeapStore...) {
+				if k.Deep() {
+					deep++
+				}
+			}
+		}
 	}
 	if n == 0 {
 		t.Fatal("no summary with entries: the test tests nothing")
+	}
+	if deep == 0 {
+		t.Fatal("no Deep key (pluto/fmt's walk makes them): the test does not cover them")
 	}
 }
 

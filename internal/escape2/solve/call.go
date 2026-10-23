@@ -249,7 +249,19 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 		if i >= len(bind) || bind[i] == 0 {
 			return 0, false
 		}
-		return s.valNode(uint32(bind[i]), k.Path(), k.GE()), true
+		return s.keyNode(uint32(bind[i]), k), true
+	}
+	// A FieldsGE destination: the places its path's pointers point at, a
+	// value stored anywhere under them by offsets (retagNode).
+	dstVal := func(k domain.Key) (uint32, bool) {
+		if !k.FieldsGE() {
+			return val(k)
+		}
+		i := k.Input()
+		if i >= len(bind) || bind[i] == 0 {
+			return 0, false
+		}
+		return s.valNode(uint32(bind[i]), k.Path(), false), true
 	}
 	for e, k := range sum.Esc {
 		if k.Input() == skip {
@@ -269,7 +281,7 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 		if p.Src.Input() == skip && p.Dst.Input() == skip {
 			continue
 		}
-		dst, ok1 := val(p.Dst)
+		dst, ok1 := dstVal(p.Dst)
 		src, ok2 := val(p.Src)
 		if ok1 && ok2 {
 			if p.Dst.FieldsGE() {
@@ -282,7 +294,7 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 		if k.Input() == skip {
 			continue
 		}
-		if dst, ok := val(k); ok {
+		if dst, ok := dstVal(k); ok {
 			src := s.heapNode
 			if k.FieldsGE() {
 				src = s.retagNode(src)

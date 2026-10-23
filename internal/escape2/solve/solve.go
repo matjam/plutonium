@@ -611,10 +611,51 @@ const (
 	dRest       = 1 << 59 // in the first word: a function value less its own closures (funccall.go)
 	dSplitIn    = 1 << 58 // in the first word: the In tokens of a node (defer.go, splitNode)
 	dSplitOther = 1 << 57 // in the first word: the other tokens of a node
+	dAny        = 1 << 56 // in the first word: a node's pointers at any offset (anyNode)
+	dDeep       = 1 << 55 // in the first word: val of a Deep key on a node (deepNode)
 )
 
+// keyNode returns the node of val(k) for k's input bound to node base
+// (rules.go, val): for a GE key reach of its path's value; for a FieldsGE
+// key its path's value at any offset; for a Deep key reach of what a load at
+// any offset of its path's value reads.
+func (s *solver) keyNode(base uint32, k domain.Key) uint32 {
+	switch {
+	case k.Deep():
+		return s.deepNode(s.valNode(base, k.Path(), false))
+	case k.FieldsGE():
+		return s.anyNode(s.valNode(base, k.Path(), false))
+	}
+	return s.valNode(base, k.Path(), k.GE())
+}
+
+// anyNode returns the node of n's pointers offset anywhere in their objects
+// (eir.AnyStep, anyOffset).
+func (s *solver) anyNode(n uint32) uint32 {
+	if m, ok := s.derived.get(dAny|uint64(n), 0); ok {
+		return uint32(m)
+	}
+	m := s.newNode(nkPinned)
+	s.derived.put(s.a, dAny|uint64(n), 0, uint64(m))
+	s.addEdge(n, m, xw(xAny, 0, false), 0)
+	return m
+}
+
+// deepNode returns the node of val of a Deep key on n: reach of a load at
+// any offset of n's pointers.
+func (s *solver) deepNode(n uint32) uint32 {
+	if m, ok := s.derived.get(dDeep|uint64(n), 0); ok {
+		return uint32(m)
+	}
+	l := s.newNode(nkReg)
+	s.addCons(s.anyNode(n), cLoad, uint64(l), 0)
+	r := s.reachNode(l)
+	s.derived.put(s.a, dDeep|uint64(n), 0, uint64(r))
+	return r
+}
+
 // valNode returns the node of val(k) for an input bound to node base
-// (rules.go, val).
+// (rules.go, val), for a key with neither FieldsGE nor Deep (keyNode).
 func (s *solver) valNode(base uint32, p domain.PathID, ge bool) uint32 {
 	if ge {
 		return s.reachNode(s.valNode(base, p, false))
@@ -686,11 +727,7 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			}
 			s.subscribe(t.base, t.path, t.ge, dst, subLoad)
 		case tIn:
-			u := asPointer(t)
-			if !u.ge {
-				u.path, u.ge = s.extend(u.path, domain.StepLoad)
-			}
-			s.addTok(dst, u)
+			s.addTok(dst, s.loadIn(asPointer(t)))
 		default:
 			s.addTok(dst, heapTok)
 		}
@@ -769,7 +806,7 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			}
 		case tIn:
 			// A GE key is anywhere under its field already (resultCovers).
-			s.addRes(r, key(asPointer(t)), t.tag, t.tagGE && !t.ge)
+			s.addRes(r, key(asPointer(t)), t.tag, t.tagGE && !t.wide())
 		case tHeap:
 			s.addResHeap(r, false, t.tag)
 		case tCHeap:
