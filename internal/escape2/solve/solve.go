@@ -155,6 +155,7 @@ type solver struct {
 	unwidened               *summary.Summary
 	escDerivs, storeDerivs  vec // key words and why, of every Esc and Store derivation
 	derivSeen               table
+	nderivs                 int                   // derivations recorded (MaxDerivs)
 	derivOut                [][]summary.Reason    // Result.Derivs
 	dcalls                  []*dcall              // calls of function values (defer.go)
 	closureOf               map[uint32]eir.FuncID // closure record objects of f (OpClosure) to their function
@@ -842,8 +843,23 @@ const (
 	sCutStore = 7 // in the top bits, as sStore
 )
 
+// MaxDerivs bounds the derivations a SolveDerivs collects: they are for
+// the reasons of messages, and a solve's summary and findings do not
+// depend on them. Past it, an entry keeps the derivations it has, and one
+// with none has no reason (sched, reasons.go, counts it).
+const MaxDerivs = 1 << 18
+
+// recordDeriv reports whether one more derivation is recorded.
+func (s *solver) recordDeriv() bool {
+	if s.nderivs >= MaxDerivs {
+		return false
+	}
+	s.nderivs++
+	return true
+}
+
 func (s *solver) addEsc(k domain.Key, why uint64) {
-	if s.derivs && s.derivSeen.add(s.a, uint64(k)<<4|1, why) {
+	if s.derivs && s.nderivs < MaxDerivs && s.derivSeen.add(s.a, uint64(k)<<4|1, why) && s.recordDeriv() {
 		s.escDerivs.push(s.a, uint64(k))
 		s.escDerivs.push(s.a, why)
 	}
@@ -854,7 +870,7 @@ func (s *solver) addEsc(k domain.Key, why uint64) {
 }
 
 func (s *solver) addStorePair(src, dst domain.Key, why uint64) {
-	if s.derivs && s.derivSeen.add(s.a, uint64(src)<<4|2, uint64(dst)<<20^why) {
+	if s.derivs && s.nderivs < MaxDerivs && s.derivSeen.add(s.a, uint64(src)<<4|2, uint64(dst)<<20^why) && s.recordDeriv() {
 		s.storeDerivs.push(s.a, uint64(src))
 		s.storeDerivs.push(s.a, uint64(dst))
 		s.storeDerivs.push(s.a, why)
