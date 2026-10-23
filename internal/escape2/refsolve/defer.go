@@ -25,6 +25,7 @@ type dcall struct {
 	argsBad  bool
 	keys     map[domain.Key]bool
 	noDefer  bool // past solve.MaxDeferredOrigins: resolved here (capDeferred)
+	fb       bool // made inside a fallback: resolved here, never deferred nor counted (solve's dcall.fb)
 }
 
 // ownDeferrable reports whether call in of the function's own code is a
@@ -44,10 +45,11 @@ func ownDeferrable(in *eir.Instr) bool {
 
 // newDcall adds target and args to the dcall of call in for the origin call.
 func (s *solver) newDcall(in *eir.Instr, target value, args []value, origin eir.FuncID, site eir.SiteID) {
-	k := fmt.Sprintf("%p %d %d", in, origin, site)
+	fb := s.fbDepth > 0
+	k := fmt.Sprintf("%p %d %d %v", in, origin, site, fb)
 	dc := s.dcallIdx[k]
 	if dc == nil {
-		dc = &dcall{in: in, origin: origin, site: site, target: value{}, keys: map[domain.Key]bool{}}
+		dc = &dcall{in: in, origin: origin, site: site, target: value{}, keys: map[domain.Key]bool{}, fb: fb, noDefer: fb}
 		s.dcallIdx[k] = dc
 		s.dcalls = append(s.dcalls, dc)
 		s.changed = true
@@ -142,6 +144,9 @@ func (s *solver) resolve() {
 func (s *solver) capDeferred() {
 	groups := map[int][]uint64{}
 	for _, dc := range s.dcalls {
+		if dc.fb {
+			continue
+		}
 		g := uint64(dc.origin)<<32 | uint64(uint32(dc.site))
 		for k := range dc.keys {
 			in := k.Input()
@@ -332,6 +337,8 @@ func (s *solver) groupFallback(in *eir.Instr, cand eir.FuncID, inFull bool) {
 		}
 	}
 	joined := &dcall{in: in, args: args}
+	s.fbDepth++
+	defer func() { s.fbDepth-- }()
 	switch {
 	case !record:
 		s.applyBound(in, cand, bindArgs(joined, n, value{}), -1)

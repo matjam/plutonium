@@ -31,6 +31,7 @@ type dcall struct {
 	kept     bool         // the bodyless default applied
 	keys     []domain.Key // the In tokens of the function value: the Deferred entries it makes
 	noDefer  bool         // past MaxDeferredOrigins: resolved here, no Deferred entry (capDeferred)
+	fb       bool         // made inside a fallback: resolved here, never deferred nor counted (capDeferred)
 }
 
 // ownDeferrable reports whether call in of the function's own code is a
@@ -56,12 +57,13 @@ func ownDeferrable(in *eir.Instr) bool {
 // found through ever longer paths, and those join into the dcall they
 // stand for.
 func (s *solver) newDcall(in *eir.Instr, target uint32, args []uint32, origin eir.FuncID, site eir.SiteID) {
-	k := fmt.Sprintf("%p %d %d", in, origin, site)
+	fb := s.fbDepth > 0
+	k := fmt.Sprintf("%p %d %d %v", in, origin, site, fb)
 	i, ok := s.dcallIdx[k]
 	if !ok {
 		i = len(s.dcalls)
 		s.dcallIdx[k] = i
-		dc := &dcall{in: in, target: s.newNode(nkPinned), origin: origin, site: site}
+		dc := &dcall{in: in, target: s.newNode(nkPinned), origin: origin, site: site, fb: fb, noDefer: fb}
 		s.dcalls = append(s.dcalls, dc)
 		g := uint64(origin)<<32 | uint64(uint32(site))
 		if s.originDcalls == nil {
@@ -118,7 +120,9 @@ func (s *solver) fireDcall(i int, t tok) {
 			}
 		}
 		dc.keys = append(dc.keys, k)
-		s.capDeferred(i, k.Input())
+		if !dc.fb {
+			s.capDeferred(i, k.Input())
+		}
 		if dc.noDefer {
 			s.fallback(i)
 			return
@@ -307,6 +311,8 @@ func (s *solver) joinFallback(i int, cand eir.FuncID, inFull bool) {
 			g.recOther, g.rec = s.newNode(nkPinned), s.newNode(nkPinned)
 		}
 		s.fbGroups[k] = g
+		s.fbDepth++
+		defer func() { s.fbDepth-- }()
 		bind := s.a.Alloc(n)
 		for j, a := range g.args {
 			bind[j] = uint64(a)
@@ -360,7 +366,12 @@ func (s *solver) splitNode(n uint32, in bool) uint32 {
 // MaxDeferredOrigins bounds the origin calls (Origin, Site) of the
 // Deferred entries of one input of a summary: a function that forwards a
 // function value many calls deep would otherwise carry every origin call
-// below it. Past it, the dcalls of the origin calls that rank past the
+// below it. The deferred calls a fallback's candidates make (dcall.fb)
+// resolve here, by their own fallback, and are not counted: a fallback
+// must not push the function's own origin calls past the bound, which
+// would make them fall back in turn (a recursive walker such as
+// ast.inspect, whose fallbacks' candidates call it again with closures of
+// their own, fell back at each of its 360 calls). Past it, the dcalls of the origin calls that rank past the
 // bound (by Origin, then Site) for some input resolve here, as they would
 // without deferral: the fallback, with the record bound to the whole rest
 // of the function value, and no Deferred entry. The ranks are over the
@@ -456,7 +467,7 @@ func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind []uint64, skip 
 		sum = s.env.Summary(cand)
 	}
 	if !bodyless {
-		s.applied = append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum, skip: skip})
+		s.applied = append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum, skip: skip, fb: s.fbDepth > 0})
 	}
 	if sum == nil {
 		if bodyless {

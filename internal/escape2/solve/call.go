@@ -94,7 +94,8 @@ type application struct {
 	cand eir.FuncID
 	bind []uint64
 	sum  *summary.Summary
-	skip int // applySkip's skipped input, or -1
+	skip int  // applySkip's skipped input, or -1
+	fb   bool // applied inside a fallback group (dcall.own)
 }
 
 // reapply applies again the summaries of callees that changed since they
@@ -110,7 +111,13 @@ func (s *solver) reapply() {
 			continue
 		}
 		ap.sum = sum
+		if ap.fb {
+			s.fbDepth++
+		}
 		s.applySkip(ap.in, ap.bind, sum, ap.cand, ap.skip)
+		if ap.fb {
+			s.fbDepth--
+		}
 	}
 }
 

@@ -112,6 +112,7 @@ type solver struct {
 	nsteps int // constraint firings and edge transforms, for MaxFuncSteps
 
 	saturated []bool // by input: start it as In(i, Root, GE) (saturate.go)
+	fbDepth   int    // inside the application of a fallback group (defer.go, dcall.own)
 
 	toks   vec // two words per tagged token
 	tokIdx table

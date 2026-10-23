@@ -37,6 +37,8 @@ type resAcc struct {
 // solver is the state of one run: the values of the registers, the places of
 // the frame objects, and what the rules have put in the summary so far.
 type solver struct {
+	fbDepth int // inside the application of a fallback group (defer.go, dcall.own)
+
 	f   *eir.Func
 	env solve.Env
 	ps  domain.Paths
