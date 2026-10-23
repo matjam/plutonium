@@ -91,8 +91,11 @@ func (st *State) Resume(env Env) Result {
 	return s.finish()
 }
 
-// Bytes is what the state holds: its arena and set table bytes.
-func (st *State) Bytes() int { return st.s.a.Bytes() - st.s.base + st.s.sets.Bytes() }
+// Bytes is what the state holds: its arena and set table bytes, and its
+// Go slices and maps (heapBytes).
+func (st *State) Bytes() int {
+	return st.s.a.Bytes() - st.s.base + st.s.sets.Bytes() + st.s.heapBytes()
+}
 
 // solver is the state of one solve.
 type solver struct {
