@@ -234,17 +234,44 @@ func antichainKeys(ps domain.Paths, keys []domain.Key, why []Reason) ([]domain.K
 	slices.SortStableFunc(idx, func(a, b int) int { return cmpU64(uint64(keys[a]), uint64(keys[b])) })
 	var out []domain.Key
 	var outWhy []Reason
+	// Past a few keys, only the keys that can cover k are tried: those of
+	// k's input and flags on a prefix of k's path (domain.Covers), found by
+	// an index of the keys by their key without GE and FieldsGE.
+	var bucket map[domain.Key][]int
+	var pre []domain.PathID
+	if len(keys) > indexFrom {
+		bucket = make(map[domain.Key][]int, len(keys))
+		for j, o := range keys {
+			n := plainKey(o)
+			bucket[n] = append(bucket[n], j)
+		}
+	}
 	for _, i := range idx {
 		k := keys[i]
+		// o covers k strictly, or equally and comes first: k goes.
+		covers := func(j int) bool {
+			o := keys[j]
+			return j != i && domain.Covers(ps, o, k) && (o != k || j < i)
+		}
 		covered := false
-		for j, o := range keys {
-			if j == i {
-				continue
+		if bucket != nil {
+			pre = prefixes(ps, k.Path(), pre)
+			n := plainKey(k)
+		search:
+			for _, q := range pre {
+				for _, j := range bucket[n.WithPath(q, false)] {
+					if covers(j) {
+						covered = true
+						break search
+					}
+				}
 			}
-			// o covers k strictly, or equally and comes first: k goes.
-			if domain.Covers(ps, o, k) && (o != k || j < i) {
-				covered = true
-				break
+		} else {
+			for j := range keys {
+				if covers(j) {
+					covered = true
+					break
+				}
 			}
 		}
 		if covered {
@@ -303,16 +330,50 @@ func antichainPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePa
 	})
 	var out []StorePair
 	var outWhy []Reason
+	// Past a few pairs, only the pairs that can cover p are tried: by
+	// domain.Covers, those whose Src and Dst are of p's inputs and flags on
+	// prefixes of p's paths, found by an index of the pairs by their keys
+	// without GE and FieldsGE. A pair has at most MaxSteps+1 prefixes on
+	// each side, so this is linear where comparing every two pairs was
+	// quadratic (it was a third of the analysis of the translated
+	// compiler).
+	var bucket map[[2]domain.Key][]int
+	var preSrc, preDst []domain.PathID
+	if len(pairs) > indexFrom {
+		bucket = make(map[[2]domain.Key][]int, len(pairs))
+		for j, o := range pairs {
+			n := [2]domain.Key{plainKey(o.Src), plainKey(o.Dst)}
+			bucket[n] = append(bucket[n], j)
+		}
+	}
 	for _, i := range idx {
 		p := pairs[i]
+		covers := func(j int) bool {
+			o := pairs[j]
+			return j != i && domain.Covers(ps, o.Src, p.Src) && domain.Covers(ps, o.Dst, p.Dst) && (o != p || j < i)
+		}
 		covered := false
-		for j, o := range pairs {
-			if j == i {
-				continue
+		if bucket != nil {
+			preSrc = prefixes(ps, p.Src.Path(), preSrc)
+			preDst = prefixes(ps, p.Dst.Path(), preDst)
+			ns, nd := plainKey(p.Src), plainKey(p.Dst)
+		search:
+			for _, qs := range preSrc {
+				for _, qd := range preDst {
+					for _, j := range bucket[[2]domain.Key{ns.WithPath(qs, false), nd.WithPath(qd, false)}] {
+						if covers(j) {
+							covered = true
+							break search
+						}
+					}
+				}
 			}
-			if domain.Covers(ps, o.Src, p.Src) && domain.Covers(ps, o.Dst, p.Dst) && (o != p || j < i) {
-				covered = true
-				break
+		} else {
+			for j := range pairs {
+				if covers(j) {
+					covered = true
+					break
+				}
 			}
 		}
 		if covered {
@@ -508,4 +569,25 @@ func cmpU64(a, b uint64) int {
 		return 1
 	}
 	return 0
+}
+
+// indexFrom is the size past which an antichain is made with an index of
+// its keys rather than by comparing every two.
+const indexFrom = 16
+
+// plainKey is k without GE and FieldsGE: what a key that covers k shares
+// with it besides a prefix of its path (domain.Covers).
+func plainKey(k domain.Key) domain.Key { return k.WithPath(k.Path(), false) }
+
+// prefixes returns the prefixes of p, Root first and p last, in buf. They
+// are interned (a path's prefixes are made before it), so Extend only finds
+// them.
+func prefixes(ps domain.Paths, p domain.PathID, buf []domain.PathID) []domain.PathID {
+	buf = append(buf[:0], domain.Root)
+	q := domain.Root
+	for _, st := range ps.Steps(p) {
+		q, _ = ps.Extend(q, st)
+		buf = append(buf, q)
+	}
+	return buf
 }
