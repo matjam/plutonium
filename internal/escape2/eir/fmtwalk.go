@@ -16,7 +16,9 @@ import (
 // place of its source: a loop over everything reachable from its pointer
 // parameters (offsets anywhere in an object, eir.AnyStep, then loads),
 // calling each formatting method on it through its interface, and walking
-// what the methods return. The analysis then checks the methods the walk
+// what the methods return (the values FmtList and FmtSlot return; the
+// strings of String, Error and GoString are only printed). The analysis
+// then checks the methods the walk
 // may call, on what they may be called with, and nothing else of the
 // walk's unsafe code.
 
@@ -144,7 +146,15 @@ func (b *builder) fmtWalkBody(f *Func, d *declRef) {
 			msig := m.m.Type().(*types2.Signature)
 			args := make([]Reg, msig.Params().Len())
 			res := fb.emitCall(&Call{Kind: CallIface, Method: m.m, Iface: m.I, Target: v, Sig: msig, Args: args, Implicit: ImplWrapper}, f.Pos)
-			for _, r := range res {
+			for i, r := range res {
+				// The walk walks the interface values FmtList and
+				// FmtSlot return; not the strings String, Error and
+				// GoString return, which it prints: their bytes hold
+				// no pointers, and a string is no interface value
+				// whose methods it would call.
+				if b, ok := msig.Results().At(i).Type().Underlying().(*types2.Basic); ok && b.Info()&types2.IsString != 0 {
+					continue
+				}
 				next = fb.either(next, r)
 			}
 		}
