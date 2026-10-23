@@ -56,6 +56,49 @@ func TestParallelDeterministic(t *testing.T) {
 	}
 }
 
+// TestParallelDeterministicAtLimits checks that whether a solve is past
+// the solver's limits (E3010) does not depend on which worker runs it: with
+// the memory limit lowered so that some of the programs' functions are past
+// it, the analysis is the same with 1, 3 and 8 workers. A worker's
+// workspace keeps memory from its earlier solves, and a solve that measured
+// only what it added to it was past the limit or not by the worker's
+// history.
+func TestParallelDeterministicAtLimits(t *testing.T) {
+	if testing.Short() {
+		t.Skip("loads programs")
+	}
+	restore := solve.SetLimits(96<<10, solve.MaxFuncSteps)
+	defer restore()
+	for _, dir := range []string{"../../../examples/15-interfaces", "../../../examples/22-maps"} {
+		t.Run(dir[len("../../../examples/"):], func(t *testing.T) {
+			var want *analysisDump
+			limited := 0
+			for _, n := range []int{1, 3, 8} {
+				t.Setenv("PLUTO_ESCAPE2_JOBS", fmt.Sprint(n))
+				got := analyse(t, dir)
+				if want == nil {
+					want = got
+					for _, f := range got.findings {
+						if f.Code == codeEscapeLimit {
+							limited++
+						}
+					}
+					continue
+				}
+				if !reflect.DeepEqual(got.findings, want.findings) {
+					t.Fatalf("%d workers: findings differ from 1 worker's", n)
+				}
+				if !reflect.DeepEqual(got.sums, want.sums) {
+					t.Fatalf("%d workers: summaries differ from 1 worker's", n)
+				}
+			}
+			if limited == 0 {
+				t.Fatalf("no function past the lowered limit: the test does not test it")
+			}
+		})
+	}
+}
+
 type analysisDump struct {
 	findings []solve.Finding
 	sums     []*summary.Summary

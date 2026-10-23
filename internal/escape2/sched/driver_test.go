@@ -25,6 +25,7 @@ func (fakePaths) Len() int                                                    { 
 
 type fakeArena struct {
 	bytes, peak, resets int
+	fresh               int // new arenas: the fake newArena gives this one, emptied
 }
 
 func (a *fakeArena) Alloc(n int) []uint64 {
@@ -123,7 +124,7 @@ func withFakes(t *testing.T, order *[]eir.FuncID) *fakeArena {
 	leq = fakeLeq
 	joinSums = fakeJoin
 	newPaths = func() domain.Paths { return fakePaths{} }
-	newArena = func() domain.Arena { return arena }
+	newArena = func() domain.Arena { arena.bytes = 0; arena.fresh++; return arena }
 	newSets = func(a domain.Arena) domain.Sets { return fakeSets{a: arena} }
 	// The fake solves keep no state: the real solver's resumable solve
 	// would solve the fake functions for real.
@@ -178,8 +179,10 @@ func TestDriver(t *testing.T) {
 	if res.Stats.SCCs != 4 || res.Stats.LargestSCC != 3 || len(sccs) != 4 {
 		t.Fatalf("stats %+v, sccs %v", res.Stats, sccs)
 	}
-	if arena.resets != res.Stats.Iterations {
-		t.Errorf("arena reset %d times, want once per solve (%d)", arena.resets, res.Stats.Iterations)
+	// Every solve starts with an empty workspace: reset (the sequential
+	// driver) or new (the parallel one).
+	if arena.resets+arena.fresh < res.Stats.Iterations {
+		t.Errorf("arena reset %d times and new %d times, want once per solve (%d)", arena.resets, arena.fresh, res.Stats.Iterations)
 	}
 	// Every function's final summary holds its own key and its callees'.
 	want := map[string][]string{

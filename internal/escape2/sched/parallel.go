@@ -64,11 +64,6 @@ func jobs() int {
 // what one solve builds.
 const workerMB = 256
 
-// bigWorkspace is the size past which a worker's workspace is dropped after
-// a solve rather than reset and kept: one large solve should not make a
-// worker hold its memory for the rest of the analysis.
-const bigWorkspace = 64 << 20
-
 // parFacts are the facts and summaries of other SCCs the workers read, made
 // read only for the rounds: what stage B memoizes lazily is computed before
 // the first round (warm), and what cannot be is behind mu.
@@ -272,6 +267,13 @@ type outcome struct {
 func (w *worker) run(t task) outcome {
 	e := w.pf.e
 	f := e.p.Funcs[t.id]
+	// Each solve has a workspace of its own, fresh: the solver's limits
+	// (MaxFuncArena) measure what the workspace holds past what it held when
+	// the solve began, and a workspace kept from earlier solves holds memory
+	// that this one may reuse. Which worker, and so which history, a solve
+	// gets depends on timing: whether it is past the limits must not
+	// (TestParallelDeterministicAtLimits).
+	w.newWorkspace()
 	w.ov = newOverlay(w.ix)
 	w.scc = t.scc
 	w.solving = t.id
@@ -300,12 +302,6 @@ func (w *worker) run(t task) outcome {
 	o.setsB = w.ws.Sets.Bytes()
 	if o.ownWS > 0 {
 		o.arenaB, o.setsB = o.ownWS, 0
-	}
-	if o.arenaB > bigWorkspace {
-		w.newWorkspace()
-	} else {
-		w.ws.Sets.Reset()
-		w.arena.Reset()
 	}
 	w.ov = nil
 	return o
