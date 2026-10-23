@@ -238,6 +238,13 @@ type recorder struct {
 	heap     map[heapQ]bool
 	contract map[string]*summary.Summary // nil: no entry
 	inst     map[*types2.TypeParam]instA
+	methods  map[methQ][]eir.FuncID
+}
+
+// methQ is a question to Methods: a dynamic type and a method.
+type methQ struct {
+	t types2.Type
+	m *types2.Func
 }
 
 // instA is an answer of Instantiated: the type arguments, written, and
@@ -253,7 +260,7 @@ type heapQ struct {
 }
 
 func (c *Cache) newRecorder() *recorder {
-	return &recorder{c: c, heap: map[heapQ]bool{}, contract: map[string]*summary.Summary{}, inst: map[*types2.TypeParam]instA{}}
+	return &recorder{c: c, heap: map[heapQ]bool{}, contract: map[string]*summary.Summary{}, inst: map[*types2.TypeParam]instA{}, methods: map[methQ][]eir.FuncID{}}
 }
 
 func (r *recorder) HeapOnly(T types2.Type, field int, heap bool) {
@@ -270,6 +277,10 @@ func (r *recorder) Instantiated(tp *types2.TypeParam, types []types2.Type, known
 	}
 	slices.Sort(a.types)
 	r.inst[tp] = a
+}
+
+func (r *recorder) Methods(t types2.Type, m *types2.Func, ids []eir.FuncID) {
+	r.methods[methQ{t, m}] = ids
 }
 
 func (r *recorder) Contract(name string, s *summary.Summary, ok bool) {
@@ -332,6 +343,34 @@ func (r *recorder) sum() digest {
 		h.int(int64(len(w.a.types)))
 		for _, t := range w.a.types {
 			h.str(t)
+		}
+	}
+	// The answers of Methods, by the type written and the method's full
+	// name; the functions as a candidate set's are (writeFuncRef).
+	type methW struct {
+		t, m string
+		ids  []eir.FuncID
+	}
+	var meths []methW
+	for q, ids := range r.methods {
+		meths = append(meths, methW{r.c.typeKey(q.t), q.m.FullName(), ids})
+	}
+	slices.SortFunc(meths, func(a, b methW) int {
+		if c := strings.Compare(a.t, b.t); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.m, b.m); c != 0 {
+			return c
+		}
+		return strings.Compare(fmt.Sprint(a.ids), fmt.Sprint(b.ids))
+	})
+	h.int(int64(len(meths)))
+	for _, w := range meths {
+		h.str(w.t)
+		h.str(w.m)
+		h.int(int64(len(w.ids)))
+		for _, id := range w.ids {
+			r.c.writeFuncRef(h, id)
 		}
 	}
 	names := make([]string, 0, len(r.contract))

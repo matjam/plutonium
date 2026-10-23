@@ -100,7 +100,7 @@ func TestCanRead(t *testing.T) {
 	inner := solveFunc
 	var checked bool
 	solveFunc = func(f *eir.Func, en solve.Env, ws *solve.Workspace) solve.Result {
-		e := en.(*env)
+		e := en
 		r := inner(f, en, ws)
 		if f.ID == fs["b"].f.ID {
 			// b passes nothing on: c's growth reaches a only through a's

@@ -41,6 +41,13 @@ type facts struct {
 // does not split, takes 460,000 solves instead of 20,000 (40 minutes).
 var deferralOn = os.Getenv("PLUTO_ESCAPE2_DEFER") != ""
 
+// sequential (PLUTO_ESCAPE2_SEQUENTIAL=1) analyses the SCCs one after the
+// other with a worklist in each, on one thread, resuming kept solver
+// states: the driver before the parallel one (parallel.go), for
+// comparisons and as a way around a fault of it. With a summary cache the
+// sequential driver is always used. A variable for the tests.
+var sequential = os.Getenv("PLUTO_ESCAPE2_SEQUENTIAL") != ""
+
 // traceSolve, when set (by a debugging test), is called after each solve
 // in an SCC's iteration with the previous and the new summary, and whether
 // the previous covers the new.
@@ -315,10 +322,17 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			opts.OnSCC(comp, *st)
 		}
 	}
-	for ci, comp := range comps {
+	for _, comp := range comps {
 		if len(comp) > res.Stats.LargestSCC {
 			res.Stats.LargestSCC = len(comp)
 		}
+	}
+	seqComps := comps
+	if opts.Cache == nil && !sequential {
+		runParallel(p, env, g, comps, findings, finish)
+		seqComps = nil // done
+	}
+	for ci, comp := range seqComps {
 		for _, id := range comp {
 			env.inSCC[id] = int32(ci)
 		}
@@ -490,6 +504,20 @@ func (e *env) CanRead(f *eir.Func, id eir.FuncID) bool {
 	return true
 }
 
+// Methods are the functions an interface call of method m may run on a
+// value of dynamic type t (cands.methodsOf): for a call resolved by the
+// dynamic type of a box the caller knows (D49 for the interface calls of
+// fmt's walk). They depend on the whole program (its adapters and
+// wrappers), so the cache records them.
+func (e *env) Methods(t types2.Type, m *types2.Func) []eir.FuncID {
+	if t == nil || m == nil {
+		return nil
+	}
+	set := map[eir.FuncID]bool{}
+	e.facts.c.methodsOf(t, m, set, true)
+	return setIDs(set)
+}
+
 // Deferred reports whether call c of f is deferred to f's callers (D49):
 // the solver resolves no candidate of it in f.
 func (e *env) Deferred(f *eir.Func, c *eir.Call) bool {
@@ -520,6 +548,13 @@ func clone(s *summary.Summary) *summary.Summary {
 		},
 		Reasons:  append([]summary.Reason(nil), s.Reasons...),
 		Deferred: append([]summary.Deferred(nil), s.Deferred...),
+	}
+	for i := range c.Deferred {
+		d := &c.Deferred[i]
+		d.Args = append([]summary.DeferredArg(nil), d.Args...)
+		for j := range d.Args {
+			d.Args[j].Keys = append([]domain.Key(nil), d.Args[j].Keys...)
+		}
 	}
 	if s.Res != nil {
 		c.Res = make([]summary.Result, len(s.Res))

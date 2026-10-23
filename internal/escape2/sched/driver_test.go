@@ -114,6 +114,9 @@ func fakeJoin(_ domain.Paths, a, b *summary.Summary) *summary.Summary {
 }
 
 func withFakes(t *testing.T, order *[]eir.FuncID) *fakeArena {
+	// The fakes share one arena and record the order of the solves: one
+	// worker.
+	t.Setenv("PLUTO_ESCAPE2_JOBS", "1")
 	arena := &fakeArena{}
 	saved := []any{solveFunc, leq, newPaths, newArena, newSets, joinSums}
 	solveFunc = fakeSolve(order)
@@ -247,6 +250,11 @@ func TestDriverResume(t *testing.T) {
 	}
 	var order []eir.FuncID
 	withFakes(t, &order)
+	// Kept states are the sequential driver's (the parallel one solves from
+	// scratch: parallel.go).
+	savedSeq := sequential
+	sequential = true
+	defer func() { sequential = savedSeq }()
 	pr, _ := build()
 	want := RunWith(pr.p, Options{})
 

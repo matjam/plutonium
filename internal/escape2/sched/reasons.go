@@ -28,10 +28,6 @@ var solveDerivsFunc = solve.SolveDerivs
 // reason of least depth, from final solves of its members, and their
 // findings. It returns how many entries have none of finite depth.
 func wellFounded(comp []eir.FuncID, env *env, solveOne func(id eir.FuncID) solve.Result, findings [][]solve.Finding) int {
-	in := map[eir.FuncID]bool{}
-	for _, id := range comp {
-		in[id] = true
-	}
 	derivs := map[eir.FuncID][][]summary.Reason{}
 	for _, id := range comp {
 		r := solveOne(id)
@@ -40,6 +36,18 @@ func wellFounded(comp []eir.FuncID, env *env, solveOne func(id eir.FuncID) solve
 			continue
 		}
 		derivs[id] = summary.EntryDerivs(env.paths, env.sums[id], r.Summary, r.Derivs)
+	}
+	return chooseReasons(comp, env, derivs)
+}
+
+// chooseReasons gives every entry of the SCC's final summaries a reason of
+// least depth among derivs, the derivations of each member's entries
+// (summary.EntryDerivs of a final solve), and returns how many entries have
+// none of finite depth.
+func chooseReasons(comp []eir.FuncID, env *env, derivs map[eir.FuncID][][]summary.Reason) int {
+	in := map[eir.FuncID]bool{}
+	for _, id := range comp {
+		in[id] = true
 	}
 	const inf = int(^uint(0) >> 1)
 	depth := map[eir.FuncID][]int{}

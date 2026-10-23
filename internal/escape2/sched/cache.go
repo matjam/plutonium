@@ -51,6 +51,7 @@ type Recorder interface {
 	HeapOnly(T types2.Type, field int, heap bool)
 	Contract(name string, s *summary.Summary, ok bool)
 	Instantiated(tp *types2.TypeParam, types []types2.Type, known bool)
+	Methods(t types2.Type, m *types2.Func, ids []eir.FuncID)
 }
 
 // CacheView is what the cache reads of the run.
@@ -105,6 +106,12 @@ func (e recordingEnv) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
 	types, known := e.env.Instantiated(tp)
 	e.rec.Instantiated(tp, types, known)
 	return types, known
+}
+
+func (e recordingEnv) Methods(t types2.Type, m *types2.Func) []eir.FuncID {
+	ids := e.env.Methods(t, m)
+	e.rec.Methods(t, m, ids)
+	return ids
 }
 
 // Deferred is decided from the EIR, which the cache's digest covers.

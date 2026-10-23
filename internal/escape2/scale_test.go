@@ -93,6 +93,12 @@ func TestScaleTranslated(t *testing.T) {
 	last := start
 	var res *sched.Result
 	var stopped any
+	if f := os.Getenv("PLUTO_STACKSAMPLE"); f != "" {
+		// Where the analysis spends its time, on machines without the CPU
+		// profiler's timer.
+		stop := sampleStacks(t, f)
+		defer stop()
+	}
 	func() {
 		// A function past the solver's limits stops the analysis (it is
 		// an error of that function); report what was measured until then.

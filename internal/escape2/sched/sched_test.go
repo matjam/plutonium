@@ -148,6 +148,35 @@ func TestIfaceLocalBoxes(t *testing.T) {
 	}
 }
 
+// TestMethods checks Env.Methods: the functions an interface call of a
+// method runs on a value of a known dynamic type, none for a type without
+// the method.
+func TestMethods(t *testing.T) {
+	pkg := typecheck(t, ifaceSrc)
+	str := lookupType(t, pkg, "Stringer")
+	A, B, C := lookupType(t, pkg, "A"), lookupType(t, pkg, "B"), lookupType(t, pkg, "C")
+	m := method(t, str, "String")
+	pr := newProg()
+	aS := pr.decl(method(t, A, "String"))
+	bS := pr.decl(method(t, types2.NewPointer(B), "String"))
+	pr.decl(method(t, C, "String"))
+	main := pr.fn("main", eir.FuncKey{}, nil)
+	main.f.Facts.Converted = []types2.Type{A, C}
+	e := &env{p: pr.p, facts: stageB(pr.p)}
+	for _, c := range []struct {
+		t    types2.Type
+		want []eir.FuncID
+	}{
+		{A, idsOf(aS)},
+		{types2.NewPointer(B), idsOf(bS)},
+		{types2.Typ[types2.String], nil},
+	} {
+		if got := e.Methods(c.t, m); !sameIDs(got, c.want) {
+			t.Errorf("Methods(%v, String) = %v, want %v", c.t, got, c.want)
+		}
+	}
+}
+
 // TestIfaceAdapterCandidates checks that an interface call reaches a type's
 // itab adapter alone when there is one (it loads the value from the box the
 // data word points to; the source method would read the box as the value),
