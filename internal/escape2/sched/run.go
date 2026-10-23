@@ -176,10 +176,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		solves := map[eir.FuncID]int{}
 		// Members of an SCC are solved again as their callees grow: keep
 		// their states to resume (incr.go), released when the SCC is final.
-		// Not with D49: a resumed solve can miss what deferred entries a
-		// callee gained give, so it would be narrower than a solve from
-		// scratch (PLUTO_ESCAPE2_RESUMECHECK finds it).
-		keep := solveKeepFunc != nil && !noKeep && len(comp) > 1 && opts.Cache == nil && f.def == nil
+		keep := solveKeepFunc != nil && !noKeep && len(comp) > 1 && opts.Cache == nil
 		defer func() {
 			st.RetainedPeak = ret.peak
 			st.Resumes = ret.resumes
