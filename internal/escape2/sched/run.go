@@ -518,6 +518,15 @@ func (e *env) Methods(t types2.Type, m *types2.Func) []eir.FuncID {
 	return setIDs(set)
 }
 
+// PointerWrappers are the dynamic types whose interface data word may be a
+// pointer to a u, other than *u: structs and arrays of one word holding
+// one (cands.pointerWrappers); known is false when the dynamic types are
+// open. For the interface calls of fmt's walk on a word that is a pointer
+// to a frame object (D49b). The cache records them.
+func (e *env) PointerWrappers(u types2.Type) ([]types2.Type, bool) {
+	return e.facts.c.pointerWrappers(u)
+}
+
 // Deferred reports whether call c of f is deferred to f's callers (D49):
 // the solver resolves no candidate of it in f.
 func (e *env) Deferred(f *eir.Func, c *eir.Call) bool {

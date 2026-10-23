@@ -239,6 +239,7 @@ type recorder struct {
 	contract map[string]*summary.Summary // nil: no entry
 	inst     map[*types2.TypeParam]instA
 	methods  map[methQ][]eir.FuncID
+	wrappers map[types2.Type]instA // PointerWrappers answers, as Instantiated's
 }
 
 // methQ is a question to Methods: a dynamic type and a method.
@@ -260,7 +261,7 @@ type heapQ struct {
 }
 
 func (c *Cache) newRecorder() *recorder {
-	return &recorder{c: c, heap: map[heapQ]bool{}, contract: map[string]*summary.Summary{}, inst: map[*types2.TypeParam]instA{}, methods: map[methQ][]eir.FuncID{}}
+	return &recorder{c: c, heap: map[heapQ]bool{}, contract: map[string]*summary.Summary{}, inst: map[*types2.TypeParam]instA{}, methods: map[methQ][]eir.FuncID{}, wrappers: map[types2.Type]instA{}}
 }
 
 func (r *recorder) HeapOnly(T types2.Type, field int, heap bool) {
@@ -281,6 +282,15 @@ func (r *recorder) Instantiated(tp *types2.TypeParam, types []types2.Type, known
 
 func (r *recorder) Methods(t types2.Type, m *types2.Func, ids []eir.FuncID) {
 	r.methods[methQ{t, m}] = ids
+}
+
+func (r *recorder) PointerWrappers(u types2.Type, types []types2.Type, known bool) {
+	a := instA{known: known}
+	for _, T := range types {
+		a.types = append(a.types, r.c.typeKey(T))
+	}
+	slices.Sort(a.types)
+	r.wrappers[u] = a
 }
 
 func (r *recorder) Contract(name string, s *summary.Summary, ok bool) {
@@ -371,6 +381,30 @@ func (r *recorder) sum() digest {
 		h.int(int64(len(w.ids)))
 		for _, id := range w.ids {
 			r.c.writeFuncRef(h, id)
+		}
+	}
+	// The answers of PointerWrappers, by the type written.
+	type wrapW struct {
+		u string
+		a instA
+	}
+	var wraps []wrapW
+	for u, a := range r.wrappers {
+		wraps = append(wraps, wrapW{r.c.typeKey(u), a})
+	}
+	slices.SortFunc(wraps, func(a, b wrapW) int {
+		if c := strings.Compare(a.u, b.u); c != 0 {
+			return c
+		}
+		return strings.Compare(fmt.Sprint(a.a), fmt.Sprint(b.a))
+	})
+	h.int(int64(len(wraps)))
+	for _, w := range wraps {
+		h.str(w.u)
+		h.bool(w.a.known)
+		h.int(int64(len(w.a.types)))
+		for _, t := range w.a.types {
+			h.str(t)
 		}
 	}
 	names := make([]string, 0, len(r.contract))

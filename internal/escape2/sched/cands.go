@@ -72,6 +72,8 @@ type cands struct {
 	namedMemo map[*types2.Func][]eir.FuncID         // allNamedMemo
 	flow      *funcFlow                             // func values' origins, once computed
 	dropsMemo []eir.FuncID                          // ifaceDrops
+	wrappers  map[typeID][]types2.Type              // pointerWrappers, by the pointer's element type
+	funcWraps map[typeID][]types2.Type              // pointerWrappers of a signature, by it
 }
 
 type tpKey struct {
@@ -746,4 +748,95 @@ func setIDs(set map[eir.FuncID]bool) []eir.FuncID {
 
 func sortIDs(ids []eir.FuncID) {
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+}
+
+// pointerWrappers are the dynamic types whose interface data word may be a
+// pointer to a value of type u other than *u itself: a struct of one field
+// or an array of one element that holds such a pointer, at any depth
+// (wrappedPointer); known is false when the dynamic types are open. They
+// are the dynamic types a direct interface value may have when its word is
+// a pointer to a u, besides *u.
+//
+// When u is a signature, the word is a func value of it (a closure record
+// is a func value's data word): the dynamic types are then the named func
+// types whose underlying type is u, and the structs of one field and arrays
+// of one element holding one of those or a func of type u (wrappedFunc).
+func (c *cands) pointerWrappers(u types2.Type) ([]types2.Type, bool) {
+	if c.dynOpen {
+		return nil, false
+	}
+	if c.wrappers == nil {
+		c.wrappers = map[typeID][]types2.Type{}
+		c.funcWraps = map[typeID][]types2.Type{}
+		for _, t := range c.dyn {
+			if p := wrappedPointer(t, 0); p != nil {
+				id := c.tt.intern(p.Elem())
+				c.wrappers[id] = append(c.wrappers[id], t)
+			}
+			if sig := wrappedFunc(t, 0); sig != nil {
+				id := c.tt.intern(sig)
+				c.funcWraps[id] = append(c.funcWraps[id], t)
+			}
+		}
+	}
+	index := c.wrappers
+	if sig, ok := u.Underlying().(*types2.Signature); ok {
+		index, u = c.funcWraps, sig
+	}
+	id, ok := c.tt.lookup(u)
+	if !ok {
+		return nil, true
+	}
+	return index[id], true
+}
+
+// wrappedFunc is the signature of the func value that is the whole data
+// word of t, when t is a named func type, or a struct of one field or an
+// array of one element holding a func value, at any depth; nil otherwise,
+// and for an unnamed func type itself.
+func wrappedFunc(t types2.Type, depth int) *types2.Signature {
+	if depth > 16 {
+		return nil
+	}
+	switch u := t.Underlying().(type) {
+	case *types2.Signature:
+		if _, unnamed := types2.Unalias(t).(*types2.Signature); unnamed && depth == 0 {
+			return nil
+		}
+		return u
+	case *types2.Struct:
+		if u.NumFields() == 1 {
+			return wrappedFunc(u.Field(0).Type(), depth+1)
+		}
+	case *types2.Array:
+		if u.Len() == 1 {
+			return wrappedFunc(u.Elem(), depth+1)
+		}
+	}
+	return nil
+}
+
+// wrappedPointer is the pointer that is the whole data word of t, when t
+// is a struct of one field or an array of one element holding one, at any
+// depth; nil otherwise, and for a pointer type itself.
+func wrappedPointer(t types2.Type, depth int) *types2.Pointer {
+	if depth > 16 {
+		return nil
+	}
+	switch u := t.Underlying().(type) {
+	case *types2.Pointer:
+		if depth == 0 {
+			return nil
+		}
+		return u
+	case *types2.Struct:
+		if u.NumFields() == 1 {
+			return wrappedPointer(u.Field(0).Type(), depth+1)
+		}
+	case *types2.Array:
+		if u.Len() == 1 {
+			return wrappedPointer(u.Elem(), depth+1)
+		}
+	}
+	return nil
 }

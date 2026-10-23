@@ -177,6 +177,69 @@ func TestMethods(t *testing.T) {
 	}
 }
 
+// TestPointerWrappers checks Env.PointerWrappers: the converted types whose
+// data word is a pointer to U, through structs of one field and arrays of
+// one element, not *U itself nor a struct of two words.
+func TestPointerWrappers(t *testing.T) {
+	pkg := typecheck(t, `
+type U struct{ x int }
+type W struct{ p *U }
+type W2 [1]W
+type V struct{ p *U; q int }
+type X struct{ p *int }
+`)
+	U, W, W2, V, X := lookupType(t, pkg, "U"), lookupType(t, pkg, "W"), lookupType(t, pkg, "W2"), lookupType(t, pkg, "V"), lookupType(t, pkg, "X")
+	pr := newProg()
+	main := pr.fn("main", eir.FuncKey{}, nil)
+	main.f.Facts.Converted = []types2.Type{W, W2, V, X, types2.NewPointer(U)}
+	e := &env{p: pr.p, facts: stageB(pr.p)}
+	got, known := e.PointerWrappers(U)
+	if !known {
+		t.Fatalf("PointerWrappers(U): not known")
+	}
+	has := map[types2.Type]bool{}
+	for _, x := range got {
+		has[x] = true
+	}
+	if len(got) != 2 || !has[W] || !has[W2] {
+		t.Errorf("PointerWrappers(U) = %v, want W and W2", got)
+	}
+	if got, _ := e.PointerWrappers(types2.Typ[types2.Int]); len(got) != 1 || got[0] != X {
+		t.Errorf("PointerWrappers(int) = %v, want X", got)
+	}
+}
+
+// TestPointerWrappersFunc checks PointerWrappers of a signature: the named
+// func types of that underlying type and the one-word wrappers of those or
+// of the signature, not another signature nor the unnamed func type.
+func TestPointerWrappersFunc(t *testing.T) {
+	pkg := typecheck(t, `
+type F func(int) bool
+type G struct{ f F }
+type H struct{ f func(int) bool }
+type K [1]H
+type J func(string)
+var sig func(int) bool
+`)
+	F, G, H, K, J := lookupType(t, pkg, "F"), lookupType(t, pkg, "G"), lookupType(t, pkg, "H"), lookupType(t, pkg, "K"), lookupType(t, pkg, "J")
+	sig := pkg.Scope().Lookup("sig").Type()
+	pr := newProg()
+	main := pr.fn("main", eir.FuncKey{}, nil)
+	main.f.Facts.Converted = []types2.Type{F, G, H, K, J, sig}
+	e := &env{p: pr.p, facts: stageB(pr.p)}
+	got, known := e.PointerWrappers(sig)
+	if !known {
+		t.Fatalf("PointerWrappers(func(int) bool): not known")
+	}
+	has := map[types2.Type]bool{}
+	for _, x := range got {
+		has[x] = true
+	}
+	if len(got) != 4 || !has[F] || !has[G] || !has[H] || !has[K] {
+		t.Errorf("PointerWrappers(func(int) bool) = %v, want F, G, H and K", got)
+	}
+}
+
 // TestIfaceAdapterCandidates checks that an interface call reaches a type's
 // itab adapter alone when there is one (it loads the value from the box the
 // data word points to; the source method would read the box as the value),
