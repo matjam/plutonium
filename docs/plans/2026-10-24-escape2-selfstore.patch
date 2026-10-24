@@ -1,0 +1,176 @@
+diff --git i/internal/escape2/refsolve/call.go w/internal/escape2/refsolve/call.go
+index 544cd473..6187e8f5 100644
+--- i/internal/escape2/refsolve/call.go
++++ w/internal/escape2/refsolve/call.go
+@@ -6,6 +6,7 @@ import (
+ 	"github.com/matjam/plutonium/internal/escape2/eir"
+ 	"github.com/matjam/plutonium/internal/escape2/solve"
+ 	"github.com/matjam/plutonium/internal/escape2/summary"
++	"github.com/matjam/plutonium/internal/syntax/token"
+ )
+ 
+ // OpCall: for each candidate c, with s its summary and β its input binding,
+@@ -248,11 +249,29 @@ func (s *solver) applySummarySkip(in *eir.Instr, sm *summary.Summary, bind func(
+ 			entry++
+ 			continue
+ 		}
+-		v := s.valueOfKey(p.Src, bind)
+-		if p.Dst.FieldsGE() {
+-			v = anywhere(v)
++		if i := p.Src.Input(); i == p.Dst.Input() && (s.bindLent == nil || !s.bindLent(i)) {
++			// Both ends through one input: per pointer (solve's selfStore).
++			whole := false
++			for x := range bind(i) {
++				if x.tag != domain.Root || x.g {
++					whole = true
++					continue
++				}
++				one := func(j int) value {
++					if j == i {
++						return single(x)
++					}
++					return bind(j)
++				}
++				s.storeKeys(p, one, in.Pos, ctx(entry))
++			}
++			if whole {
++				s.storeKeys(p, bind, in.Pos, ctx(entry))
++			}
++			entry++
++			continue
+ 		}
+-		s.store(s.valueOfDst(p.Dst, bind), v, in.Pos, ctx(entry))
++		s.storeKeys(p, bind, in.Pos, ctx(entry))
+ 		entry++
+ 	}
+ 	heap := single(ptr(tok{kind: kHeap}))
+@@ -338,3 +357,12 @@ func (s *solver) initRegion(in *eir.Instr) {
+ 	init.add(tv{t: tok{kind: kHeap}, tag: domain.Root, g: true})
+ 	s.putPlace(place{reg, domain.Root, true}, init)
+ }
++
++// storeKeys applies store pair p under binding bind.
++func (s *solver) storeKeys(p summary.StorePair, bind func(int) value, pos token.Pos, c callCtx) {
++	v := s.valueOfKey(p.Src, bind)
++	if p.Dst.FieldsGE() {
++		v = anywhere(v)
++	}
++	s.store(s.valueOfDst(p.Dst, bind), v, pos, c)
++}
+diff --git i/internal/escape2/solve/call.go w/internal/escape2/solve/call.go
+index 3816e5d3..4feca5b7 100644
+--- i/internal/escape2/solve/call.go
++++ w/internal/escape2/solve/call.go
+@@ -293,6 +293,13 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
+ 		if p.Src.Input() == skip && p.Dst.Input() == skip {
+ 			continue
+ 		}
++		if i := p.Src.Input(); i == p.Dst.Input() && i < len(bind) && bind[i] != 0 && !s.lent[uint32(bind[i])] {
++			// Both ends through one input: per pointer (selfStore).
++			x := len(s.selfStores)
++			s.selfStores = append(s.selfStores, selfStore{base: uint32(bind[i]), pair: p, why: why(len(sum.Esc) + j)})
++			s.addCons(uint32(bind[i]), cSelfStore, uint64(x), 0)
++			continue
++		}
+ 		dst, ok1 := dstVal(p.Dst)
+ 		src, ok2 := val(p.Src)
+ 		if ok1 && ok2 {
+@@ -449,3 +456,46 @@ func (s *solver) region(c *eir.Call) uint32 {
+ 	seed(c.Target)
+ 	return o
+ }
++
++// selfStore is a store pair whose keys name one input, bound to node base
++// (rules.go, "Applying a summary"). The input is one pointer when the call
++// runs, so a pointer the binding holds as a token of its own (tag Root, not
++// tagGE) is both ends' base: the pair applies to each such token alone, not
++// to the product of every token's source with every token's destination (a
++// self-store of memoizing code, a.actual = a.fromRHS, through a value that
++// is heap memory or the caller's input). Any other token (a field of a
++// value, or a tagGE one) applies the pair to the whole binding, as for two
++// inputs.
++type selfStore struct {
++	base  uint32
++	pair  summary.StorePair
++	why   uint64
++	whole bool // applied to the whole binding
++}
++
++// fireSelfStore handles token t of the binding of selfStores[x].
++func (s *solver) fireSelfStore(x int, t tok) {
++	ss := &s.selfStores[x]
++	if t.tag == domain.Root && !t.tagGE {
++		s.storePair(s.tokNode(t), ss.pair, ss.why)
++		return
++	}
++	if !ss.whole {
++		ss.whole = true
++		s.storePair(ss.base, ss.pair, ss.why)
++	}
++}
++
++// storePair applies store pair p with both its inputs bound to node base.
++func (s *solver) storePair(base uint32, p summary.StorePair, why uint64) {
++	dk := p.Dst
++	if dk.FieldsGE() {
++		dk = dk.WithPath(dk.Path(), false)
++	}
++	dst := s.keyNode(base, dk)
++	src := s.keyNode(base, p.Src)
++	if p.Dst.FieldsGE() {
++		src = s.retagNode(src)
++	}
++	s.addCons(dst, cStore, uint64(src), why)
++}
+diff --git i/internal/escape2/solve/graph.go w/internal/escape2/solve/graph.go
+index 27295033..65885503 100644
+--- i/internal/escape2/solve/graph.go
++++ w/internal/escape2/solve/graph.go
+@@ -88,6 +88,7 @@ const (
+ 	cFRest                 // a: fcall index: the function value less its own closures (funccall.go)
+ 	cArenaBox              // a counted value copied into an interface box: E3313 for a local arena's memory (SinkBoxCopy)
+ 	cBorrow                // a: the holder's node; b: the destination: OpBorrow, once X holds CHeap
++	cSelfStore             // a: selfStores index: a store pair of one input, per pointer (call.go, selfStore)
+ )
+ 
+ func (s *solver) newNode(kind uint64) uint32 {
+diff --git i/internal/escape2/solve/rules.go w/internal/escape2/solve/rules.go
+index 96f9ff41..1d793eef 100644
+--- i/internal/escape2/solve/rules.go
++++ w/internal/escape2/solve/rules.go
+@@ -441,7 +441,13 @@ package solve
+ //	               Store (a, b)       store(val(b, β), val(a, β), call);
+ //	                                  b FieldsGE: val(b, β) as for b exact,
+ //	                                  and the stored value's tags made
+-//	                                  (Root, GE)
++//	                                  (Root, GE). a and b of one input i
++//	                                  (not lent): for each token t of β(i)
++//	                                  tagged (Root, false), the store with
++//	                                  β(i) = <t> alone (the input is one
++//	                                  pointer when the call runs); once
++//	                                  β(i) holds another token, the store
++//	                                  with all of β(i) too (selfStore)
+ //	               HeapStore k        store(val(k, β), <Heap>, call); k
+ //	                                  FieldsGE: as for k exact, with
+ //	                                  <Heap, Root, true>
+diff --git i/internal/escape2/solve/solve.go w/internal/escape2/solve/solve.go
+index 75e26f84..d84ea2bf 100644
+--- i/internal/escape2/solve/solve.go
++++ w/internal/escape2/solve/solve.go
+@@ -181,6 +181,7 @@ type solver struct {
+ 	fcalls                  []*fcall             // calls of function values (funccall.go)
+ 	argBuf                  []byte               // argNode's key
+ 	lent                    map[uint32]bool      // the registers OpLend defines: arguments that lend a counted error
++	selfStores              []selfStore          // store pairs of one input applied per pointer (call.go)
+ 	deferOrigins            map[int][]uint64     // capDeferred: the origin calls with Deferred keys, by input, sorted
+ 	originDcalls            map[uint64][]int     // the dcalls of each origin call (Origin<<32 | Site)
+ 	closApps                map[closKey][]uint32 // applyClosure's applications: their argument nodes
+@@ -946,6 +947,8 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
+ 		s.fireFRec(int(a), t)
+ 	case cFRest:
+ 		s.fireFRest(int(a))
++	case cSelfStore:
++		s.fireSelfStore(int(a), t)
+ 	case cRegionWalk:
+ 		if t.kind == tObj && s.isRegion(t.base) {
+ 			s.noteOuterRegion(t.base)

@@ -230,65 +230,27 @@ func (w *walker) walkKey(ts tset, k pkey) tset {
 // lies in buf, and is valid until buf is used again; use strings.Clone to
 // keep it.
 func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
-	b := append(buf[:0], t.path...)
-	depth, steps, tail, first := 0, 0, 0, -1
-	for i := 0; i < len(b); i++ {
-		switch b[i] {
+	kw := &keyWalk{b: append(buf[:0], t.path...), first: -1,
+		ge: t.ge, filt: t.filt, filtAt: t.filtAt, filtShape: t.filtShape, sh: t.shape}
+	for i := 0; i < len(kw.b); i++ {
+		switch kw.b[i] {
 		case '*':
-			depth++
-			steps++
-			tail = 0
-			if first < 0 {
-				first = i
+			kw.depth++
+			kw.steps++
+			kw.tail = 0
+			if kw.first < 0 {
+				kw.first = i
 			}
 		case '.':
-			steps++
-			tail++
+			kw.steps++
+			kw.tail++
 		}
 	}
-	ge, filt, filtAt, filtShape := t.ge, t.filt, t.filtAt, t.filtShape
-	sh := t.shape // the shape of the pointer as the key's path is followed (extend, offsetTok)
 	var d *dynFilter
 	if k.filt != nil {
 		d = w.a.dynFilterFor(k.filt)
 	}
-	// overflowed is extend's cutting of a path that has become too long, back
-	// to its first load and one more.
-	overflowed := func() {
-		ge = true
-		if first >= 0 {
-			b = append(b[:first+1], '*')
-		} else {
-			b = b[:0]
-		}
-		if filtAt > len(b) {
-			filt, filtAt, filtShape = nil, 0, shapeWhole // the cut lost where the filter applied (see tok.extend)
-		}
-	}
-	// star is the step of a load; it reports whether the path overflowed.
-	star := func() bool {
-		if ge {
-			return false
-		}
-		wide := sh >= shapeOffset // what a load through a pointer at an offset finds (tok.extend)
-		sh = shapeWhole
-		if depth+1 > maxDepth || steps+1 > maxSteps {
-			overflowed()
-			return true
-		}
-		b = append(b, '*')
-		if first < 0 {
-			first = len(b) - 1
-		}
-		depth++
-		steps++
-		tail = 0
-		if wide {
-			ge = true
-		}
-		return false
-	}
-	over := preLoad && star()
+	over := preLoad && kw.star()
 	p := k.path
 	for pos := 0; !over; {
 		if d != nil && pos == k.filtAt && !d.noop {
@@ -296,11 +258,11 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 			// had there, into what the pointer followed so far points to
 			// (walkTok). A pointer that stands for every extension of its
 			// path has no filter, and its shape says nothing.
-			if !ge {
-				sh = max(sh, k.filtShape)
+			if !kw.ge {
+				kw.sh = max(kw.sh, k.filtShape)
 			}
-			if filt == nil && !ge && sh != shapeOther {
-				filt, filtAt, filtShape = d.I, len(b), sh
+			if kw.filt == nil && !kw.ge && kw.sh != shapeOther {
+				kw.filt, kw.filtAt, kw.filtShape = d.I, len(kw.b), kw.sh
 			}
 		}
 		if pos >= len(p) {
@@ -308,7 +270,7 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 		}
 		if p[pos] == '*' {
 			pos++
-			over = star()
+			over = kw.star()
 			continue
 		}
 		start := pos
@@ -316,27 +278,80 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 			pos++
 		}
 		pos++
-		if tail >= maxFieldNest || ge || sh >= shapeOffset {
+		if kw.tail >= maxFieldNest || kw.ge || kw.sh >= shapeOffset {
 			continue
 		}
-		if steps+1 > maxSteps {
-			overflowed()
+		if kw.steps+1 > maxSteps {
+			kw.overflowed()
 			break
 		}
-		b = append(b, p[start:pos]...)
-		steps++
-		tail++
+		kw.b = append(kw.b, p[start:pos]...)
+		kw.steps++
+		kw.tail++
 	}
 	if k.ge {
-		ge = true
+		kw.ge = true
 	}
-	shape := max(sh, k.shape)
+	shape := max(kw.sh, k.shape)
 	key := pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, borrowed: t.borrowed || k.borrowed,
-		ge: ge, shape: shape, filt: filt, filtAt: filtAt, filtShape: filtShape}
-	if len(b) > 0 {
-		key.path = unsafe.String(&b[0], len(b))
+		ge: kw.ge, shape: shape, filt: kw.filt, filtAt: kw.filtAt, filtShape: kw.filtShape}
+	if len(kw.b) > 0 {
+		key.path = unsafe.String(&kw.b[0], len(kw.b))
 	}
 	return key
+}
+
+// keyWalk is deriveKey's state as it follows a key's path: the path built
+// in b, its loads (depth), steps, field steps since the last load (tail),
+// the index of its first load, and the GE flag, filter and shape of the
+// pointer followed. Its methods are steps of deriveKey (methods, not
+// closures, so that the escape analysis of the self-hosted compiler resolves
+// their calls).
+type keyWalk struct {
+	b                         []byte
+	depth, steps, tail, first int
+	ge                        bool
+	filt                      types2.Type
+	filtAt                    int
+	filtShape, sh             ptrShape
+}
+
+// overflowed is extend's cutting of a path that has become too long, back
+// to its first load and one more.
+func (kw *keyWalk) overflowed() {
+	kw.ge = true
+	if kw.first >= 0 {
+		kw.b = append(kw.b[:kw.first+1], '*')
+	} else {
+		kw.b = kw.b[:0]
+	}
+	if kw.filtAt > len(kw.b) {
+		kw.filt, kw.filtAt, kw.filtShape = nil, 0, shapeWhole // the cut lost where the filter applied (see tok.extend)
+	}
+}
+
+// star is the step of a load; it reports whether the path overflowed.
+func (kw *keyWalk) star() bool {
+	if kw.ge {
+		return false
+	}
+	wide := kw.sh >= shapeOffset // what a load through a pointer at an offset finds (tok.extend)
+	kw.sh = shapeWhole
+	if kw.depth+1 > maxDepth || kw.steps+1 > maxSteps {
+		kw.overflowed()
+		return true
+	}
+	kw.b = append(kw.b, '*')
+	if kw.first < 0 {
+		kw.first = len(kw.b) - 1
+	}
+	kw.depth++
+	kw.steps++
+	kw.tail = 0
+	if wide {
+		kw.ge = true
+	}
+	return false
 }
 
 // structPrelude is walkParam's choice of a field of a struct parameter for
