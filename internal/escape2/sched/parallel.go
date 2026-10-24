@@ -538,36 +538,7 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 			}
 		}
 		solveStart := time.Now()
-		outs := make([]outcome, len(tasks))
-		if len(tasks) == 1 || n == 1 {
-			for i, t := range tasks {
-				outs[i] = workers[0].run(t)
-			}
-		} else {
-			var wg sync.WaitGroup
-			order := make([]int, len(tasks))
-			for i := range order {
-				order[i] = i
-			}
-			slices.SortStableFunc(order, func(a, b int) int {
-				return cmpDur(lastDur[tasks[b].id], lastDur[tasks[a].id])
-			})
-			next := make(chan int, len(tasks))
-			for _, i := range order {
-				next <- i
-			}
-			close(next)
-			for _, w := range workers[:min(n, len(tasks))] {
-				wg.Add(1)
-				go func(w *worker) {
-					defer wg.Done()
-					for i := range next {
-						outs[i] = w.run(tasks[i])
-					}
-				}(w)
-			}
-			wg.Wait()
-		}
+		outs := runTasks(workers, tasks, lastDur)
 
 		commitStart := time.Now()
 		// The commit, in task order.
