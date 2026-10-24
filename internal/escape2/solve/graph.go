@@ -83,6 +83,7 @@ const (
 	cFRec                  // a: fcall index: a function value called (funccall.go)
 	cFRest                 // a: fcall index: the function value less its own closures (funccall.go)
 	cArenaBox              // a counted value copied into an interface box: E3313 for a local arena's memory (SinkBoxCopy)
+	cBorrow                // a: the holder's node; b: the destination: OpBorrow, once X holds CHeap
 )
 
 func (s *solver) newNode(kind uint64) uint32 {
@@ -366,7 +367,11 @@ func (s *solver) transform(x uint64, t tok) {
 			if m, ok := s.f.ArenaMem[eir.ObjID(t.base)]; ok && !s.isRegion(t.base) {
 				o = uint32(m)
 			}
-			t = tok{kind: tObj, base: o, path: domain.Root, tag: t.tag, tagGE: t.tagGE}
+			if l, _ := s.life(o); l == eir.LifeHeap {
+				t = tok{kind: tHeap, tag: t.tag, tagGE: t.tagGE}
+			} else {
+				t = tok{kind: tObj, base: o, path: domain.Root, tag: t.tag, tagGE: t.tagGE}
+			}
 		}
 		s.buf.push(s.a, s.intern(t))
 	case xNoRec:

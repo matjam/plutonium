@@ -345,6 +345,9 @@ package solve
 //	OpDrop       for an object o of LifeStmt: every register live after the
 //	             drop whose value holds Obj(o, ...) is a finding E3009 at the
 //	             drop (a place that holds it is found by the store check)
+//	OpBorrow     Dst ⊇ X; and Dst ⊇ Y once X holds a CHeap token (a value
+//	             taken out of a counted error: a view of its holder, eir/
+//	             borrow.go)
 //	OpArenaView  Dst ⊇ X, each <Obj(o, ...), T, g> taken as
 //	             <Obj(m, Root, false), T, g>, m = Func.ArenaMem[o], or Obj
 //	             for an o with none (or a region): what memory allocated

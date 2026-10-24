@@ -59,9 +59,13 @@ func Normalize(ps domain.Paths, sm *summary.Summary) {
 
 type gen struct {
 	rng *rand.Rand
-	ps  domain.Paths
-	b   *B
-	st  types2.Type // struct{ f0, f1 unsafe.Pointer; f2 struct{ x, y unsafe.Pointer } }
+	// extra draws the instructions added after the first generator
+	// (extras): a source of its own, so that the programs of every seed
+	// stay as they were, with the extras appended.
+	extra *rand.Rand
+	ps    domain.Paths
+	b     *B
+	st    types2.Type // struct{ f0, f1 unsafe.Pointer; f2 struct{ x, y unsafe.Pointer } }
 
 	pool    []eir.Reg
 	nCallee int
@@ -81,7 +85,7 @@ func newStructType() types2.Type {
 // callees with random summaries, and candidates for dynamic calls, all within
 // the limits of the domain.
 func Random(seed int64, ps domain.Paths) *Case {
-	g := &gen{rng: rand.New(rand.NewSource(seed)), ps: ps, st: newStructType()}
+	g := &gen{rng: rand.New(rand.NewSource(seed)), extra: rand.New(rand.NewSource(seed ^ 0x5eed)), ps: ps, st: newStructType()}
 	prog := &eir.Program{}
 	g.env = &MapEnv{
 		Prog: prog, P: ps,
@@ -252,12 +256,52 @@ func (g *gen) body() {
 				loopRegs = append(loopRegs, g.pool[before:]...)
 			}
 		}
+		g.extras()
 	}
 	if hdr >= 0 {
 		phi = &b.F.Blocks[phiBlock].Instrs[0]
 		phi.Args[1] = phi.Dst
 		if len(loopRegs) > 0 {
 			phi.Args[1] = loopRegs[rng.Intn(len(loopRegs))]
+		}
+	}
+}
+
+// extras appends, from g.extra, instructions of the local-arena and
+// counted-error rules (eir/arena.go, eir/borrow.go), whose results go to
+// sinks and never to the pool: what the first generator draws is unchanged.
+func (g *gen) extras() {
+	b, x := g.b, g.extra
+	if len(g.pool) == 0 {
+		return
+	}
+	pick := func() eir.Reg { return g.pool[x.Intn(len(g.pool))] }
+	if n := len(b.F.Objects); n > 1 && b.F.ArenaMem == nil && x.Intn(2) == 0 {
+		// A local arena and its memory.
+		o, m := eir.ObjID(x.Intn(n)), eir.ObjID(x.Intn(n))
+		if o != m && b.F.Objects[o].Kind != eir.ObjRegion && b.F.Objects[m].Kind != eir.ObjRegion {
+			b.F.ArenaMem = map[eir.ObjID]eir.ObjID{o: m}
+		}
+	}
+	sink := func(r eir.Reg) {
+		if b.F.Results > 0 && x.Intn(2) == 0 {
+			b.Sink(eir.SinkReturn, r, x.Intn(b.F.Results))
+			return
+		}
+		b.Sink(eir.SinkGlobal, r, 0)
+	}
+	if len(b.F.Objects) > 0 && x.Intn(3) == 0 {
+		sink(b.Emit(eir.Instr{Op: eir.OpArenaView, X: pick(), Obj: eir.ObjID(x.Intn(len(b.F.Objects)))}, true))
+	}
+	if x.Intn(4) == 0 {
+		b.Sink(eir.SinkBoxCopy, pick(), 0)
+	}
+	if x.Intn(4) == 0 {
+		r := b.Emit(eir.Instr{Op: eir.OpBorrow, X: pick(), Y: pick()}, true)
+		if x.Intn(2) == 0 {
+			b.Store(pick(), r)
+		} else {
+			sink(r)
 		}
 	}
 }

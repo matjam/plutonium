@@ -798,6 +798,10 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		default:
 			s.addHeapStore(s.storeDst(d, t))
 		}
+	case cBorrow:
+		if t.kind == tCHeap {
+			s.addEdge(uint32(a), uint32(b), xw(xID, 0, false), 0) // the holder's view, once
+		}
 	case cArenaBox:
 		if t.kind == tObj && s.isArenaMem(t.base) {
 			s.report(cE3313, t.base, b)
@@ -1276,6 +1280,11 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		}
 	case eir.OpArenaView:
 		s.edge(in.X, dst, xw(xArena, domain.PathID(in.Obj), false))
+	case eir.OpBorrow:
+		s.edge(in.X, dst, xw(xID, 0, false))
+		if in.Y != 0 {
+			s.addCons(uint32(in.X), cBorrow, uint64(in.Y), uint64(dst))
+		}
 	case eir.OpDrop:
 		if int(in.Obj) < len(s.f.Objects) && s.f.Objects[in.Obj].Life == eir.LifeStmt {
 			s.drops.push(s.a, uint64(b)<<32|uint64(i))

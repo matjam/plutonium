@@ -73,6 +73,21 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 		s.ruleDrop(b, in)
 	case eir.OpArenaView:
 		s.ruleArenaView(in)
+	case eir.OpBorrow:
+		// Dst ⊇ X, and Y once X holds CHeap (solve/rules.go).
+		v := s.val(in.X)
+		w := value{}
+		counted := false
+		for x := range v {
+			w.add(x)
+			counted = counted || x.t.kind == kCHeap
+		}
+		if counted && in.Y != 0 {
+			for x := range s.val(in.Y) {
+				w.add(x)
+			}
+		}
+		s.def(in.Dst, w)
 	case eir.OpCall:
 		s.ruleCall(in)
 	}
@@ -88,7 +103,11 @@ func (s *solver) ruleArenaView(in *eir.Instr) {
 			if m, ok := s.f.ArenaMem[eir.ObjID(x.t.id)]; ok && x.t.id < len(s.f.Objects) {
 				o = int(m)
 			}
-			x = tv{t: tok{kind: kObj, id: o, path: domain.Root}, tag: x.tag, g: x.g}
+			t := tok{kind: kObj, id: o, path: domain.Root}
+			if s.objs[o].life == eir.LifeHeap {
+				t = tok{kind: kHeap}
+			}
+			x = tv{t: t, tag: x.tag, g: x.g}
 		}
 		w.add(x)
 	}

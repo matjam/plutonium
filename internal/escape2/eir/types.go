@@ -310,6 +310,10 @@ const (
 	// (an ObjArenaWindow) for a frame object with none; other pointers
 	// stay (memory from a caller's allocator is a view of the caller's).
 	OpArenaView
+	// OpBorrow: Dst = X, and also Y (the address of a holder's view object)
+	// when X holds a counted reference: a value taken out of a counted
+	// error, a view of what holds it (borrow.go).
+	OpBorrow
 )
 
 // ElemStep is the path step of an array or slice element in OpAddr and

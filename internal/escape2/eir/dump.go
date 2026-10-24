@@ -112,6 +112,8 @@ func (p *Program) InstrString(in *Instr) string {
 		return fmt.Sprintf("%sphi %s", dst, regs(in.Args))
 	case OpDrop:
 		return fmt.Sprintf("enddrop o%d", in.Obj)
+	case OpBorrow:
+		return fmt.Sprintf("%sborrow r%d r%d", dst, in.X, in.Y)
 	case OpArenaView:
 		return fmt.Sprintf("%sarenaview r%d o%d", dst, in.X, int32(in.Obj))
 	}

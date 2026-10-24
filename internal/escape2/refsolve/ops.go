@@ -182,6 +182,9 @@ func (s *solver) loadObj(out value, t tok) {
 			r := s.strip(q.path, t.path)
 			for x := range s.pre(pt, r, false) {
 				x.g = x.g || q.ge || t.ge
+				if t.ge {
+					x.tag = domain.Root // with pg, the tag is <_, Root, true> (rules.go, load)
+				}
 				out.add(x)
 			}
 		}
@@ -189,6 +192,9 @@ func (s *solver) loadObj(out value, t tok) {
 			r := s.strip(t.path, q.path)
 			for x := range s.sel(pt, r, false) {
 				x.g = x.g || t.ge
+				if t.ge {
+					x.tag = domain.Root
+				}
 				out.add(x)
 			}
 		}
