@@ -362,6 +362,9 @@ func (s *solver) transform(x uint64, t tok) {
 		if _, ok := s.ownRecord(t); ok {
 			return
 		}
+		if _, ok := s.regionKnown(t); ok {
+			return // regionlits.go
+		}
 		s.buf.push(s.a, s.intern(t))
 	case xAny:
 		s.buf.push(s.a, s.intern(s.anyOffset(t)))

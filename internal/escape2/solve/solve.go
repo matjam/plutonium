@@ -114,6 +114,15 @@ type solver struct {
 	saturated []bool // by input: start it as In(i, Root, GE) (saturate.go)
 	fbDepth   int    // inside the application of a fallback group (defer.go, dcall.own)
 
+	// Closures callees return (regionlits.go): by region object, the
+	// literals the callee's summary names, the dcalls that called into it,
+	// and the regions this function returns.
+	regionLits map[uint32][]eir.FuncID
+	regionSelf map[uint32]bool // a region a callee's summary says has Self
+	selfStore  bool            // the function stored a pointer to its caller's memory there
+	regionUses map[uint32][]regionUse
+	outerRegs  map[uint32]bool
+
 	toks   vec // two words per tagged token
 	tokIdx table
 
@@ -598,6 +607,9 @@ func (s *solver) checkStore(m uint32, u tok, why uint64) {
 		return
 	}
 	o := uint32(s.nodeInfo.s[m] >> 9)
+	if s.callerMemory(o) && s.callerMemory(u.base) {
+		s.selfStore = true // regionlits.go
+	}
 	if !s.outlives(u.base, o) && !s.regionOutlives(u.base, o) {
 		s.report(s.shortCode(u.base), u.base, why)
 	}
@@ -795,6 +807,7 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			switch {
 			case s.isRegion(t.base):
 				s.addOuter(r)
+				s.noteOuterRegion(t.base)
 				rn := s.reachNode(s.tokNode(asPointer(t)))
 				s.addCons(rn, cRegionChk, a, b)
 			case l == eir.LifeCaller:
@@ -826,6 +839,7 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		s.fireFRest(int(a))
 	case cRegionWalk:
 		if t.kind == tObj && s.isRegion(t.base) {
+			s.noteOuterRegion(t.base)
 			rn := s.reachNode(s.tokNode(asPointer(t)))
 			s.addCons(rn, cRegionChk, a, b)
 		}
@@ -1045,6 +1059,10 @@ func (s *solver) summary() *summary.Summary {
 	sum.Region.Builds = s.builds
 	for _, r := range s.outer.s {
 		sum.Region.OuterResults = append(sum.Region.OuterResults, int(r))
+	}
+	if s.builds || len(s.outer.s) > 0 {
+		sum.Region.Lits = s.regionLitsOut() // regionlits.go
+		sum.Region.Self = s.regionSelfOut()
 	}
 	sum.Deferred = s.deferredOut()
 	if len(escWhy)+len(storeWhy) > 0 {
@@ -1514,6 +1532,8 @@ func cloneSummary(sum *summary.Summary) *summary.Summary {
 	c.Reasons = slices.Clone(sum.Reasons)
 	c.Deferred = slices.Clone(sum.Deferred)
 	c.Region.OuterResults = slices.Clone(sum.Region.OuterResults)
+	c.Region.Lits = slices.Clone(sum.Region.Lits)
+	c.Region.Self = sum.Region.Self
 	c.Res = make([]summary.Result, len(sum.Res))
 	for i, r := range sum.Res {
 		c.Res[i] = summary.Result{From: slices.Clone(r.From), Heap: slices.Clone(r.Heap), CountedHeap: slices.Clone(r.CountedHeap)}

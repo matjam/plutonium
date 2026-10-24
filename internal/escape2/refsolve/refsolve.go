@@ -102,6 +102,10 @@ func (s *solver) result() solve.Result {
 	sort.Ints(sm.Region.OuterResults)
 	sm.Deferred = s.deferredOut()
 	sm.Region.Builds = s.builds
+	if s.builds || len(s.outer) > 0 {
+		sm.Region.Lits = s.regionLitsOut()
+		sm.Region.Self = s.regionSelfOut()
+	}
 	s.antichains(sm)
 	widen(s.ps, sm)
 	s.antichains(sm)

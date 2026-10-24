@@ -382,6 +382,21 @@ package solve
 //	             A result field F with a load step is no field path: it is
 //	             taken as Root with GE.
 //	               Region.OuterResults r  Results[r] ⊇ <Obj(Reg(site), Root, true), Root, true>
+//	               Region.Lits            the literals whose closures Reg(site) may
+//	                                  hold: a deferred call whose function value
+//	                                  holds Obj(Reg(site), ...) applies each, with
+//	                                  its record bound to that token; eir.NoFunc
+//	                                  among them, or a region no summary names
+//	                                  the literals of, falls back (regionlits.go).
+//	                                  A function's own Lits are its records that
+//	                                  live in its caller's memory and the Lits
+//	                                  of the regions it returns. An fcall applies
+//	                                  them too, in place of its candidates, when
+//	                                  all are named and readable.
+//	               Region.Self            Reg(site)'s place holds the region itself
+//	                                  only then: the callee stored a pointer to its
+//	                                  caller's memory there (a closure capturing a
+//	                                  closure), or returns a region with Self.
 //
 // Input binding β at a call: CallStatic and CallContract bind input i to
 // Args[i] (receiver first). A CallTypeParam with RecvAddr binds its

@@ -563,7 +563,9 @@ func clone(s *summary.Summary) *summary.Summary {
 		HeapStore: append([]domain.Key(nil), s.HeapStore...),
 		Region: summary.Region{
 			Builds:       s.Region.Builds,
+			Self:         s.Region.Self,
 			OuterResults: append([]int(nil), s.Region.OuterResults...),
+			Lits:         append([]eir.FuncID(nil), s.Region.Lits...),
 		},
 		Reasons:  append([]summary.Reason(nil), s.Reasons...),
 		Deferred: append([]summary.Deferred(nil), s.Deferred...),

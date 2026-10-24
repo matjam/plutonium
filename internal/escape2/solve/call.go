@@ -347,6 +347,10 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 			s.addTok(uint32(c.Results[r]), tok{kind: tHeap, tagGE: true})
 			continue
 		}
+		s.noteRegionLits(uint32(len(s.f.Objects))+uint32(c.Site), sum.Region.Lits) // regionlits.go
+		if sum.Region.Self {
+			s.noteRegionSelf(uint32(len(s.f.Objects)) + uint32(c.Site))
+		}
 		reg := s.region(c)
 		s.addTok(uint32(c.Results[r]), tok{kind: tObj, base: reg, ge: true, tagGE: true})
 	}
@@ -422,7 +426,10 @@ func (s *solver) staticRegion(in *eir.Instr) {
 func (s *solver) region(c *eir.Call) uint32 {
 	o := uint32(len(s.f.Objects)) + uint32(c.Site)
 	pn := s.place(o, domain.Root, true)
-	s.addTok(pn, tok{kind: tObj, base: o, ge: true, tagGE: true})
+	if s.regionSelf[o] {
+		// The region's objects may point to one another (Region.Self).
+		s.addTok(pn, tok{kind: tObj, base: o, ge: true, tagGE: true})
+	}
 	s.addTok(pn, tok{kind: tHeap, tagGE: true})
 	seed := func(r eir.Reg) {
 		if r != 0 {

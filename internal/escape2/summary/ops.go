@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
+	"github.com/matjam/plutonium/internal/escape2/eir"
 )
 
 // Leq reports whether s is no wider than t: every entry of s is covered by
@@ -61,6 +62,9 @@ func Leq(ps domain.Paths, s, t *Summary) bool {
 			return false
 		}
 	}
+	if s.Region.Self && !t.Region.Self {
+		return false
+	}
 	if s.Region.Builds && !t.Region.Builds {
 		return false
 	}
@@ -69,12 +73,19 @@ func Leq(ps domain.Paths, s, t *Summary) bool {
 			return false
 		}
 	}
+	if !slices.Contains(t.Region.Lits, eir.NoFunc) {
+		for _, l := range s.Region.Lits {
+			if !slices.Contains(t.Region.Lits, l) {
+				return false
+			}
+		}
+	}
 	return true
 }
 
 // isBottom reports whether s has no effects at all.
 func isBottom(s *Summary) bool {
-	if len(s.Esc) > 0 || len(s.Store) > 0 || len(s.HeapStore) > 0 || len(s.Deferred) > 0 || s.Region.Builds || len(s.Region.OuterResults) > 0 {
+	if len(s.Esc) > 0 || len(s.Store) > 0 || len(s.HeapStore) > 0 || len(s.Deferred) > 0 || s.Region.Builds || s.Region.Self || len(s.Region.OuterResults) > 0 || len(s.Region.Lits) > 0 {
 		return false
 	}
 	for _, r := range s.Res {
@@ -155,6 +166,7 @@ func Widen(ps domain.Paths, s *Summary) {
 		s.Res[r].CountedHeap = sortedPaths(s.Res[r].CountedHeap)
 	}
 	s.Region.OuterResults = sortedInts(s.Region.OuterResults)
+	s.Region.Lits = SortedLits(s.Region.Lits)
 	s.Deferred = widenDeferred(ps, s.Deferred)
 	if escWhy != nil || storeWhy != nil {
 		s.Reasons = append(append([]Reason(nil), escWhy...), storeWhy...)
@@ -603,6 +615,17 @@ func mergeBy(ds []Deferred, fn func(Deferred) domain.Key, merge func([]Deferred,
 		ds[i].Fn = fn(ds[i])
 	}
 	return merge(ds, func(k domain.Key) domain.Key { return k })
+}
+
+// SortedLits sorts and de-duplicates a region's literals in place; with
+// eir.NoFunc among them (some not named) it is that alone, which covers
+// every other.
+func SortedLits(ls []eir.FuncID) []eir.FuncID {
+	if slices.Contains(ls, eir.NoFunc) {
+		return []eir.FuncID{eir.NoFunc}
+	}
+	slices.Sort(ls)
+	return slices.Compact(ls)
 }
 
 func sortedPaths(ps []domain.PathID) []domain.PathID {

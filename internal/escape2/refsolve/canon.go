@@ -92,7 +92,7 @@ func canonSummary(b *strings.Builder, ps domain.Paths, s *summary.Summary) {
 	section("store", st)
 	section("heapstore", hs)
 	section("res", res)
-	fmt.Fprintf(b, "region builds=%v outer=%v\n", s.Region.Builds, s.Region.OuterResults)
+	fmt.Fprintf(b, "region builds=%v outer=%v lits=%v self=%v\n", s.Region.Builds, s.Region.OuterResults, s.Region.Lits, s.Region.Self)
 }
 
 // CanonPath renders a path as its steps.

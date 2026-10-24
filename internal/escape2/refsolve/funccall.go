@@ -22,13 +22,38 @@ func (s *solver) ownRecord(x tv) (eir.FuncID, bool) {
 	return fn, true
 }
 
-// rest is function value v less the closure records ownRecord resolves.
+// regionRecord returns the literals a region token x may be a record of,
+// when its callee's summary names them all and the solve may read each
+// (solve's regionKnown).
+func (s *solver) regionRecord(x tv) ([]eir.FuncID, bool) {
+	t := x.t
+	if t.kind != kObj || !s.objs[t.id].isReg {
+		return nil, false
+	}
+	lits, ok := s.regionLits[t.id]
+	if !ok || len(lits) == 0 {
+		return nil, false
+	}
+	for _, fn := range lits {
+		if fn == eir.NoFunc || int(fn) >= len(s.env.Program().Funcs) || !s.env.CanRead(s.f, fn) {
+			return nil, false
+		}
+	}
+	return lits, true
+}
+
+// rest is function value v less the closure records ownRecord resolves
+// and the regions regionRecord does.
 func (s *solver) rest(v value) value {
 	r := value{}
 	for x := range v {
-		if _, ok := s.ownRecord(x); !ok {
-			r.add(x)
+		if _, ok := s.ownRecord(x); ok {
+			continue
 		}
+		if _, ok := s.regionRecord(x); ok {
+			continue
+		}
+		r.add(x)
 	}
 	return r
 }
@@ -44,6 +69,11 @@ func (s *solver) funcCall(in *eir.Instr) {
 	for x := range target {
 		if fn, ok := s.ownRecord(x); ok {
 			s.applyBound(in, fn, s.recBinder(c, funcs[fn], single(ptr(x.t))), -1)
+		}
+		if lits, ok := s.regionRecord(x); ok {
+			for _, fn := range lits {
+				s.applyBound(in, fn, s.recBinder(c, funcs[fn], single(ptr(x.t))), -1)
+			}
 		}
 	}
 	rest := s.rest(target)

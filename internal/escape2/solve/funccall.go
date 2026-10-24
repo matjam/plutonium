@@ -61,6 +61,9 @@ func (s *solver) funcCall(in *eir.Instr) {
 func (s *solver) fireFRec(i int, t tok) {
 	fn, ok := s.ownRecord(t)
 	if !ok {
+		if lits, ok := s.regionKnown(t); ok {
+			s.regionFcall(i, asPointer(t), lits) // regionlits.go
+		}
 		return
 	}
 	fc := s.fcalls[i]

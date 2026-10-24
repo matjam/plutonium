@@ -116,6 +116,20 @@ func (s *solver) resolve() {
 			switch t := x.t; {
 			case t.kind == kObj && !t.ge && t.path == domain.Root && s.closureOf[t.id] != 0:
 				s.applyClosure(dc, s.closureOf[t.id]-1, x)
+			case t.kind == kObj && s.objs[t.id].isReg:
+				// A closure a callee returned (solve/regionlits.go).
+				lits, ok := s.regionLits[t.id]
+				if !ok {
+					s.fallback(dc)
+					break
+				}
+				for _, fn := range lits {
+					if fn == eir.NoFunc || int(fn) >= len(s.env.Program().Funcs) {
+						s.fallback(dc)
+						continue
+					}
+					s.applyClosure(dc, fn, ptr(t))
+				}
 			case t.kind == kIn && s.f.External:
 				s.fallback(dc)
 			case t.kind == kIn:

@@ -23,6 +23,7 @@ import (
 //	summary  := byte(0) (bottom, nil)
 //	          | byte(1) uvarint(inputs) keys(esc) pairs(store) keys(heapstore)
 //	            uvarint(len res) result* byte(region builds) uvarint(n) uvarint(outer)*
+//	            byte(region: 1 lits not all named, 2 self) uvarint(n) string(lit stable ID)*  (sorted by bytes)
 //	            uvarint(n) deferred*  (sorted by bytes)
 //	deferred := string(origin stable ID) uvarint(site) key(fn) uvarint(n) (byte(heap) keys)*
 //	keys     := uvarint(n) key*            (sorted by bytes)
@@ -147,6 +148,25 @@ func appendSummary(b []byte, ps domain.Paths, s *summary.Summary, name func(eir.
 		b = binary.AppendUvarint(b, uint64(r))
 	}
 	ok = true
+	lits := summary.SortedLits(slices.Clone(s.Region.Lits))
+	var lb byte
+	if slices.Contains(lits, eir.NoFunc) {
+		lb |= 1
+		lits = nil
+	}
+	if s.Region.Self {
+		lb |= 2
+	}
+	b = append(b, lb)
+	items = make([][]byte, len(lits))
+	for i, l := range lits {
+		n := name(l)
+		if n == "" {
+			ok = false
+		}
+		items[i] = appendString(nil, n)
+	}
+	b = appendSorted(b, items)
 	items = make([][]byte, len(s.Deferred))
 	for i, d := range s.Deferred {
 		n := name(d.Origin)
@@ -405,6 +425,24 @@ func (r *reader) summary(ps domain.Paths, sh shape, id func(string) (eir.FuncID,
 		}
 		s.Region.OuterResults = append(s.Region.OuterResults, int(o))
 	}
+	lb := r.byte1()
+	if lb&^3 != 0 {
+		r.fail()
+	}
+	if lb&1 != 0 {
+		s.Region.Lits = []eir.FuncID{eir.NoFunc}
+	}
+	s.Region.Self = lb&2 != 0
+	nl := r.count(1)
+	for i := 0; i < nl && r.err == nil; i++ {
+		l, ok := id(r.str())
+		if !ok {
+			r.fail()
+			break
+		}
+		s.Region.Lits = append(s.Region.Lits, l)
+	}
+	s.Region.Lits = summary.SortedLits(s.Region.Lits)
 	nd := r.count(4)
 	for i := 0; i < nd && r.err == nil; i++ {
 		var d summary.Deferred

@@ -326,6 +326,7 @@ func (s *solver) ruleReturn(in *eir.Instr, x value) {
 				s.outer[in.Index] = true
 				s.changed = true
 			}
+			s.noteOuterRegion(u.id)
 			s.regionOutlives(u.id, in)
 		case u.kind == kObj && s.objs[u.id].life == eir.LifeCaller:
 			if !s.builds || !s.outer[in.Index] {
@@ -341,6 +342,7 @@ func (s *solver) ruleReturn(in *eir.Instr, x value) {
 			}
 			for y := range s.reach(held) {
 				if y.t.kind == kObj && s.objs[y.t.id].isReg {
+					s.noteOuterRegion(y.t.id)
 					s.regionOutlives(y.t.id, in)
 				}
 			}

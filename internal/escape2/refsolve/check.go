@@ -76,6 +76,10 @@ func (s *solver) store(d, v value, pos token.Pos, c callCtx) {
 			}
 			s.putPlace(place{dt.id, dt.path, dt.ge}, v)
 			for x := range v {
+				if x.t.kind == kObj && s.callerMemory(dt.id) && s.callerMemory(x.t.id) && !s.selfStore {
+					s.selfStore = true // solve's checkStore
+					s.changed = true
+				}
 				if x.t.kind == kObj && !s.outlives(x.t.id, dt.id) {
 					s.finding(s.storeCode(x.t.id), pos, x.t.id, 0, c)
 				}

@@ -173,6 +173,17 @@ func (g *gen) randSummary(inputs, results int) *summary.Summary {
 	if results > 0 && g.rng.Intn(5) == 0 {
 		sm.Region.Builds = true
 		sm.Region.OuterResults = []int{g.rng.Intn(results)}
+		sm.Region.Self = g.rng.Intn(2) == 0
+		// The closures the region may hold: some of the callees made so
+		// far, or some the summary cannot name.
+		switch g.rng.Intn(3) {
+		case 0:
+			sm.Region.Lits = []eir.FuncID{eir.NoFunc}
+		case 1:
+			for i := 1 + g.rng.Intn(2); i > 0 && len(g.callees) > 0; i-- {
+				sm.Region.Lits = append(sm.Region.Lits, g.callees[g.rng.Intn(len(g.callees))].ID)
+			}
+		}
 	}
 	Normalize(g.ps, sm)
 	return sm

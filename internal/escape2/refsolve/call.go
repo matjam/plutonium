@@ -255,6 +255,14 @@ func (s *solver) applySummarySkip(in *eir.Instr, sm *summary.Summary, bind func(
 			continue
 		}
 		if r < len(c.Results) && c.Results[r] != 0 {
+			s.noteRegionLits(s.regObj(c.Site), sm.Region.Lits)
+			if sm.Region.Self && !s.regionSelf[s.regObj(c.Site)] {
+				if s.regionSelf == nil {
+					s.regionSelf = map[int]bool{}
+				}
+				s.regionSelf[s.regObj(c.Site)] = true
+				s.changed = true
+			}
 			t := tok{kind: kObj, id: s.regObj(c.Site), ge: true}
 			s.def(c.Results[r], single(tv{t: t, tag: domain.Root, g: true}))
 		}
@@ -276,7 +284,10 @@ func (s *solver) initRegion(in *eir.Instr) {
 	for _, a := range args {
 		init.addAll(s.reach(s.val(a)))
 	}
-	init.add(tv{t: tok{kind: kObj, id: reg, ge: true}, tag: domain.Root, g: true})
+	if s.regionSelf[reg] {
+		// The region's objects may point to one another (Region.Self).
+		init.add(tv{t: tok{kind: kObj, id: reg, ge: true}, tag: domain.Root, g: true})
+	}
 	init.add(tv{t: tok{kind: kHeap}, tag: domain.Root, g: true})
 	s.putPlace(place{reg, domain.Root, true}, init)
 }

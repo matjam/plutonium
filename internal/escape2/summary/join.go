@@ -1,6 +1,9 @@
 package summary
 
-import "github.com/matjam/plutonium/internal/escape2/domain"
+import (
+	"github.com/matjam/plutonium/internal/escape2/domain"
+	"github.com/matjam/plutonium/internal/escape2/eir"
+)
 
 // Join returns a summary that covers both a and b: their entries together,
 // widened (the caps and antichains of Widen). Neither argument is changed;
@@ -40,7 +43,9 @@ func Join(ps domain.Paths, a, b *Summary) *Summary {
 	}
 	j.Deferred = append(append([]Deferred(nil), a.Deferred...), b.Deferred...)
 	j.Region.Builds = a.Region.Builds || b.Region.Builds
+	j.Region.Self = a.Region.Self || b.Region.Self
 	j.Region.OuterResults = append(append([]int(nil), a.Region.OuterResults...), b.Region.OuterResults...)
+	j.Region.Lits = append(append([]eir.FuncID(nil), a.Region.Lits...), b.Region.Lits...)
 	Widen(ps, j)
 	return j
 }
