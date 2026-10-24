@@ -42,8 +42,14 @@ func (s *solver) regionRecord(x tv) ([]eir.FuncID, bool) {
 	return lits, true
 }
 
-// rest is function value v less the closure records ownRecord resolves
-// and the regions regionRecord does.
+// notRecord reports whether x points at a frame object no function value
+// can point at (solve's notRecord).
+func (s *solver) notRecord(x tv) bool {
+	return x.t.kind == kObj && x.t.id < len(s.f.Objects) && s.f.Objects[x.t.id].Kind.NeverRecord()
+}
+
+// rest is function value v less the closure records ownRecord resolves,
+// the regions regionRecord does, and the tokens notRecord drops.
 func (s *solver) rest(v value) value {
 	r := value{}
 	for x := range v {
@@ -51,6 +57,9 @@ func (s *solver) rest(v value) value {
 			continue
 		}
 		if _, ok := s.regionRecord(x); ok {
+			continue
+		}
+		if s.notRecord(x) {
 			continue
 		}
 		r.add(x)

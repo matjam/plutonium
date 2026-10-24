@@ -235,6 +235,19 @@ const (
 	ObjBoxView
 )
 
+// NeverRecord reports whether an object of kind k can never be what a
+// function value points at: a function value points at a closure or
+// method-value record (or a region or view standing for one), never at a
+// variable, parameter slot, temporary, box or array (solve/rules.go,
+// "Calls of function values").
+func (k ObjKind) NeverRecord() bool {
+	switch k {
+	case ObjVar, ObjParam, ObjTemp, ObjBox, ObjSliceLit, ObjVarargs, ObjStmtTemp:
+		return true
+	}
+	return false
+}
+
 // Lifetime orders where an object lives, shortest first. A pointer to an
 // object may be stored only into a place that lives no longer than the
 // object (plan section (a), "Location lifetimes").

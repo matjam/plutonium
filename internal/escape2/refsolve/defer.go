@@ -130,6 +130,8 @@ func (s *solver) resolve() {
 					}
 					s.applyClosure(dc, fn, ptr(t))
 				}
+			case s.notRecord(x):
+				// No callee (solve's notRecord).
 			case t.kind == kIn && s.f.External:
 				s.fallback(dc)
 			case t.kind == kIn:

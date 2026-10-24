@@ -302,6 +302,14 @@ package solve
 // record of another closure (a literal's keys name its own record's
 // layout).
 //
+// A function value points at a closure or method-value record, never at a
+// variable, parameter slot, temporary, box, slice literal's array or
+// variadic array (eir.ObjKind.NeverRecord). A token Obj(o, ...) of such an
+// object in a function value comes from a join that is wider than the
+// value, so it is not part of the rest, and at a dcall it neither applies
+// a closure nor makes the call fall back. Unsafe reinterpretation is
+// outside these rules (section 18.12).
+//
 // # One rule per instruction
 //
 //	OpAddr       Dst ⊇ <Obj(Obj, Path, cut), Root, false> (Heap if LifeHeap)

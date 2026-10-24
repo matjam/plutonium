@@ -38,8 +38,15 @@ func (s *solver) ownRecord(t tok) (eir.FuncID, bool) {
 	return fn, true
 }
 
+// notRecord reports whether t points at a frame object that no function
+// value can point at (eir.ObjKind.NeverRecord): such a token in a function
+// value is imprecision of the value's join, not a callee.
+func (s *solver) notRecord(t tok) bool {
+	return t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].Kind.NeverRecord()
+}
+
 // restNode returns the node of what function value node n holds less the
-// closure records ownRecord resolves.
+// closure records ownRecord resolves and the tokens notRecord drops.
 func (s *solver) restNode(n uint32) uint32 {
 	if r, ok := s.derived.get(dRest|uint64(n)<<20, 0); ok {
 		return uint32(r)

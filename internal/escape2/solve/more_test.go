@@ -157,6 +157,7 @@ func TestMethodValue(t *testing.T) {
 	b := e.fn("f", 0, 0)
 	x := b.obj("x", eir.LifeFrame, -1)
 	rec := b.obj("rec", eir.LifeFrame, -1)
+	b.f.Objects[rec].Kind = eir.ObjMethodVal // as eir makes it (synth.go)
 	mv := b.reg()
 	b.emit(eir.Instr{Op: eir.OpMethodVal, Dst: mv, X: b.addr(x), Obj: rec})
 	c := &eir.Call{Kind: eir.CallFunc, Target: mv}

@@ -436,6 +436,9 @@ func (s *solver) transform(x uint64, t tok) {
 		if _, ok := s.ownRecord(t); ok {
 			return
 		}
+		if s.notRecord(t) {
+			return
+		}
 		if _, ok := s.regionKnown(t); ok {
 			return // regionlits.go
 		}

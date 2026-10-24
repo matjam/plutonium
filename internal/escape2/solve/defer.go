@@ -111,6 +111,9 @@ func (s *solver) fireDcall(i int, t tok) {
 			s.regionDcall(i, asPointer(t)) // regionlits.go
 			return
 		}
+		if s.notRecord(t) {
+			return // no callee (funccall.go, notRecord)
+		}
 	case tIn:
 		if s.f.External {
 			// No caller binds the function: the origin call's candidates.
