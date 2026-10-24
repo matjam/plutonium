@@ -19,7 +19,7 @@ func TestJoin(t *testing.T) {
 		2: {Inputs: 3, Esc: []domain.Key{k(0), k(2)}, Store: []summary.StorePair{{Src: k(1), Dst: k(0)}},
 			Res: []summary.Result{{Heap: []domain.PathID{domain.Root}}}},
 	}
-	s := join(ps, []eir.FuncID{1, 2, 3}, func(id eir.FuncID) *summary.Summary { return sums[id] })
+	s := join(nil, ps, []eir.FuncID{1, 2, 3}, false, func(id eir.FuncID) *summary.Summary { return sums[id] })
 	if s.Inputs != 3 || len(s.Esc) != 2 || len(s.Store) != 1 || len(s.Res) != 1 || len(s.Res[0].Heap) != 1 {
 		t.Fatalf("join: %+v", s)
 	}

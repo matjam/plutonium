@@ -180,9 +180,14 @@ func (s *solver) def(r eir.Reg, v value) {
 // covers reports whether tagged token c covers x (rules.go, "GE
 // subsumption"): both In tokens of one input, c GE with a path that is a
 // prefix of x's, or Deep with such a path and x's path with more loads (or x
-// Deep too), and c's tag holding x's.
+// Deep too), and c's tag holding x's; c without a type filter.
 func (s *solver) covers(c, x tv) bool {
 	if c == x || c.t.kind != kIn || x.t.kind != kIn || !c.t.ge && !c.t.deep || c.t.id != x.t.id || lendRankOf(c.t) < lendRankOf(x.t) || !s.ps.HasPrefix(x.t.path, c.t.path) {
+		return false
+	}
+	if c.t.filt != 0 {
+		// A filtered token covers no other (solve's coveredIn tries the
+		// unfiltered coverers alone; D51).
 		return false
 	}
 	if c.t.deep && !x.t.deep && s.ps.Loads(x.t.path) == s.ps.Loads(c.t.path) {
@@ -276,7 +281,7 @@ func lendRankOf(t tok) int {
 }
 
 func keyOf(t tok) domain.Key {
-	return domain.MakeKey(t.id, t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt})
+	return domain.MakeKey(t.id, t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt}).WithFilterRaw(t.filt, int(t.fpos))
 }
 
 // noteRegionLits adds the literals a callee's summary names to region reg

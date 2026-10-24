@@ -67,6 +67,13 @@ type gen struct {
 	b     *B
 	st    types2.Type // struct{ f0, f1 unsafe.Pointer; f2 struct{ x, y unsafe.Pointer } }
 
+	// The type filters' part (D51), drawn from rng2 so that the rest of a
+	// seed's case stays as it was: objects of named types A (st's layout)
+	// and B (an A in place), assertions to them, adapters and methods of
+	// them, and filtered callee keys.
+	rng2  *rand.Rand
+	types []types2.Type // A, *A, B, *B
+
 	pool    []eir.Reg
 	nCallee int
 	callees []*eir.Func
@@ -86,6 +93,8 @@ func newStructType() types2.Type {
 // the limits of the domain.
 func Random(seed int64, ps domain.Paths) *Case {
 	g := &gen{rng: rand.New(rand.NewSource(seed)), extra: rand.New(rand.NewSource(seed ^ 0x5eed)), ps: ps, st: newStructType()}
+	g.rng2 = rand.New(rand.NewSource(seed ^ 0x5151))
+	g.types = filterTypes(g.st)
 	prog := &eir.Program{}
 	g.env = &MapEnv{
 		Prog: prog, P: ps,
@@ -108,6 +117,7 @@ func Random(seed int64, ps domain.Paths) *Case {
 	for i := 1; i <= g.nCallee; i++ {
 		c := &eir.Func{ID: eir.FuncID(i), Name: "callee", Results: g.rng.Intn(3), Bodyless: g.rng.Intn(4) == 0}
 		c.Inputs = make([]eir.Input, 1+g.rng.Intn(3))
+		g.receiver(c)
 		prog.Funcs = append(prog.Funcs, c)
 		g.callees = append(g.callees, c)
 		if g.rng.Intn(5) != 0 {
@@ -153,7 +163,53 @@ func (g *gen) randKey(inputs int) domain.Key {
 			f.Deep = true
 		}
 	}
-	return domain.MakeKey(g.rng.Intn(inputs), p, f)
+	k := domain.MakeKey(g.rng.Intn(inputs), p, f)
+	if g.rng2 != nil && g.rng2.Intn(4) == 0 {
+		// A filtered key (D51), at some position of its path.
+		t := g.types[g.rng2.Intn(len(g.types))]
+		fl := domain.One(domain.AtomIs, t)
+		if g.rng2.Intn(3) == 0 {
+			fl.Atoms = append(fl.Atoms, domain.Atom{Kind: domain.AtomIs, T: g.types[g.rng2.Intn(len(g.types))]})
+		}
+		id := g.ps.Filters().Intern(fl)
+		k = k.WithFilter(g.ps, id, g.rng2.Intn(len(g.ps.Steps(p))+1))
+	}
+	return k
+}
+
+// filterTypes are the named types of the filters' cases: A, of st's
+// layout, *A, B, holding an A in place, and *B.
+func filterTypes(st types2.Type) []types2.Type {
+	up := types2.Typ[types2.UnsafePointer]
+	fld := func(n string, t types2.Type) *types2.Var { return types2.NewField(0, nil, n, t, false) }
+	A := types2.NewNamed(types2.NewTypeName(0, nil, "A", nil), st.Underlying(), nil)
+	B := types2.NewNamed(types2.NewTypeName(0, nil, "B", nil),
+		types2.NewStruct([]*types2.Var{fld("f0", up), fld("f1", A)}, nil), nil)
+	return []types2.Type{A, types2.NewPointer(A), B, types2.NewPointer(B)}
+}
+
+// objType is the type of a new object: st, A or B.
+func (g *gen) objType() types2.Type {
+	switch g.rng2.Intn(4) {
+	case 0:
+		return g.types[0]
+	case 1:
+		return g.types[2]
+	}
+	return g.st
+}
+
+// receiver makes callee c, sometimes, an interface adapter or a method of
+// one of the filters' types (solve.RecvFilter).
+func (g *gen) receiver(c *eir.Func) {
+	switch g.rng2.Intn(4) {
+	case 0:
+		c.Key.Synth = &eir.Synth{Kind: eir.SynthItabAdapter, Recv: g.types[g.rng2.Intn(len(g.types))]}
+	case 1:
+		r := types2.NewVar(0, nil, "r", g.types[g.rng2.Intn(len(g.types))])
+		c.Key.Obj = types2.NewFunc(0, nil, "M", types2.NewSignatureType(r, nil, nil, nil, nil, false))
+		c.Inputs[0].Var = r
+	}
 }
 
 func (g *gen) randSummary(inputs, results int) *summary.Summary {
@@ -162,10 +218,10 @@ func (g *gen) randSummary(inputs, results int) *summary.Summary {
 		sm.Esc = append(sm.Esc, g.randKey(inputs))
 	}
 	for i := g.rng.Intn(3); i > 0; i-- {
-		sm.Store = append(sm.Store, summary.StorePair{Src: g.randKey(inputs), Dst: g.randKey(inputs)})
+		sm.Store = append(sm.Store, summary.StorePair{Src: g.randKey(inputs), Dst: g.randKey(inputs).NoFilter()}) // a destination keeps no type filter (D51)
 	}
 	for i := g.rng.Intn(2); i > 0; i-- {
-		sm.HeapStore = append(sm.HeapStore, g.randKey(inputs))
+		sm.HeapStore = append(sm.HeapStore, g.randKey(inputs).NoFilter())
 	}
 	for r := range sm.Res {
 		for i := g.rng.Intn(3); i > 0; i-- {
@@ -237,7 +293,14 @@ func (g *gen) body() {
 		if life == eir.LifeCaller {
 			kind = eir.ObjRegion
 		}
-		b.Obj(kind, life, loop, g.st)
+		t := g.st
+		if kind == eir.ObjVar {
+			t = g.objType()
+			if g.rng2.Intn(3) == 0 {
+				kind = eir.ObjBox
+			}
+		}
+		b.Obj(kind, life, loop, t)
 	}
 	var phi *eir.Instr
 	var phiBlock eir.BlockID
@@ -438,6 +501,11 @@ func (g *gen) instr() {
 		g.add(b.MethodVal(g.obj(), g.pick()))
 	case 18:
 		g.add(b.Assert(g.pick()))
+		if g.rng2.Intn(2) == 0 {
+			// To one of the filters' types (D51).
+			ins := b.F.Blocks[b.cur].Instrs
+			ins[len(ins)-1].Type = g.types[g.rng2.Intn(len(g.types))]
+		}
 	case 19:
 		kinds := []eir.SinkKind{eir.SinkReturn, eir.SinkReturn, eir.SinkGlobal, eir.SinkSend, eir.SinkTask, eir.SinkExternal}
 		k := kinds[rng.Intn(len(kinds))]

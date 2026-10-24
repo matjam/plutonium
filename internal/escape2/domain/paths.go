@@ -66,7 +66,11 @@ type paths struct {
 	// table is an open-addressing index of the children of each path:
 	// 1 + the child's ID, keyed by (parent, step); 0 is a free slot.
 	table []uint32
+
+	filters Filters
 }
+
+func (ps *paths) Filters() *Filters { return &ps.filters }
 
 // NewPaths returns an empty path interner holding only Root.
 func NewPaths() Paths {
@@ -261,6 +265,9 @@ func ExtendKey(ps Paths, k Key, s Step) Key {
 		}
 	}
 	q, cut := ps.Extend(k.Path(), s)
+	if cut {
+		k = k.NoFilter() // the cut may end before the filter's position
+	}
 	return k.WithPath(q, cut)
 }
 

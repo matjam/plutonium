@@ -108,8 +108,8 @@ type heapOnly struct {
 	poisonAt hoWrite
 	causes   []hoAtom
 
-	structGroup map[typeID]int32 // struct typeID to group (union-find root)
-	memo        map[hoKey]bool   // classHolds answers
+	structGroup map[typeID]int32                       // struct typeID to group (union-find root)
+	memo        map[hoKey]bool                         // classHolds answers
 	vars        map[eir.FuncID]map[eir.ObjID][]eir.Reg // varStores, by function: the values stored into each plain variable
 	rtypes      map[regKey]types2.Type
 	rbusy       map[regKey]bool

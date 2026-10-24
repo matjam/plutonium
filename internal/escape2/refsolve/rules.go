@@ -36,8 +36,12 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 	case eir.OpCopy:
 		s.def(in.Dst, s.val(in.X)) // OpCopy: Dst ⊇ X
 	case eir.OpAssert:
-		// Dst ⊇ X; to a direct type, without pointers to interface boxes.
+		// Dst ⊇ X through the assertion's type filter (D51); to a direct
+		// type, without pointers to interface boxes.
 		v := s.val(in.X)
+		if id := solve.AssertFilterID(s.ps.Filters(), in.Type); id != 0 && in.X != 0 {
+			v = s.filter(v, id)
+		}
 		if solve.DirectAssert(in.Type) {
 			w := value{}
 			for x := range v {

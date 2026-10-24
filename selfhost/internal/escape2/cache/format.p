@@ -29,7 +29,8 @@ import (
 //	deferred := string(origin stable ID) uvarint(site) key(fn) uvarint(n) (byte(heap) keys)*
 //	keys     := uvarint(n) key*            (sorted by bytes)
 //	pairs    := uvarint(n) (key key)*      (sorted by bytes)
-//	key      := uvarint(input) byte(flags: 1 GE, 2 Borrowed, 4 Counts, 8 DirectCount, 16 FieldsGE, 32 Deep) path
+//	key      := uvarint(input) byte(flags: 1 GE, 2 Borrowed, 4 Counts, 8 DirectCount, 16 FieldsGE, 32 Deep, 64 Filter) path [filter]
+//	filter   := uvarint(position) uvarint(n) string(atom text)*  (domain.Atom.Text, in the filter's order)
 //	path     := uvarint(n) varint(step)*   (StepLoad -2, StepElem -1, field >= 0)
 //	result   := uvarint(n) (key path byte(fieldGE))* paths(heap) paths(counted)
 //	paths    := uvarint(n) path*           (sorted by bytes)
@@ -41,6 +42,7 @@ const (
 	flagDirectCount = 8
 	flagFieldsGE    = 16
 	flagDeep        = 32
+	flagFilter      = 64
 )
 
 func appendPath(b []byte, ps domain.Paths, p domain.PathID) []byte {
@@ -74,8 +76,21 @@ func appendKey(b []byte, ps domain.Paths, k domain.Key) []byte {
 	if f.Deep {
 		fl |= flagDeep
 	}
+	id, pos := k.Filter()
+	filt, hasFilter := ps.Filters().Get(id)
+	if hasFilter {
+		fl |= flagFilter
+	}
 	b = compat.AppendPlain(b, fl)
-	return appendPath(b, ps, k.Path())
+	b = appendPath(b, ps, k.Path())
+	if hasFilter {
+		b = compat.AppendUvarint(b, uint64(pos))
+		b = compat.AppendUvarint(b, uint64(len(filt.Atoms)))
+		for _, a := range filt.Atoms {
+			b = appendString(b, a.Text())
+		}
+	}
+	return b
 }
 
 // appendSorted appends n encoded items, sorted by their bytes.
@@ -199,6 +214,11 @@ var errCorrupt = errors.New("corrupt")
 type reader struct {
 	b   []byte
 	err error
+
+	// atom resolves a type filter's atom by its text (domain.Atom.Text)
+	// in the program at hand; nil, or false, for none: the key is then
+	// read without its filter, which only widens it.
+	atom func(string) (domain.Atom, bool)
 }
 
 func (r *reader) fail() {
@@ -302,13 +322,42 @@ func (r *reader) key(ps domain.Paths, inputs int) domain.Key {
 	if r.err != nil {
 		return 0
 	}
-	if in >= uint64(inputs) || in >= domain.MaxInputs || fl&^0x3f != 0 {
+	if in >= uint64(inputs) || in >= domain.MaxInputs || fl&^0x7f != 0 {
 		r.fail()
 		return 0
 	}
-	return domain.MakeKey(int(in), p, domain.KeyFlags{
+	k := domain.MakeKey(int(in), p, domain.KeyFlags{
 		GE: fl&flagGE != 0, Borrowed: fl&flagBorrowed != 0, Counts: fl&flagCounts != 0, DirectCount: fl&flagDirectCount != 0, FieldsGE: fl&flagFieldsGE != 0, Deep: fl&flagDeep != 0,
 	})
+	if fl&flagFilter != 0 {
+		pos := r.uvarint()
+		n := r.count(1)
+		var f domain.Filter
+		known := r.atom != nil
+		for i := 0; i < n && r.err == nil; i++ {
+			text := r.str()
+			if !known {
+				continue
+			}
+			a, ok := r.atom(text)
+			if !ok {
+				known = false
+				continue
+			}
+			f.Atoms = compat.Append(f.Atoms, a)
+		}
+		if r.err != nil {
+			return 0
+		}
+		if n == 0 || pos > uint64(len(ps.Steps(p))) || pos > 15 {
+			r.fail()
+			return 0
+		}
+		if known {
+			k = k.WithFilter(ps, ps.Filters().Intern(f), int(pos))
+		}
+	}
+	return k
 }
 
 // minKey is the fewest bytes a key takes.
@@ -324,8 +373,8 @@ type shape struct {
 // paths in ps, and checks it against the function's shape. Its sets are
 // sorted as the solver keeps them (by key); nothing else about them is
 // assumed: the driver's check decides whether the summary stands.
-func decodeSummary(b []byte, ps domain.Paths, sh shape, id func(string) (eir.FuncID, bool)) (*summary.Summary, error) {
-	r := &reader{b: b}
+func decodeSummary(b []byte, ps domain.Paths, sh shape, id func(string) (eir.FuncID, bool), atom func(string) (domain.Atom, bool)) (*summary.Summary, error) {
+	r := &reader{b: b, atom: atom}
 	s := r.summary(ps, sh, id)
 	if r.err == nil && len(r.b) != 0 {
 		r.fail()

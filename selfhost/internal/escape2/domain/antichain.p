@@ -25,6 +25,13 @@ func CoveredBy(ps Paths, keys []Key, k Key) bool {
 // k: one with k's flags, or for a key that is not Borrowed, a Borrowed one
 // (Covers), its Borrowed twin included.
 func coveredByOther(ps Paths, keys []Key, k Key) bool {
+	if k.HasFilter() {
+		// Its unfiltered forms cover it as well (Covers).
+		u := k.NoFilter()
+		if hasKey(keys, u) || coveredByOther(ps, keys, u) {
+			return true
+		}
+	}
 	if coveredByFlags(ps, keys, k, k) {
 		return true
 	}

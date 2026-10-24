@@ -15,9 +15,13 @@ import (
 
 // Paths is a simple path interner.
 type Paths struct {
-	steps [][]domain.Step
-	index map[string]domain.PathID
+	steps   [][]domain.Step
+	index   map[string]domain.PathID
+	filters domain.Filters
 }
+
+// Filters is the paths' table of type filters.
+func (p *Paths) Filters() *domain.Filters { return &p.filters }
 
 // NewPaths returns an interner holding only Root.
 func NewPaths() *Paths {

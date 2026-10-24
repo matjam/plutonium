@@ -13,7 +13,9 @@ import (
 //
 // Word 0: kind (bits 0-1), the token's own GE (pg or kg, bit 2), the tag's
 // GE (bit 3), an In token's FieldsGE (bit 4) and Deep (bit 5), base (bits
-// 8-39: object or input). Word 1: path (bits 0-31), tag (bits 32-63).
+// 8-39: object or input), an In token's type filter (bits 40-53: a
+// domain.FilterID) and its position (bits 54-57: the path steps before the
+// filtered pointer; D51). Word 1: path (bits 0-31), tag (bits 32-63).
 //
 // An In token stands for the pointers of its key (key, domain.Key): exact,
 // GE (ge), FieldsGE (fge: the path's pointers at any offset, what an
@@ -41,6 +43,8 @@ type tok struct {
 	base  uint32
 	path  domain.PathID
 	tag   domain.PathID
+	filt  domain.FilterID // In: the key's type filter (D51), 0 for none
+	fpos  uint8           // its position: the steps of path before the filtered pointer
 }
 
 func (t tok) words() (uint64, uint64) {
@@ -63,6 +67,7 @@ func (t tok) words() (uint64, uint64) {
 	if t.cnt {
 		w0 |= 128
 	}
+	w0 |= uint64(t.filt)<<40 | uint64(t.fpos&0xf)<<54
 	return w0, uint64(t.path) | uint64(t.tag)<<32
 }
 
@@ -78,7 +83,19 @@ func tokOf(w0, w1 uint64) tok {
 		base:  uint32(w0 >> 8),
 		path:  domain.PathID(uint32(w1)),
 		tag:   domain.PathID(uint32(w1 >> 32)),
+		filt:  domain.FilterID((w0 >> 40) & 0x3fff),
+		fpos:  uint8((w0 >> 54) & 0xf),
 	}
+}
+
+// trimFilter drops t's filter when its path no longer reaches the filter's
+// position (a cut back to an earlier prefix stands for more than the
+// filtered pointer).
+func (s *solver) trimFilter(t tok) tok {
+	if t.filt != 0 && int(t.fpos) > len(s.ps.Steps(t.path)) {
+		t.filt, t.fpos = 0, 0
+	}
+	return t
 }
 
 // wide reports whether an In token's path stands for its extensions by
@@ -99,6 +116,7 @@ var heapTok = tok{kind: tHeap}
 func (s *solver) intern(t tok) uint64 {
 	if t.kind == tHeap || t.kind == tCHeap {
 		t.base, t.path, t.ge, t.fge, t.deep = 0, domain.Root, false, false, false // heap tokens keep their tag only
+		t.filt, t.fpos = 0, 0
 	}
 	w0, w1 := t.words()
 	if id, ok := s.tokIdx.get(w0, w1); ok {
@@ -117,7 +135,7 @@ func (s *solver) tokAt(id uint64) tok {
 
 // key is the summary key of an In token.
 func key(t tok) domain.Key {
-	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt})
+	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt}).WithFilterRaw(t.filt, int(t.fpos))
 }
 
 // extend appends one step to p; ge reports that the step went past the
@@ -195,6 +213,7 @@ func (s *solver) off(t tok, steps []domain.Step) tok {
 		p, cut := s.extendAll(t.path, steps)
 		t.path = p
 		t.ge = t.ge || cut
+		t = s.trimFilter(t)
 	}
 	return t
 }
@@ -222,6 +241,7 @@ func (s *solver) anyOffset(t tok) tok {
 		if !t.ge {
 			t.fge = true
 		}
+		t = s.trimFilter(t)
 	}
 	return t
 }
@@ -242,6 +262,7 @@ func (s *solver) loadIn(t tok) tok {
 		// what a counted copy holds a copy.
 		t.path, t.deep = s.extend(t.path, domain.StepLoad)
 		t.lent, t.cnt = false, false
+		t = s.trimFilter(t)
 	}
 	return t
 }

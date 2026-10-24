@@ -254,6 +254,40 @@ package solve
 // appear an origin call only moves down the ranks, so the choice settles,
 // whatever the order of the solve.
 //
+// # Type filters (decision D51)
+//
+// A key, and an In token, may carry a type filter (domain.Key.Filter): a
+// union of predicates on a dynamic type ("is T", "implements I", "pointer
+// to an instance of G"; domain.Atom) and a position, the number of steps of
+// its path before the filtered pointer. The key stands only for the
+// pointers found through a pointer at that position that the filter admits:
+// what passes a type assertion, or the data word of a receiver whose
+// method a call reaches. Filters are made at OpAssert to an interface or to
+// a concrete type other than a pointer (AssertFilter), at the receiver of
+// each candidate of a CallIface with a Target (RecvFilter, with iface
+// true), and at the receiver keys of each member of a join of the
+// candidates of a dynamic call (sched/join.go: RecvFilter, iface for a
+// CallIface, of which a set has its own virtual function); "through a
+// filter F" below is filterTok:
+//
+//   - an Obj token tagged Root (the place holds one pointer, the data word)
+//     is left out when F admits no pointer to its object at its path
+//     (FilterAdmitsObj): only an exact token at the root of a typed
+//     variable, parameter slot, temporary, slice literal or variadic array,
+//     or an exact one into a box, is ever left out;
+//   - an exact In token tagged Root with no filter takes F at its path's
+//     length; any other In token, Heap and CHeap stay as they are.
+//
+// val of a filtered key is val of its path up to the position, through the
+// filter, then the rest of its path and its flags. Extending a token's
+// path keeps its filter; a cut back past the position (a load past the
+// limits, anyOffset) drops it, and so does every summary cut that no
+// longer reaches it (summary.CutKey). A store's destination keeps none
+// (storeDst). A GE or Deep In token with a filter covers no other token
+// ("GE subsumption"). summary.Widen gives the entries that differ only in
+// their filter the union of their filters, cuts keeping filters where the
+// cut path reaches them, and drops them only past the caps' cuts.
+//
 // # Calls of function values
 //
 // An own record of a function value is a token Obj(o, Root, false), of any
@@ -312,6 +346,8 @@ package solve
 //	             objects whose Type (the dynamic type of the boxed value)
 //	             mentions no type parameter and does not implement it are
 //	             left out: the assertion fails on them (solve.BoxAsserts).
+//	             First X goes through the assertion's type filter, when it
+//	             makes one (AssertFilter; "Type filters").
 //	OpSink       SinkReturn: for each <u,T,g> in X:
 //	                 u = Obj frame, LifeFrame or shorter  finding E3001
 //	                 u = Obj LifeCaller (a region)        Region.Builds,
@@ -434,7 +470,8 @@ package solve
 // is a pointer, and to both when the instances are unknown or mixed
 // (solve.RecvChoice). CallIface and CallTypeParam bind input 0 to
 // Target (the interface value's data word: a box pointer, or the direct
-// value) and input i+1 to Args[i]; when Target is 0 the receiver is Args[0]
+// value; for a CallIface, through the candidate's receiver filter: "Type
+// filters") and input i+1 to Args[i]; when Target is 0 the receiver is Args[0]
 // and inputs bind as for a static call. CallFunc binds input i to Args[i]
 // and, when the candidate has one input more than Args (a literal's closure
 // record, a method value's record), the last input to Target. An input with

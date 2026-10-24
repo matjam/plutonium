@@ -58,6 +58,7 @@ const (
 	xLend            // identity, In tokens made lent (OpBorrow, a Borrowed key)
 	xNoHolder        // identity, without pointers to the view objects of counted errors' holders (a key not Borrowed)
 	xRecount         // identity, In tokens not lent and no pointers to ErrHolder objects (OpRecount)
+	xFilter          // through the type filter whose ID is path (D51; filterTok)
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -424,6 +425,16 @@ func (s *solver) transform(x uint64, t tok) {
 			}
 		}
 		s.buf.push(s.a, s.intern(t))
+	case xFilter:
+		id := domain.FilterID(path)
+		f, ok := s.filterOf(id)
+		if !ok {
+			s.buf.push(s.a, s.intern(t))
+			return
+		}
+		if u, ok := s.filterTok(t, id, f); ok {
+			s.buf.push(s.a, s.intern(u))
+		}
 	case xNoRec:
 		if _, ok := s.ownRecord(t); ok {
 			return

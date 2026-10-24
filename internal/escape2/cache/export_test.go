@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
@@ -18,12 +20,55 @@ import (
 // EncodeSummary is appendSummary.
 func EncodeSummary(ps domain.Paths, s *summary.Summary) []byte {
 	b, _ := appendSummary(nil, ps, s, testName)
+	encodedMu.Lock()
+	if !slices.Contains(encodedWith, ps.Filters()) {
+		encodedWith = append(encodedWith, ps.Filters())
+	}
+	encodedMu.Unlock()
 	return b
 }
+
+// encodedWith are the filter tables EncodeSummary wrote keys of: the atoms
+// a test's decoding resolves (testAtom), as a cache resolves them in its
+// program (Cache.atomOf).
+var (
+	encodedMu   sync.Mutex
+	encodedWith []*domain.Filters
+)
 
 // testName and testID name a deferred call's origin by its number, for the
 // external tests.
 func testName(id eir.FuncID) string { return strconv.Itoa(int(id)) }
+
+// testAtom resolves an atom by its text among the filters of ps and of the
+// tables EncodeSummary wrote with.
+func testAtom(ps domain.Paths) func(string) (domain.Atom, bool) {
+	return func(text string) (domain.Atom, bool) {
+		encodedMu.Lock()
+		tables := append([]*domain.Filters{ps.Filters()}, encodedWith...)
+		encodedMu.Unlock()
+		for _, fs := range tables {
+			if a, ok := atomIn(fs, text); ok {
+				return a, true
+			}
+		}
+		return domain.Atom{}, false
+	}
+}
+
+func atomIn(fs *domain.Filters, text string) (domain.Atom, bool) {
+	for id := domain.FilterID(1); ; id++ {
+		f, ok := fs.Get(id)
+		if !ok {
+			return domain.Atom{}, false
+		}
+		for _, a := range f.Atoms {
+			if a.Text() == text {
+				return a, true
+			}
+		}
+	}
+}
 
 func testID(s string) (eir.FuncID, bool) {
 	n, err := strconv.Atoi(s)
@@ -32,7 +77,7 @@ func testID(s string) (eir.FuncID, bool) {
 
 // DecodeSummary is decodeSummary for a function of the given shape.
 func DecodeSummary(b []byte, ps domain.Paths, inputs, results int) (*summary.Summary, error) {
-	return decodeSummary(b, ps, shape{inputs, results}, testID)
+	return decodeSummary(b, ps, shape{inputs, results}, testID, testAtom(ps))
 }
 
 // Entry is an entry of a file, for tests that rewrite files.
@@ -90,6 +135,6 @@ func DecodeAny(b []byte, ps domain.Paths) (*summary.Summary, int, error) {
 		v, _ := binary.Uvarint(b[1:])
 		inputs = int(v)
 	}
-	s, err := decodeSummary(b, ps, shape{inputs, 1 << 20}, testID)
+	s, err := decodeSummary(b, ps, shape{inputs, 1 << 20}, testID, testAtom(ps))
 	return s, inputs, err
 }

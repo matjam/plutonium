@@ -35,6 +35,7 @@ import (
 	"selfhost/internal/escape2/domain"
 	"selfhost/internal/escape2/eir"
 	"selfhost/internal/escape2/sched"
+	"selfhost/internal/escape2/solve"
 	"selfhost/internal/escape2/summary"
 	"selfhost/internal/types2"
 	"selfhost/pu"
@@ -81,6 +82,7 @@ type Cache struct {
 	loaded  []digest // the reads recorded with the summary offered
 
 	types map[types2.Type]string
+	atoms map[string]domain.Atom // the type filters' atoms the program can make, by text (atomOf)
 	sums  map[*summary.Summary]digest
 	files map[string]map[lookupKey]entry
 
@@ -182,7 +184,7 @@ func (c *Cache) Begin(v sched.CacheView, comp []eir.FuncID, load bool) []*summar
 		if !ok {
 			return nil
 		}
-		s, err := decodeSummary(e.sum, c.paths, shapeOf(f), c.funcByID)
+		s, err := decodeSummary(e.sum, c.paths, shapeOf(f), c.funcByID, c.atomOf)
 		if err != nil {
 			c.Stats.BadSummaries++
 			return nil
@@ -380,4 +382,44 @@ func (c *Cache) stableID(id eir.FuncID) string {
 func (c *Cache) funcByID(s string) (eir.FuncID, bool) {
 	id, ok := c.byID[s]
 	return id, ok
+}
+
+// atomOf resolves a type filter's atom by its text: the atoms the program's
+// assertions and dynamic calls' candidates make (solve.AssertFilter,
+// solve.RecvFilter), each filter of a summary a union of them. A text two
+// types share (local types of one name) resolves to none, and the key is
+// read without its filter.
+func (c *Cache) atomOf(text string) (domain.Atom, bool) {
+	if c.atoms == nil {
+		c.atoms = map[string]domain.Atom{}
+		bad := map[string]bool{}
+		add := func(f domain.Filter, ok bool) {
+			if !ok {
+				return
+			}
+			for _, a := range f.Atoms {
+				t := a.Text()
+				if old, dup := c.atoms[t]; dup && (old.Kind != a.Kind || !types2.Identical(old.T, a.T)) {
+					bad[t] = true
+				}
+				c.atoms[t] = a
+			}
+		}
+		for id, f := range c.prog.Funcs {
+			add(solve.RecvFilter(c.prog, eir.FuncID(id), true))
+			add(solve.RecvFilter(c.prog, eir.FuncID(id), false))
+			for _, b := range f.Blocks {
+				for i := range b.Instrs {
+					if in := &b.Instrs[i]; in.Op == eir.OpAssert {
+						add(solve.AssertFilter(in.Type))
+					}
+				}
+			}
+		}
+		for t := range bad {
+			delete(c.atoms, t)
+		}
+	}
+	a, ok := c.atoms[text]
+	return a, ok
 }

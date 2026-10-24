@@ -155,6 +155,13 @@ func (s *solver) binding(c *eir.Call, n int, cand eir.FuncID) []uint64 {
 			bind[0] = uint64(s.joinNode(s.canonBase(c.RecvAddr), uint32(bind[0])))
 		}
 	}
+	if c.Kind == eir.CallIface && c.Target != 0 && n > 0 && bind[0] != 0 {
+		// The receiver of an adapter: only a value of its dynamic type
+		// reaches it (D51, RecvFilter).
+		if id := RecvFilterID(s.ps.Filters(), s.prog, cand, true); id != 0 {
+			bind[0] = uint64(s.filterNode(uint32(bind[0]), id))
+		}
+	}
 	return bind
 }
 

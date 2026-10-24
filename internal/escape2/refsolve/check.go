@@ -89,7 +89,7 @@ func (s *solver) store(d, v value, pos token.Pos, c callCtx) {
 				// D' = off(d, T), FieldsGE when the tag is GE: a GE key
 				// stays as it is.
 				d2 := s.off(dt, x.tag, false)
-				dk := keyOf(d2)
+				dk := keyOf(d2).NoFilter() // a destination keeps no type filter (D51)
 				if x.g {
 					dk = dk.WithFieldsGE()
 				}
