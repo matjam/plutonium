@@ -439,19 +439,31 @@ func (a *analyzer) analyze(f *function) {
 // deduplicates: one error per escaping location and kind of sink. Errors
 // without a key are deduplicated by position.
 func (a *analyzer) add(pos token.Pos, key string, mk func() *diag.Diagnostic) {
+	if a.claim(pos, key) {
+		a.record(mk())
+	}
+}
+
+// claim reports whether an error at pos with key is to be recorded: this is
+// the reporting pass, there is room, and no error of that key was.
+func (a *analyzer) claim(pos token.Pos, key string) bool {
 	if !a.report || len(a.errs) >= maxErrors {
-		return
+		return false
 	}
 	k := key
 	if k == "" {
 		k = a.fset.Position(pos).String()
 	}
 	if a.errSeen[k] {
-		return
+		return false
 	}
 	a.errSeen[k] = true
-	d := mk()
-	// Two views of one place reaching the same sink read the same.
+	return true
+}
+
+// record adds d to the errors unless one of the same text is there: two
+// views of one place reaching the same sink read the same.
+func (a *analyzer) record(d *diag.Diagnostic) {
 	if text := "text|" + d.Error(); !a.errSeen[text] {
 		a.errSeen[text] = true
 		a.errs = append(a.errs, d)
@@ -459,11 +471,14 @@ func (a *analyzer) add(pos token.Pos, key string, mk func() *diag.Diagnostic) {
 }
 
 // internalf reports a construct the analysis does not expect after type
-// checking: a bug in the compiler.
+// checking: a bug in the compiler. It makes the diagnostic itself rather
+// than through add's closure, so that the self-hosted compiler's escape
+// analysis does not join its variadic arguments with what add's other
+// closures keep (tools/go2pu).
 func (a *analyzer) internalf(pos token.Pos, format string, args ...any) {
-	a.add(pos, "", func() *diag.Diagnostic {
-		return diag.New(a.fset.Position(pos), diag.InternalError, "internal compiler error: escape analysis: "+format, args...)
-	})
+	if a.claim(pos, "") {
+		a.record(diag.New(a.fset.Position(pos), diag.InternalError, "internal compiler error: escape analysis: "+format, args...))
+	}
 }
 
 // litFunc returns the function for a function literal.
