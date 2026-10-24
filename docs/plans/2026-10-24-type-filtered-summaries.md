@@ -1,10 +1,9 @@
 # Type-filtered summary entries
 
-Status: proposed, 2026-10-24, not built. Decision D51 (owner, via the coordinator): yes in principle,
-sequenced after D's fix of the deferral and fallback rule; build it if about 40 or more findings of the
-interface-box class remain on the translated compiler after that fix. Section 18.3 defines what the
-analysis accepts; this plan adds one sentence to it (below), which lands with the code. Not normative
-until then.
+Status: being built, 2026-10-24. Decision D51 (owner, via the coordinator): go, extended to direct
+pointers as well as boxes (lib/fmtappend: the join of the `Append` candidates applies `(*Vec).Append` to
+a frame `vec.Fixed`). Section 18.3 defines what the analysis accepts; this plan adds one sentence to it
+(below), which lands with the code. Not normative until then.
 
 ## The problem
 
@@ -46,14 +45,27 @@ Two predicates:
 - **implements I**, for an assertion to an interface `I` that mentions no type parameter (what
   `BoxAsserts` checks today);
 - **is T**, for an assertion to a concrete type `T` that mentions no type parameter, and for the receiver
-  of a candidate method of `T` at a call through an interface (fmt's walk, every `CallIface`): that
-  candidate's entries apply only to boxes of `T`, or of `*T` for a method with a pointer receiver.
+  of a candidate method at a call through an interface (fmt's walk, every `CallIface`): a method of
+  pointer receiver `*T` is reached only by a dynamic type `*T`; an adapter of a value receiver `T` (the
+  data word points at a box of `T`) only by `T`.
 
-A filter only removes `Obj` tokens of `eir.ObjBox` objects whose `Type` mentions no type parameter. It
-never removes heap tokens, counted heap tokens, objects that are not boxes (a direct value's data word is
-the pointer itself, whose pointee need not have the asserted type), or boxes whose type mentions a type
-parameter. Where the analysis cannot tell, the token stays. That is what keeps the rule sound: an entry
-is dropped only for a box whose dynamic type the program's own assertion or dispatch rejects at run time.
+A filter removes two kinds of `Obj` token, and nothing else:
+
+- a box (`eir.ObjBox`) whose `Type`, the dynamic type of the value it holds, mentions no type parameter
+  and fails the predicate;
+- a **direct pointer**: an exact token at the root of an object that is a variable, a parameter's slot,
+  a temporary or a composite literal's object, whose type `U` mentions no type parameter, when the
+  predicate is "is `*V`" with `V` not identical to `U`. The data word of an interface value whose
+  dynamic type is `*V` is a `*V`, and a `*V` points at a `V`: a token of an object of another type, at
+  its root, is no such pointer. (Code that reinterprets memory with `unsafe.Pointer` is outside this, as
+  it is outside the other rules of section 18.3; section 18.12.) "implements I" removes no direct
+  pointer: a direct value of a type other than a pointer (a struct of one pointer, a map, a channel, a
+  func) may hold a pointer to any object and implement `I`.
+
+It never removes heap tokens, counted heap tokens, tokens with a path or GE, objects of other kinds
+(closure records, regions), or anything whose type mentions a type parameter. Where the analysis cannot
+tell, the token stays. That is what keeps the rule sound: an entry is dropped only for a value whose
+dynamic type the program's own assertion or dispatch rejects at run time.
 
 ## Format
 
@@ -74,7 +86,7 @@ absorbs filtered ones in the antichain (`summary.Widen`), as it must. Store pair
 only; a filter on a destination key is dropped when the pair is made (the destination is where the store
 goes, and narrowing it would need a second filter).
 
-**Cache** (internal/escape2/cache). Format version 5. A file carries its package's filter table, each
+**Cache** (internal/escape2/cache). Format version 6. A file carries its package's filter table, each
 entry as the kind and the type's canonical string (as for the contract table), and keys refer to it by
 index. Loading re-interns the predicates. A predicate whose type no longer resolves makes the entry fail
 its check, so the summary is solved again. A cached summary is checked, never trusted (D44), so a wrong
@@ -85,9 +97,12 @@ table costs a solve, not soundness.
 **Making filters (both solvers).** At `OpAssert` to an interface or concrete type that mentions no type
 parameter, an `In` token with no filter gets the filter (implements I or is T) at its current path length;
 one that has a filter keeps its own. Keeping either filter is sound, and one slot keeps the format small.
-At a `CallIface` whose receiver holds `In` tokens, the summary of candidate `m` of type `T` is applied
-with the receiver's `In` tokens given the filter "is T" (or `*T`). `Obj` tokens are narrowed at once, as
-`BoxAsserts` narrows them today.
+At a `CallIface` the summary of candidate `m` is applied with the receiver given the filter of `m`'s
+dynamic type ("is `*T`" for a method of pointer receiver, "is `T`" for a value receiver's adapter): `Obj`
+tokens are narrowed at once, `In` tokens take the filter at their path length. A call whose candidates
+are joined into one virtual function (D47) gets the same through the join: each member's entries keyed
+on the receiver input take the member's filter at position 0 (the data word itself), so the join holds
+one filtered entry per member where the members' keys differ only in their filter.
 
 **Moving filters.** Extending a filtered token's path keeps the filter and its position. Cutting a path
 to a prefix shorter than the position drops the filter, because the cut stands for more than the
@@ -102,8 +117,9 @@ takes the filter, at its own path length plus the remaining offset, unless it ha
 reference solver does the same in `step` and `load`.
 
 **Merged keys and joins.** The virtual join of a dynamic call's candidates (D47) keeps each member's
-filters. Combining two entries that differ only in their filter gives the unfiltered entry. The per-input
-store cut (`MaxRawStorePerInput`) drops filters first.
+filters: two keys that differ only in their filter do not cover each other and both stay. Past a cap,
+widening drops filters first (the unfiltered key covers its filtered forms), before it cuts paths. The
+per-input store cut (`MaxRawStorePerInput`) drops filters first.
 
 ## Soundness tests
 
@@ -124,11 +140,12 @@ Each is a program in a new escape2 test file, accepted or rejected as stated, wi
    of a type of a keeping case is rejected, the others accepted.
 7. An assertion to an interface that mentions a type parameter, and a box whose type mentions one: no
    filter, as `BoxAsserts`.
-8. A direct value (a pointer to a frame object converted to `any`) asserted to an interface its pointee
-   type does not implement: still rejected. Direct values are never filtered.
+8. A direct value (a pointer to a frame object converted to `any`) asserted to an interface: still
+   rejected (no direct pointer is filtered by "implements"). A pointer to a frame `vec.Fixed` passed
+   where the only keeping candidate is `(*Vec).Append`: accepted; a pointer to a frame `Vec`: rejected.
 9. A call through an interface whose only keeping candidate is `(*A).String`: a box of `B` (another
    Stringer that keeps nothing) accepted, a box of `A` rejected.
-10. Cache: a summary with filtered keys round-trips through version 5, and one whose filter table names a
+10. Cache: a summary with filtered keys round-trips through version 6, and one whose filter table names a
     type that no longer exists is solved again.
 
 The differential generator (refsolve/gen.go) gains boxes of several types, assertions to interfaces and
@@ -144,7 +161,7 @@ Add to "How precise the frame check is", after the bullet on calls through an in
 >   what passes an assertion does not keep a caller's value of a type the assertion rejects.
 
 The sentence states the precision the rule gives and claims nothing beyond it: a value whose dynamic type
-the analysis cannot tell (a direct value, a type parameter) is followed as before.
+the analysis cannot tell (a direct value other than a pointer, a type parameter) is followed as before.
 
 ## Measurement plan
 
