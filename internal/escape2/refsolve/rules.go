@@ -73,12 +73,29 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 		s.ruleDrop(b, in)
 	case eir.OpArenaView:
 		s.ruleArenaView(in)
-	case eir.OpBorrow:
-		// Dst ⊇ X, and Y once X holds CHeap (solve/rules.go).
+	case eir.OpRecount:
+		// Dst ⊇ X, In not lent, less ErrHolder objects (solve/rules.go).
+		w := value{}
+		for x := range s.val(in.X) {
+			if x.t.kind == kObj && x.t.id < len(s.f.Objects) && s.f.Objects[x.t.id].ErrHolder {
+				continue
+			}
+			if x.t.kind == kIn {
+				x.t.lent, x.t.cnt = false, true
+			}
+			w.add(x)
+		}
+		s.def(in.Dst, w)
+	case eir.OpBorrow, eir.OpLend:
+		// Dst ⊇ X (OpBorrow: its In tokens lent), and Y once X holds
+		// CHeap (solve/rules.go).
 		v := s.val(in.X)
 		w := value{}
 		counted := false
 		for x := range v {
+			if in.Op == eir.OpBorrow && x.t.kind == kIn {
+				x.t.lent, x.t.cnt = true, false
+			}
 			w.add(x)
 			counted = counted || x.t.kind == kCHeap
 		}
@@ -86,6 +103,12 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 			for x := range s.val(in.Y) {
 				w.add(x)
 			}
+		}
+		if in.Op == eir.OpLend {
+			if s.lentRegs == nil {
+				s.lentRegs = map[eir.Reg]bool{}
+			}
+			s.lentRegs[in.Dst] = true
 		}
 		s.def(in.Dst, w)
 	case eir.OpCall:

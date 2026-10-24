@@ -345,9 +345,25 @@ package solve
 //	OpDrop       for an object o of LifeStmt: every register live after the
 //	             drop whose value holds Obj(o, ...) is a finding E3009 at the
 //	             drop (a place that holds it is found by the store check)
-//	OpBorrow     Dst ⊇ X; and Dst ⊇ Y once X holds a CHeap token (a value
-//	             taken out of a counted error: a view of its holder, eir/
-//	             borrow.go)
+//	OpBorrow     Dst ⊇ X, its In tokens lent; and Dst ⊇ Y once X holds a
+//	             CHeap token (a value taken out of a counted error: a view
+//	             of its holder, eir/borrow.go). A lent In token's key is
+//	             Borrowed; a load through it is not lent.
+//	OpRecount    Dst ⊇ X, its In tokens counted copies (their keys Counts)
+//	             and not lent, less Obj tokens of eir.Object.ErrHolder
+//	             objects (a counted error copied: returned, stored, asserted
+//	             back from an interface that does not count; a reference of
+//	             its own). At a call, a Counts key gives what it holds as
+//	             a counted copy, less those holders. A load through either
+//	             kind of token reads a plain one. Lending ranks order the
+//	             tokens and keys: a counted copy, plain, a lent view; a key
+//	             or token covers only those of a rank no higher.
+//	OpLend       Dst ⊇ X; and Dst ⊇ Y once X holds a CHeap token (a counted
+//	             error passed to a callee). At a call, an input bound to an
+//	             OpLend register gives a Borrowed key what it holds, its In
+//	             tokens lent, and any other key what it holds less the
+//	             Obj tokens of eir.Object.ErrHolder objects (the error
+//	             itself, stored or returned, takes its own reference)
 //	OpArenaView  Dst ⊇ X, each <Obj(o, ...), T, g> taken as
 //	             <Obj(m, Root, false), T, g>, m = Func.ArenaMem[o], or Obj
 //	             for an o with none (or a region): what memory allocated

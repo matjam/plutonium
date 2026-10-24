@@ -45,8 +45,13 @@ type solver struct {
 	env solve.Env
 	ps  domain.Paths
 
-	objs []objInfo
-	defs []*eir.Instr // by register: its one definition
+	// lentRegs are the registers OpLend defines; bindLent, while a call's
+	// summary is applied, tells which inputs are bound to one (solve's
+	// keyNode, s.lent).
+	lentRegs map[eir.Reg]bool
+	bindLent func(int) bool
+	objs     []objInfo
+	defs     []*eir.Instr // by register: its one definition
 	// where each instruction lives, for liveness and loops
 	blockOf map[*eir.Instr]eir.BlockID
 	indexOf map[*eir.Instr]int
@@ -177,7 +182,7 @@ func (s *solver) def(r eir.Reg, v value) {
 // prefix of x's, or Deep with such a path and x's path with more loads (or x
 // Deep too), and c's tag holding x's.
 func (s *solver) covers(c, x tv) bool {
-	if c == x || c.t.kind != kIn || x.t.kind != kIn || !c.t.ge && !c.t.deep || c.t.id != x.t.id || !s.ps.HasPrefix(x.t.path, c.t.path) {
+	if c == x || c.t.kind != kIn || x.t.kind != kIn || !c.t.ge && !c.t.deep || c.t.id != x.t.id || lendRankOf(c.t) < lendRankOf(x.t) || !s.ps.HasPrefix(x.t.path, c.t.path) {
 		return false
 	}
 	if c.t.deep && !x.t.deep && s.ps.Loads(x.t.path) == s.ps.Loads(c.t.path) {
@@ -259,8 +264,19 @@ func (s *solver) isFrame(t tok) bool {
 }
 
 // keyOf is the key of an In token.
+// lendRankOf is an In token's lending rank (solve's lendRankTok).
+func lendRankOf(t tok) int {
+	switch {
+	case t.lent:
+		return 2
+	case t.cnt:
+		return 0
+	}
+	return 1
+}
+
 func keyOf(t tok) domain.Key {
-	return domain.MakeKey(t.id, t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep})
+	return domain.MakeKey(t.id, t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt})
 }
 
 // noteRegionLits adds the literals a callee's summary names to region reg

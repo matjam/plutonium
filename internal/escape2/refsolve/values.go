@@ -25,6 +25,8 @@ type tok struct {
 	ge   bool
 	fge  bool
 	deep bool
+	lent bool // In: taken out of a counted error the caller holds (solve/rules.go, OpBorrow)
+	cnt  bool // In: a counted copy (OpRecount); never with lent
 }
 
 // tv is a tagged token <t, T, g>.

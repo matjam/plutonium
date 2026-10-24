@@ -559,8 +559,24 @@ Waiting on D51 (type-filtered summary entries, extended to direct pointers): the
 interface calls join every candidate's effects on a receiver of one type (`lib/vec`, whose allocator
 interface applies `arena.Chunked`'s internals to an `arena.Arena`; `lib/fmtappend`), or whose fmt
 summaries keep every operand (`lib/fmtstringerkeeps`, `examples/24-errors`, `lib/errors` line 221).
-A counted reference released before a borrowed pointer to it (`diag/counted_error_unwrap`, which the
-new analysis accepts) needs a rule for when counted references are released (D52), before the switch.
+Counted errors (sections 16.6 and 18.3, D52) are modelled in EIR (`eir/borrow.go`): a pointer taken out of
+a counted error is a view of its holder (OpBorrow; Borrowed keys), a counted error passed to a callee lends
+the holder to its Borrowed keys (OpLend), and a counted copy is its own reference (OpRecount; Counts keys).
+`diag/counted_error_unwrap` is rejected at the Unwrap method, as before. Of the old analysis's counted-error
+cases (`solve/counted_old_test.go`) nine are not decided as it decides them yet:
+
+- a child reached through memory the analysis takes as heap (a fresh heap box's field, a map, a channel, a
+  pointer or a slice of pointers to a fresh box, a bodyless function's result): what is loaded from heap
+  memory is not known to be a counted reference made afresh (accepted; the old analysis rejects);
+- `errors.As` with a counted target (`As[synced[E]]`): its one generic body cannot show the counted copy
+  (rejected; the old analysis accepts);
+- returning `any(e)` of a local counted error: the conversion to an interface that does not count lends
+  without the holder, since fmt's `%w` takes the error back through `vec.Fixed[error]` and its walk keeps
+  every operand (D51) (accepted; the old analysis rejects).
+
+The translated compiler's `build.internal` stores an `errors.As` target in heap memory
+(`pu.Alloc[*diag.Diagnostic]()`), a view of the caller's error kept past it: two findings, which a local
+target in go2pu's translation of `errors.As(err, &d)` avoids.
 
 ### (h) Risks and what I am unsure of
 

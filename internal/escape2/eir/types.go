@@ -267,6 +267,9 @@ type Object struct {
 	Life Lifetime
 	Loop int // index in Func.Loops of the innermost loop it is declared in, or -1
 	Name string
+	// ErrHolder marks the view object of what holds a counted error
+	// (borrow.go): what a callee's Borrowed keys lead to, and no other key.
+	ErrHolder bool
 }
 
 // Loop is a natural loop of the CFG. Back edges of SSA registers are phis
@@ -317,8 +320,17 @@ const (
 	OpArenaView
 	// OpBorrow: Dst = X, and also Y (the address of a holder's view object)
 	// when X holds a counted reference: a value taken out of a counted
-	// error, a view of what holds it (borrow.go).
+	// error, a view of what holds it (borrow.go). X's In tokens are lent:
+	// the keys a summary makes of them are Borrowed.
 	OpBorrow
+	// OpLend: Dst = X, and also Y when X holds a counted reference: a
+	// counted error passed to a callee, which lends it to the callee's
+	// Borrowed keys alone (borrow.go).
+	OpLend
+	// OpRecount: Dst = X, its In tokens not lent and without pointers to
+	// ErrHolder objects: a counted error copied (returned, stored), which
+	// takes a reference of its own and is no view (borrow.go).
+	OpRecount
 )
 
 // ElemStep is the path step of an array or slice element in OpAddr and

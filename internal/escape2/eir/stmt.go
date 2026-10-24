@@ -903,6 +903,10 @@ func (fb *fnb) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 				fb.assignVar(v, iv)
 			case isInterface(T) && types2.Identical(T, I):
 				fb.assignVar(v, iv)
+			case lendsError(I, T):
+				fb.assignVar(v, fb.borrowError(x, fb.assertTo(iv, T, cc.Pos()))) // borrow.go
+			case countsTo(I, T) == lendCopy:
+				fb.assignVar(v, fb.recount(fb.assertTo(iv, T, cc.Pos()), T))
 			default:
 				fb.assignVar(v, fb.assertTo(iv, T, cc.Pos()))
 			}
@@ -1231,7 +1235,7 @@ func (fb *fnb) emitReturnFor(pos token.Pos, known moves.Known, exiting bool) {
 			fb.dropAt(fb.varAddr(v), v.Type(), pos)
 			continue
 		}
-		fb.sink(SinkReturn, fb.readLocal(v), i, pos)
+		fb.sink(SinkReturn, fb.recount(fb.readLocal(v), v.Type()), i, pos) // borrow.go
 	}
 	fb.cur = nil
 	fb.pos = savedPos

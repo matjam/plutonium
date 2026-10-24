@@ -84,7 +84,7 @@ func (s *solver) off(t tok, q domain.PathID, qcut bool) tok {
 			return tok{kind: kObj, id: t.id, path: p, ge: c || qcut}
 		}
 		p, c := s.concat(t.path, q)
-		return tok{kind: kIn, id: t.id, path: p, ge: c || qcut}
+		return tok{kind: kIn, id: t.id, path: p, ge: c || qcut, lent: t.lent, cnt: t.cnt} // a field of a view is one, of a copy one
 	}
 	return t // Heap -> Heap; a counted reference stays one
 }
@@ -152,7 +152,7 @@ func (s *solver) load(v value) value {
 			s.loadObj(out, x.t)
 		case kIn:
 			if x.t.ge || x.t.deep {
-				out.add(ptr(x.t)) // kg covers every extension, as Deep does
+				out.add(ptr(x.t)) // kg covers every extension, as Deep does (lent or not)
 				continue
 			}
 			if x.t.fge {
@@ -188,7 +188,7 @@ func (s *solver) loadObj(out value, t tok) {
 				out.add(x)
 			}
 		}
-		if s.ps.HasPrefix(t.path, q.path) { // p = r+R
+		if s.ps.HasPrefix(t.path, q.path) && !s.ps.HasPrefix(q.path, t.path) { // p = r+R, R not empty (solve's linkSub: r = p is the first case)
 			r := s.strip(t.path, q.path)
 			for x := range s.sel(pt, r, false) {
 				x.g = x.g || t.ge
@@ -243,6 +243,19 @@ func (s *solver) reach(v value) value {
 // any offset of its path's value reads.
 func (s *solver) valueOfKey(k domain.Key, bind func(int) value) value {
 	v := bind(k.Input())
+	if !k.Borrowed() && !k.Counts() && s.bindLent != nil && s.bindLent(k.Input()) {
+		// A counted error lent with OpLend: its holder's view is for
+		// Borrowed keys alone (solve/rules.go, OpLend).
+		w := value{}
+		for x := range v {
+			if x.t.kind == kObj && x.t.id < len(s.f.Objects) && s.f.Objects[x.t.id].ErrHolder {
+				continue
+			}
+			w.add(x)
+		}
+		v = w
+	}
+
 	for _, st := range s.ps.Steps(k.Path()) {
 		v = s.step(v, st)
 	}
@@ -253,6 +266,29 @@ func (s *solver) valueOfKey(k domain.Key, bind func(int) value) value {
 		v = s.anyOffset(v)
 	case k.Deep():
 		v = s.reach(s.load(s.anyOffset(v)))
+	}
+	if k.Borrowed() {
+		w := value{}
+		for x := range v {
+			if x.t.kind == kIn {
+				x.t.lent, x.t.cnt = true, false
+			}
+			w.add(x)
+		}
+		v = w
+	}
+	if k.Counts() {
+		w := value{}
+		for x := range v {
+			if x.t.kind == kObj && x.t.id < len(s.f.Objects) && s.f.Objects[x.t.id].ErrHolder {
+				continue
+			}
+			if x.t.kind == kIn {
+				x.t.lent, x.t.cnt = false, true
+			}
+			w.add(x)
+		}
+		v = w
 	}
 	return v
 }

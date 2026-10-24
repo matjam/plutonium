@@ -35,23 +35,26 @@ const (
 // xform kinds, in an edge's transform word: kind (bits 0-7), flag (bit 8),
 // path (bits 32-63).
 const (
-	xID      = iota // identity
-	xSel            // sel(path)
-	xPre            // pre(path), tag GE when flag
-	xOff            // off(path)
-	xStep           // a summary key's field step: sel ∪ off of root pointers
-	xGe             // geify
-	xRetag          // the tag made (Root, GE) only (loads through a cut pointer)
-	xPreLoad        // a load link: pre(path), GE when flag
-	xSelLoad        // a load link: sel(path), tags GE when flag
-	xSelGe          // a reach link: sel(path), then geify
-	xAny            // offset to anywhere in the object (eir.AnyStep)
-	xNoBox          // identity, without pointers to interface boxes (OpAssert to a direct type)
-	xImpl           // identity, without pointers to boxes whose type does not implement assertT[path] (OpAssert to an interface)
-	xNoRec          // identity, without the closure records ownRecord resolves (funccall.go)
-	xOnlyIn         // identity, In tokens only (defer.go, splitNode)
-	xNoIn           // identity, without In tokens
-	xArena          // OpArenaView: a frame object's pointer becomes one to its arena memory, Obj(path) for one with none
+	xID       = iota // identity
+	xSel             // sel(path)
+	xPre             // pre(path), tag GE when flag
+	xOff             // off(path)
+	xStep            // a summary key's field step: sel ∪ off of root pointers
+	xGe              // geify
+	xRetag           // the tag made (Root, GE) only (loads through a cut pointer)
+	xPreLoad         // a load link: pre(path), GE when flag
+	xSelLoad         // a load link: sel(path), tags GE when flag
+	xSelGe           // a reach link: sel(path), then geify
+	xAny             // offset to anywhere in the object (eir.AnyStep)
+	xNoBox           // identity, without pointers to interface boxes (OpAssert to a direct type)
+	xImpl            // identity, without pointers to boxes whose type does not implement assertT[path] (OpAssert to an interface)
+	xNoRec           // identity, without the closure records ownRecord resolves (funccall.go)
+	xOnlyIn          // identity, In tokens only (defer.go, splitNode)
+	xNoIn            // identity, without In tokens
+	xArena           // OpArenaView: a frame object's pointer becomes one to its arena memory, Obj(path) for one with none
+	xLend            // identity, In tokens made lent (OpBorrow, a Borrowed key)
+	xNoHolder        // identity, without pointers to the view objects of counted errors' holders (a key not Borrowed)
+	xRecount         // identity, In tokens not lent and no pointers to ErrHolder objects (OpRecount)
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -151,6 +154,32 @@ func (s *solver) coveredIn(n uint32, id uint64) bool {
 	if t.kind != tIn {
 		return false
 	}
+	// A coverer of a lending rank no lower than t's (counted copy < plain <
+	// lent view): it stands for at least what t does.
+	for r := lendRankTok(t); r <= 2; r++ {
+		c := t
+		c.cnt, c.lent = r == 0, r == 2
+		if s.coveredBy(n, c, id) {
+			return true
+		}
+	}
+	return false
+}
+
+// lendRankTok is an In token's lending rank (domain.Covers): 0 a counted
+// copy, 1 plain, 2 a lent view.
+func lendRankTok(t tok) int {
+	switch {
+	case t.lent:
+		return 2
+	case t.cnt:
+		return 0
+	}
+	return 1
+}
+
+// coveredBy is coveredIn for coverers lent as t is.
+func (s *solver) coveredBy(n uint32, t tok, id uint64) bool {
 	steps := s.ps.Steps(t.path)
 	tsteps := s.ps.Steps(t.tag)
 	loads := s.ps.Loads(t.path)
@@ -158,7 +187,7 @@ func (s *solver) coveredIn(n uint32, id uint64) bool {
 	for i := 0; ; i++ {
 		// Candidate coverers at path p: the same tag (GE, or exact when
 		// t's is exact), and every prefix of the tag with GE.
-		c := tok{kind: tIn, base: t.base, path: p, ge: true}
+		c := tok{kind: tIn, base: t.base, path: p, ge: true, lent: t.lent, cnt: t.cnt}
 		for {
 			q := domain.Root
 			for j := 0; ; j++ {
@@ -361,6 +390,24 @@ func (s *solver) transform(x uint64, t tok) {
 		if t.kind != tIn {
 			s.buf.push(s.a, s.intern(t))
 		}
+	case xLend:
+		if t.kind == tIn {
+			t.lent, t.cnt = true, false
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xRecount:
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].ErrHolder {
+			return
+		}
+		if t.kind == tIn {
+			t.lent, t.cnt = false, true
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xNoHolder:
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].ErrHolder {
+			return
+		}
+		s.buf.push(s.a, s.intern(t))
 	case xArena:
 		if t.kind == tObj {
 			o := uint32(path)

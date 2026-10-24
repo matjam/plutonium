@@ -179,6 +179,7 @@ type solver struct {
 	dcallDone               map[[2]uint64]bool
 	fcalls                  []*fcall             // calls of function values (funccall.go)
 	argBuf                  []byte               // argNode's key
+	lent                    map[uint32]bool      // the registers OpLend defines: arguments that lend a counted error
 	deferOrigins            map[int][]uint64     // capDeferred: the origin calls with Deferred keys, by input, sorted
 	originDcalls            map[uint64][]int     // the dcalls of each origin call (Origin<<32 | Site)
 	closApps                map[closKey][]uint32 // applyClosure's applications: their argument nodes
@@ -642,6 +643,9 @@ const (
 	dSplitOther = 1 << 57 // in the first word: the other tokens of a node
 	dAny        = 1 << 56 // in the first word: a node's pointers at any offset (anyNode)
 	dDeep       = 1 << 55 // in the first word: val of a Deep key on a node (deepNode)
+	dLend       = 1 << 54 // in the first word: a node's tokens, In tokens lent (keyNode)
+	dNoHolder   = 1 << 53 // in the first word: a node's tokens less counted errors' holders (keyNode)
+	dRecount    = 1 << 52 // in the first word: a node's tokens as a counted copy (keyNode)
 )
 
 // keyNode returns the node of val(k) for k's input bound to node base
@@ -649,6 +653,42 @@ const (
 // key its path's value at any offset; for a Deep key reach of what a load at
 // any offset of its path's value reads.
 func (s *solver) keyNode(base uint32, k domain.Key) uint32 {
+	if s.lent[base] {
+		// A counted error passed with OpLend: its holder's view is for
+		// the callee's Borrowed keys alone, which lend what they name.
+		if k.Counts() {
+			return s.derivedNode(dRecount, s.keyNodeOf(base, k), xRecount)
+		}
+		if !k.Borrowed() {
+			return s.keyNodeOf(s.derivedNode(dNoHolder, base, xNoHolder), k)
+		}
+		return s.derivedNode(dLend, s.keyNodeOf(base, k), xLend)
+	}
+	if k.Borrowed() {
+		return s.derivedNode(dLend, s.keyNodeOf(base, k), xLend)
+	}
+	if k.Counts() {
+		// A counted copy: no holder of the caller's bounds it, and what
+		// it names is a counted copy for the caller's own keys too.
+		return s.derivedNode(dRecount, s.keyNodeOf(base, k), xRecount)
+	}
+	return s.keyNodeOf(base, k)
+}
+
+// derivedNode returns the node of n's tokens through transform x (one of
+// xLend and xNoHolder, kind its derived-node kind), made once.
+func (s *solver) derivedNode(kind uint64, n uint32, x int) uint32 {
+	if m, ok := s.derived.get(kind|uint64(n), 0); ok {
+		return uint32(m)
+	}
+	m := s.newNode(nkPinned)
+	s.derived.put(s.a, kind|uint64(n), 0, uint64(m))
+	s.addEdge(n, m, xw(x, 0, false), 0)
+	return m
+}
+
+// keyNodeOf is keyNode with no regard for lending.
+func (s *solver) keyNodeOf(base uint32, k domain.Key) uint32 {
 	switch {
 	case k.Deep():
 		return s.deepNode(s.valNode(base, k.Path(), false))
@@ -1281,10 +1321,21 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 	case eir.OpArenaView:
 		s.edge(in.X, dst, xw(xArena, domain.PathID(in.Obj), false))
 	case eir.OpBorrow:
+		s.edge(in.X, dst, xw(xLend, 0, false))
+		if in.Y != 0 {
+			s.addCons(uint32(in.X), cBorrow, uint64(in.Y), uint64(dst))
+		}
+	case eir.OpRecount:
+		s.edge(in.X, dst, xw(xRecount, 0, false))
+	case eir.OpLend:
 		s.edge(in.X, dst, xw(xID, 0, false))
 		if in.Y != 0 {
 			s.addCons(uint32(in.X), cBorrow, uint64(in.Y), uint64(dst))
 		}
+		if s.lent == nil {
+			s.lent = map[uint32]bool{}
+		}
+		s.lent[uint32(in.Dst)] = true
 	case eir.OpDrop:
 		if int(in.Obj) < len(s.f.Objects) && s.f.Objects[in.Obj].Life == eir.LifeStmt {
 			s.drops.push(s.a, uint64(b)<<32|uint64(i))

@@ -116,6 +116,7 @@ func Random(seed int64, ps domain.Paths) *Case {
 	}
 	g.env.Contracts["c0"] = g.randSummary(2, 1)
 	g.body()
+	g.borrowedKeys()
 	if nin > 0 && g.rng.Intn(6) == 0 { // drawn last: the earlier draws make the same programs
 		g.b.F.ResultHolds = []int{g.rng.Intn(nin)} // //pu:resultholds
 	}
@@ -267,6 +268,42 @@ func (g *gen) body() {
 	}
 }
 
+// borrowedKeys makes, from g.extra, some keys of the callees' summaries
+// Borrowed (solve/rules.go, OpLend): what a callee took out of a counted
+// error its input holds.
+func (g *gen) borrowedKeys() {
+	for _, c := range g.callees {
+		sm := g.env.Sums[c.ID]
+		if sm == nil || g.extra.Intn(2) != 0 {
+			continue
+		}
+		lend := func(k domain.Key) domain.Key {
+			if g.extra.Intn(3) != 0 {
+				return k
+			}
+			f := k.Flags()
+			if g.extra.Intn(2) == 0 {
+				f.Counts = true // a counted copy (OpRecount)
+				return domain.MakeKey(k.Input(), k.Path(), f)
+			}
+			f.Borrowed = true
+			return domain.MakeKey(k.Input(), k.Path(), f)
+		}
+		for i := range sm.Esc {
+			sm.Esc[i] = lend(sm.Esc[i])
+		}
+		for i := range sm.Store {
+			sm.Store[i].Src = lend(sm.Store[i].Src)
+		}
+		for r := range sm.Res {
+			for i := range sm.Res[r].From {
+				sm.Res[r].From[i].Key = lend(sm.Res[r].From[i].Key)
+			}
+		}
+		Normalize(g.ps, sm)
+	}
+}
+
 // extras appends, from g.extra, instructions of the local-arena and
 // counted-error rules (eir/arena.go, eir/borrow.go), whose results go to
 // sinks and never to the pool: what the first generator draws is unchanged.
@@ -295,6 +332,26 @@ func (g *gen) extras() {
 	}
 	if x.Intn(4) == 0 {
 		b.Sink(eir.SinkBoxCopy, pick(), 0)
+	}
+	if n := len(b.F.Objects); n > 0 && x.Intn(3) == 0 {
+		b.F.Objects[x.Intn(n)].ErrHolder = true // a counted error's holder (eir/borrow.go)
+	}
+	if x.Intn(3) == 0 && len(g.callees) > 0 {
+		// A counted error lent to a callee (OpLend), whose Borrowed keys
+		// alone see the holder.
+		r := b.Emit(eir.Instr{Op: eir.OpLend, X: pick(), Y: pick()}, true)
+		callee := g.callees[x.Intn(len(g.callees))]
+		args := []eir.Reg{r}
+		if x.Intn(2) == 0 {
+			args = append(args, pick())
+		}
+		if x.Intn(2) == 0 {
+			args[0], args[len(args)-1] = args[len(args)-1], args[0]
+		}
+		b.Call(eir.Call{Kind: eir.CallStatic, Callee: callee.ID, Args: args}, callee.Results)
+	}
+	if x.Intn(4) == 0 {
+		sink(b.Emit(eir.Instr{Op: eir.OpRecount, X: pick()}, true))
 	}
 	if x.Intn(4) == 0 {
 		r := b.Emit(eir.Instr{Op: eir.OpBorrow, X: pick(), Y: pick()}, true)

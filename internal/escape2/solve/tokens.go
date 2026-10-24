@@ -33,6 +33,8 @@ type tok struct {
 	tagGE bool
 	fge   bool // In: the key is FieldsGE
 	deep  bool // In: the key is Deep
+	lent  bool // In: taken out of a counted error the caller holds (OpBorrow): its key is Borrowed
+	cnt   bool // In: a counted copy (OpRecount): its key is Counts; never with lent
 	base  uint32
 	path  domain.PathID
 	tag   domain.PathID
@@ -52,6 +54,12 @@ func (t tok) words() (uint64, uint64) {
 	if t.deep {
 		w0 |= 32
 	}
+	if t.lent {
+		w0 |= 64
+	}
+	if t.cnt {
+		w0 |= 128
+	}
 	return w0, uint64(t.path) | uint64(t.tag)<<32
 }
 
@@ -62,6 +70,8 @@ func tokOf(w0, w1 uint64) tok {
 		tagGE: w0&8 != 0,
 		fge:   w0&16 != 0,
 		deep:  w0&32 != 0,
+		lent:  w0&64 != 0,
+		cnt:   w0&128 != 0,
 		base:  uint32(w0 >> 8),
 		path:  domain.PathID(uint32(w1)),
 		tag:   domain.PathID(uint32(w1 >> 32)),
@@ -104,7 +114,7 @@ func (s *solver) tokAt(id uint64) tok {
 
 // key is the summary key of an In token.
 func key(t tok) domain.Key {
-	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep})
+	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt})
 }
 
 // extend appends one step to p; ge reports that the step went past the
@@ -221,10 +231,14 @@ func (s *solver) anyOffset(t tok) tok {
 func (s *solver) loadIn(t tok) tok {
 	switch {
 	case t.wide():
+		// It covers the load: the token itself, lent or not.
 	case t.fge:
-		t.fge, t.deep = false, true
+		t.fge, t.deep, t.lent, t.cnt = false, true, false, false
 	default:
+		// What a view holds is not a view of the box (OpBorrow), nor
+		// what a counted copy holds a copy.
 		t.path, t.deep = s.extend(t.path, domain.StepLoad)
+		t.lent, t.cnt = false, false
 	}
 	return t
 }

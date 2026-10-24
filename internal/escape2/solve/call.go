@@ -264,11 +264,9 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 		if !k.FieldsGE() {
 			return val(k)
 		}
-		i := k.Input()
-		if i >= len(bind) || bind[i] == 0 {
-			return 0, false
-		}
-		return s.valNode(uint32(bind[i]), k.Path(), false), true
+		// Its path's value: the exact key, with its flags (keyNode, for
+		// a lent counted error).
+		return val(k.WithPath(k.Path(), false))
 	}
 	for e, k := range sum.Esc {
 		if k.Input() == skip {
@@ -392,7 +390,9 @@ func (s *solver) applyDefault(in *eir.Instr, bind []uint64, cand eir.FuncID) {
 		if n == 0 {
 			continue
 		}
-		r := s.reachNode(uint32(n))
+		// Reach of the input: val of the key (i, Root, GE), which is not
+		// Borrowed (keyNode: a lent error's holder is left out).
+		r := s.keyNode(uint32(n), domain.MakeKey(0, domain.Root, domain.KeyFlags{GE: true}))
 		s.addCons(r, cSink, cE3003, w)
 		for _, res := range results {
 			if res != 0 {

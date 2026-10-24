@@ -282,7 +282,7 @@ func antichainKeys(ps domain.Paths, keys []domain.Key, why []Reason) ([]domain.K
 	if len(keys) > indexFrom {
 		bucket = make(map[domain.Key][]int, len(keys))
 		for j, o := range keys {
-			n := plainKey(o)
+			n := indexKey(o)
 			bucket[n] = append(bucket[n], j)
 		}
 	}
@@ -296,7 +296,7 @@ func antichainKeys(ps domain.Paths, keys []domain.Key, why []Reason) ([]domain.K
 		covered := false
 		if bucket != nil {
 			pre = prefixes(ps, k.Path(), pre)
-			n := plainKey(k)
+			n := indexKey(k)
 		search:
 			for _, q := range pre {
 				for _, j := range bucket[n.WithPath(q, false)] {
@@ -382,7 +382,7 @@ func antichainPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePa
 	if len(pairs) > indexFrom {
 		bucket = make(map[[2]domain.Key][]int, len(pairs))
 		for j, o := range pairs {
-			n := [2]domain.Key{plainKey(o.Src), plainKey(o.Dst)}
+			n := [2]domain.Key{indexKey(o.Src), indexKey(o.Dst)}
 			bucket[n] = append(bucket[n], j)
 		}
 	}
@@ -396,7 +396,7 @@ func antichainPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePa
 		if bucket != nil {
 			preSrc = prefixes(ps, p.Src.Path(), preSrc)
 			preDst = prefixes(ps, p.Dst.Path(), preDst)
-			ns, nd := plainKey(p.Src), plainKey(p.Dst)
+			ns, nd := indexKey(p.Src), indexKey(p.Dst)
 		search:
 			for _, qs := range preSrc {
 				for _, qd := range preDst {
@@ -679,6 +679,14 @@ const indexFrom = 16
 // plainKey is k without GE and FieldsGE: what a key that covers k shares
 // with it besides a prefix of its path (domain.Covers).
 func plainKey(k domain.Key) domain.Key { return k.WithPath(k.Path(), false) }
+
+// indexKey is plainKey without Borrowed either: the bucket of the keys that
+// may cover k in an antichain (a Borrowed key covers its twin, domain.Covers).
+func indexKey(k domain.Key) domain.Key {
+	f := k.Flags()
+	f.GE, f.FieldsGE, f.Deep, f.Borrowed, f.Counts = false, false, false, false, false
+	return domain.MakeKey(k.Input(), k.Path(), f)
+}
 
 // prefixes returns the prefixes of p, Root first and p last, in buf. They
 // are interned (a path's prefixes are made before it), so Extend only finds

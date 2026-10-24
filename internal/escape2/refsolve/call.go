@@ -25,7 +25,9 @@ func (s *solver) ruleCall(in *eir.Instr) {
 		if !ok {
 			panic("internal compiler error: escape2: no contract table entry for " + c.Contract)
 		}
+		s.bindLent = s.lentInputs(c, nil, false)
 		s.applySummary(in, sm, s.binder(c, nil), eir.NoFunc)
+		s.bindLent = nil
 	case eir.CallFunc:
 		if c.Target != 0 {
 			s.funcCall(in) // funccall.go
@@ -56,6 +58,12 @@ func (s *solver) applyCandidate(in *eir.Instr, id eir.FuncID) {
 // candidate bound to rec, when rec is not nil (funccall.go).
 func (s *solver) applyCandidateRec(in *eir.Instr, id eir.FuncID, rec value) {
 	funcs := s.env.Program().Funcs
+	var cfOf *eir.Func
+	if id != eir.NoFunc && int(id) < len(funcs) {
+		cfOf = funcs[id]
+	}
+	s.bindLent = s.lentInputs(in.Call, cfOf, rec != nil)
+	defer func() { s.bindLent = nil }()
 	binder := s.binder
 	if rec != nil {
 		binder = func(c *eir.Call, cf *eir.Func) func(int) value { return s.recBinder(c, cf, rec) }
@@ -101,6 +109,37 @@ func bodylessSummary(cf *eir.Func) *summary.Summary {
 		sm.Res[r].Heap = []domain.PathID{domain.Root}
 	}
 	return sm
+}
+
+// lentInputs reports, for a call c to candidate cf, which inputs are bound
+// to registers OpLend defines (binder's binding; solve's keyNode looks at the
+// node bound, which for these is the register's). A receiver bound to
+// RecvAddr, a call's function value and a closure record are none.
+func (s *solver) lentInputs(c *eir.Call, cf *eir.Func, rec bool) func(int) bool {
+	if len(s.lentRegs) == 0 {
+		return nil
+	}
+	recv := solve.RecvValue
+	if cf != nil && c.Target == 0 {
+		recv = solve.RecvChoice(s.env, s.env.Program(), c, cf.ID)
+	}
+	arg := func(i int) bool {
+		if i == 0 && recv != solve.RecvValue {
+			return false
+		}
+		return i >= 0 && i < len(c.Args) && s.lentRegs[c.Args[i]]
+	}
+	switch c.Kind {
+	case eir.CallIface, eir.CallTypeParam:
+		if c.Target != 0 {
+			return func(i int) bool { return i > 0 && arg(i-1) }
+		}
+	case eir.CallFunc:
+		if cf != nil && (rec || len(cf.Inputs) == len(c.Args)+1) {
+			return func(i int) bool { return i < len(c.Args) && arg(i) }
+		}
+	}
+	return arg
 }
 
 // binder is the input binding β of a call to candidate cf (nil for a contract

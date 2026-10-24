@@ -135,6 +135,7 @@ func (fb *fnb) store(x, y Reg, T types2.Type) {
 	if x == 0 || y == 0 || !hasPointers(T) {
 		return
 	}
+	y = fb.recount(y, T) // a counted error stored is its own reference (borrow.go)
 	fb.emit(Instr{Op: OpStore, X: x, Y: y, Type: T})
 }
 
