@@ -329,6 +329,32 @@ type argEval struct {
 	mode recvMode
 }
 
+// arg is what key k leads to from the arguments of the call, args.
+//
+// It and borrowArg are methods rather than closures of apply so that the
+// self-hosted compiler's escape analysis, which follows a closure's
+// captured variables through its record, does not reach the call's other
+// arguments through it (tools/go2pu).
+func (a *argEval) arg(k pkey, args []tset) tset {
+	if k.idx >= len(args) {
+		return nil
+	}
+	return a.of(k, args[k.idx])
+}
+
+// borrowArg is arg for a value that borrows from its holder.
+func (a *argEval) borrowArg(k pkey, args []tset) tset {
+	v := borrowHolders(a.arg(k, args))
+	if k.idx < len(a.f.params) && types2.IsCountedError(a.f.params[k.idx].Type()) {
+		// A pointer or lending interface derived from an error borrows
+		// the caller's reference, even through helper or indirect calls.
+		if x := a.cs.expr(k.idx); x != nil {
+			v = a.w.borrowError(x, v)
+		}
+	}
+	return v
+}
+
 // of is what key k leads to from raw, the pointers passed for parameter k.idx
 // (all of them, or some: it takes them one by one).
 func (e *argEval) of(k pkey, raw tset) tset {
@@ -397,23 +423,6 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 		return res
 	}
 	argOf := &argEval{w: w, f: f, cs: cs, mode: mode}
-	arg := func(k pkey) tset {
-		if k.idx >= len(args) {
-			return nil
-		}
-		return argOf.of(k, args[k.idx])
-	}
-	borrowArg := func(k pkey) tset {
-		v := borrowHolders(arg(k))
-		if k.idx < len(f.params) && types2.IsCountedError(f.params[k.idx].Type()) {
-			// A pointer or lending interface derived from an error borrows
-			// the caller's reference, even through helper or indirect calls.
-			if x := cs.expr(k.idx); x != nil {
-				v = w.borrowError(x, v)
-			}
-		}
-		return v
-	}
 	// What the callee's parameters hold, for heap-only fields.
 	passed := args
 	if len(args) > 0 && mode != recvExact {
@@ -429,22 +438,22 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 	for _, e := range f.sum.sortedStores() {
 		r := f.sum.stores[e]
 		d := dest{callee: label, calleeWhy: r, src: cs.expr(e.src.idx)}
-		v := arg(e.src)
+		v := argOf.arg(e.src, args)
 		if T := w.storedType(f, cs, e.dst); T != nil {
 			if !w.genericIdentity(f, cs, e.src, T) && !w.a.countedErrorResult(T) && !isCounted(T) {
-				v = borrowArg(e.src)
+				v = argOf.borrowArg(e.src, args)
 			}
 		}
-		w.store(arg(e.dst), v, pos, d)
+		w.store(argOf.arg(e.dst, args), v, pos, d)
 	}
 	for _, k := range f.sum.sortedHeapStores() {
-		w.store(arg(k), tset{heapTok}, pos, dest{callee: label})
+		w.store(argOf.arg(k, args), tset{heapTok}, pos, dest{callee: label})
 	}
 	for i := 0; i < nres && i < len(f.sum.results); i++ {
 		rs := &f.sum.results[i]
 		var out tbuf
 		for _, k := range rs.sortedFrom() {
-			v := arg(k.pkey)
+			v := argOf.arg(k.pkey, args)
 			T := f.sig.Results().At(i).Type()
 			if cs.sig != nil && i < cs.sig.Results().Len() {
 				T = cs.sig.Results().At(i).Type()
@@ -465,7 +474,7 @@ func (w *walker) apply(f *function, args []tset, cs *callSite, label string, mod
 			// Its concrete caller decides whether that value owns a reference;
 			// it has not borrowed a payload merely by forwarding it.
 			if !w.genericIdentity(f, cs, k.pkey, T) && !w.a.countedErrorResult(T) && !isCounted(T) {
-				v = borrowArg(k.pkey)
+				v = argOf.borrowArg(k.pkey, args)
 			}
 			out.addAll(retag(v, k.tag))
 		}
