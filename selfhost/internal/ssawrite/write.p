@@ -52,12 +52,12 @@ func (w *writer) fail(format string, args ...any) {
 }
 
 // word appends a space and s.
-func (w *writer) word(s string) { w.buf = compat.AppendString(compat.Append(w.buf, ' '), s) }
+func (w *writer) word(s string) { w.buf = compat.AppendString(compat.AppendPlain(w.buf, ' '), s) }
 
 // tag starts a record.
 func (w *writer) tag(s string) { w.buf = compat.AppendString(w.buf, s) }
 
-func (w *writer) int(n int64) { w.buf = compat.AppendInt(compat.Append(w.buf, ' '), n, 10) }
+func (w *writer) int(n int64) { w.buf = compat.AppendInt(compat.AppendPlain(w.buf, ' '), n, 10) }
 
 func (w *writer) bool(b bool) {
 	if b {
@@ -68,12 +68,12 @@ func (w *writer) bool(b bool) {
 }
 
 func (w *writer) str(s string) {
-	w.buf = compat.AppendString(compat.Append(w.buf, ' '), strconv.Quote(s))
+	w.buf = compat.AppendString(compat.AppendPlain(w.buf, ' '), strconv.Quote(s))
 }
 
 // end finishes a record.
 func (w *writer) end() {
-	w.buf = compat.Append(w.buf, '\n')
+	w.buf = compat.AppendPlain(w.buf, '\n')
 	if len(w.buf) > 1<<16 {
 		w.flush()
 	}
@@ -230,7 +230,7 @@ func (w *writer) program(p *ssa.Program) {
 
 	bases := compat.MakeCap[int](0, len(w.files))
 	for b := range w.files {
-		bases = compat.Append(bases, b)
+		bases = compat.AppendPlain(bases, b)
 	}
 	sort.Ints(bases)
 	w.tag("files")
@@ -307,9 +307,9 @@ func (w *writer) hex(b []byte) {
 		w.word("=")
 	default:
 		const digits = "0123456789abcdef"
-		w.buf = compat.Append(w.buf, ' ')
+		w.buf = compat.AppendPlain(w.buf, ' ')
 		for _, c := range b {
-			w.buf = compat.Append(w.buf, digits[c>>4], digits[c&15])
+			w.buf = compat.AppendPlain(w.buf, digits[c>>4], digits[c&15])
 		}
 	}
 }
@@ -647,7 +647,7 @@ func (w *writer) typeRefNoSpace(t *ssa.Type) {
 	n := len(w.buf)
 	w.typeRef(t)
 	if len(w.buf) > n && w.buf[n] == ' ' {
-		w.buf = compat.Append(w.buf[:n], w.buf[n+1:]...)
+		w.buf = compat.AppendPlain(w.buf[:n], w.buf[n+1:]...)
 	}
 }
 

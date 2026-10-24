@@ -239,7 +239,7 @@ func (check *Checker) removedName(e *ast.Ident) bool {
 		check.forbidden(e, RecoverNotPermitted, "recover is", "a panic cannot be stopped; return errors instead")
 	case "complex", "real", "imag", "complex64", "complex128":
 		// Reported with the complex values, once per line (reportComplex).
-		check.complexAt = compat.Append(check.complexAt, e.Pos())
+		check.complexAt = compat.AppendPlain(check.complexAt, e.Pos())
 	default:
 		return false
 	}
@@ -261,7 +261,7 @@ func (check *Checker) checkComplexValue(x ast.Expr, mode operandMode, typ Type) 
 		return
 	}
 	if isComplexValueType(typ) {
-		check.complexAt = compat.Append(check.complexAt, x.Pos())
+		check.complexAt = compat.AppendPlain(check.complexAt, x.Pos())
 	}
 }
 
@@ -270,7 +270,7 @@ func (check *Checker) checkComplexValue(x ast.Expr, mode operandMode, typ Type) 
 func (check *Checker) checkComplexTypeArgs(at positioner, targs []Type) {
 	for _, t := range targs {
 		if isComplexValueType(t) {
-			check.complexAt = compat.Append(check.complexAt, at.Pos())
+			check.complexAt = compat.AppendPlain(check.complexAt, at.Pos())
 			return
 		}
 	}

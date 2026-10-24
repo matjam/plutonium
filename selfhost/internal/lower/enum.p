@@ -144,7 +144,7 @@ func (s *fnState) enumConversion(e *ast.CallExpr) (value, *ssa.Value) {
 	for i := 0; i < en.Len(); i++ {
 		v := en.Member(i).Val()
 		if p, ok := fitsInt(v, size, unsigned); ok {
-			pats = compat.Append(pats, p)
+			pats = compat.AppendPlain(pats, p)
 		}
 	}
 	slices.SortFunc(pats, func(a, b uint64) int {

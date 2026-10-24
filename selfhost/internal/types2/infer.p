@@ -189,7 +189,7 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 				// parameter declared by the current function and use it in the same
 				// function signature; hence we don't need to Unalias before the
 				// .(*TypeParam) type assertion above.
-				untyped = compat.Append(untyped, i)
+				untyped = compat.AppendPlain(untyped, i)
 			}
 		}
 	}
@@ -394,7 +394,7 @@ func (check *Checker) infer(posn positioner, tparams []*TypeParam, targs []Type,
 	var dirty []int
 	for i, typ := range inferred {
 		if typ != nil && (i >= len(targs) || targs[i] == nil) {
-			dirty = compat.Append(dirty, i)
+			dirty = compat.AppendPlain(dirty, i)
 		}
 	}
 

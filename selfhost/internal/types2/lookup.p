@@ -741,8 +741,8 @@ func derefStructPtr(typ Type) Type {
 // The result does not share its underlying array with list.
 func concat(list []int, i int) []int {
 	var t []int
-	t = compat.Append(t, list...)
-	return compat.Append(t, i)
+	t = compat.AppendPlain(t, list...)
+	return compat.AppendPlain(t, i)
 }
 
 // methodIndex returns the index of and method with matching package and name, or (-1, nil).

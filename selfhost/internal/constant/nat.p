@@ -392,7 +392,7 @@ func (x nat) decimal() string {
 	for len(x) > 0 {
 		var r uint64
 		x, r = divW(x, chunk)
-		parts = compat.Append(parts, r)
+		parts = compat.AppendPlain(parts, r)
 	}
 	buf := compat.MakeCap[byte](0, 20*len(parts))
 	buf = appendUint(buf, parts[len(parts)-1], 0)
@@ -412,7 +412,7 @@ func appendUint(buf []byte, x uint64, width int) []byte {
 		x /= 10
 		width--
 	}
-	return compat.Append(buf, d[i:]...)
+	return compat.AppendPlain(buf, d[i:]...)
 }
 
 // hex returns x in lower-case hexadecimal, without a prefix.
@@ -427,7 +427,7 @@ func (x nat) hex() string {
 		for s := 60; s >= 0; s -= 4 {
 			d := x[i] >> uint(s) & 15
 			if d != 0 || started {
-				buf = compat.Append(buf, digits[d])
+				buf = compat.AppendPlain(buf, digits[d])
 				started = true
 			}
 		}

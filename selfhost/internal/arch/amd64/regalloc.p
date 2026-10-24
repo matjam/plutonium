@@ -144,7 +144,7 @@ func postorder(f *MFunc, index map[*MBlock]int) []int {
 				}
 				continue
 			}
-			order = compat.Append(order, index[top.b])
+			order = compat.AppendPlain(order, index[top.b])
 			stack = stack[:len(stack)-1]
 		}
 	}
@@ -305,7 +305,7 @@ func newAllocator(f *MFunc, class RegClass, spillTemps map[Reg]bool) *allocator 
 	}
 	for r := Reg(FirstVirtual); r < f.nextVReg; r++ {
 		if f.regClass[r] == class {
-			a.initial = compat.Append(a.initial, r)
+			a.initial = compat.AppendPlain(a.initial, r)
 		}
 	}
 	return a
@@ -320,11 +320,11 @@ func (a *allocator) addEdge(u, v Reg) {
 	a.adjSet[edge{u, v}] = true
 	a.adjSet[edge{v, u}] = true
 	if !a.precolored[u] {
-		a.adjList[u] = compat.Append(a.adjList[u], v)
+		a.adjList[u] = compat.AppendPlain(a.adjList[u], v)
 		a.degree[u]++
 	}
 	if !a.precolored[v] {
-		a.adjList[v] = compat.Append(a.adjList[v], u)
+		a.adjList[v] = compat.AppendPlain(a.adjList[v], u)
 		a.degree[v]++
 	}
 }
@@ -432,7 +432,7 @@ func (a *allocator) adjacent(n Reg) []Reg {
 	var out []Reg
 	for _, m := range a.adjList[n] {
 		if !a.onStack[m] && !a.coalesced[m] {
-			out = compat.Append(out, m)
+			out = compat.AppendPlain(out, m)
 		}
 	}
 	return out
@@ -472,7 +472,7 @@ func pick(set map[Reg]bool) Reg {
 func (a *allocator) simplify() {
 	n := pick(a.simplifyWL)
 	delete(a.simplifyWL, n)
-	a.selectStack = compat.Append(a.selectStack, n)
+	a.selectStack = compat.AppendPlain(a.selectStack, n)
 	a.onStack[n] = true
 	for _, m := range a.adjacent(n) {
 		a.decrementDegree(m)
@@ -486,7 +486,7 @@ func (a *allocator) decrementDegree(m Reg) {
 	d := a.degree[m]
 	a.degree[m] = d - 1
 	if d == a.k {
-		a.enableMoves(compat.Append(a.adjacent(m), m))
+		a.enableMoves(compat.AppendPlain(a.adjacent(m), m))
 		delete(a.spillWL, m)
 		if a.moveRelated(m) {
 			a.freezeWL[m] = true
@@ -563,7 +563,7 @@ func (a *allocator) firstMove() *MInst {
 type intHeap []int
 
 func (h *intHeap) push(x int) {
-	*h = intHeap(compat.Append(*h, x))
+	*h = intHeap(compat.AppendPlain(*h, x))
 	s := *h
 	for i := len(s) - 1; i > 0; {
 		p := (i - 1) / 2
@@ -615,7 +615,7 @@ func (a *allocator) coalesce() {
 		a.constrainedMoves[m] = true
 		a.addWorkList(u)
 		a.addWorkList(v)
-	case a.precolored[u] && a.allOK(v, u), !a.precolored[u] && a.conservative(compat.Append(a.adjacent(u), a.adjacent(v)...)):
+	case a.precolored[u] && a.allOK(v, u), !a.precolored[u] && a.conservative(compat.AppendPlain(a.adjacent(u), a.adjacent(v)...)):
 		a.coalescedMoves[m] = true
 		a.combine(u, v)
 		a.addWorkList(u)
@@ -689,7 +689,7 @@ func (a *allocator) selectSpill() {
 	bestScore := math.Inf(1)
 	var cands []Reg
 	for r := range a.spillWL {
-		cands = compat.Append(cands, r)
+		cands = compat.AppendPlain(cands, r)
 	}
 	sort.SortFunc(cands, func(a, b Reg) bool { return a < b })
 	for _, r := range cands {
@@ -726,7 +726,7 @@ func (a *allocator) assignColors() {
 			}
 		}
 		if chosen == NoReg {
-			a.spilled = compat.Append(a.spilled, n)
+			a.spilled = compat.AppendPlain(a.spilled, n)
 			continue
 		}
 		a.colored[n] = true
@@ -842,17 +842,17 @@ func applyColors(f *MFunc, color map[Reg]Reg) {
 				// needs FPUBegin/FPUEnd around it (abi.md section 10.4).
 				// The registers marked here are only call clobbers.
 				if !f.noSSE {
-					f.savedXMM = compat.Append(f.savedXMM, r)
+					f.savedXMM = compat.AppendPlain(f.savedXMM, r)
 				}
 			default:
-				f.usedSaved = compat.Append(f.usedSaved, r)
+				f.usedSaved = compat.AppendPlain(f.usedSaved, r)
 			}
 		}
 		return
 	}
 	for _, r := range calleeSaved {
 		if used[r] {
-			f.usedSaved = compat.Append(f.usedSaved, r)
+			f.usedSaved = compat.AppendPlain(f.usedSaved, r)
 		}
 	}
 }

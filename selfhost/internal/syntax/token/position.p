@@ -152,7 +152,7 @@ func (f *File) LineCount() int {
 func (f *File) AddLine(offset int) {
 	f.mutex.Lock()
 	if i := len(f.lines); (i == 0 || f.lines[i-1] < offset) && offset < f.size {
-		f.lines = compat.Append(f.lines, offset)
+		f.lines = compat.AppendPlain(f.lines, offset)
 	}
 	f.mutex.Unlock()
 }
@@ -219,7 +219,7 @@ func (f *File) SetLinesForContent(content []byte) {
 	line := 0
 	for offset, b := range content {
 		if line >= 0 {
-			lines = compat.Append(lines, line)
+			lines = compat.AppendPlain(lines, line)
 		}
 		line = -1
 		if b == '\n' {

@@ -608,7 +608,7 @@ func (s *fnState) bindParams() {
 			if w, ok := unwrap(s.subst(v.Type())).Underlying().(*types2.Wrapper); ok && w.Kind() == types2.WrapOwned {
 				// The function holds the box: nothing it does not pass
 				// it to can free it (opt.GenCheck).
-				s.f.GenOwnerArgs = compat.Append(s.f.GenOwnerArgs, int64(argIdx))
+				s.f.GenOwnerArgs = compat.AppendPlain(s.f.GenOwnerArgs, int64(argIdx))
 			}
 		}
 		for _, lf := range p.leaves {
@@ -856,7 +856,7 @@ func (l *Lowerer) resultOffsets(a *abiSig) []int64 {
 	for _, p := range a.results {
 		al := l.alignof(p.typ)
 		off = (off + al - 1) &^ (al - 1)
-		offs = compat.Append(offs, off)
+		offs = compat.AppendPlain(offs, off)
 		off += l.sizeof(p.typ)
 	}
 	return offs

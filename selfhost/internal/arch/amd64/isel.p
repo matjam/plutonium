@@ -766,10 +766,10 @@ func (s *isel) entry() {
 	var defs []Reg
 	for _, l := range locs {
 		if l.reg != NoReg {
-			defs = compat.Append(defs, l.reg)
+			defs = compat.AppendPlain(defs, l.reg)
 		}
 	}
-	defs = compat.Append(defs, closureReg)
+	defs = compat.AppendPlain(defs, closureReg)
 	s.emit(pu.New(MInst{Op: MDEF, ImplicitDefs: defs}))
 	for _, b := range s.f.Blocks {
 		for _, v := range b.Values {
@@ -1517,12 +1517,12 @@ func (s *isel) call(v *ssa.Value) {
 	for i := range args {
 		if l := locs[i].reg; l != NoReg {
 			s.copyReg(l, srcs[i], 8)
-			uses = compat.Append(uses, l)
+			uses = compat.AppendPlain(uses, l)
 		}
 	}
 	if ctx != nil {
 		s.copyReg(closureReg, ctxReg, 8)
-		uses = compat.Append(uses, closureReg)
+		uses = compat.AppendPlain(uses, closureReg)
 	}
 	if info.ABI == ssa.ABIC && info.Variadic {
 		nf := 0
@@ -1532,9 +1532,9 @@ func (s *isel) call(v *ssa.Value) {
 			}
 		}
 		s.loadConst(RAX, int64(nf), 4)
-		uses = compat.Append(uses, RAX)
+		uses = compat.AppendPlain(uses, RAX)
 	}
-	in := pu.New(MInst{Op: MCALL, ImplicitUses: uses, ImplicitDefs: compat.Append([]Reg(nil), callerSaved...)})
+	in := pu.New(MInst{Op: MCALL, ImplicitUses: uses, ImplicitDefs: compat.AppendPlain([]Reg(nil), callerSaved...)})
 	if v.Op == ssa.OpCall {
 		in.Sym = v.Aux.(*ssa.Sym)
 	} else {
@@ -1620,7 +1620,7 @@ func (s *isel) terminator(b *ssa.Block) error {
 		var uses []Reg
 		for i := range results {
 			s.copyReg(locs[i].reg, srcs[i], 8)
-			uses = compat.Append(uses, locs[i].reg)
+			uses = compat.AppendPlain(uses, locs[i].reg)
 		}
 		s.emit(pu.New(MInst{Op: MEPILOGUE, ImplicitUses: uses}))
 	case ssa.BlockExit:
@@ -1642,8 +1642,8 @@ func (s *isel) phiCopies(b, succ *ssa.Block, idx int) {
 		if v.Type.IsMem() {
 			continue
 		}
-		dsts = compat.Append(dsts, s.vregs[v.ID])
-		srcs = compat.Append(srcs, s.reg(v.Args[idx]))
+		dsts = compat.AppendPlain(dsts, s.vregs[v.ID])
+		srcs = compat.AppendPlain(srcs, s.reg(v.Args[idx]))
 	}
 	if len(dsts) > 0 {
 		s.emit(pu.New(MInst{Op: MPCOPY, Dsts: dsts, Srcs: srcs}))

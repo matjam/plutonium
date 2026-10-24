@@ -72,7 +72,7 @@ func checkNoSSE(f *MFunc) error {
 			if in.Op != MCALL {
 				regs = in.Defs(regs)
 			} else if in.Dst.Kind == OpdReg {
-				regs = compat.Append(regs, in.Dst.Reg)
+				regs = compat.AppendPlain(regs, in.Dst.Reg)
 			}
 			for _, r := range regs {
 				bad = bad || isXMM(r)

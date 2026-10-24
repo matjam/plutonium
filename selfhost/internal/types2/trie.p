@@ -83,10 +83,10 @@ func (tr *trie[V]) insert(key []int, val V) (V, int) {
 func (tr *trie[V]) pickKey() int {
 	var keys []int
 	for k := range tr.subs {
-		keys = compat.Append(keys, k)
+		keys = compat.AppendPlain(keys, k)
 	}
 	for k := range tr.leaves {
-		keys = compat.Append(keys, k)
+		keys = compat.AppendPlain(keys, k)
 	}
 	sort.Ints(keys) // guarantee deterministic element pick
 	return keys[0]

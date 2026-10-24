@@ -174,15 +174,15 @@ func (t *Table) WriteTraceTable(obj *objfile.Object, empty bool) {
 	tab.u32(uint32(deferOff))
 	for _, b := range []*buf{&funcs, &defers} {
 		base := len(tab.b)
-		tab.b = compat.Append(tab.b, b.b...)
+		tab.b = compat.AppendPlain(tab.b, b.b...)
 		for _, r := range b.relocs {
 			r.Off += uint64(base)
 			tab.relocs = compat.Append(tab.relocs, r)
 		}
 	}
-	tab.b = compat.Append(tab.b, inlines.b...)
-	tab.b = compat.Append(tab.b, strs.b...)
-	tab.b = compat.Append(tab.b, lines.b...)
+	tab.b = compat.AppendPlain(tab.b, inlines.b...)
+	tab.b = compat.AppendPlain(tab.b, strs.b...)
+	tab.b = compat.AppendPlain(tab.b, lines.b...)
 
 	sec := obj.Section(".rodata", elf.SHT_PROGBITS, elf.SHF_ALLOC, 8)
 	off := sec.Append(tab.b, 8)

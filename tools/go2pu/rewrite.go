@@ -539,7 +539,13 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 		if n.Ellipsis.IsValid() {
 			dots = "..."
 		}
-		call := fmt.Sprintf("%s.Append%s(%s%s)", t.compat(), t.appendTypeArg(n), t.list(n.Args), dots)
+		fn := "Append"
+		if plainElem(t.typeOf(n.Args[0])) {
+			// An element that holds no pointers: compat.AppendPlain's
+			// constraint says so, which the escape analysis sees.
+			fn = "AppendPlain"
+		}
+		call := fmt.Sprintf("%s.%s%s(%s%s)", t.compat(), fn, t.appendTypeArg(n), t.list(n.Args), dots)
 		if named, ok := t.typeOf(n).(*types.Named); ok {
 			// compat.Append returns a plain slice; convert it back to the
 			// named slice type (termlist).
@@ -577,6 +583,30 @@ func (t *fileTr) builtin(n *ast.CallExpr, name string) (string, bool) {
 		t.note(n, "%s: Plutonium has no complex numbers", name)
 	}
 	return "", false
+}
+
+// plainElem reports whether T is a slice whose element type is in
+// compat.Plain: its underlying type is a boolean, integer or floating-point
+// type, which holds no pointers.
+func plainElem(T types.Type) bool {
+	if T == nil {
+		return false
+	}
+	s, ok := T.Underlying().(*types.Slice)
+	if !ok {
+		return false
+	}
+	b, ok := s.Elem().Underlying().(*types.Basic)
+	if !ok {
+		return false
+	}
+	switch b.Kind() {
+	case types.Bool, types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
+		types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.Uintptr,
+		types.Float32, types.Float64:
+		return true
+	}
+	return false
 }
 
 // appendTypeArg returns the explicit element type argument of compat.Append

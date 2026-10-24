@@ -566,7 +566,7 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 			typ, size := check.indexOperand(op, -1) // ok to continue with typ == Typ[Invalid]
 			types = compat.Append(types, typ)
 			if size >= 0 {
-				sizes = compat.Append(sizes, size)
+				sizes = compat.AppendPlain(sizes, size)
 			}
 		}
 		if allocT != nil {

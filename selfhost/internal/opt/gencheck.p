@@ -436,7 +436,7 @@ func (g *genPlacer) overlaps() {
 	g.over = compat.Make[[]int](len(g.extOf))
 	byRoot := map[*ssa.Value][]int{}
 	for i, x := range g.extOf {
-		byRoot[x.root] = compat.Append(byRoot[x.root], i)
+		byRoot[x.root] = compat.AppendPlain(byRoot[x.root], i)
 	}
 	for _, ids := range byRoot {
 		if len(ids) > genMergeLimit {
@@ -450,7 +450,7 @@ func (g *genPlacer) overlaps() {
 			x := g.extOf[i]
 			for _, j := range ids {
 				if y := g.extOf[j]; y.off < x.off+x.size && x.off < y.off+y.size {
-					g.over[i] = compat.Append(g.over[i], j)
+					g.over[i] = compat.AppendPlain(g.over[i], j)
 				}
 			}
 		}
@@ -506,7 +506,7 @@ func (g *genPlacer) hoist(l *ssa.Loop) {
 			continue
 		}
 		if byRoot[s.ext] == nil {
-			order = compat.Append(order, s.ext)
+			order = compat.AppendPlain(order, s.ext)
 		}
 		byRoot[s.ext] = compat.Append(byRoot[s.ext], s)
 	}
@@ -785,7 +785,7 @@ func (g *genPlacer) dataflow(decide bool) [][]uint64 {
 				g.entryState(cur)
 			}
 			g.transfer(b, cur, decide)
-			out[b.ID] = compat.Append([]uint64(nil), cur...)
+			out[b.ID] = compat.AppendPlain([]uint64(nil), cur...)
 		}
 		return out
 	}
@@ -920,7 +920,7 @@ func (g *genPlacer) holds() {
 		r := x.root
 		if (r.Op == ssa.OpSelectN && r.AuxInt == 1 && genFreshCall(r.Args[0]) || r.Op == ssa.OpArg && owner[r.AuxInt]) &&
 			genHeldExtent(x) {
-			cands = compat.Append(cands, i)
+			cands = compat.AppendPlain(cands, i)
 		}
 	}
 	if len(cands) == 0 {
@@ -955,12 +955,12 @@ func (g *genPlacer) holds() {
 			continue
 		}
 		if r.Op == ssa.OpArg {
-			g.owned = compat.Append(g.owned, i)
+			g.owned = compat.AppendPlain(g.owned, i)
 		} else {
-			g.freshAt[r] = compat.Append(g.freshAt[r], i)
+			g.freshAt[r] = compat.AppendPlain(g.freshAt[r], i)
 		}
 		for _, u := range esc {
-			g.escapeAt[u] = compat.Append(g.escapeAt[u], i)
+			g.escapeAt[u] = compat.AppendPlain(g.escapeAt[u], i)
 			g.escBlocks[i] = compat.Append(g.escBlocks[i], u.Block)
 		}
 	}

@@ -5,9 +5,58 @@ import (
 )
 
 // hasPointers reports whether a value of type T may hold a pointer that
-// the analysis follows. A type parameter may.
+// the analysis follows. A type parameter may, unless its constraint allows
+// only types that hold none (pointerFreeConstraint).
 func hasPointers(T types2.Type) bool {
 	return hasPointersSeen(T, nil)
+}
+
+// pointerFreeConstraint reports whether every type the constraint c allows
+// holds no pointers: c, or an interface it embeds (transitively), is a
+// union of terms or a single type, none of which holds a pointer. The type
+// set of an interface is the intersection of its embedded elements, so one
+// such element bounds it. A generic body checked once for all its
+// instances (section 18.3) then loads and stores no pointers through a
+// value of the parameter, whatever the instance, as a body written for one
+// of those types would not.
+func pointerFreeConstraint(c types2.Type, seen map[types2.Type]bool) bool {
+	if c == nil || seen[c] {
+		return false
+	}
+	iface, ok := c.Underlying().(*types2.Interface)
+	if !ok {
+		return !hasPointersSeen(c, nil)
+	}
+	if seen == nil {
+		seen = map[types2.Type]bool{}
+	}
+	seen[c] = true
+	for i := 0; i < iface.NumEmbeddeds(); i++ {
+		switch e := types2.Unalias(iface.EmbeddedType(i)).(type) {
+		case *types2.Union:
+			free := true
+			for j := 0; j < e.Len(); j++ {
+				if hasPointersSeen(e.Term(j).Type(), nil) {
+					free = false
+					break
+				}
+			}
+			if free {
+				return true
+			}
+		case *types2.TypeParam:
+			// Not a valid constraint element; nothing is known.
+		default:
+			if _, isIface := e.Underlying().(*types2.Interface); isIface {
+				if pointerFreeConstraint(e, seen) {
+					return true
+				}
+			} else if !hasPointersSeen(e, nil) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hasPointersSeen(T types2.Type, seen map[types2.Type]bool) bool {
@@ -16,7 +65,7 @@ func hasPointersSeen(T types2.Type, seen map[types2.Type]bool) bool {
 	}
 	switch u := types2.Unalias(T).(type) {
 	case *types2.TypeParam:
-		return true
+		return !pointerFreeConstraint(u.Constraint(), nil)
 	case *types2.Named:
 		if seen[u] {
 			return false

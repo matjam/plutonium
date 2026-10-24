@@ -416,8 +416,8 @@ func (s *summary) addCall(c *paramCall) {
 // noteFresh records whether one return of result i is fresh memory.
 func (s *summary) noteFresh(i int, fresh bool) {
 	for len(s.fresh) <= i {
-		s.fresh = compat.Append(s.fresh, false)
-		s.notFresh = compat.Append(s.notFresh, false)
+		s.fresh = compat.AppendPlain(s.fresh, false)
+		s.notFresh = compat.AppendPlain(s.notFresh, false)
 	}
 	if fresh {
 		s.fresh[i] = true

@@ -606,7 +606,7 @@ func (check *Checker) arguments(call *ast.CallExpr, sig *Signature, targs []Type
 				for len(targs) < len(tparams) {
 					targs = compat.Append(targs, nil)
 				}
-				genericArgs = compat.Append(genericArgs, i)
+				genericArgs = compat.AppendPlain(genericArgs, i)
 			}
 		}
 	}

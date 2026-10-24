@@ -405,7 +405,7 @@ func (t *Table) writeLines(b *buf, funcs []*Func) map[string]int {
 	b.u8(256 + lineBase) // signed byte
 	b.u8(lineRange)
 	b.u8(lineOpcodeBase)
-	b.b = compat.Append(b.b, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1) // standard opcode lengths
+	b.b = compat.AppendPlain(b.b, 0, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1) // standard opcode lengths
 	var dirs []string
 	dirIndex := map[string]int{}
 	for _, n := range names {

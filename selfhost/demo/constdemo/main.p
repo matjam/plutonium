@@ -139,7 +139,7 @@ func (r *rng) expr(depth int, label string) constant.Value {
 	case 0: // unary
 		ops := []token.Token{token.ADD, token.SUB}
 		if x.Kind() == constant.Int {
-			ops = compat.Append(ops, token.XOR)
+			ops = compat.AppendPlain(ops, token.XOR)
 		}
 		op := ops[r.intn(len(ops))]
 		precs := []int{0, 0, 8, 16, 32, 64, 100}
@@ -171,7 +171,7 @@ func (r *rng) expr(depth int, label string) constant.Value {
 		compare(compat.Concat(label, " compare"), x, y)
 		ops := binOps
 		if x.Kind() == constant.Int && y.Kind() == constant.Int {
-			ops = compat.Append(compat.Append([]token.Token(nil), binOps...), intOps...)
+			ops = compat.AppendPlain(compat.AppendPlain([]token.Token(nil), binOps...), intOps...)
 		}
 		op := ops[r.intn(len(ops))]
 		if (op == token.QUO || op == token.QUO_ASSIGN || op == token.REM) && constant.Sign(y) == 0 {

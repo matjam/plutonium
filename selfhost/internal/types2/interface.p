@@ -166,7 +166,7 @@ func (check *Checker) interfaceType(ityp *Interface, iface *ast.InterfaceType, d
 		if ityp.embedPos == nil {
 			ityp.embedPos = pu.Alloc[[]token.Pos]()
 		}
-		*ityp.embedPos = compat.Append(*ityp.embedPos, pos)
+		*ityp.embedPos = compat.AppendPlain(*ityp.embedPos, pos)
 	}
 
 	for _, f := range iface.Methods.List {

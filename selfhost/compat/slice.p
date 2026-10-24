@@ -36,6 +36,29 @@ func Append[T any](s []T, xs ...T) []T {
 	return s
 }
 
+// Plain is the element types that hold no pointers: integers, booleans,
+// floating-point numbers and the types made from them. A type parameter so
+// constrained holds no pointers whatever its instance, so the escape
+// analysis sees that AppendPlain and growPlain keep nothing of what they
+// copy, which it cannot see of Append's generic copy. go2pu translates an
+// append to a slice of such elements to AppendPlain.
+type Plain interface {
+	~bool | ~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr |
+		~float32 | ~float64
+}
+
+// AppendPlain is Append for elements that hold no pointers.
+func AppendPlain[T Plain](s []T, xs ...T) []T {
+	n := len(s)
+	if need := n + len(xs); need > cap(s) {
+		s = growPlain(s, need)
+	}
+	s = s[:n+len(xs)]
+	copy(s[n:], xs)
+	return s
+}
+
 // Clone returns a copy of s in memory from alloc.Default(). It translates
 // a slice literal []T{...} that Go's escape analysis moves to the heap: in
 // Plutonium its backing array is in the frame.
@@ -89,7 +112,7 @@ func Insert[S ~[]E, E any](s S, i int, v ...E) S {
 func AppendString(b []byte, s string) []byte {
 	n := len(b)
 	if need := n + len(s); need > cap(b) {
-		b = grow(b, need)
+		b = growPlain(b, need)
 	}
 	b = b[:n+len(s)]
 	copy(b[n:], s)
@@ -102,14 +125,14 @@ func AppendInt(dst []byte, i int64, base int) []byte {
 	var mem [65]byte
 	f := vec.NewFixed(mem[:])
 	strconv.AppendInt(&f, i, base)
-	return Append(dst, f.Slice()...)
+	return AppendPlain(dst, f.Slice()...)
 }
 
 // AppendFloat is Go's strconv.AppendFloat, appending as Append does.
 func AppendFloat(dst []byte, x float64, verb byte, prec, bitSize int) []byte {
 	v := vec.New[byte]()
 	strconv.AppendFloat(&v, x, verb, prec, bitSize)
-	dst = Append(dst, v.Slice()...)
+	dst = AppendPlain(dst, v.Slice()...)
 	v.Free()
 	return dst
 }
@@ -119,20 +142,34 @@ func AppendRune(p []byte, r rune) []byte {
 	var mem [utf8.UTFMax]byte
 	f := vec.NewFixed(mem[:])
 	utf8.AppendRune(&f, r)
-	return Append(p, f.Slice()...)
+	return AppendPlain(p, f.Slice()...)
 }
 
 // Appendf is Go's fmt.Appendf, appending as Append does.
 func Appendf(b []byte, format string, args ...any) []byte {
 	v := vec.New[byte]()
 	fmt.Appendf(&v, format, args...)
-	b = Append(b, v.Slice()...)
+	b = AppendPlain(b, v.Slice()...)
 	v.Free()
 	return b
 }
 
 // grow returns a copy of s with capacity for at least need elements.
 func grow[T any](s []T, need int) []T {
+	c := 2 * cap(s)
+	if c < need {
+		c = need
+	}
+	if c < 4 {
+		c = 4
+	}
+	ns := MakeCap[T](len(s), c)
+	copy(ns, s)
+	return ns
+}
+
+// growPlain is grow for elements that hold no pointers.
+func growPlain[T Plain](s []T, need int) []T {
 	c := 2 * cap(s)
 	if c < need {
 		c = need
@@ -259,15 +296,15 @@ func PutUint64(b []byte, v uint64) {
 
 // AppendUint16 appends v to b, little-endian.
 func AppendUint16(b []byte, v uint16) []byte {
-	return Append(b, byte(v), byte(v>>8))
+	return AppendPlain(b, byte(v), byte(v>>8))
 }
 
 // AppendUint32 appends v to b, little-endian.
 func AppendUint32(b []byte, v uint32) []byte {
-	return Append(b, byte(v), byte(v>>8), byte(v>>16), byte(v>>24))
+	return AppendPlain(b, byte(v), byte(v>>8), byte(v>>16), byte(v>>24))
 }
 
 // AppendUint64 appends v to b, little-endian.
 func AppendUint64(b []byte, v uint64) []byte {
-	return Append(AppendUint32(b, uint32(v)), byte(v>>32), byte(v>>40), byte(v>>48), byte(v>>56))
+	return AppendPlain(AppendUint32(b, uint32(v)), byte(v>>32), byte(v>>40), byte(v>>48), byte(v>>56))
 }

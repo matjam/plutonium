@@ -25,7 +25,7 @@ func (s *isel) intrinsic(v *ssa.Value) error {
 	args := v.Args[:len(v.Args)-1]
 	var results []Reg
 	for _, t := range v.Type.Elems[1:] {
-		results = compat.Append(results, s.newReg(t))
+		results = compat.AppendPlain(results, s.newReg(t))
 	}
 	in := func(op MOp) *MInst { return s.emit(pu.New(MInst{Op: op})) }
 	// msr64 combines EDX:EAX into results[0].
@@ -77,7 +77,7 @@ func (s *isel) intrinsic(v *ssa.Value) error {
 		val := s.reg(args[1])
 		port := s.port(args[0])
 		s.copyReg(RAX, val, 8)
-		s.emit(pu.New(MInst{Op: MOUT, Size: size, Src: port, ImplicitUses: compat.Append(portUses(port), RAX)}))
+		s.emit(pu.New(MInst{Op: MOUT, Size: size, Src: port, ImplicitUses: compat.AppendPlain(portUses(port), RAX)}))
 
 	case "x86.Rdmsr":
 		s.copyReg(RCX, s.reg(args[0]), 8)

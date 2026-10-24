@@ -79,7 +79,7 @@ func bitTestChain(f *ssa.Func, v *ssa.Value) bool {
 			return false
 		}
 		x = y
-		cs = compat.Append(cs, ssa.ZeroExt(y.Type, w.Args[1].AuxInt))
+		cs = compat.AppendPlain(cs, ssa.ZeroExt(y.Type, w.Args[1].AuxInt))
 		return true
 	}
 	if !walk(v, true) {

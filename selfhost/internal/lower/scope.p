@@ -140,7 +140,7 @@ func (s *fnState) destroyParts(ptr *ssa.Value, T types2.Type, parts []moves.Path
 				return
 			}
 			if !slices.Contains(idx, k) {
-				idx = compat.Append(idx, k)
+				idx = compat.AppendPlain(idx, k)
 			}
 		}
 		slices.Sort(idx)
@@ -283,7 +283,7 @@ func (l *Lowerer) scopeOffsets(T types2.Type, depth int) []int64 {
 		offs := l.sizes.Offsetsof(fields)
 		for i, f := range fields {
 			for _, o := range l.scopeOffsets(unwrap(f.Type()), depth+1) {
-				out = compat.Append(out, offs[i]+o)
+				out = compat.AppendPlain(out, offs[i]+o)
 			}
 		}
 	case *types2.Array:
@@ -294,7 +294,7 @@ func (l *Lowerer) scopeOffsets(T types2.Type, depth int) []int64 {
 		size := l.sizeof(u.Elem())
 		for i := int64(0); i < u.Len(); i++ {
 			for _, o := range inner {
-				out = compat.Append(out, i*size+o)
+				out = compat.AppendPlain(out, i*size+o)
 			}
 		}
 	}

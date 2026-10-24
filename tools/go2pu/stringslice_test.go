@@ -38,6 +38,18 @@ func TestStringSliceRewrite(t *testing.T) {
 			t.Errorf("translation lacks %q", want)
 		}
 	}
+	// An append to a slice of elements without pointers goes to
+	// compat.AppendPlain, whose constraint tells the escape analysis that
+	// it keeps none; any other append to compat.Append.
+	for _, want := range []string{
+		"compat.AppendPlain(num, ' ')",
+		"compat.Append(t.order, n.name)",
+		"compat.Append(keys, k)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("translation lacks %q", want)
+		}
+	}
 	if strings.Contains(src, "t[1:n]") || strings.Contains(src, "t[n:]") || strings.Contains(src, "t[:n]") || strings.Contains(src, "t[:]") {
 		t.Error("translation still slices a string with a slice expression")
 	}

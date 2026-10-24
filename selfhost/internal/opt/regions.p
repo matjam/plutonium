@@ -121,7 +121,7 @@ func splitRegion(f *ssa.Func, s *ssa.Slot) bool {
 		for i, p := range s.Parts {
 			switch {
 			case p.Off >= o && p.Off+p.Size <= o+size:
-				in = compat.Append(in, i)
+				in = compat.AppendPlain(in, i)
 			case p.Off < o+size && p.Off+p.Size > o:
 				return nil, false
 			}

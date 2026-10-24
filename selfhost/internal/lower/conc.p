@@ -104,7 +104,7 @@ func (s *fnState) goFuncCall(e *ast.CallExpr, fun ast.Expr) {
 	var cands []int
 	for i, a := range e.Args {
 		if _, ok := s.typeOf(a).Underlying().(*types2.Signature); ok && s.frameClosure(a, 0) != "" {
-			cands = compat.Append(cands, i)
+			cands = compat.AppendPlain(cands, i)
 		}
 	}
 	if len(cands) == 0 {

@@ -141,9 +141,9 @@ func (ov *ownedViews) scan(a *analyzer) {
 				ov.cross = len(fns) > 0 && fns[len(fns)-1]
 				switch n := n.(type) {
 				case *ast.FuncDecl:
-					fns = compat.Append(fns, n.Body != nil && crosses(n.Body))
+					fns = compat.AppendPlain(fns, n.Body != nil && crosses(n.Body))
 				case *ast.FuncLit:
-					fns = compat.Append(fns, ov.cross || crosses(n.Body))
+					fns = compat.AppendPlain(fns, ov.cross || crosses(n.Body))
 				case *ast.AssignStmt:
 					ov.assign(p.Types, n.Lhs, n.Rhs)
 				case *ast.ValueSpec:

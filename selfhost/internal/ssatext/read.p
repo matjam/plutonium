@@ -560,7 +560,7 @@ func (r *reader) idList() []int64 {
 	n := r.count()
 	var out []int64
 	for i := 0; i < n && r.err == nil; i++ {
-		out = compat.Append(out, r.int())
+		out = compat.AppendPlain(out, r.int())
 	}
 	return out
 }
@@ -835,16 +835,16 @@ func (r *reader) block(f *ssa.Func, p *pending) blockRefs {
 	br.b = b
 	n := r.count()
 	for i := 0; i < n && r.err == nil; i++ {
-		br.controls = compat.Append(br.controls, r.int())
+		br.controls = compat.AppendPlain(br.controls, r.int())
 	}
 	n = r.count()
 	for i := 0; i < n && r.err == nil; i++ {
-		br.succIDs = compat.Append(br.succIDs, r.int())
+		br.succIDs = compat.AppendPlain(br.succIDs, r.int())
 		br.succs = compat.Append(br.succs, ssa.Edge{I: int(r.int())})
 	}
 	n = r.count()
 	for i := 0; i < n && r.err == nil; i++ {
-		br.predIDs = compat.Append(br.predIDs, r.int())
+		br.predIDs = compat.AppendPlain(br.predIDs, r.int())
 		br.preds = compat.Append(br.preds, ssa.Edge{I: int(r.int())})
 	}
 	if r.err != nil {
@@ -880,7 +880,7 @@ func (r *reader) value(b *ssa.Block, p *pending) valueRefs {
 	v.Uses = int32(r.int())
 	n := r.count()
 	for i := 0; i < n && r.err == nil; i++ {
-		vr.args = compat.Append(vr.args, r.int())
+		vr.args = compat.AppendPlain(vr.args, r.int())
 	}
 	if r.bool() {
 		ci := pu.New(ssa.CallInfo{})

@@ -200,7 +200,7 @@ func (s *cpuDepSite) add(loads []int, data bool, opaque string) {
 			found = found || m == l
 		}
 		if !found {
-			s.loads = compat.Append(s.loads, l)
+			s.loads = compat.AppendPlain(s.loads, l)
 		}
 	}
 	sort.Ints(s.loads)
@@ -369,7 +369,7 @@ func (a *analyzer) callLoad(e *ast.CallExpr, v *types2.Var, callee string) int {
 	n := len(a.cpuLoads)
 	a.cpuLoads = compat.Append(a.cpuLoads, pu.New(cpuLoad{v: v, pos: e.Pos(), call: e, callee: callee}))
 	a.cpuLoadCall[k] = n
-	a.cpuCallLoads[e] = compat.Append(a.cpuCallLoads[e], n)
+	a.cpuCallLoads[e] = compat.AppendPlain(a.cpuCallLoads[e], n)
 	return n
 }
 
@@ -1484,7 +1484,7 @@ func (d *depWalk) storeSite(v *types2.Var, t taint, pos token.Pos, e *ast.CallEx
 		if d.a.cpuLoads[el.src].v != v {
 			continue
 		}
-		loads = compat.Append(loads, el.src)
+		loads = compat.AppendPlain(loads, el.src)
 		data = data || !el.ctrl
 		if el.opaque != "" {
 			opaque = el.opaque
@@ -1497,9 +1497,9 @@ func (d *depWalk) storeSite(v *types2.Var, t taint, pos token.Pos, e *ast.CallEx
 		var in, out []int
 		for _, n := range loads {
 			if p := d.a.cpuLoads[n].pos; p >= c.lo && p < c.hi {
-				in = compat.Append(in, n)
+				in = compat.AppendPlain(in, n)
 			} else {
-				out = compat.Append(out, n)
+				out = compat.AppendPlain(out, n)
 			}
 		}
 		if len(in) > 0 {
@@ -1871,7 +1871,7 @@ func (d *depWalk) callTaint(e *ast.CallExpr) taint {
 		}
 		pks := compat.MakeCap[int](0, len(gi.pstore))
 		for k := range gi.pstore {
-			pks = compat.Append(pks, k)
+			pks = compat.AppendPlain(pks, k)
 		}
 		sort.Ints(pks)
 		for _, k := range pks {

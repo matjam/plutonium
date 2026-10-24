@@ -46,12 +46,12 @@ type fixup struct {
 	cond   Cond
 }
 
-func (e *encoder) byte(b ...byte) { e.code = compat.Append(e.code, b...) }
+func (e *encoder) byte(b ...byte) { e.code = compat.AppendPlain(e.code, b...) }
 
 func (e *encoder) imm(v int64, size int) {
 	var buf [8]byte
 	compat.PutUint64(buf[:], uint64(v))
-	e.code = compat.Append(e.code, buf[:size]...)
+	e.code = compat.AppendPlain(e.code, buf[:size]...)
 }
 
 func (e *encoder) fail(format string, args ...any) {

@@ -74,7 +74,7 @@ func (b bitset) empty() bool {
 // add adds i to b and reports whether b changed.
 func (b *bitset) add(i int) bool {
 	for len(*b) <= i/64 {
-		*b = bitset(compat.Append(*b, 0))
+		*b = bitset(compat.AppendPlain(*b, 0))
 	}
 	if (*b)[i/64]&(1<<(i%64)) != 0 {
 		return false
@@ -87,7 +87,7 @@ func (b *bitset) add(i int) bool {
 func (b *bitset) union(o bitset) bool {
 	changed := false
 	for len(*b) < len(o) {
-		*b = bitset(compat.Append(*b, 0))
+		*b = bitset(compat.AppendPlain(*b, 0))
 	}
 	for i, w := range o {
 		if (*b)[i]|w != (*b)[i] {
@@ -130,7 +130,7 @@ func (b bitset) members() []int {
 		for w != 0 {
 			j := bits.TrailingZeros64(w)
 			w &^= 1 << j
-			out = compat.Append(out, i*64+j)
+			out = compat.AppendPlain(out, i*64+j)
 		}
 	}
 	return out
@@ -1746,7 +1746,7 @@ func (s *fnState) planClosures() {
 					continue
 				}
 				if _, ok := n.(*ast.CallExpr); ok {
-					calls = compat.Append(calls, j)
+					calls = compat.AppendPlain(calls, j)
 					continue
 				}
 				src = j

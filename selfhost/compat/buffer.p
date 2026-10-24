@@ -28,7 +28,7 @@ type Builder = Buffer
 
 // Write appends p.
 func (b *Buffer) Write(p []byte) (int, error) {
-	b.buf = Append(b.buf, p...)
+	b.buf = AppendPlain(b.buf, p...)
 	return len(p), nil
 }
 
@@ -40,7 +40,7 @@ func (b *Buffer) WriteString(s string) (int, error) {
 
 // WriteByte appends c.
 func (b *Buffer) WriteByte(c byte) error {
-	b.buf = Append(b.buf, c)
+	b.buf = AppendPlain(b.buf, c)
 	return nil
 }
 
@@ -48,7 +48,7 @@ func (b *Buffer) WriteByte(c byte) error {
 func (b *Buffer) WriteRune(r rune) (int, error) {
 	var tmp [utf8.UTFMax]byte
 	n := utf8.EncodeRune(tmp[:], r)
-	b.buf = Append(b.buf, tmp[:n]...)
+	b.buf = AppendPlain(b.buf, tmp[:n]...)
 	return n, nil
 }
 
@@ -77,7 +77,7 @@ func (b *Buffer) Reset() { b.buf = b.buf[:0] }
 // Grow makes room for n more bytes.
 func (b *Buffer) Grow(n int) {
 	if len(b.buf)+n > cap(b.buf) {
-		b.buf = grow(b.buf, len(b.buf)+n)
+		b.buf = growPlain(b.buf, len(b.buf)+n)
 	}
 }
 

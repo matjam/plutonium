@@ -260,7 +260,7 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 	overflowed := func() {
 		ge = true
 		if first >= 0 {
-			b = compat.Append(b[:first+1], '*')
+			b = compat.AppendPlain(b[:first+1], '*')
 		} else {
 			b = b[:0]
 		}
@@ -279,7 +279,7 @@ func (w *walker) deriveKey(t tok, k pkey, preLoad bool, buf *[64]byte) pkey {
 			overflowed()
 			return true
 		}
-		b = compat.Append(b, '*')
+		b = compat.AppendPlain(b, '*')
 		if first < 0 {
 			first = len(b) - 1
 		}

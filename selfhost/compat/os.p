@@ -50,7 +50,7 @@ func ReadAll(r io.Reader) ([]byte, error) {
 	var chunk [16 << 10]byte
 	for {
 		n, err := r.Read(chunk[:])
-		data = Append(data, chunk[:n]...)
+		data = AppendPlain(data, chunk[:n]...)
 		if err == io.EOF {
 			return data, nil
 		}

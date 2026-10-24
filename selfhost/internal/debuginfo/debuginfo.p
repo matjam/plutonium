@@ -83,11 +83,11 @@ type buf struct {
 	relocs []objfile.Reloc
 }
 
-func (b *buf) u8(v uint8)   { b.b = compat.Append(b.b, v) }
+func (b *buf) u8(v uint8)   { b.b = compat.AppendPlain(b.b, v) }
 func (b *buf) u16(v uint16) { b.b = compat.AppendUint16(b.b, v) }
 func (b *buf) u32(v uint32) { b.b = compat.AppendUint32(b.b, v) }
 func (b *buf) u64(v uint64) { b.b = compat.AppendUint64(b.b, v) }
-func (b *buf) str(s string) { b.b = compat.Append(compat.AppendString(b.b, s), 0) }
+func (b *buf) str(s string) { b.b = compat.AppendPlain(compat.AppendString(b.b, s), 0) }
 
 func (b *buf) uleb(v uint64) {
 	for {
@@ -96,7 +96,7 @@ func (b *buf) uleb(v uint64) {
 		if v != 0 {
 			c |= 0x80
 		}
-		b.b = compat.Append(b.b, c)
+		b.b = compat.AppendPlain(b.b, c)
 		if v == 0 {
 			return
 		}
@@ -111,7 +111,7 @@ func (b *buf) sleb(v int64) {
 		if !done {
 			c |= 0x80
 		}
-		b.b = compat.Append(b.b, c)
+		b.b = compat.AppendPlain(b.b, c)
 		if done {
 			return
 		}
@@ -137,7 +137,7 @@ func (b *buf) patch32(off int, v uint32) { compat.PutUint32(b.b[off:], v) }
 // align pads with zero bytes to a multiple of n.
 func (b *buf) align(n int, pad byte) {
 	for len(b.b)%n != 0 {
-		b.b = compat.Append(b.b, pad)
+		b.b = compat.AppendPlain(b.b, pad)
 	}
 }
 

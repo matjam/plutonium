@@ -563,7 +563,7 @@ func (a *analyzer) checkSynced(groups []*group) {
 				continue
 			}
 			if byType[id] == nil {
-				ids = compat.Append(ids, id)
+				ids = compat.AppendPlain(ids, id)
 			}
 			// Every access to a synced object may meet one by another
 			// task: count it as a task that runs several times.
@@ -660,7 +660,7 @@ func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
 				eg = single[g]
 			}
 			if byType[id] == nil {
-				ids = compat.Append(ids, id)
+				ids = compat.AppendPlain(ids, id)
 			}
 			byType[id] = compat.Append(byType[id], entry{x, eg})
 		}
@@ -749,7 +749,7 @@ func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text f
 			if (i == j && !p.g.multi) || !conflict(p, q) {
 				continue
 			}
-			conf = compat.Append(conf, j)
+			conf = compat.AppendPlain(conf, j)
 			if q.x.write {
 				g = intersect(g, guards(q.x, true, rel))
 			}

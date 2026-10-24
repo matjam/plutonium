@@ -681,9 +681,9 @@ func floatString(f *bigFloat) string {
 		e++
 	}
 	s := compat.AppendFloat(nil, m, 'g', 6, 64)
-	s = compat.Append(s, 'e')
+	s = compat.AppendPlain(s, 'e')
 	if e >= 0 {
-		s = compat.Append(s, '+')
+		s = compat.AppendPlain(s, '+')
 	}
 	return compat.String(compat.AppendInt(s, e, 10))
 }

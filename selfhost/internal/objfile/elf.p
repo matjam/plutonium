@@ -79,12 +79,12 @@ func (s *Section) Append(data []byte, align uint64) uint64 {
 	off := (uint64(len(s.Data)) + align - 1) &^ (align - 1)
 	if s.Name == ".text" {
 		for uint64(len(s.Data)) < off {
-			s.Data = compat.Append(s.Data, 0xCC) // int3 padding between functions
+			s.Data = compat.AppendPlain(s.Data, 0xCC) // int3 padding between functions
 		}
 	} else {
-		s.Data = compat.Append(s.Data, compat.Make[byte](int(off-uint64(len(s.Data))))...)
+		s.Data = compat.AppendPlain(s.Data, compat.Make[byte](int(off-uint64(len(s.Data))))...)
 	}
-	s.Data = compat.Append(s.Data, data...)
+	s.Data = compat.AppendPlain(s.Data, data...)
 	return off
 }
 

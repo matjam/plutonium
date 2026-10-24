@@ -153,7 +153,7 @@ func stringsAndBytes() {
 	bs = compat.AppendString(bs, " tail")
 	compat.Printfb("%v\n", compat.ArgS(compat.String(bs)))
 	num := compat.AppendInt(nil, -42, 10)
-	num = compat.Append(num, ' ')
+	num = compat.AppendPlain(num, ' ')
 	num = compat.AppendFloat(num, 2.5e-7, 'g', -1, 64)
 	num = compat.AppendRune(num, '☺')
 	num = compat.Appendf(num, " %d|%q", 7, "x")

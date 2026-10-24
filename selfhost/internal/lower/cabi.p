@@ -143,7 +143,7 @@ func (l *Lowerer) cSignature(sig *types2.Signature) (*cSig, error) {
 	if cs.sret {
 		intLeft--
 		cs.flatParams = compat.Append(cs.flatParams, ssa.TPtr)
-		cs.onStack = compat.Append(cs.onStack, false)
+		cs.onStack = compat.AppendPlain(cs.onStack, false)
 	}
 	for i, T := range params {
 		p, err := l.cClassify(T)
@@ -161,7 +161,7 @@ func (l *Lowerer) cSignature(sig *types2.Signature) (*cSig, error) {
 				cs.internal = false
 			}
 			cs.flatParams = compat.Append(cs.flatParams, p.scalar)
-			cs.onStack = compat.Append(cs.onStack, false)
+			cs.onStack = compat.AppendPlain(cs.onStack, false)
 		default:
 			cs.internal = false
 			ni, ns := 0, 0
@@ -180,7 +180,7 @@ func (l *Lowerer) cSignature(sig *types2.Signature) (*cSig, error) {
 			}
 			for _, t := range p.pieces {
 				cs.flatParams = compat.Append(cs.flatParams, t)
-				cs.onStack = compat.Append(cs.onStack, p.memory || p.onStack)
+				cs.onStack = compat.AppendPlain(cs.onStack, p.memory || p.onStack)
 			}
 		}
 		cs.params = compat.Append(cs.params, p)

@@ -131,7 +131,7 @@ func encodeFunc(f *MFunc, order []*MBlock) (*Code, error) {
 		b.offset = len(e.code)
 		for _, in := range b.Insts {
 			insts = compat.Append(insts, in)
-			e.marks = compat.Append(e.marks, len(e.code))
+			e.marks = compat.AppendPlain(e.marks, len(e.code))
 			e.encode(in)
 		}
 	}
@@ -198,23 +198,23 @@ func relax(e *encoder) *Code {
 	out := compat.MakeCap[byte](0, len(e.code))
 	prev := 0
 	for i, f := range fx {
-		out = compat.Append(out, e.code[prev:f.start]...)
+		out = compat.AppendPlain(out, e.code[prev:f.start]...)
 		target := newPos(f.target.offset)
 		switch {
 		case short[i] && f.jcc:
-			out = compat.Append(out, 0x70+byte(f.cond), byte(int8(target-(len(out)+2))))
+			out = compat.AppendPlain(out, 0x70+byte(f.cond), byte(int8(target-(len(out)+2))))
 		case short[i]:
-			out = compat.Append(out, 0xEB, byte(int8(target-(len(out)+2))))
+			out = compat.AppendPlain(out, 0xEB, byte(int8(target-(len(out)+2))))
 		case f.jcc:
-			out = compat.Append(out, 0x0F, 0x80+byte(f.cond), 0, 0, 0, 0)
+			out = compat.AppendPlain(out, 0x0F, 0x80+byte(f.cond), 0, 0, 0, 0)
 			binary32(out[len(out)-4:], int64(target-len(out)))
 		default:
-			out = compat.Append(out, 0xE9, 0, 0, 0, 0)
+			out = compat.AppendPlain(out, 0xE9, 0, 0, 0, 0)
 			binary32(out[len(out)-4:], int64(target-len(out)))
 		}
 		prev = f.end
 	}
-	out = compat.Append(out, e.code[prev:]...)
+	out = compat.AppendPlain(out, e.code[prev:]...)
 	relocs := e.relocs
 	for i := range relocs {
 		relocs[i].Off = newPos(relocs[i].Off)

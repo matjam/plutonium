@@ -353,7 +353,7 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 		w.st = join(after, w.st)
 	case *ast.ForStmt:
 		w.stmt(st.Init, "")
-		w.loopPos = compat.Append(w.loopPos, st.Pos())
+		w.loopPos = compat.AppendPlain(w.loopPos, st.Pos())
 		defer func() { w.loopPos = w.loopPos[:len(w.loopPos)-1] }()
 		w.loop(label, func() *state {
 			if st.Cond == nil {
@@ -505,7 +505,7 @@ func (w *walker) loop(label string, cond func() *state, body, post func()) {
 }
 
 func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
-	w.loopPos = compat.Append(w.loopPos, st.Pos())
+	w.loopPos = compat.AppendPlain(w.loopPos, st.Pos())
 	defer func() { w.loopPos = w.loopPos[:len(w.loopPos)-1] }()
 	xt := w.typeOf(st.X)
 	var key, val origins

@@ -128,7 +128,7 @@ func (check *Checker) reportInstanceLoop(v int) {
 	// start by walking backwards along the path until we find a vertex
 	// that appears twice.
 	for !seen[v] {
-		stack = compat.Append(stack, v)
+		stack = compat.AppendPlain(stack, v)
 		seen[v] = true
 		v = check.mono.edges[check.mono.vertices[v].pre].src
 	}

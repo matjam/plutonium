@@ -9,10 +9,10 @@ import (
 // regsOfMem appends the registers an address uses.
 func regsOfMem(m *Mem, out []Reg) []Reg {
 	if m.Base != NoReg {
-		out = compat.Append(out, m.Base)
+		out = compat.AppendPlain(out, m.Base)
 	}
 	if m.Index != NoReg {
-		out = compat.Append(out, m.Index)
+		out = compat.AppendPlain(out, m.Index)
 	}
 	return out
 }
@@ -46,16 +46,16 @@ func (in *MInst) writesDst() bool {
 func (in *MInst) Defs(out []Reg) []Reg {
 	switch in.Op {
 	case MPCOPY:
-		return compat.Append(out, in.Dsts...)
+		return compat.AppendPlain(out, in.Dsts...)
 	case MSPILL:
 		return out
 	case MRELOAD:
-		return compat.Append(out, in.Dst.Reg)
+		return compat.AppendPlain(out, in.Dst.Reg)
 	}
 	if in.Dst.Kind == OpdReg && in.writesDst() {
-		out = compat.Append(out, in.Dst.Reg)
+		out = compat.AppendPlain(out, in.Dst.Reg)
 	}
-	return compat.Append(out, in.ImplicitDefs...)
+	return compat.AppendPlain(out, in.ImplicitDefs...)
 }
 
 // zeroIdiom reports whether the instruction clears its destination by
@@ -72,30 +72,30 @@ func (in *MInst) zeroIdiom() bool {
 func (in *MInst) Uses(out []Reg) []Reg {
 	switch in.Op {
 	case MPCOPY:
-		return compat.Append(out, in.Srcs...)
+		return compat.AppendPlain(out, in.Srcs...)
 	case MSPILL:
-		return compat.Append(out, in.Src.Reg)
+		return compat.AppendPlain(out, in.Src.Reg)
 	case MRELOAD:
 		return out
 	}
 	if in.zeroIdiom() {
-		return compat.Append(out, in.ImplicitUses...)
+		return compat.AppendPlain(out, in.ImplicitUses...)
 	}
 	switch in.Src.Kind {
 	case OpdReg:
-		out = compat.Append(out, in.Src.Reg)
+		out = compat.AppendPlain(out, in.Src.Reg)
 	case OpdMem:
 		out = regsOfMem(&in.Src.Mem, out)
 	}
 	switch in.Dst.Kind {
 	case OpdReg:
 		if in.readsDst() {
-			out = compat.Append(out, in.Dst.Reg)
+			out = compat.AppendPlain(out, in.Dst.Reg)
 		}
 	case OpdMem:
 		out = regsOfMem(&in.Dst.Mem, out)
 	}
-	return compat.Append(out, in.ImplicitUses...)
+	return compat.AppendPlain(out, in.ImplicitUses...)
 }
 
 // isMove reports whether the instruction is a register-to-register copy the
