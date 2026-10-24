@@ -155,7 +155,7 @@ func (fb *fnb) deferStmt(st *ast.DeferStmt) {
 		T := unwrap(lv.T)
 		a := fb.save(fb.lvAddr(lv), types2.NewPointer(T))
 		run = func(fb *fnb) {
-			fb.dropAt(fb.loadSaved(a), T, pos)
+			fb.explicitDrop(call, fb.dropAt(fb.loadSaved(a), T, pos))
 		}
 	default:
 		c, args, types := fb.calleeAndArgs(call, true)

@@ -117,9 +117,11 @@ func (fb *fnb) specialMethodCall(e *ast.CallExpr, se *ast.SelectorExpr, sel *typ
 	if fn.Name() == "Drop" && len(e.Args) == 0 && (fb.isMove(se.X) || isImplicitDrop(fn) && isIdent(se.X)) {
 		lv := fb.lvalue(se.X)
 		T := unwrap(lv.T)
+		var c *Call
 		if lv.kind == lvMem {
-			fb.dropAt(lv.addr, T, e.Pos())
+			c = fb.dropAt(lv.addr, T, e.Pos())
 		}
+		fb.explicitDrop(e, c)
 		return nil, nil, true
 	}
 	if w := types2.BoxMethodOf(fn); w != nil && fn.Name() != "Drop" {
@@ -151,7 +153,17 @@ func isIdent(e ast.Expr) bool {
 // calleeAndArgs returns the call a call expression makes, without its
 // arguments, and the arguments (the receiver first for a method), built
 // now. It is nil for a call that makes no call (an error was reported).
+// The call's Expr is e, unless its arguments are not e's (gateCall).
 func (fb *fnb) calleeAndArgs(e *ast.CallExpr, deferred bool) (*Call, []Reg, []types2.Type) {
+	c, args, types := fb.callee(e, deferred)
+	if c != nil && !c.gate {
+		c.Expr = e
+	}
+	return c, args, types
+}
+
+// callee is calleeAndArgs without the call's Expr.
+func (fb *fnb) callee(e *ast.CallExpr, deferred bool) (*Call, []Reg, []types2.Type) {
 	fun := ast.Unparen(e.Fun)
 	if ix, ok := fun.(*ast.IndexExpr); ok && signatureOf(fb.typeOf(ix.X)) != nil {
 		fun = ix.X
@@ -237,7 +249,7 @@ func (fb *fnb) gateCall(e *ast.CallExpr, gate *types2.Func) (*Call, []Reg, []typ
 	a1 := fb.exprAs(e.Args[1], sig.Params().At(1).Type())
 	a2 := fb.exprAs(e.Args[2], sig.Params().At(2).Type())
 	types := []types2.Type{sig.Params().At(0).Type(), sig.Params().At(1).Type(), sig.Params().At(2).Type(), sig.Params().At(3).Type()}
-	return &Call{Kind: CallStatic, Callee: fb.b.funcOf(at), Sig: sig}, []Reg{h, a1, a2, 0}, types
+	return &Call{Kind: CallStatic, Callee: fb.b.funcOf(at), Sig: sig, gate: true}, []Reg{h, a1, a2, 0}, types
 }
 
 // methodCallee returns the call of method x.m(args) and its receiver and
@@ -902,10 +914,10 @@ func (fb *fnb) copyElems(dst, src Reg, et types2.Type, pos token.Pos) {
 }
 
 // dropAt destroys the value of type T at addr: a call of its drop glue,
-// if destroying it runs any (section 18.6).
-func (fb *fnb) dropAt(addr Reg, T types2.Type, pos token.Pos) {
+// if destroying it runs any (section 18.6). It returns the call, or nil.
+func (fb *fnb) dropAt(addr Reg, T types2.Type, pos token.Pos) *Call {
 	if T == nil || !fb.b.needsDrop(T) {
-		return
+		return nil
 	}
 	if isTypeParam(T) {
 		// The drop of a T: each instantiation's drop glue (a call with
@@ -913,13 +925,26 @@ func (fb *fnb) dropAt(addr Reg, T types2.Type, pos token.Pos) {
 		fb.drops++
 		p := types2.NewVar(token.NoPos, nil, "p", types2.NewPointer(T))
 		sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(p), nil, false)
-		fb.emitCall(&Call{Kind: CallTypeParam, Iface: T, Sig: sig, Args: []Reg{addr}, Implicit: ImplDrop}, pos)
-		return
+		c := &Call{Kind: CallTypeParam, Iface: T, Sig: sig, Args: []Reg{addr}, Implicit: ImplDrop}
+		fb.emitCall(c, pos)
+		return c
 	}
 	id := fb.b.synth(Synth{Kind: SynthDropGlue, Recv: T})
 	sig := fb.b.p.Funcs[id].Sig
 	fb.drops++
-	fb.emitCall(&Call{Kind: CallStatic, Callee: id, Sig: sig, Args: []Reg{addr}, Implicit: ImplDrop}, pos)
+	c := &Call{Kind: CallStatic, Callee: id, Sig: sig, Args: []Reg{addr}, Implicit: ImplDrop}
+	fb.emitCall(c, pos)
+	return c
+}
+
+// explicitDrop records that the drop c (nil: none runs) is what the call
+// x.Drop() e makes of its receiver x (Call.Expr).
+func (fb *fnb) explicitDrop(e *ast.CallExpr, c *Call) {
+	if c != nil {
+		c.Expr = e
+		return
+	}
+	fb.b.p.NoCalls = append(fb.b.p.NoCalls, e)
 }
 
 // ----------------------------------------------------------------------------

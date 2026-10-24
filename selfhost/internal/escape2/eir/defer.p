@@ -153,7 +153,7 @@ func (fb *fnb) deferStmt(st *ast.DeferStmt) {
 		lv := fb.lvalue(x)
 		T := unwrap(lv.T)
 		a := fb.save(fb.lvAddr(lv), types2.NewPointer(T))
-		run = pu.New(goClosure_deferStmt_6{a: a, T: T, pos: pos})
+		run = pu.New(goClosure_deferStmt_6{call: call, a: a, T: T, pos: pos})
 	default:
 		c, args, types := fb.calleeAndArgs(call, true)
 		if c == nil {
@@ -174,7 +174,7 @@ func (fb *fnb) deferStmt(st *ast.DeferStmt) {
 			(*recvAddr) = fb.save(c.RecvAddr, types2.Typ[types2.UnsafePointer])
 		}
 		sargs := fb.saveAll(args, types)
-		proto := *c
+		proto := pu.New(*c)
 		run = pu.New(goClosure_deferStmt_8{proto: proto, hasTarget: hasTarget, target: target, recvAddr: recvAddr, sargs: sargs, pos: pos})
 	}
 	root.defers = compat.Append(root.defers, pu.New(deferred{run: run}))
@@ -366,13 +366,14 @@ func (goSelf *goClosure_deferStmt_5) Call(*fnb) {}
 // goClosure_deferStmt_6 is the function literal at defer.go:157, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_deferStmt_6 struct {
-	a   saved
-	T   types2.Type
-	pos token.Pos
+	call *ast.CallExpr
+	a    saved
+	T    types2.Type
+	pos  token.Pos
 }
 
 func (goSelf *goClosure_deferStmt_6) Call(fb *fnb) {
-	fb.dropAt(fb.loadSaved(goSelf.a), goSelf.T, goSelf.pos)
+	fb.explicitDrop(goSelf.call, fb.dropAt(fb.loadSaved(goSelf.a), goSelf.T, goSelf.pos))
 }
 
 // goClosure_deferStmt_7 is the function literal at defer.go:167, converted to a struct
@@ -385,7 +386,7 @@ func (goSelf *goClosure_deferStmt_7) Call(*fnb) {}
 // goClosure_deferStmt_8 is the function literal at defer.go:181, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_deferStmt_8 struct {
-	proto     Call
+	proto     *Call
 	hasTarget bool
 	target    *saved
 	recvAddr  *saved
@@ -394,7 +395,7 @@ type goClosure_deferStmt_8 struct {
 }
 
 func (goSelf *goClosure_deferStmt_8) Call(fb *fnb) {
-	c := pu.New(goSelf.proto)
+	c := pu.New((*goSelf.proto))
 	if goSelf.hasTarget {
 		c.Target = fb.loadSaved((*goSelf.target))
 	}

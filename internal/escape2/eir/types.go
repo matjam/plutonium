@@ -106,6 +106,11 @@ type Program struct {
 
 	// Sources maps each function's source to its ID.
 	Sources map[FuncKey]FuncID
+
+	// NoCalls are the call expressions x.Drop() that run no code (x's
+	// type has nothing to destroy): they keep nothing, for internal/moves'
+	// facts about calls (Call.Expr).
+	NoCalls []*ast.CallExpr
 }
 
 // Lookup returns the function of a source, or NoFunc.
@@ -438,6 +443,16 @@ type Call struct {
 	// (the call takes &operand), Args[0] otherwise. 0 when the operand is
 	// not addressable or is itself a pointer.
 	RecvAddr Reg
+	// Expr is the call expression the call is of, nil for a call the
+	// builder makes itself. Its arguments are Args in order (the receiver
+	// x of x.M(...) first, except for CallIface, whose receiver is
+	// Target), the last fixed parameter's argument followed by the
+	// variadic ones packed into one register. For the drop x.Drop()
+	// (Implicit ImplDrop) Args[0] is x's address. It is what internal/moves'
+	// facts about calls are keyed by (escape2/calls.go); the solver does
+	// not read it.
+	Expr *ast.CallExpr
+	gate bool // a call of x86.gateAt for an interrupt gate, whose arguments are not Expr's
 }
 
 // Facts are what stage B reads of a function, collected while it is built
