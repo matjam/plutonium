@@ -80,7 +80,52 @@ func (r *Result) Write(root string) error {
 			return err
 		}
 	}
+	orphans, err := r.Orphans(root)
+	if err != nil {
+		return err
+	}
+	for _, name := range orphans {
+		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// Orphans returns the generated files in the output directory under root
+// that this translation no longer writes: the translations of Go files
+// since removed or renamed. Hand-written files are not among them.
+func (r *Result) Orphans(root string) ([]string, error) {
+	dir, err := r.Dir(root)
+	if err != nil {
+		return nil, err
+	}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	written := map[string]bool{}
+	for _, f := range r.Files {
+		written[f.Name] = true
+	}
+	var orphans []string
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".p") || written[name] {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return nil, err
+		}
+		if bytes.HasPrefix(data, []byte(generatedHeader)) {
+			orphans = append(orphans, name)
+		}
+	}
+	return orphans, nil
 }
 
 // Dir returns the directory under root that holds the package.
@@ -121,7 +166,10 @@ var stdMap = map[string]string{
 	"sync/atomic":     "pluto/sync/atomic",
 	"container/heap":  "pluto/container/heap",
 	"runtime":         "",
+	"time":            "",
 	"encoding/binary": "",
+	"encoding/hex":    "",
+	"crypto/sha256":   "",
 	"debug/elf":       "$MOD/elf",
 	"debug/dwarf":     "$MOD/dwarf",
 }
@@ -144,6 +192,13 @@ var special = map[string]string{
 	"slices.Insert":         "compat.Insert",
 	"slices.Clone":          "compat.Clone",
 	"runtime.Caller":        "compat.Caller",
+	"runtime.NumCPU":        "compat.NumCPU",
+	// A monotonic clock without pluto/time, whose timers bring in the
+	// scheduler (selfhost/compat time.p).
+	"time.Time":     "compat.Time",
+	"time.Duration": "compat.Duration",
+	"time.Now":      "compat.Now",
+	"time.Since":    "compat.Since",
 	// The library's Append functions append to a vec.Appender; the compat
 	// forms keep Go's []byte destination, growing it as compat.Append does.
 	"strconv.AppendInt":       "compat.AppendInt",
@@ -161,6 +216,28 @@ var special = map[string]string{
 	"os.Args":     "compat.Args()",
 	"os.ReadFile": "compat.ReadFile",
 	"io.ReadAll":  "compat.ReadAll",
+	// os.Executable reads /proc/self/exe; os.CreateTemp returns a
+	// compat.TempFile with the *os.File methods Go code calls on it.
+	"os.Executable": "compat.Executable",
+	"os.CreateTemp": "compat.CreateTemp",
+	"os.O_RDONLY":   "compat.O_RDONLY",
+	"os.O_WRONLY":   "compat.O_WRONLY",
+	"os.O_RDWR":     "compat.O_RDWR",
+	"os.O_APPEND":   "compat.O_APPEND",
+	"os.O_CREATE":   "compat.O_CREATE",
+	"os.O_EXCL":     "compat.O_EXCL",
+	"os.O_TRUNC":    "compat.O_TRUNC",
+	// The encodings the library has no package for (selfhost/compat
+	// encoding.p).
+	"crypto/sha256.Sum256":           "compat.Sum256",
+	"encoding/hex.EncodeToString":    "compat.HexEncode",
+	"encoding/binary.AppendUvarint":  "compat.AppendUvarint",
+	"encoding/binary.AppendVarint":   "compat.AppendVarint",
+	"encoding/binary.PutUvarint":     "compat.PutUvarint",
+	"encoding/binary.PutVarint":      "compat.PutVarint",
+	"encoding/binary.Uvarint":        "compat.Uvarint",
+	"encoding/binary.Varint":         "compat.Varint",
+	"encoding/binary.MaxVarintLen64": "compat.MaxVarintLen64",
 }
 
 // syncStubs replace the locks and atomics of the compiler's own packages
@@ -169,6 +246,7 @@ var special = map[string]string{
 var syncStubs = map[string]string{
 	"sync.Mutex":          "compat.Mutex",
 	"sync.RWMutex":        "compat.RWMutex",
+	"sync.Once":           "compat.Once",
 	"sync/atomic.Pointer": "compat.AtomicPointer",
 }
 
@@ -238,11 +316,13 @@ const (
 // untranslated lists the Go files that have no Plutonium counterpart, by path
 // relative to the Go module, and why. go2pu skips them.
 var untranslated = map[string]string{
-	"internal/syntax/ast/print.go": "the reflection-based debugging printer (plan section 3.6)",
-	"internal/build/test.go":       "pluto test's test main, which the self-hosted driver does not have yet (plan section 8)",
-	"internal/lower/oracle.go":     "the lowering oracle, test machinery of the Go compiler (docs/plans/2026-10-20-escape-redesign.md)",
-	"internal/build/oracle.go":     "the lowering oracle's inputs, test machinery of the Go compiler",
-	"internal/escape/oracle.go":    "the lowering oracle's record of the calls the escape analysis applies, test machinery of the Go compiler",
+	"internal/syntax/ast/print.go":      "the reflection-based debugging printer (plan section 3.6)",
+	"internal/build/test.go":            "pluto test's test main, which the self-hosted driver does not have yet (plan section 8)",
+	"internal/lower/oracle.go":          "the lowering oracle, test machinery of the Go compiler (docs/plans/2026-10-20-escape-redesign.md)",
+	"internal/build/oracle.go":          "the lowering oracle's inputs, test machinery of the Go compiler",
+	"internal/escape/oracle.go":         "the lowering oracle's record of the calls the escape analysis applies, test machinery of the Go compiler",
+	"internal/escape2/guard.go":         "recover, which turns a crash of the analysis into an internal error: guard.p is hand-written",
+	"internal/escape2/sched/workers.go": "the workers of the parallel driver, a channel and task statements the panic handler would reach through func values: workers.p is hand-written and runs the tasks in order",
 }
 
 // TranslateDir translates the Go package in dir.

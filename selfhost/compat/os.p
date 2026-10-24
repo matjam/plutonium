@@ -1,8 +1,12 @@
 package compat
 
 import (
+	"pluto/errors"
 	"pluto/io"
 	"pluto/os"
+	"pluto/strconv"
+	"pluto/strings"
+	"pluto/syscall"
 )
 
 // The operating-system name functions of Go's os package return a string
@@ -59,6 +63,70 @@ func ReadAll(r io.Reader) ([]byte, error) {
 		}
 	}
 }
+
+// Executable is os.Executable: the path of the running program, as Linux
+// gives it.
+func Executable() (string, error) {
+	return os.Readlink("/proc/self/exe")
+}
+
+// A TempFile is the *os.File os.CreateTemp returns, with Go's methods.
+type TempFile owner struct {
+	f    os.File
+	name string
+}
+
+// Write writes p to the file.
+func (t *TempFile) Write(p []byte) (int, error) { return t.f.Write(p) }
+
+// Close closes the file.
+func (t *TempFile) Close() error { return t.f.Close() }
+
+// Name is the file's name.
+func (t *TempFile) Name() string { return t.name }
+
+// NameLossy is Name: the name go2pu gives a Go *os.File's Name method.
+func (t *TempFile) NameLossy() string { return t.name }
+
+// CreateTemp is os.CreateTemp: a new file in dir whose name is pattern with
+// its last "*" (or its end) replaced by a number no other file there has,
+// opened for reading and writing.
+func CreateTemp(dir, pattern string) (TempFile, error) {
+	prefix, suffix := pattern, ""
+	if i := strings.LastIndexByte(pattern, '*'); i >= 0 {
+		prefix, suffix = strings.Slice(pattern, 0, i), strings.SliceFrom(pattern, i+1)
+	}
+	seed := uint64(os.Getpid())*2654435761 + tempSeq
+	var last error
+	for try := 0; try < 10000; try++ {
+		tempSeq++
+		seed = seed*6364136223846793005 + 1442695040888963407
+		name := Concat(dir, "/", prefix, strconv.FormatUint(seed>>16, 10), suffix)
+		f, err := os.OpenFile(name, syscall.O_RDWR|syscall.O_CREAT|syscall.O_EXCL, 0o600)
+		if err == nil {
+			return TempFile{f: f, name: name}, nil
+		}
+		last = err
+		if !errors.Is(err, os.ErrExist) {
+			break
+		}
+	}
+	return TempFile{}, last
+}
+
+// The flags of Go's os.OpenFile (pluto/os takes the system's).
+const (
+	O_RDONLY = syscall.O_RDONLY
+	O_WRONLY = syscall.O_WRONLY
+	O_RDWR   = syscall.O_RDWR
+	O_APPEND = syscall.O_APPEND
+	O_CREATE = syscall.O_CREAT
+	O_EXCL   = syscall.O_EXCL
+	O_TRUNC  = syscall.O_TRUNC
+)
+
+// tempSeq tells apart the names CreateTemp tries in one run.
+var tempSeq uint64
 
 // Caller is runtime.Caller: Plutonium has no way to ask for the caller's file
 // and line, so ok is always false. The compiler's assertion messages lose

@@ -1,6 +1,10 @@
 package compat
 
-import "pluto/testing"
+import (
+	"pluto/os"
+	"pluto/strings"
+	"pluto/testing"
+)
 
 func TestAppendConcat(t *testing.T) {
 	var s []int
@@ -119,5 +123,105 @@ func TestInsertCaller(t *testing.T) {
 	}
 	if _, _, _, ok := Caller(1); ok {
 		t.Fatalf("Caller reported a caller")
+	}
+}
+
+func TestTempFiles(t *testing.T) {
+	dir := TempDir()
+	a, err := CreateTemp(dir, "compat-*.tmp")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	b, err := CreateTemp(dir, "compat-*.tmp")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	if a.Name() == b.Name() || !strings.HasSuffix(a.Name(), ".tmp") {
+		t.Fatalf("CreateTemp names: %s %s", a.Name(), b.Name())
+	}
+	if n, err := a.Write(Bytes("hello")); n != 5 || err != nil {
+		t.Fatalf("Write: %d %v", n, err)
+	}
+	_ = a.Close()
+	_ = b.Close()
+	data, err := ReadFile(a.Name())
+	if err != nil || String(data) != "hello" {
+		t.Fatalf("ReadFile: %q %v", String(data), err)
+	}
+	_ = os.Remove(a.Name())
+	_ = os.Remove(b.Name())
+	if exe, err := Executable(); err != nil || exe == "" {
+		t.Fatalf("Executable: %q %v", exe, err)
+	}
+}
+
+func TestEncodings(t *testing.T) {
+	// FIPS 180-4 examples: one block, two blocks (56 bytes), and empty.
+	cases := []struct{ in, want string }{
+		{"abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+		{"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"},
+		{"", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+	}
+	for _, c := range cases {
+		sum := Sum256(Bytes(c.in))
+		if got := HexEncode(sum[:]); got != c.want {
+			t.Fatalf("Sum256(%q) = %s, want %s", c.in, got, c.want)
+		}
+	}
+	vals := []int64{0, 1, -1, 63, -64, 64, 300, -300, 1 << 40, -(1 << 62)}
+	var b []byte
+	for _, v := range vals {
+		b = AppendVarint(b, v)
+	}
+	b = AppendUvarint(b, 1<<63)
+	for _, v := range vals {
+		got, n := Varint(b)
+		if n <= 0 || got != v {
+			t.Fatalf("Varint: %d (%d bytes), want %d", got, n, v)
+		}
+		b = b[n:]
+	}
+	if u, n := Uvarint(b); u != 1<<63 || n != len(b) {
+		t.Fatalf("Uvarint: %d (%d bytes)", u, n)
+	}
+	var buf [MaxVarintLen64]byte
+	if n := PutVarint(buf[:], -300); n != 2 {
+		t.Fatalf("PutVarint: %d bytes", n)
+	}
+	if _, n := Uvarint([]byte{0x80, 0x80}); n != 0 {
+		t.Fatalf("Uvarint of a short buffer: %d", n)
+	}
+}
+
+// TestTime checks the monotonic clock and that durations print as
+// time.Duration prints them.
+func TestTime(t *testing.T) {
+	t0 := Now()
+	if d := Since(t0); d < 0 {
+		t.Fatalf("Since went back: %d", int64(d))
+	}
+	cases := []struct {
+		d    Duration
+		want string
+	}{
+		{0, "0s"}, {800, "800ns"}, {1000, "1µs"}, {12345, "12.345µs"}, {250000000, "250ms"}, {1500000000, "1.5s"},
+		{61000000000, "1m1s"}, {90500000000, "1m30.5s"}, {7200000000000, "2h0m0s"}, {-2000, "-2µs"}, {1000001, "1.000001ms"},
+	}
+	for _, c := range cases {
+		if got := c.d.String(); got != c.want {
+			t.Fatalf("Duration(%d).String() = %s, want %s", int64(c.d), got, c.want)
+		}
+	}
+}
+
+// TestOnce checks that Once runs its function the first time only.
+func TestOnce(t *testing.T) {
+	var o Once
+	n := 0
+	for i := 0; i < 3; i++ {
+		o.Do(func() { n++ })
+	}
+	if n != 1 {
+		t.Fatalf("Once ran %d times", n)
 	}
 }

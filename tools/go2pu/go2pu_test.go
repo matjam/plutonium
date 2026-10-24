@@ -35,6 +35,9 @@ var translations = []struct {
 	demo bool   // a main package under testdata, translated to selfhost/demo
 	slow bool   // the demo imports the translated type checker: it takes minutes and 5 GB to build (GO2PU_SLOW=1)
 	out  string // the Plutonium import path of a main package that is not a demo
+	// unbuilt says why TestDifferential does not build the demo yet; it is
+	// translated and type-checked (TestTranslationsLoad) all the same.
+	unbuilt string
 }{
 	{dir: "../../internal/objfile"},
 	{dir: "../../internal/ssa"},
@@ -61,6 +64,17 @@ var translations = []struct {
 	{dir: "../../internal/moves"},
 	{dir: "../../internal/race"},
 	{dir: "../../internal/lower"},
+	// The new escape analysis (docs/plans/2026-10-20-escape-redesign.md);
+	// refsolve, its reference solver, is for tests only.
+	{dir: "../../internal/escape2/domain"},
+	{dir: "../../internal/escape2/contract"},
+	{dir: "../../internal/escape2/summary"},
+	{dir: "../../internal/escape2/eir"},
+	{dir: "../../internal/escape2/solve"},
+	{dir: "../../internal/escape2/sched"},
+	{dir: "../../internal/escape2/report"},
+	{dir: "../../internal/escape2/cache"},
+	{dir: "../../internal/escape2"},
 	{dir: "../../internal/build"},                      // test.go (pluto test) is left out: see untranslated
 	{dir: "testdata/pluto", out: "selfhost/cmd/pluto"}, // the driver: pluto build, run and version (tools/bootstrap)
 	{dir: "testdata/objdemo", demo: true},
@@ -78,6 +92,8 @@ var translations = []struct {
 	{dir: "testdata/diagdemo", demo: true, slow: true},  // the diagnostics, over the golden files (TestDiagDemoRecords)
 	{dir: "testdata/typecheck", demo: true, slow: true}, // the loader and the type checker, over the repository (TestTypeCheck)
 	{dir: "testdata/lowerdemo", demo: true, slow: true}, // the front end as a program: SSA of the repository's programs (TestLower)
+	// The new escape analysis over programs of the repository (TestEscape2Demo).
+	{dir: "testdata/escape2demo", demo: true, slow: true, unbuilt: escape2DemoUnbuilt},
 }
 
 const selfhostDir = "../../selfhost"
@@ -137,6 +153,13 @@ func TestTranslationsUpToDate(t *testing.T) {
 				t.Errorf("%s/%s is stale: run this test with GO2PU_UPDATE=1", dir, f.Name)
 			}
 		}
+		orphans, err := res.Orphans(selfhostDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range orphans {
+			t.Errorf("%s/%s has no Go source any more: run this test with GO2PU_UPDATE=1", dir, name)
+		}
 	}
 }
 
@@ -152,6 +175,10 @@ func TestDifferential(t *testing.T) {
 			continue
 		}
 		name := filepath.Base(tr.dir)
+		if tr.unbuilt != "" {
+			t.Logf("skipping %s: %s", name, tr.unbuilt)
+			continue
+		}
 		if tr.slow && os.Getenv("GO2PU_SLOW") == "" {
 			t.Logf("skipping %s: it builds the translated type checker (set GO2PU_SLOW=1)", name)
 			continue

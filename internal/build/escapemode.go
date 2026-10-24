@@ -13,8 +13,9 @@ import (
 // every program and error site where the two differ (on standard error,
 // and appended to the file PLUTO_ESCAPE_DIFF names).
 //
-// The self-hosted compiler has internal/escape alone: its translation of
-// this file is written by hand (selfhost/internal/build/escapemode.p).
+// The self-hosted compiler runs internal/escape alone: its translation of
+// this file is written by hand (selfhost/internal/build/escapemode.p, which
+// says why).
 func analyzeEscapes(prog *load.Program) (*escape.Calls, error) {
 	mode, err := escape2.ModeFromEnv()
 	if err != nil {
