@@ -1384,16 +1384,21 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		// Any other callee: evaluate the func value now.
 		sig := s.typeOf(call.Fun).Underlying().(*types2.Signature)
 		var f *ssa.Value
+		var litSym *ssa.Sym // a literal's function: the call's only target
 		if lit, ok := fun.(*ast.FuncLit); ok && s.rf != nil {
-			if f = s.deferredLit(lit); f == nil {
+			if f, litSym = s.deferredLit(lit); f == nil {
 				return
 			}
+		} else if lit, ok := fun.(*ast.FuncLit); ok {
+			captures := s.capturedVars(lit)
+			litSym = s.closureFunc(lit, captures)
+			f = s.closureWith(lit, captures, litSym)
 		} else {
 			f = s.scalar(call.Fun)
 		}
 		fv := s.saveValue(scalarValue(f, s.typeOf(call.Fun)))
 		args := s.saveValues(s.callArgs(call, sig, nil))
-		site := &callSite{desc: types2.ExprString(call.Fun), fsig: sig}
+		site := &callSite{desc: types2.ExprString(call.Fun), fsig: sig, lit: litSym}
 		run = func(s *fnState, rec *ssa.Value) {
 			f := s.loadSaved(fv, rec).v
 			s.emitCall(callee{code: s.load(ssa.TPtr, f), ctx: f, site: site, deferred: true}, sig, nil, s.loadValues(args, rec), call.Pos())

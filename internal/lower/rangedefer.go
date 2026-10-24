@@ -28,21 +28,22 @@ func (s *fnState) outermostLoop() *rangeFunc {
 	return rf
 }
 
-// deferredLit returns a func value for a function literal deferred in a
+// deferredLit returns a func value, and its function, for a function literal deferred in a
 // loop body. Its closure record is built in the frame of the function that
 // runs it, since the body's frame is gone by then; for the same reason it
 // may not capture the body's own variables.
-func (s *fnState) deferredLit(lit *ast.FuncLit) *ssa.Value {
+func (s *fnState) deferredLit(lit *ast.FuncLit) (*ssa.Value, *ssa.Sym) {
 	captures := s.capturedVars(lit)
 	if len(captures) == 0 {
-		return s.closure(lit)
+		sym := s.closureFunc(lit, captures)
+		return s.closureWith(lit, captures, sym), sym
 	}
 	outer := s.outermostLoop()
 	for _, v := range captures {
 		// The loop's own variables are declared ahead of its body.
 		if p := v.Pos(); p >= outer.st.Pos() && p < outer.st.End() {
 			s.l.errorf(lit.Pos(), diag.DeferLitCapture, "a function literal deferred in a range-over-func loop body cannot capture %s, a variable of the loop body: the deferred call runs after the body has returned", v.Name())
-			return nil
+			return nil, nil
 		}
 	}
 	sym := s.closureFunc(lit, captures)
@@ -53,7 +54,7 @@ func (s *fnState) deferredLit(lit *ast.FuncLit) *ssa.Value {
 	for i, v := range captures {
 		s.store(ssa.TPtr, s.offPtr(recp, int64(8*(i+1))), s.lookupVar(v))
 	}
-	return recp
+	return recp, sym
 }
 
 // bodyOf returns the body of the declared function or function literal that

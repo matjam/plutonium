@@ -96,6 +96,12 @@ func TestInterruptContext(t *testing.T) {
 		// never set to anything that does.
 		{"trylock", "var hook func()\n\nfunc quick() {}\n\nfunc init() { hook = quick }\n\n" +
 			"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tif mu.TryLock() {\n\t\thook()\n\t}\n}\n", nil},
+		// A deferred literal calls that literal, not every function of its
+		// type whose value the program takes.
+		{"deferred literal", "var hook func()\n\nfunc slow() { wait() }\n\nfunc init() { hook = slow }\n\nvar n int\n\n" +
+			"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tdefer func() { n++ }()\n}\n", nil},
+		{"deferred literal waits", "//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tdefer func() { mu.Lock() }()\n}\n", []string{
+			"main.p:42:", irqWait, "which waits on mu (main.p:42)."}},
 		// A panic in an interrupt handler reaches the panic handler, which
 		// is checked on its own.
 		{"panics", "//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tvar a [4]int\n\ti := 5\n\ta[i%8] = 1\n}\n", nil},

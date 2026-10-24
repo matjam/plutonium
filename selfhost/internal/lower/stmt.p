@@ -1359,16 +1359,21 @@ func (s *fnState) deferStmt(st *ast.DeferStmt) {
 		// Any other callee: evaluate the func value now.
 		sig := s.typeOf(call.Fun).Underlying().(*types2.Signature)
 		var f *ssa.Value
+		var litSym *ssa.Sym // a literal's function: the call's only target
 		if lit, ok := fun.(*ast.FuncLit); ok && s.rf != nil {
-			if f = s.deferredLit(lit); f == nil {
+			if f, litSym = s.deferredLit(lit); f == nil {
 				return
 			}
+		} else if lit, ok := fun.(*ast.FuncLit); ok {
+			captures := s.capturedVars(lit)
+			litSym = s.closureFunc(lit, captures)
+			f = s.closureWith(lit, captures, litSym)
 		} else {
 			f = s.scalar(call.Fun)
 		}
 		fv := s.saveValue(scalarValue(f, s.typeOf(call.Fun)))
 		args := s.saveValues(s.callArgs(call, sig, nil))
-		site := pu.New(callSite{desc: types2.ExprString(call.Fun), fsig: sig})
+		site := pu.New(callSite{desc: types2.ExprString(call.Fun), fsig: sig, lit: litSym})
 		run = pu.New(goClosure_deferStmt_11{fv: fv, site: site, sig: sig, args: args, call: call})
 	}
 
@@ -1601,7 +1606,7 @@ func (goSelf *goClosure_deferStmt_10) Call(s *fnState, rec *ssa.Value) {
 	s.emitCall(callee{sym: goSelf.sym, site: goSelf.site, deferred: true}, goSelf.sig, nil, s.loadValues(goSelf.args, rec), goSelf.call.Pos())
 }
 
-// goClosure_deferStmt_11 is the function literal at stmt.go:1397, converted to a struct
+// goClosure_deferStmt_11 is the function literal at stmt.go:1402, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_deferStmt_11 struct {
 	fv   savedArg

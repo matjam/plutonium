@@ -66,6 +66,7 @@ type callSite struct {
 	iface       types2.Type       // for a call through an interface: its type
 	method      int               // and the index of the method in it
 	fsig        *types2.Signature // for a call through a func value: its type
+	lit         *ssa.Sym          // and the function, when the value is a literal's (defer func() {...}())
 	drop        bool              // a dynamic interface's descriptor drop adapter
 	dropType    types2.Type       // interface whose dynamic value is dropped
 	countedDrop bool              // only shared/synced payloads are released
@@ -152,8 +153,10 @@ type hop struct {
 }
 
 // indirect reports whether the hop is a call through an interface or a
-// func value.
-func (h *hop) indirect() bool { return h.site != nil && (h.site.iface != nil || h.site.fsig != nil) }
+// func value whose function is not known.
+func (h *hop) indirect() bool {
+	return h.site != nil && h.site.lit == nil && (h.site.iface != nil || h.site.fsig != nil)
+}
 
 // A callGraph answers questions about the lowered program's calls.
 type callGraph struct {
@@ -348,6 +351,9 @@ func (g *callGraph) targets(site *callSite) []*ssa.Sym {
 		}
 		g.ifaceTargets[key] = out
 		return out
+	}
+	if site.lit != nil {
+		return compat.Clone([]*ssa.Sym{site.lit})
 	}
 	var out []*ssa.Sym
 	want := plainSig(site.fsig)
