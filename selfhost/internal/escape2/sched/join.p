@@ -6,6 +6,7 @@ import (
 	"selfhost/compat"
 	"selfhost/internal/escape2/domain"
 	"selfhost/internal/escape2/eir"
+	"selfhost/internal/escape2/solve"
 	"selfhost/internal/escape2/summary"
 	"selfhost/pu"
 )
@@ -30,6 +31,7 @@ type virtuals struct {
 	paths domain.Paths
 	index map[string]eir.FuncID // candidate set, encoded, to its virtual function
 	sets  [][]eir.FuncID        // by virtual function, less len(p.Funcs)
+	iface []bool                // by virtual function: the set of a call through an interface
 
 	// cache holds each virtual function's join, valid until a member's
 	// summary changes (dirty); memberOf lists the virtual functions each
@@ -44,8 +46,10 @@ func newVirtuals(p *eir.Program, paths domain.Paths) *virtuals {
 }
 
 // of returns the candidates the solver applies for a candidate set: the set
-// itself, or its virtual function.
-func (v *virtuals) of(ids []eir.FuncID) []eir.FuncID {
+// itself, or its virtual function. A set of a call through an interface
+// (iface) has a virtual function of its own: its members' receivers are the
+// interface's data word, which a value method's filter needs (join).
+func (v *virtuals) of(ids []eir.FuncID, iface bool) []eir.FuncID {
 	if len(ids) < 2 {
 		return ids
 	}
@@ -54,7 +58,10 @@ func (v *virtuals) of(ids []eir.FuncID) []eir.FuncID {
 			return ids
 		}
 	}
-	key := compat.MakeCap[byte](0, 4*len(ids))
+	key := compat.MakeCap[byte](0, 4*len(ids)+1)
+	if iface {
+		key = compat.AppendPlain(key, 1)
+	}
 	for _, id := range ids {
 		key = compat.AppendUint32(key, uint32(id))
 	}
@@ -64,6 +71,7 @@ func (v *virtuals) of(ids []eir.FuncID) []eir.FuncID {
 	vid := eir.FuncID(len(v.p.Funcs) + len(v.sets))
 	v.index[compat.String(key)] = vid
 	v.sets = compat.Append(v.sets, compat.AppendPlain([]eir.FuncID(nil), ids...))
+	v.iface = compat.AppendPlain(v.iface, iface)
 	v.cache = compat.Append(v.cache, nil)
 	v.dirty = compat.AppendPlain(v.dirty, true)
 	for _, id := range ids {
@@ -103,7 +111,7 @@ func (v *virtuals) summary(id eir.FuncID, sum func(eir.FuncID) *summary.Summary)
 	if !v.dirty[i] && v.cache[i] != nil {
 		return v.cache[i]
 	}
-	s := join(v.paths, v.sets[i], sum)
+	s := join(v.p, v.paths, v.sets[i], v.iface[i], sum)
 	v.cache[i], v.dirty[i] = s, false
 	return s
 }
@@ -111,14 +119,30 @@ func (v *virtuals) summary(id eir.FuncID, sum func(eir.FuncID) *summary.Summary)
 // join returns the join of the summaries of ids: every entry of each, the
 // most inputs of any, made an antichain again by summary.Widen (whose caps
 // only widen). Each Esc and Store entry keeps a reason naming the candidate
-// it comes from and its index there.
-func join(ps domain.Paths, ids []eir.FuncID, sum func(eir.FuncID) *summary.Summary) *summary.Summary {
+// it comes from and its index there. iface says the set is a call's through
+// an interface (solve.RecvFilter).
+func join(p *eir.Program, ps domain.Paths, ids []eir.FuncID, iface bool, sum func(eir.FuncID) *summary.Summary) *summary.Summary {
 	out := pu.New(summary.Summary{})
 	var escWhy, storeWhy []summary.Reason
 	for _, id := range ids {
 		s := sum(id)
 		if s == nil {
 			continue
+		}
+		// A member that only a receiver of its type reaches (a method of
+		// a pointer receiver, an interface adapter, through an interface
+		// a value method): its entries of the receiver take that type's
+		// filter at the receiver (D51, solve.RecvFilter).
+		recv := func(k domain.Key) domain.Key { return k }
+		if p != nil {
+			if fid := solve.RecvFilterID(ps.Filters(), p, id, iface); fid != 0 {
+				recv = func(k domain.Key) domain.Key {
+					if k.Input() != 0 || k.HasFilter() {
+						return k
+					}
+					return k.WithFilter(ps, fid, 0)
+				}
+			}
 		}
 		if s.Inputs > out.Inputs {
 			out.Inputs = s.Inputs
@@ -134,11 +158,12 @@ func join(ps domain.Paths, ids []eir.FuncID, sum func(eir.FuncID) *summary.Summa
 			return r
 		}
 		for e, k := range s.Esc {
-			out.Esc = compat.AppendPlain(out.Esc, k)
+			out.Esc = compat.AppendPlain(out.Esc, recv(k))
 			escWhy = compat.Append(escWhy, why(e))
 		}
-		for j, p := range s.Store {
-			out.Store = compat.Append(out.Store, p)
+		for j, sp := range s.Store {
+			sp.Src = recv(sp.Src)
+			out.Store = compat.Append(out.Store, sp)
 			storeWhy = compat.Append(storeWhy, why(len(s.Esc)+j))
 		}
 		out.HeapStore = compat.AppendPlain(out.HeapStore, s.HeapStore...)
@@ -146,11 +171,27 @@ func join(ps domain.Paths, ids []eir.FuncID, sum func(eir.FuncID) *summary.Summa
 			out.Res = compat.Append(out.Res, summary.Result{})
 		}
 		for r, res := range s.Res {
-			out.Res[r].From = compat.Append(out.Res[r].From, res.From...)
+			for _, rk := range res.From {
+				rk.Key = recv(rk.Key)
+				out.Res[r].From = compat.Append(out.Res[r].From, rk)
+			}
 			out.Res[r].Heap = appendPaths(out.Res[r].Heap, res.Heap)
 			out.Res[r].CountedHeap = appendPaths(out.Res[r].CountedHeap, res.CountedHeap)
 		}
-		out.Deferred = compat.Append(out.Deferred, s.Deferred...)
+		for _, d := range s.Deferred {
+			d.Fn = recv(d.Fn)
+			if len(d.Args) > 0 {
+				args := compat.Make[summary.DeferredArg](len(d.Args))
+				for i, a := range d.Args {
+					args[i] = summary.DeferredArg{Heap: a.Heap, Keys: compat.Make[domain.Key](len(a.Keys))}
+					for j, k := range a.Keys {
+						args[i].Keys[j] = recv(k)
+					}
+				}
+				d.Args = args
+			}
+			out.Deferred = compat.Append(out.Deferred, d)
+		}
 		out.Region.Builds = out.Region.Builds || s.Region.Builds
 		out.Region.Self = out.Region.Self || s.Region.Self
 		out.Region.OuterResults = appendInts(out.Region.OuterResults, s.Region.OuterResults)

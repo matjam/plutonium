@@ -21,7 +21,11 @@ func (fakePaths) Steps(p domain.PathID) []domain.Step                         { 
 func (fakePaths) Loads(p domain.PathID) int                                   { return 0 }
 func (fakePaths) HasPrefix(p, prefix domain.PathID) bool                      { return p == prefix }
 func (fakePaths) Cut(p domain.PathID) domain.PathID                           { return p }
-func (fakePaths) Len() int                                                    { return 1 }
+func (fakePaths) Filters() *domain.Filters                                    { return &fakeFilters }
+
+var fakeFilters domain.Filters
+
+func (fakePaths) Len() int { return 1 }
 
 type fakeArena struct {
 	bytes, peak, resets int

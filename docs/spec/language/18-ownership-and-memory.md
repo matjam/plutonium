@@ -158,6 +158,11 @@ the result does hold `p` (E3007), and the directive is an error outside the stan
   assertions on the way and by the dynamic type where the caller knows it. A call through a func value is
   checked against every function of that type whose value the program takes, narrowed to the closures of
   the current function where only those can be there.
+- A value converted to an interface and then asserted, by a type assertion or a type switch case, to an
+  interface or to a type other than a pointer is followed after the assertion only for the dynamic types
+  the assertion admits; so is the receiver of a method called through an interface, for the type whose
+  method is called. A function that keeps what passes an assertion does not keep a caller's value of a
+  type the assertion rejects.
 - Summaries follow pointers up to three loads deep and eight field steps; beyond that, everything
   reachable is assumed kept.
 - A local variable whose address is never taken is followed along the control flow, so reusing a

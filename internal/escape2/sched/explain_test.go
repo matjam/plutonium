@@ -29,7 +29,8 @@ import (
 // (selfhost/cmd/pluto) needs about 10 GB: run the compiled test binary
 // under bigjob.sh with -test.run 'TestExplain$' -test.v.
 //
-//	ESCAPE2_EXPLAIN_SITES=1       every finding: position, code, function
+//	ESCAPE2_EXPLAIN_SITES=1       every finding: position, code, function,
+//	                              object, and the callee and entry named
 //	ESCAPE2_EXPLAIN_CLASSIFY=1    the findings by file, by base (the function
 //	                              whose own code makes the entry the finding's
 //	                              reason chain ends at; "[fmt]" when the chain
@@ -43,6 +44,8 @@ import (
 //	                              origin function id, with its key
 //	ESCAPE2_EXPLAIN_SUMS=a|b      the summaries of the functions so named
 //	ESCAPE2_EXPLAIN_FOLLOW=f#e    the reason chain of entry e of function f
+//	ESCAPE2_EXPLAIN_MEMBERS=f#e   when entry e of f comes from a join, the
+//	                              members with that entry and their chains
 //	ESCAPE2_EXPLAIN_IDS=1,2       the names of function IDs
 //	ESCAPE2_EXPLAIN_FUNC=f        the EIR of function f and the candidates
 //	                              of its dynamic calls
@@ -91,7 +94,11 @@ func TestExplain(t *testing.T) {
 	}
 	if os.Getenv("ESCAPE2_EXPLAIN_SITES") != "" {
 		for _, f := range res.Findings {
-			t.Logf("SITE %s %s %s", prog.Fset.Position(f.Pos), f.Code, p.Funcs[f.Func].Name)
+			obj := ""
+			if fn := p.Funcs[f.Func]; int(f.Obj) < len(fn.Objects) {
+				obj = fmt.Sprintf("obj %d kind %d %v", f.Obj, fn.Objects[f.Obj].Kind, fn.Objects[f.Obj].Type)
+			}
+			t.Logf("SITE %s %s %s %s entry %d callee %s", prog.Fset.Position(f.Pos), f.Code, p.Funcs[f.Func].Name, obj, f.Entry, x.name(f.Callee))
 		}
 	}
 	if ids := os.Getenv("ESCAPE2_EXPLAIN_IDS"); ids != "" {
@@ -115,6 +122,35 @@ func TestExplain(t *testing.T) {
 				t.Logf("FOLLOW %s entry %d", name, entry)
 				for _, step := range x.chain(eir.FuncID(id), entry) {
 					t.Logf("    %s", step)
+				}
+			}
+		}
+	}
+	if fe := os.Getenv("ESCAPE2_EXPLAIN_MEMBERS"); fe != "" {
+		name, e, _ := strings.Cut(fe, "#")
+		entry, _ := strconv.Atoi(e)
+		for id, f := range p.Funcs {
+			if f.Name != name {
+				continue
+			}
+			s := x.sum(eir.FuncID(id))
+			r := s.Reasons[entry]
+			v := eir.FuncID(r.Callee)
+			if !x.e.virt.isVirtual(v) {
+				t.Logf("MEMBERS: not virtual")
+				continue
+			}
+			vs := x.sum(v)
+			_, a, b, _ := x.entry(vs, int(int32(r.Entry)))
+			for _, m := range x.e.virt.sets[int(v)-len(p.Funcs)] {
+				ms := x.sum(m)
+				for i := 0; ms != nil && i < len(ms.Esc)+len(ms.Store); i++ {
+					if _, c, d, _ := x.entry(ms, i); c == a && d == b {
+						t.Logf("MEMBER %s entry %d", x.name(m), i)
+						for _, step := range x.chain(m, i) {
+							t.Logf("      %s", step)
+						}
+					}
 				}
 			}
 		}
@@ -159,7 +195,19 @@ func (x *explainer) name(id eir.FuncID) string {
 }
 
 func (x *explainer) keyString(k domain.Key) string {
-	return fmt.Sprintf("in%d%v ge=%v fge=%v", k.Input(), x.e.paths.Steps(k.Path()), k.GE(), k.FieldsGE())
+	s := fmt.Sprintf("in%d%v ge=%v fge=%v", k.Input(), x.e.paths.Steps(k.Path()), k.GE(), k.FieldsGE())
+	if k.Deep() {
+		s += " deep"
+	}
+	if id, pos := k.Filter(); id != 0 {
+		f, _ := x.e.paths.Filters().Get(id)
+		var ts []string
+		for _, a := range f.Atoms {
+			ts = append(ts, a.Text())
+		}
+		s += fmt.Sprintf(" filter{%v @%d}", ts, pos)
+	}
+	return s
 }
 
 // entry describes entry i of s (an Esc or a Store entry) and returns its

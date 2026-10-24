@@ -134,7 +134,15 @@ func (s *solver) binder(c *eir.Call, cf *eir.Func) func(int) value {
 		if c.Target != 0 {
 			return func(i int) value {
 				if i == 0 {
-					return s.val(c.Target)
+					v := s.val(c.Target)
+					if fs := s.env.Program().Funcs; c.Kind == eir.CallIface && cf != nil && int(cf.ID) < len(fs) && fs[cf.ID] == cf {
+						// Only a receiver of its type reaches the
+						// candidate (D51, solve.RecvFilter).
+						if id := solve.RecvFilterID(s.ps.Filters(), s.env.Program(), cf.ID, true); id != 0 {
+							v = s.filter(v, id)
+						}
+					}
+					return v
 				}
 				return arg(i - 1)
 			}

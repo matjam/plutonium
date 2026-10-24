@@ -3,6 +3,7 @@ package refsolve
 import (
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
+	"github.com/matjam/plutonium/internal/escape2/solve"
 )
 
 // Path helpers. Every path is built with domain.Paths.Extend, the one place
@@ -84,7 +85,8 @@ func (s *solver) off(t tok, q domain.PathID, qcut bool) tok {
 			return tok{kind: kObj, id: t.id, path: p, ge: c || qcut}
 		}
 		p, c := s.concat(t.path, q)
-		return tok{kind: kIn, id: t.id, path: p, ge: c || qcut}
+		u := tok{kind: kIn, id: t.id, path: p, ge: c || qcut, filt: t.filt, fpos: t.fpos}
+		return s.trimFilter(u)
 	}
 	return t // Heap -> Heap; a counted reference stays one
 }
@@ -157,13 +159,13 @@ func (s *solver) load(v value) value {
 			}
 			if x.t.fge {
 				// The path's pointers at any offset, loaded through: Deep.
-				out.add(ptr(tok{kind: kIn, id: x.t.id, path: x.t.path, deep: true}))
+				out.add(ptr(tok{kind: kIn, id: x.t.id, path: x.t.path, deep: true, filt: x.t.filt, fpos: x.t.fpos}))
 				continue
 			}
 			// Past the limits: Deep on the path through its last load
 			// (rules.go, "Paths past the limits").
 			p, c := s.extend(x.t.path, domain.StepLoad)
-			out.add(ptr(tok{kind: kIn, id: x.t.id, path: p, deep: c}))
+			out.add(ptr(s.trimFilter(tok{kind: kIn, id: x.t.id, path: p, deep: c, filt: x.t.filt, fpos: x.t.fpos})))
 		default:
 			out.add(ptr(tok{kind: kHeap}))
 		}
@@ -243,8 +245,19 @@ func (s *solver) reach(v value) value {
 // any offset of its path's value reads.
 func (s *solver) valueOfKey(k domain.Key, bind func(int) value) value {
 	v := bind(k.Input())
-	for _, st := range s.ps.Steps(k.Path()) {
+	id, pos := k.Filter()
+	steps := s.ps.Steps(k.Path())
+	if id != 0 && pos > len(steps) {
+		id = 0
+	}
+	for i, st := range steps {
+		if id != 0 && i == pos {
+			v = s.filter(v, id)
+		}
 		v = s.step(v, st)
+	}
+	if id != 0 && pos == len(steps) {
+		v = s.filter(v, id)
 	}
 	switch {
 	case k.GE():
@@ -295,8 +308,48 @@ func (s *solver) anyOffset(v value) value {
 			if !t.ge {
 				t.fge = true
 			}
+			t = s.trimFilter(t)
 		}
 		out.add(ptr(t))
+	}
+	return out
+}
+
+// trimFilter drops t's filter when its path no longer reaches the filter's
+// position (solve's trimFilter).
+func (s *solver) trimFilter(t tok) tok {
+	if t.filt != 0 && int(t.fpos) > len(s.ps.Steps(t.path)) {
+		t.filt, t.fpos = 0, 0
+	}
+	return t
+}
+
+// filter is v through type filter id (D51; solve/rules.go, "Type filters"):
+// a pointer at the root of a frame object only when the filter admits the
+// object (solve.FilterAdmitsObj); an exact In pointer with no filter takes
+// the filter at its path's length; everything else as it is.
+func (s *solver) filter(v value, id domain.FilterID) value {
+	f, ok := s.ps.Filters().Get(id)
+	if !ok {
+		return v
+	}
+	out := value{}
+	for x := range v {
+		switch x.t.kind {
+		case kObj:
+			if x.tag == domain.Root && x.t.id < len(s.f.Objects) &&
+				!solve.FilterAdmitsObj(&s.f.Objects[x.t.id], s.ps.Steps(x.t.path), x.t.ge, f) {
+				continue
+			}
+		case kIn:
+			t := x.t
+			if t.filt == 0 && !t.ge && !t.fge && !t.deep && x.tag == domain.Root && !x.g {
+				if n := len(s.ps.Steps(t.path)); n <= 15 {
+					x.t.filt, x.t.fpos = id, uint8(n)
+				}
+			}
+		}
+		out.add(x)
 	}
 	return out
 }

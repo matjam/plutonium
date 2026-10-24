@@ -65,6 +65,9 @@ type Paths interface {
 	Cut(p PathID) PathID
 	// Len is the number of interned paths.
 	Len() int
+	// Filters is the table of the type filters the analysis's keys name
+	// (D51, Key.Filter), of the same lifetime.
+	Filters() *Filters
 }
 
 // Key names pointers relative to an input of a function: those found by
@@ -87,8 +90,8 @@ type Paths interface {
 //	bit  43    DirectCount (a definite strong-box conversion)
 //	bit  44    FieldsGE ("GE within the object")
 //	bit  45    Deep ("anywhere in the object, then load")
-//
-// Bits 46-63 are zero.
+//	bits 46-59 filter (FilterID; filter.go), 0 for none
+//	bits 60-63 the filter's position: the path steps before the filtered pointer
 type Key uint64
 
 const (
@@ -206,7 +209,10 @@ func (k Key) WithPath(p PathID, ge bool) Key {
 //     loads (it is a's followed by offset steps, a load and more), or b is
 //     Deep too (its path is a's followed by offset steps only); never a b
 //     that may stand for a's pointers or their offsets themselves, or
-//   - none is GE, FieldsGE or Deep and the paths are equal.
+//   - none is GE, FieldsGE or Deep and the paths are equal;
+//
+// and a has no filter, or b has a filter at a's position whose atoms are
+// among a's (filterCovers).
 //
 // (An exact key whose last segment is full stands for the same pointers as
 // its FieldsGE twin; Covers says only that the twin covers it, so that Covers
@@ -215,6 +221,11 @@ func (k Key) WithPath(p PathID, ge bool) Key {
 func Covers(ps Paths, a, b Key) bool {
 	const flags = keyBorrowed | keyCounts | keyDirectCount
 	if a.Input() != b.Input() || a&flags != b&flags {
+		return false
+	}
+	// A filtered key covers only keys of its filter at its position; a key
+	// without one covers b's filtered forms too (filter.go).
+	if a.HasFilter() && a&(keyFilterMask|keyPosMask) != b&(keyFilterMask|keyPosMask) && !filterCovers(ps.Filters(), a, b) {
 		return false
 	}
 	switch {

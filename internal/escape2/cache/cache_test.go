@@ -259,7 +259,7 @@ func TestRoundTrip(t *testing.T) {
 	}
 	p, ps := res.Env.Program(), res.Env.Paths()
 	other := domain.NewPaths()
-	n, deep := 0, 0
+	n, deep, filtered := 0, 0, 0
 	for id, s := range res.Summaries {
 		b := cache.EncodeSummary(ps, s)
 		f := p.Funcs[id]
@@ -279,7 +279,15 @@ func TestRoundTrip(t *testing.T) {
 					deep++
 				}
 			}
+			for _, k := range s.Esc {
+				if k.HasFilter() {
+					filtered++
+				}
+			}
 		}
+	}
+	if filtered == 0 {
+		t.Fatal("no filtered key (pluto/fmt's walk makes them, D51): the test does not cover them")
 	}
 	if n == 0 {
 		t.Fatal("no summary with entries: the test tests nothing")

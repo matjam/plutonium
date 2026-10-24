@@ -16,9 +16,13 @@ import (
 // prefix, which is enough for tests that do not compare cuts with another
 // interner; the differential tests give both solvers the same Paths.
 type NaivePaths struct {
-	steps [][]domain.Step
-	ids   map[string]domain.PathID
+	steps   [][]domain.Step
+	ids     map[string]domain.PathID
+	filters domain.Filters
 }
+
+// Filters is the paths' table of type filters.
+func (p *NaivePaths) Filters() *domain.Filters { return &p.filters }
 
 // NewNaivePaths returns a Paths holding only Root.
 func NewNaivePaths() *NaivePaths {

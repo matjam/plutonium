@@ -111,8 +111,9 @@ type solver struct {
 	base   int // the arena's Allocated bytes when the solve began
 	nsteps int // constraint firings and edge transforms, for MaxFuncSteps
 
-	saturated []bool // by input: start it as In(i, Root, GE) (saturate.go)
-	fbDepth   int    // inside the application of a fallback group (defer.go, dcall.own)
+	saturated []bool                            // by input: start it as In(i, Root, GE) (saturate.go)
+	fbDepth   int                               // inside the application of a fallback group (defer.go, dcall.own)
+	filters   map[domain.FilterID]domain.Filter // filterOf's memo
 
 	// Closures callees return (regionlits.go): by region object, the
 	// literals the callee's summary names, the dcalls that called into it,
@@ -642,6 +643,7 @@ const (
 	dSplitOther = 1 << 57 // in the first word: the other tokens of a node
 	dAny        = 1 << 56 // in the first word: a node's pointers at any offset (anyNode)
 	dDeep       = 1 << 55 // in the first word: val of a Deep key on a node (deepNode)
+	dFilter     = 1 << 54 // in the first word: a node through a type filter (filterNode)
 )
 
 // keyNode returns the node of val(k) for k's input bound to node base
@@ -649,6 +651,19 @@ const (
 // key its path's value at any offset; for a Deep key reach of what a load at
 // any offset of its path's value reads.
 func (s *solver) keyNode(base uint32, k domain.Key) uint32 {
+	if id, pos := k.Filter(); id != 0 {
+		// A filtered key (D51): its path's value at the filter's position,
+		// through the filter, and the rest of the path from there.
+		steps := s.ps.Steps(k.Path())
+		if pos <= len(steps) {
+			pre, _ := s.pathOf(steps[:pos])
+			suf, _ := s.pathOf(steps[pos:])
+			base = s.filterNode(s.valNode(base, pre, false), id)
+			k = domain.MakeKey(k.Input(), suf, k.Flags())
+		} else {
+			k = k.NoFilter()
+		}
+	}
 	switch {
 	case k.Deep():
 		return s.deepNode(s.valNode(base, k.Path(), false))
@@ -658,7 +673,40 @@ func (s *solver) keyNode(base uint32, k domain.Key) uint32 {
 	return s.valNode(base, k.Path(), k.GE())
 }
 
-// anyNode returns the node of n's pointers offset anywhere in their objects
+// filterNode returns the node of n's tokens through filter id (xFilter).
+func (s *solver) filterNode(n uint32, id domain.FilterID) uint32 {
+	if m, ok := s.derived.get(dFilter|uint64(n)<<20, uint64(id)); ok {
+		return uint32(m)
+	}
+	m := s.newNode(nkPinned)
+	s.derived.put(s.a, dFilter|uint64(n)<<20, uint64(id), uint64(m))
+	s.addEdge(n, m, xw(xFilter, domain.PathID(id), false), 0)
+	return m
+}
+
+// filterTok is token t of an interface value's data word through filter f
+// (D51; rules.go, "Type filters"): false when f rejects it
+// (FilterAdmitsObj). A filter's place holds one pointer, the data word
+// (an interface value's other word is static), so an Obj token tagged Root
+// is that pointer, GE tag or not. An exact In token with no filter takes f
+// at its path's length. Every other token passes.
+func (s *solver) filterTok(t tok, id domain.FilterID, f domain.Filter) (tok, bool) {
+	switch t.kind {
+	case tObj:
+		if t.tag != domain.Root || int(t.base) >= len(s.f.Objects) {
+			return t, true
+		}
+		return t, FilterAdmitsObj(&s.f.Objects[t.base], s.ps.Steps(t.path), t.ge, f)
+	case tIn:
+		if t.filt == 0 && !t.ge && !t.fge && !t.deep && t.tag == domain.Root && !t.tagGE {
+			if n := len(s.ps.Steps(t.path)); n <= 15 {
+				t.filt, t.fpos = id, uint8(n)
+			}
+		}
+	}
+	return t, true
+}
+
 // (eir.AnyStep, anyOffset).
 func (s *solver) anyNode(n uint32) uint32 {
 	if m, ok := s.derived.get(dAny|uint64(n), 0); ok {
@@ -894,7 +942,7 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 // another load; a GE d stays GE (rules.go, "The store check").
 func (s *solver) storeDst(d, t tok) domain.Key {
 	dst := s.off(d, s.ps.Steps(t.tag))
-	k := key(dst)
+	k := key(dst).NoFilter() // a destination keeps no type filter (D51)
 	if t.tagGE && !k.GE() {
 		k = k.WithFieldsGE()
 	}
@@ -1227,16 +1275,30 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 	case eir.OpCopy:
 		s.edge(in.X, dst, xw(xID, 0, false))
 	case eir.OpAssert:
+		// What passes the assertion's type filter (D51; rules.go,
+		// "Type filters"): the value of the asserted type alone.
+		x := uint32(in.X)
+		if dst == 0 {
+			break
+		}
+		if x != 0 {
+			if id := AssertFilterID(s.ps.Filters(), in.Type); id != 0 {
+				x = s.filterNode(s.canonBase(in.X), id)
+			}
+		}
+		if x == 0 {
+			break
+		}
 		if directAssert(in.Type) {
 			// The value is a direct one: never a box (rules.go, OpAssert).
-			s.edge(in.X, dst, xw(xNoBox, 0, false))
+			s.addEdge(x, dst, xw(xNoBox, 0, false), 0)
 		} else if assertIface(in.Type) != nil {
 			// Only a box whose type implements the interface (rules.go,
 			// OpAssert).
 			s.assertT = append(s.assertT, in.Type)
-			s.edge(in.X, dst, xw(xImpl, domain.PathID(len(s.assertT)-1), false))
+			s.addEdge(x, dst, xw(xImpl, domain.PathID(len(s.assertT)-1), false), 0)
 		} else {
-			s.edge(in.X, dst, xw(xID, 0, false))
+			s.addEdge(x, dst, xw(xID, 0, false), 0)
 		}
 	case eir.OpPhi:
 		for _, a := range in.Args {

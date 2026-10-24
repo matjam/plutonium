@@ -152,6 +152,7 @@ func Widen(ps domain.Paths, s *Summary) {
 	if s == nil {
 		return
 	}
+	dropFilters(ps, s)
 	var escWhy, storeWhy []Reason
 	if len(s.Reasons) == len(s.Esc)+len(s.Store) && len(s.Reasons) > 0 {
 		escWhy = s.Reasons[:len(s.Esc)]
@@ -173,6 +174,80 @@ func Widen(ps domain.Paths, s *Summary) {
 	} else {
 		s.Reasons = nil
 	}
+}
+
+// dropFilters makes one entry of the entries that differ only in their
+// type filter (D51): the key with the union of their filters, which stands
+// for what they stand for together; with no filter when the union is too
+// large (domain.MaxAtoms), which covers them. A join of many candidates'
+// entries of one receiver, one filter each, is then as small as without
+// filters.
+func dropFilters(ps domain.Paths, s *Summary) {
+	type fk struct {
+		k   domain.Key // without filter
+		pos int
+		x   domain.Key // the store's destination, or the result's field and index
+		y   uint64
+	}
+	union := func(ids map[fk]domain.FilterID, g fk, id domain.FilterID) {
+		if old, ok := ids[g]; ok {
+			if old != 0 {
+				id = ps.Filters().Union(old, id)
+			} else {
+				id = 0
+			}
+		}
+		ids[g] = id
+	}
+	apply := func(ids map[fk]domain.FilterID, g fk, k domain.Key, ps0 int) domain.Key {
+		id := ids[g]
+		if id == 0 {
+			return k.NoFilter()
+		}
+		return k.NoFilter().WithFilterRaw(id, ps0)
+	}
+	ids := map[fk]domain.FilterID{}
+	for _, k := range s.Esc {
+		if id, pos := k.Filter(); id != 0 {
+			union(ids, fk{k: k.NoFilter(), pos: pos}, id)
+		}
+	}
+	for i, k := range s.Esc {
+		if id, pos := k.Filter(); id != 0 {
+			s.Esc[i] = apply(ids, fk{k: k.NoFilter(), pos: pos}, k, pos)
+		}
+	}
+	clear(ids)
+	for _, p := range s.Store {
+		if id, pos := p.Src.Filter(); id != 0 {
+			union(ids, fk{k: p.Src.NoFilter(), pos: pos, x: p.Dst}, id)
+		}
+	}
+	for i, p := range s.Store {
+		if id, pos := p.Src.Filter(); id != 0 {
+			s.Store[i].Src = apply(ids, fk{k: p.Src.NoFilter(), pos: pos, x: p.Dst}, p.Src, pos)
+		}
+	}
+	for r := range s.Res {
+		clear(ids)
+		for _, rk := range s.Res[r].From {
+			if id, pos := rk.Key.Filter(); id != 0 {
+				union(ids, fk{k: rk.Key.NoFilter(), pos: pos, x: domain.Key(rk.Field), y: b2u(rk.FieldGE)}, id)
+			}
+		}
+		for i, rk := range s.Res[r].From {
+			if id, pos := rk.Key.Filter(); id != 0 {
+				s.Res[r].From[i].Key = apply(ids, fk{k: rk.Key.NoFilter(), pos: pos, x: domain.Key(rk.Field), y: b2u(rk.FieldGE)}, rk.Key, pos)
+			}
+		}
+	}
+}
+
+func b2u(b bool) uint64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // MaxRawStorePerInput bounds the distinct store pairs of one input (by its
@@ -197,6 +272,14 @@ const MaxRawStorePerInput = 64 * MaxStorePerInput
 // pair cut for its source's count would make its destination every
 // pointer the caller's object leads to).
 func CutKey(ps domain.Paths, k domain.Key) domain.Key {
+	// A type filter (D51) at a position the cut path still reaches stays:
+	// the cut key stands for what passes it there and more beyond.
+	id, pos := k.Filter()
+	c := cutKeyPlain(ps, k.NoFilter())
+	return c.WithFilter(ps, id, pos)
+}
+
+func cutKeyPlain(ps domain.Paths, k domain.Key) domain.Key {
 	if k.Deep() && ps.Loads(k.Path()) == 0 {
 		return k.WithPath(domain.Root, false).WithDeep()
 	}
@@ -220,6 +303,11 @@ func cutKey(ps domain.Paths, k domain.Key) domain.Key { return CutKey(ps, k) }
 // or its path has a load), else GE on Root, which covers every key of the
 // input.
 func rootKey(ps domain.Paths, k domain.Key) domain.Key {
+	id, pos := k.Filter()
+	return rootKeyPlain(ps, k.NoFilter()).WithFilter(ps, id, pos)
+}
+
+func rootKeyPlain(ps domain.Paths, k domain.Key) domain.Key {
 	if k.Deep() || ps.Loads(k.Path()) > 0 {
 		return k.WithPath(domain.Root, false).WithDeep()
 	}
@@ -239,7 +327,12 @@ func perInput(keys []domain.Key) map[int]int {
 // reasons (if any) of the surviving keys.
 func widenKeys(ps domain.Paths, keys []domain.Key, why []Reason, limit int) ([]domain.Key, []Reason) {
 	keys, why = antichainKeys(ps, keys, why)
-	for pass := 0; pass < 2; pass++ {
+	// Cuts keep the type filters (D51) where the cut path still reaches
+	// them, and the filtered forms of a key merge into one, with the union
+	// of their filters (mergeKeyFilters): an input of a join of many
+	// candidates stays filtered by its members' receivers. Only a third
+	// pass drops them.
+	for pass := 0; pass < 3; pass++ {
 		over := false
 		for in, n := range perInput(keys) {
 			if n <= limit {
@@ -250,9 +343,12 @@ func widenKeys(ps domain.Paths, keys []domain.Key, why []Reason, limit int) ([]d
 				if k.Input() != in {
 					continue
 				}
-				if pass == 0 {
+				switch pass {
+				case 2:
+					keys[i] = k.NoFilter()
+				case 0:
 					keys[i] = cutKey(ps, k)
-				} else {
+				default:
 					keys[i] = rootKey(ps, k)
 				}
 			}
@@ -260,9 +356,66 @@ func widenKeys(ps domain.Paths, keys []domain.Key, why []Reason, limit int) ([]d
 		if !over {
 			break
 		}
+		mergeKeyFilters(ps, keys)
 		keys, why = antichainKeys(ps, keys, why)
 	}
 	return keys, why
+}
+
+// mergeKeyFilters gives the keys that differ only in their type filter
+// (D51) the union of their filters (dropFilters), in place.
+func mergeKeyFilters(ps domain.Paths, keys []domain.Key) {
+	type g struct {
+		k   domain.Key
+		pos int
+	}
+	ids := map[g]domain.FilterID{}
+	for _, k := range keys {
+		if id, pos := k.Filter(); id != 0 {
+			x := g{k.NoFilter(), pos}
+			if old, ok := ids[x]; ok {
+				if old != 0 {
+					id = ps.Filters().Union(old, id)
+				} else {
+					id = 0
+				}
+			}
+			ids[x] = id
+		}
+	}
+	for i, k := range keys {
+		if id, pos := k.Filter(); id != 0 {
+			keys[i] = k.NoFilter().WithFilterRaw(ids[g{k.NoFilter(), pos}], pos)
+		}
+	}
+}
+
+// mergePairFilters is mergeKeyFilters for the sources of store pairs of
+// one destination.
+func mergePairFilters(ps domain.Paths, pairs []StorePair) {
+	type g struct {
+		k, d domain.Key
+		pos  int
+	}
+	ids := map[g]domain.FilterID{}
+	for _, p := range pairs {
+		if id, pos := p.Src.Filter(); id != 0 {
+			x := g{p.Src.NoFilter(), p.Dst, pos}
+			if old, ok := ids[x]; ok {
+				if old != 0 {
+					id = ps.Filters().Union(old, id)
+				} else {
+					id = 0
+				}
+			}
+			ids[x] = id
+		}
+	}
+	for i, p := range pairs {
+		if id, pos := p.Src.Filter(); id != 0 {
+			pairs[i].Src = p.Src.NoFilter().WithFilterRaw(ids[g{p.Src.NoFilter(), p.Dst, pos}], pos)
+		}
+	}
 }
 
 // antichainKeys sorts keys, drops duplicates and keys another key covers.
@@ -327,7 +480,7 @@ func antichainKeys(ps domain.Paths, keys []domain.Key, why []Reason) ([]domain.K
 
 func widenPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, []Reason) {
 	pairs, why = antichainPairs(ps, pairs, why)
-	for pass := 0; pass < 2; pass++ {
+	for pass := 0; pass < 3; pass++ { // pass 2: the sources' type filters (widenKeys)
 		n := map[int]int{}
 		for _, p := range pairs {
 			n[p.Src.Input()]++
@@ -342,9 +495,12 @@ func widenPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, 
 				if p.Src.Input() != in {
 					continue
 				}
-				if pass == 0 {
+				switch pass {
+				case 2:
+					pairs[i].Src = p.Src.NoFilter()
+				case 0:
 					pairs[i] = StorePair{cutKey(ps, p.Src), cutKey(ps, p.Dst)}
-				} else {
+				default:
 					pairs[i] = StorePair{rootKey(ps, p.Src), rootKey(ps, p.Dst)}
 				}
 			}
@@ -352,6 +508,7 @@ func widenPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, 
 		if !over {
 			break
 		}
+		mergePairFilters(ps, pairs)
 		pairs, why = antichainPairs(ps, pairs, why)
 	}
 	return pairs, why
@@ -429,7 +586,7 @@ func antichainPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePa
 
 func widenResults(ps domain.Paths, from []ResultKey) []ResultKey {
 	from = antichainResults(ps, from)
-	for pass := 0; pass < 2; pass++ {
+	for pass := 0; pass < 3; pass++ { // pass 2: the type filters (widenKeys)
 		n := map[int]int{}
 		for _, rk := range from {
 			n[rk.Key.Input()]++
@@ -448,9 +605,12 @@ func widenResults(ps domain.Paths, from []ResultKey) []ResultKey {
 				// kept, since a GE key covers its extensions at any prefix
 				// of the field (resultCovers), and a caller places it with
 				// GE tags.
-				if pass == 0 {
+				switch pass {
+				case 2:
+					from[i].Key = rk.Key.NoFilter()
+				case 0:
 					from[i].Key = cutKey(ps, rk.Key)
-				} else {
+				default:
 					from[i] = ResultKey{Key: rootKey(ps, rk.Key), Field: domain.Root}
 				}
 			}
@@ -571,7 +731,7 @@ func widenDeferred(ps domain.Paths, ds []Deferred) []Deferred {
 		for _, st := range common[g] {
 			p, _ = ps.Extend(p, st)
 		}
-		return d.Fn.WithPath(p, true)
+		return d.Fn.NoFilter().WithPath(p, true)
 	}, merge)
 	for pass := 0; pass < 2; pass++ {
 		n := map[site]int{}
@@ -676,9 +836,10 @@ func cmpU64(a, b uint64) int {
 // its keys rather than by comparing every two.
 const indexFrom = 16
 
-// plainKey is k without GE and FieldsGE: what a key that covers k shares
-// with it besides a prefix of its path (domain.Covers).
-func plainKey(k domain.Key) domain.Key { return k.WithPath(k.Path(), false) }
+// plainKey is k without GE, FieldsGE, Deep and a filter: what a key that
+// covers k shares with it besides a prefix of its path (domain.Covers; an
+// unfiltered key covers its filtered forms).
+func plainKey(k domain.Key) domain.Key { return k.WithPath(k.Path(), false).NoFilter() }
 
 // prefixes returns the prefixes of p, Root first and p last, in buf. They
 // are interned (a path's prefixes are made before it), so Extend only finds

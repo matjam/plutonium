@@ -79,6 +79,10 @@ func (o *overlay) isOwn(p domain.PathID) bool { return p >= o.baseLen }
 
 func (o *overlay) Len() int { return int(o.baseLen) + len(o.parent) }
 
+// Filters is the interner's type filters: a solve makes them in the shared
+// table (domain.Filters, renumbered when the analysis is over).
+func (o *overlay) Filters() *domain.Filters { return o.ix.base.Filters() }
+
 func (o *overlay) Steps(p domain.PathID) []domain.Step {
 	if o.isOwn(p) {
 		return o.steps[p-o.baseLen]

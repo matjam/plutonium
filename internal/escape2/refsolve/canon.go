@@ -134,5 +134,16 @@ func CanonKey(ps domain.Paths, k domain.Key) string {
 	if f.DirectCount {
 		s += "d"
 	}
+	if id, pos := k.Filter(); id != 0 {
+		// A type filter (D51), by its atoms' texts: each solver numbers
+		// its own.
+		var atoms []string
+		if fl, ok := ps.Filters().Get(id); ok {
+			for _, a := range fl.Atoms {
+				atoms = append(atoms, a.Text())
+			}
+		}
+		s += fmt.Sprintf("{%s@%d}", strings.Join(atoms, "|"), pos)
+	}
 	return s
 }

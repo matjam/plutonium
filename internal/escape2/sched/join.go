@@ -5,6 +5,7 @@ import (
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
+	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/escape2/summary"
 )
 
@@ -28,6 +29,7 @@ type virtuals struct {
 	paths domain.Paths
 	index map[string]eir.FuncID // candidate set, encoded, to its virtual function
 	sets  [][]eir.FuncID        // by virtual function, less len(p.Funcs)
+	iface []bool                // by virtual function: the set of a call through an interface
 
 	// cache holds each virtual function's join, valid until a member's
 	// summary changes (dirty); memberOf lists the virtual functions each
@@ -42,8 +44,10 @@ func newVirtuals(p *eir.Program, paths domain.Paths) *virtuals {
 }
 
 // of returns the candidates the solver applies for a candidate set: the set
-// itself, or its virtual function.
-func (v *virtuals) of(ids []eir.FuncID) []eir.FuncID {
+// itself, or its virtual function. A set of a call through an interface
+// (iface) has a virtual function of its own: its members' receivers are the
+// interface's data word, which a value method's filter needs (join).
+func (v *virtuals) of(ids []eir.FuncID, iface bool) []eir.FuncID {
 	if len(ids) < 2 {
 		return ids
 	}
@@ -52,7 +56,10 @@ func (v *virtuals) of(ids []eir.FuncID) []eir.FuncID {
 			return ids
 		}
 	}
-	key := make([]byte, 0, 4*len(ids))
+	key := make([]byte, 0, 4*len(ids)+1)
+	if iface {
+		key = append(key, 1)
+	}
 	for _, id := range ids {
 		key = binary.LittleEndian.AppendUint32(key, uint32(id))
 	}
@@ -62,6 +69,7 @@ func (v *virtuals) of(ids []eir.FuncID) []eir.FuncID {
 	vid := eir.FuncID(len(v.p.Funcs) + len(v.sets))
 	v.index[string(key)] = vid
 	v.sets = append(v.sets, append([]eir.FuncID(nil), ids...))
+	v.iface = append(v.iface, iface)
 	v.cache = append(v.cache, nil)
 	v.dirty = append(v.dirty, true)
 	for _, id := range ids {
@@ -101,7 +109,7 @@ func (v *virtuals) summary(id eir.FuncID, sum func(eir.FuncID) *summary.Summary)
 	if !v.dirty[i] && v.cache[i] != nil {
 		return v.cache[i]
 	}
-	s := join(v.paths, v.sets[i], sum)
+	s := join(v.p, v.paths, v.sets[i], v.iface[i], sum)
 	v.cache[i], v.dirty[i] = s, false
 	return s
 }
@@ -109,14 +117,30 @@ func (v *virtuals) summary(id eir.FuncID, sum func(eir.FuncID) *summary.Summary)
 // join returns the join of the summaries of ids: every entry of each, the
 // most inputs of any, made an antichain again by summary.Widen (whose caps
 // only widen). Each Esc and Store entry keeps a reason naming the candidate
-// it comes from and its index there.
-func join(ps domain.Paths, ids []eir.FuncID, sum func(eir.FuncID) *summary.Summary) *summary.Summary {
+// it comes from and its index there. iface says the set is a call's through
+// an interface (solve.RecvFilter).
+func join(p *eir.Program, ps domain.Paths, ids []eir.FuncID, iface bool, sum func(eir.FuncID) *summary.Summary) *summary.Summary {
 	out := &summary.Summary{}
 	var escWhy, storeWhy []summary.Reason
 	for _, id := range ids {
 		s := sum(id)
 		if s == nil {
 			continue
+		}
+		// A member that only a receiver of its type reaches (a method of
+		// a pointer receiver, an interface adapter, through an interface
+		// a value method): its entries of the receiver take that type's
+		// filter at the receiver (D51, solve.RecvFilter).
+		recv := func(k domain.Key) domain.Key { return k }
+		if p != nil {
+			if fid := solve.RecvFilterID(ps.Filters(), p, id, iface); fid != 0 {
+				recv = func(k domain.Key) domain.Key {
+					if k.Input() != 0 || k.HasFilter() {
+						return k
+					}
+					return k.WithFilter(ps, fid, 0)
+				}
+			}
 		}
 		if s.Inputs > out.Inputs {
 			out.Inputs = s.Inputs
@@ -132,11 +156,12 @@ func join(ps domain.Paths, ids []eir.FuncID, sum func(eir.FuncID) *summary.Summa
 			return r
 		}
 		for e, k := range s.Esc {
-			out.Esc = append(out.Esc, k)
+			out.Esc = append(out.Esc, recv(k))
 			escWhy = append(escWhy, why(e))
 		}
-		for j, p := range s.Store {
-			out.Store = append(out.Store, p)
+		for j, sp := range s.Store {
+			sp.Src = recv(sp.Src)
+			out.Store = append(out.Store, sp)
 			storeWhy = append(storeWhy, why(len(s.Esc)+j))
 		}
 		out.HeapStore = append(out.HeapStore, s.HeapStore...)
@@ -144,11 +169,27 @@ func join(ps domain.Paths, ids []eir.FuncID, sum func(eir.FuncID) *summary.Summa
 			out.Res = append(out.Res, summary.Result{})
 		}
 		for r, res := range s.Res {
-			out.Res[r].From = append(out.Res[r].From, res.From...)
+			for _, rk := range res.From {
+				rk.Key = recv(rk.Key)
+				out.Res[r].From = append(out.Res[r].From, rk)
+			}
 			out.Res[r].Heap = appendPaths(out.Res[r].Heap, res.Heap)
 			out.Res[r].CountedHeap = appendPaths(out.Res[r].CountedHeap, res.CountedHeap)
 		}
-		out.Deferred = append(out.Deferred, s.Deferred...)
+		for _, d := range s.Deferred {
+			d.Fn = recv(d.Fn)
+			if len(d.Args) > 0 {
+				args := make([]summary.DeferredArg, len(d.Args))
+				for i, a := range d.Args {
+					args[i] = summary.DeferredArg{Heap: a.Heap, Keys: make([]domain.Key, len(a.Keys))}
+					for j, k := range a.Keys {
+						args[i].Keys[j] = recv(k)
+					}
+				}
+				d.Args = args
+			}
+			out.Deferred = append(out.Deferred, d)
+		}
 		out.Region.Builds = out.Region.Builds || s.Region.Builds
 		out.Region.Self = out.Region.Self || s.Region.Self
 		out.Region.OuterResults = appendInts(out.Region.OuterResults, s.Region.OuterResults)

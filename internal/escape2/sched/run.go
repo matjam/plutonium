@@ -382,6 +382,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		}
 		env.current = int32(len(comps) - 1)
 	}
+	canonicalFilters(env, findings)
 	for _, comp := range comps {
 		for _, id := range comp {
 			res.Findings = append(res.Findings, findings[id]...)
@@ -487,7 +488,7 @@ func (e *env) Summary(id eir.FuncID) *summary.Summary {
 // Candidates are the candidates the solver applies at a dynamic call: the
 // virtual function whose summary joins the candidate set (join.go).
 func (e *env) Candidates(f *eir.Func, c *eir.Call) []eir.FuncID {
-	return e.virt.of(e.facts.Candidates(f, c))
+	return e.virt.of(e.facts.Candidates(f, c), c.Kind == eir.CallIface)
 }
 
 func (e *env) Contract(name string) (*summary.Summary, bool) {

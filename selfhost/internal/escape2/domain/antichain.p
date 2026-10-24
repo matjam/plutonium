@@ -24,6 +24,13 @@ func CoveredBy(ps Paths, keys []Key, k Key) bool {
 // coveredByOther reports whether keys holds a key other than k that covers
 // k.
 func coveredByOther(ps Paths, keys []Key, k Key) bool {
+	if k.HasFilter() {
+		// Its unfiltered forms cover it as well (Covers).
+		u := k.NoFilter()
+		if hasKey(keys, u) || coveredByOther(ps, keys, u) {
+			return true
+		}
+	}
 	loads := ps.Loads(k.Path())
 	steps := ps.Steps(k.Path())
 	// Walk the prefixes from Root; Extend within the limits only re-finds
