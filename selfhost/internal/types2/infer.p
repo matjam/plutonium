@@ -630,7 +630,7 @@ func (w *tpWalker) isParameterized(typ Type) (res bool) {
 		return slices.Index(w.tparams, t) >= 0
 
 	default:
-		panic(pu.Box(compat.Sprintf("unexpected %T", typ)))
+		panic(pu.Box(compat.Sprintfb("unexpected %T", compat.ArgS(compat.TypeName(typ)))))
 	}
 
 	return false
@@ -789,7 +789,7 @@ func (w *cycleFinder) typ(typ Type) {
 		}
 
 	default:
-		panic(pu.Box(compat.Sprintf("unexpected %T", typ)))
+		panic(pu.Box(compat.Sprintfb("unexpected %T", compat.ArgS(compat.TypeName(typ)))))
 	}
 }
 

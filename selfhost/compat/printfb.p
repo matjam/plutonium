@@ -22,7 +22,8 @@ import (
 // are those below, one per operand: Sprintfb prints what fmt.Sprintf would
 // for these, and nothing is defined for other formats.
 //
-//	string   %v %s (flags -, width, precision), %q (-, width), %x %X
+//	string   %v %s %T (flags -, width, precision), %q (-, width), %x %X
+//	         (%T: the name compat.TypeName gives of a %T operand)
 //	integer  %d (flags - 0 + space, width), %v %x %X (- 0, width), %c %q (-, width)
 //	bool     %v %t (-, width)
 

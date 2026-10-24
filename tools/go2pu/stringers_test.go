@@ -35,12 +35,17 @@ func TestStringerRewrites(t *testing.T) {
 		`compat.Sprintfb("%v|%v|%5v|%-7s|%.3v", compat.ArgS((k).String()), compat.ArgS((cd).Error()), compat.ArgS((c).String()),`,
 		// %d and %c print the integer, %x the method's result.
 		`compat.Sprintfb("%d|%x|%v|%c", compat.ArgI(int64(c)), compat.ArgS((c).String()), compat.ArgS((on).String()), compat.ArgI(int64(count(65))))`,
-		// Left to fmt: a struct's value String, an interface, %#v, %T,
-		// %+v, * widths.
+		// Left to fmt: a struct's value String, an interface, %#v, %+v,
+		// * widths.
 		`compat.Sprintf("%v|%s|%10v|%-8s", n, n, n, n)`,
 		`compat.Sprintf("%v|%v", s, e)`,
 		`compat.Sprintf("%v|%#v", gostr(1), gostr(1))`,
-		`compat.Sprintf("%T|%d", c, c)`,
+		// %T, of any operand, is the dynamic type's name, which
+		// compat.TypeName reads without walking the value.
+		`compat.Sprintfb("%T|%d", compat.ArgS(compat.TypeName(c)), compat.ArgI(int64(c)))`,
+		`compat.Sprintfb("%T|%T|%T|%T", compat.ArgS(compat.TypeName(st)), compat.ArgS(compat.TypeName(noErr)), compat.ArgS(compat.TypeName(anyv)), compat.ArgS(compat.TypeName(pf)))`,
+		`compat.Sprintfb("[%12T]|[%-12T]|[%.3T]", compat.ArgS(compat.TypeName(nd)), compat.ArgS(compat.TypeName(c)), compat.ArgS(compat.TypeName(n)))`,
+		`compat.NewError(compat.Sprintfb("unexpected node type %T", compat.ArgS(compat.TypeName(st))))`,
 		`compat.Sprintf("%+v|%+v", 5, c)`,
 		`compat.Sprintf("%*v|%-*s", 6, c, 4, nd)`,
 		// %% takes no operand.

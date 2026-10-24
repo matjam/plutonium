@@ -392,7 +392,7 @@ func Walk(v Visitor, node Node) {
 		// nodes
 
 	default:
-		panic(pu.Box(compat.Sprintf("ast.Walk: unexpected node type %T", n)))
+		panic(pu.Box(compat.Sprintfb("ast.Walk: unexpected node type %T", compat.ArgS(compat.TypeName(n)))))
 	}
 
 	v.Visit(nil)
@@ -776,7 +776,7 @@ func inspect(node Node, f func(Node) bool) {
 		// nodes
 
 	default:
-		panic(pu.Box(compat.Sprintf("ast.Inspect: unexpected node type %T", n)))
+		panic(pu.Box(compat.Sprintfb("ast.Inspect: unexpected node type %T", compat.ArgS(compat.TypeName(n)))))
 	}
 
 	f(nil)

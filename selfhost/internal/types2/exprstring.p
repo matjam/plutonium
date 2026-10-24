@@ -9,7 +9,6 @@
 package types2
 
 import (
-	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/syntax/ast"
 	"selfhost/pu"
@@ -35,7 +34,7 @@ func WriteExpr(buf *compat.Buffer, x ast.Expr) {
 
 	switch x := x.(type) {
 	default:
-		fmt.Fprintf(buf, "(ast: %T)", x) // nil, ast.BadExpr, ast.KeyValueExpr
+		compat.Fprintfb(buf, "(ast: %T)", compat.ArgS(compat.TypeName(x))) // nil, ast.BadExpr, ast.KeyValueExpr
 
 	case *ast.Ident:
 		buf.WriteString(x.Name)

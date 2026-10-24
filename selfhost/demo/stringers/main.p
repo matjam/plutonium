@@ -158,7 +158,16 @@ func main() {
 	compat.Printfb("%v\n", compat.ArgS(compat.Sprintf("%v|%v", s, e)))
 	compat.Printfb("%v\n", compat.ArgS(compat.Sprintf("%v|%#v", gostr(1), gostr(1))))
 	compat.Printfb("%v\n", compat.ArgS(compat.Sprintf("%v|%v|%v", ptrOnly{1}, pu.New(ptrOnly{2}), c)))
-	compat.Printfb("%v\n", compat.ArgS(compat.Sprintf("%T|%d", c, c)))
+	compat.Printfb("%v\n", compat.ArgS(compat.Sprintfb("%T|%d", compat.ArgS(compat.TypeName(c)), compat.ArgI(int64(c)))))
+
+	// %T: the dynamic type's name, of any operand (an interface, nil,
+	// a pointer, a slice), with width and precision as %s has them.
+	var st fmt.Stringer = nd
+	var noErr error
+	var anyv any = compat.Clone([]int{1})
+	compat.Printfb("%v\n", compat.ArgS(compat.Sprintfb("%T|%T|%T|%T", compat.ArgS(compat.TypeName(st)), compat.ArgS(compat.TypeName(noErr)), compat.ArgS(compat.TypeName(anyv)), compat.ArgS(compat.TypeName(pf)))))
+	compat.Printfb("%v\n", compat.ArgS(compat.Sprintfb("[%12T]|[%-12T]|[%.3T]", compat.ArgS(compat.TypeName(nd)), compat.ArgS(compat.TypeName(c)), compat.ArgS(compat.TypeName(n)))))
+	compat.Printfb("%v\n", compat.ArgS(compat.NewError(compat.Sprintfb("unexpected node type %T", compat.ArgS(compat.TypeName(st)))).Error()))
 	compat.Printfb("%v\n", compat.ArgS(compat.Sprintf("%+v|%+v", 5, c)))
 	compat.Printfb("%v\n", compat.ArgS(compat.Sprintfb("%v %%v %s %d", compat.ArgS((c).String()), compat.ArgS(compat.StringOf(nd)), compat.ArgI(int64(5)))))
 	compat.Printfb("%v\n", compat.ArgS(compat.Sprintf("%*v|%-*s", 6, c, 4, nd)))

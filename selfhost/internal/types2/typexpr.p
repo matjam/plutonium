@@ -221,7 +221,7 @@ func (check *Checker) nestedType(e ast.Expr, def *TypeName) Type {
 // goTypeName returns the Go type name for typ and
 // removes any occurrences of "types." from that name.
 func goTypeName(typ Type) string {
-	return strings.ReplaceAll(compat.Sprintf("%T", typ), "types.", "")
+	return strings.ReplaceAll(compat.Sprintfb("%T", compat.ArgS(compat.TypeName(typ))), "types.", "")
 }
 
 // typInternal drives type checking of types.

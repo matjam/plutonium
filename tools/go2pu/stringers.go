@@ -27,6 +27,12 @@ import (
 //
 //	fmt.Sprintf("%s: %d", name, n)  ->  compat.Sprintfb("%s: %d", compat.ArgS(name), compat.ArgI(int64(n)))
 //
+// A %T operand, of any type, becomes the name of its dynamic type, which
+// compat.TypeName reads from the interface's type word without walking the
+// value:
+//
+//	fmt.Sprintf("bad node %T", n)  ->  compat.Sprintfb("bad node %T", compat.ArgS(compat.TypeName(n)))
+//
 // An operand with a String or Error method that fmt would call counts as
 // a string when the translation can call the method itself and print what
 // fmt prints:
@@ -96,6 +102,7 @@ type basicOp struct {
 	kind   byte   // 'S' string, 'I' signed integer, 'U' unsigned, 'B' bool: compat.ArgS and so on
 	conv   string // the conversion to the Arg constructor's type, or ""
 	prefix string // text before it (the inserted format)
+	typ    bool   // a %T operand: its dynamic type's name (compat.TypeName)
 }
 
 // planStringers finds the formatting calls in files to route to compat's
@@ -283,6 +290,16 @@ func (tc *translator) basicOperand(a ast.Expr, spec verbSpec, decls map[*types.F
 		return basicOp{}, nil, false, false
 	}
 	T := tv.Type
+	if spec.verb == 'T' {
+		// fmt prints the dynamic type's name as %s prints a string:
+		// compat.TypeName gives it without walking the value.
+		s := spec
+		s.verb = 's'
+		if !verbOK('S', s) {
+			return basicOp{}, nil, false, false
+		}
+		return basicOp{kind: 'S', typ: true}, nil, false, true
+	}
 	if types.IsInterface(T) {
 		return basicOp{}, nil, false, false
 	}
@@ -432,6 +449,10 @@ func (t *fileTr) basicText(n ast.Node) (string, bool) {
 		if op, ok := t.basicOps[e]; ok {
 			t.basicingOp[e] = true
 			defer delete(t.basicingOp, e)
+			if op.typ {
+				// Still converted to an interface: TypeName's parameter.
+				return fmt.Sprintf("%s%s.ArgS(%s.TypeName(%s))", op.prefix, t.compat(), t.compat(), t.render(e)), true
+			}
 			s := t.renderUnboxed(e)
 			if op.conv != "" {
 				s = op.conv + "(" + s + ")"

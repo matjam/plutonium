@@ -320,7 +320,7 @@ func (cmap CommentMap) String() string {
 		if ident, ok := node.(*Ident); ok {
 			s = ident.Name
 		} else {
-			s = compat.Sprintf("%T", node)
+			s = compat.Sprintfb("%T", compat.ArgS(compat.TypeName(node)))
 		}
 		fmt.Fprintf(buf, "\t%p  %20s:  %s\n", node, s, summary(comment))
 	}

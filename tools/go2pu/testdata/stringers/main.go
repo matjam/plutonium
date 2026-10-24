@@ -153,6 +153,15 @@ func main() {
 	fmt.Println(fmt.Sprintf("%v|%#v", gostr(1), gostr(1)))
 	fmt.Println(fmt.Sprintf("%v|%v|%v", ptrOnly{1}, &ptrOnly{2}, c))
 	fmt.Println(fmt.Sprintf("%T|%d", c, c))
+
+	// %T: the dynamic type's name, of any operand (an interface, nil,
+	// a pointer, a slice), with width and precision as %s has them.
+	var st fmt.Stringer = nd
+	var noErr error
+	var anyv any = []int{1}
+	fmt.Println(fmt.Sprintf("%T|%T|%T|%T", st, noErr, anyv, pf))
+	fmt.Println(fmt.Sprintf("[%12T]|[%-12T]|[%.3T]", nd, c, n))
+	fmt.Println(fmt.Errorf("unexpected node type %T", st).Error())
 	fmt.Println(fmt.Sprintf("%+v|%+v", 5, c))
 	fmt.Println(fmt.Sprintf("%v %%v %s %d", c, nd, 5))
 	fmt.Println(fmt.Sprintf("%*v|%-*s", 6, c, 4, nd))
