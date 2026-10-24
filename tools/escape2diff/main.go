@@ -14,6 +14,11 @@
 // each program the new analysis runs on, its SCC measurements: functions,
 // SCCs, the largest SCC and the peak arena of one SCC.
 //
+// With -moves it compares the move checker instead (internal/moves, plan
+// stage 4): given internal/escape's facts about calls and given
+// internal/escape2's (escape2.CheckCalls, what PLUTO_ESCAPE=new gives it),
+// and prints each program whose move errors differ.
+//
 // It exits with status 1 when any program's verdicts differ.
 package main
 
@@ -33,6 +38,7 @@ import (
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/sched"
 	"github.com/matjam/plutonium/internal/load"
+	"github.com/matjam/plutonium/internal/moves"
 	"github.com/matjam/plutonium/internal/types2"
 )
 
@@ -86,9 +92,11 @@ type outcome struct {
 	diff  *escape2.Disagreement
 	stats *sched.Stats
 	sccs  []sched.SCCStats
+	// moves: the move errors only one of the two sets of facts gives
+	onlyOld, onlyNew []string
 }
 
-func run(p program, wantStats bool) (o outcome) {
+func run(p program, wantStats, wantMoves bool) (o outcome) {
 	o.name = p.name
 	dir := p.dir
 	if p.file != "" {
@@ -115,6 +123,14 @@ func run(p program, wantStats bool) (o outcome) {
 		o.err = firstLine(err.Error())
 		return o
 	}
+	if wantMoves {
+		oldCalls, _ := escape.Analyze(prog)
+		newCalls, _ := escape2.CheckCalls(prog)
+		_, oldErr := moves.AnalyzeWith(prog, oldCalls)
+		_, newErr := moves.AnalyzeWith(prog, newCalls)
+		o.onlyOld, o.onlyNew = lineDiff(errLines(oldErr), errLines(newErr))
+		return o
+	}
 	oldErr := escape.Check(prog)
 	opts := sched.Options{}
 	if wantStats {
@@ -131,6 +147,45 @@ func run(p program, wantStats bool) (o outcome) {
 	return o
 }
 
+// errLines returns the first lines of err's errors, sorted.
+func errLines(err error) []string {
+	if err == nil {
+		return nil
+	}
+	var out []string
+	for _, l := range strings.Split(err.Error(), "\n") {
+		if l != "" && !strings.HasPrefix(l, " ") && !strings.HasPrefix(l, "\t") {
+			out = append(out, l)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// lineDiff returns the lines only a has and those only b has.
+func lineDiff(a, b []string) (onlyA, onlyB []string) {
+	count := map[string]int{}
+	for _, l := range a {
+		count[l]++
+	}
+	for _, l := range b {
+		count[l]--
+	}
+	for _, l := range a {
+		if count[l] > 0 {
+			onlyA = append(onlyA, l)
+			count[l]--
+		}
+	}
+	for l, n := range count {
+		for ; n < 0; n++ {
+			onlyB = append(onlyB, l)
+		}
+	}
+	sort.Strings(onlyB)
+	return onlyA, onlyB
+}
+
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
@@ -140,6 +195,7 @@ func main() {
 	stats := flag.Bool("stats", false, "print the new analysis's SCC measurements per program")
 	jobs := flag.Int("j", 4, "programs analysed at once (each loads the standard library)")
 	runRE := flag.String("run", "", "analyse only the programs whose names match this regular expression")
+	movesMode := flag.Bool("moves", false, "compare the move checker given each analysis's facts about calls")
 	flag.Parse()
 	match, err := regexp.Compile(*runRE)
 	if err != nil {
@@ -181,6 +237,14 @@ func main() {
 		case o.err != "":
 			loadErrs++
 			fmt.Printf("escape2diff: %s: does not load: %s\n", o.name, o.err)
+		case *movesMode && (len(o.onlyOld) > 0 || len(o.onlyNew) > 0):
+			differ++
+			for _, l := range o.onlyOld {
+				fmt.Printf("moves: %s: only with internal/escape's facts: %s\n", o.name, l)
+			}
+			for _, l := range o.onlyNew {
+				fmt.Printf("moves: %s: only with internal/escape2's facts: %s\n", o.name, l)
+			}
 		case o.diff == nil:
 			agree++
 		default:
@@ -211,7 +275,7 @@ func main() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			print(run(p, *stats))
+			print(run(p, *stats, *movesMode))
 		}()
 	}
 	wg.Wait()

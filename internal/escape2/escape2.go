@@ -46,14 +46,15 @@ func ModeFromEnv() (Mode, error) {
 // calls it: what calls do with their arguments (for internal/moves) and
 // the escape errors.
 //
-// Until stage 4 gives this analysis the facts about calls that the move
-// checker reads, they come from internal/escape in every mode; in ModeNew
-// its errors are dropped and this analysis's are reported instead.
+// In ModeNew internal/escape does not run: the facts about calls are this
+// analysis's (calls.go). In ModeBoth they are internal/escape's, whose
+// verdict stands.
 func Analyze(prog *load.Program, mode Mode) (*escape.Calls, error) {
+	if mode == ModeNew {
+		return CheckCalls(prog)
+	}
 	calls, oldErr := escape.Analyze(prog)
 	switch mode {
-	case ModeNew:
-		return calls, Check(prog)
 	case ModeBoth:
 		newErr := Check(prog)
 		if d := Compare(prog, oldErr, newErr); d != nil {
@@ -79,7 +80,26 @@ func CheckWith(prog *load.Program, opts sched.Options) (res *sched.Result, err e
 	return checkWith(prog, opts)
 }
 
+// CheckCalls is Check, and returns this analysis's facts about the calls
+// of the program for internal/moves (CallFacts), or nil when the analysis
+// failed (moves then takes every call at its worst).
+func CheckCalls(prog *load.Program) (calls *escape.Calls, err error) {
+	var res *sched.Result
+	defer recoverInternal(&res, &err)
+	p, res, err := checkProgram(prog, sched.Options{})
+	if res == nil {
+		return nil, err
+	}
+	return CallFacts(p, res), err
+}
+
 func checkWith(prog *load.Program, opts sched.Options) (*sched.Result, error) {
+	_, res, err := checkProgram(prog, opts)
+	return res, err
+}
+
+// checkProgram is checkWith, and returns the program's EIR as well.
+func checkProgram(prog *load.Program, opts sched.Options) (*eir.Program, *sched.Result, error) {
 	var c *cache.Cache
 	var err error
 	if dir := os.Getenv(cache.EnvVar); dir != "" && opts.Cache == nil {
@@ -91,14 +111,14 @@ func checkWith(prog *load.Program, opts sched.Options) (*sched.Result, error) {
 	}
 	p, res, err := Run(prog, opts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if c != nil {
 		if err := c.Save(res); err != nil {
 			fmt.Fprintf(os.Stderr, "escape2: %v\n", err)
 		}
 	}
-	return res, Diagnostics(prog, p, res)
+	return p, res, Diagnostics(prog, p, res)
 }
 
 // recoveredError is the diagnostic for a panic of the analysis: a function too

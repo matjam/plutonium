@@ -50,6 +50,18 @@ func (c *Calls) Arg(e ast.Expr) *ArgFacts {
 	return c.args[e]
 }
 
+// NewCalls returns an empty Calls, for another analysis to fill with Add
+// (internal/escape2).
+func NewCalls() *Calls { return &Calls{args: map[ast.Expr]*ArgFacts{}} }
+
+// Add merges af into what c knows of the call argument e.
+func (c *Calls) Add(e ast.Expr, af *ArgFacts) {
+	if c.args[e] == nil {
+		c.args[e] = &ArgFacts{}
+	}
+	c.args[e].merge(af)
+}
+
 // Analyze runs the analysis and returns what it found about calls, and the
 // escapes as a diag.List, or nil.
 func Analyze(prog *load.Program) (*Calls, error) {
