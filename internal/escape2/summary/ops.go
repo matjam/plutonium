@@ -196,6 +196,13 @@ func CutKey(ps domain.Paths, k domain.Key) domain.Key {
 	if k.Deep() && ps.Loads(k.Path()) == 0 {
 		return k.WithPath(domain.Root, false).WithDeep()
 	}
+	if ps.Loads(k.Path()) >= 2 {
+		// The path goes on past its first load with offsets, a load and
+		// more: Deep on the cut covers it, and every extension, and leaves
+		// out the pointers of the cut path itself (a closure record's
+		// pointer to a captured variable, not the variable's contents).
+		return k.WithPath(ps.Cut(k.Path()), false).WithDeep()
+	}
 	return k.WithPath(ps.Cut(k.Path()), true)
 }
 
