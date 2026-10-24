@@ -151,6 +151,7 @@ func join(ps domain.Paths, ids []eir.FuncID, sum func(eir.FuncID) *summary.Summa
 		out.Deferred = append(out.Deferred, s.Deferred...)
 		out.Region.Builds = out.Region.Builds || s.Region.Builds
 		out.Region.OuterResults = appendInts(out.Region.OuterResults, s.Region.OuterResults)
+		out.Region.Lits = append(out.Region.Lits, s.Region.Lits...)
 	}
 	out.Reasons = append(escWhy, storeWhy...)
 	summary.Widen(ps, out)

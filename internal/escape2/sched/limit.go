@@ -77,6 +77,7 @@ func topSummary(ps domain.Paths, f *eir.Func) *summary.Summary {
 		s.Region.OuterResults = append(s.Region.OuterResults, r)
 	}
 	s.Region.Builds = true
+	s.Region.Lits = []eir.FuncID{eir.NoFunc} // closures it cannot name
 	summary.Widen(ps, s)
 	return s
 }

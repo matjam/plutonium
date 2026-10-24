@@ -564,6 +564,7 @@ func clone(s *summary.Summary) *summary.Summary {
 		Region: summary.Region{
 			Builds:       s.Region.Builds,
 			OuterResults: append([]int(nil), s.Region.OuterResults...),
+			Lits:         append([]eir.FuncID(nil), s.Region.Lits...),
 		},
 		Reasons:  append([]summary.Reason(nil), s.Reasons...),
 		Deferred: append([]summary.Deferred(nil), s.Deferred...),

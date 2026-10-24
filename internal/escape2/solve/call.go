@@ -347,6 +347,7 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 			s.addTok(uint32(c.Results[r]), tok{kind: tHeap, tagGE: true})
 			continue
 		}
+		s.noteRegionLits(uint32(len(s.f.Objects))+uint32(c.Site), sum.Region.Lits) // regionlits.go
 		reg := s.region(c)
 		s.addTok(uint32(c.Results[r]), tok{kind: tObj, base: reg, ge: true, tagGE: true})
 	}

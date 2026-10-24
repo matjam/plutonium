@@ -1,6 +1,8 @@
 package refsolve
 
 import (
+	"slices"
+
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
@@ -63,8 +65,12 @@ type solver struct {
 	findings map[findingKey]solve.Finding
 
 	closureOf map[int]eir.FuncID // a closure record object to its function, plus one
-	dcalls    []*dcall
-	dcallIdx  map[string]*dcall
+	// Closures callees return (solve/regionlits.go): by region object, the
+	// literals its callees' summaries name; the regions the function returns.
+	regionLits map[int][]eir.FuncID
+	outerRegs  map[int]bool
+	dcalls     []*dcall
+	dcallIdx   map[string]*dcall
 
 	changed bool
 }
@@ -253,4 +259,66 @@ func (s *solver) isFrame(t tok) bool {
 // keyOf is the key of an In token.
 func keyOf(t tok) domain.Key {
 	return domain.MakeKey(t.id, t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep})
+}
+
+// noteRegionLits adds the literals a callee's summary names to region reg
+// (solve's noteRegionLits).
+func (s *solver) noteRegionLits(reg int, lits []eir.FuncID) {
+	if s.regionLits == nil {
+		s.regionLits = map[int][]eir.FuncID{}
+	}
+	old, ok := s.regionLits[reg]
+	if !ok {
+		s.regionLits[reg] = nil
+		s.changed = true
+	}
+	for _, l := range lits {
+		if !slices.Contains(old, l) {
+			old = append(old, l)
+			s.changed = true
+		}
+	}
+	if len(old) > 0 {
+		s.regionLits[reg] = old
+	}
+}
+
+// noteOuterRegion notes that the function returns region reg.
+func (s *solver) noteOuterRegion(reg int) {
+	if s.outerRegs == nil {
+		s.outerRegs = map[int]bool{}
+	}
+	if !s.outerRegs[reg] {
+		s.outerRegs[reg] = true
+		s.changed = true
+	}
+}
+
+// regionLitsOut is Region.Lits of the summary (solve's regionLitsOut).
+func (s *solver) regionLitsOut() []eir.FuncID {
+	var lits []eir.FuncID
+	for o := range s.f.Objects {
+		ob := &s.f.Objects[o]
+		if ob.Life != eir.LifeCaller {
+			continue
+		}
+		switch ob.Kind {
+		case eir.ObjClosure:
+			if fn := s.closureOf[o]; fn != 0 {
+				lits = append(lits, fn-1)
+			} else {
+				lits = append(lits, eir.NoFunc)
+			}
+		case eir.ObjMethodVal:
+			lits = append(lits, eir.NoFunc)
+		}
+	}
+	for reg := range s.outerRegs {
+		ls, ok := s.regionLits[reg]
+		if !ok {
+			ls = []eir.FuncID{eir.NoFunc}
+		}
+		lits = append(lits, ls...)
+	}
+	return summary.SortedLits(lits)
 }

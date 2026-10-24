@@ -159,6 +159,13 @@ type Region struct {
 	// OuterResults are the results that may hold a closure built in that
 	// region.
 	OuterResults []int
+	// Lits are the literals (and method-value wrappers) whose closures the
+	// region may hold, sorted: a caller that calls a function value
+	// pointing into the region calls one of them, with its record in the
+	// region. eir.NoFunc among them: some the function cannot name, and a
+	// caller resolves such a call by the per-signature join (fallback).
+	// Cache format version 5.
+	Lits []eir.FuncID
 }
 
 // Reason is a compact explanation of a summary entry: no closures over the

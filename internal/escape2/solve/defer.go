@@ -107,6 +107,10 @@ func (s *solver) fireDcall(i int, t tok) {
 			s.applyClosure(i, fn, asPointer(t))
 			return
 		}
+		if s.isRegion(t.base) {
+			s.regionDcall(i, asPointer(t)) // regionlits.go
+			return
+		}
 	case tIn:
 		if s.f.External {
 			// No caller binds the function: the origin call's candidates.
@@ -175,7 +179,7 @@ func (s *solver) keep(i int) {
 // function made, at dcall i.
 func (s *solver) applyClosure(i int, fn eir.FuncID, t tok) {
 	dc := s.dcalls[i]
-	k := [2]uint64{uint64(i), s.intern(t)}
+	k := [2]uint64{uint64(i) | uint64(fn)<<32, s.intern(t)}
 	if s.dcallDone[k] {
 		return
 	}
@@ -189,7 +193,7 @@ func (s *solver) applyClosure(i int, fn eir.FuncID, t tok) {
 	// record reached through many origin calls would apply its literal
 	// once per origin call otherwise).
 	f := s.prog.Funcs[fn]
-	ck := closKey{dc.in, s.intern(asPointer(t))}
+	ck := closKey{dc.in, s.intern(asPointer(t)), fn}
 	args, ok := s.closApps[ck]
 	if !ok {
 		n := len(f.Inputs)
@@ -223,6 +227,7 @@ func (s *solver) applyClosure(i int, fn eir.FuncID, t tok) {
 type closKey struct {
 	in  *eir.Instr
 	rec uint64
+	fn  eir.FuncID // a record in a region may be of any of its literals (regionlits.go)
 }
 
 // fallback applies the per-signature join of the origin call's candidates

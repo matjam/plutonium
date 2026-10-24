@@ -255,6 +255,7 @@ func (s *solver) applySummarySkip(in *eir.Instr, sm *summary.Summary, bind func(
 			continue
 		}
 		if r < len(c.Results) && c.Results[r] != 0 {
+			s.noteRegionLits(s.regObj(c.Site), sm.Region.Lits)
 			t := tok{kind: kObj, id: s.regObj(c.Site), ge: true}
 			s.def(c.Results[r], single(tv{t: t, tag: domain.Root, g: true}))
 		}
