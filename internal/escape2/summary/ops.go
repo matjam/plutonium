@@ -298,6 +298,26 @@ func cutKeyPlain(ps domain.Paths, k domain.Key) domain.Key {
 
 func cutKey(ps domain.Paths, k domain.Key) domain.Key { return CutKey(ps, k) }
 
+// cutTwo covers k with a key on the prefix of its path through the second
+// load, Deep, when the path goes on past that load; any other key is kept.
+// Deep on the prefix covers the path and every extension, as in cutKeyPlain.
+func cutTwo(ps domain.Paths, k domain.Key) domain.Key {
+	if ps.Loads(k.Path()) < 3 {
+		return k
+	}
+	id, pos := k.Filter()
+	q, n := domain.Root, 0
+	for _, s := range ps.Steps(k.Path()) {
+		q, _ = ps.Extend(q, s)
+		if s == domain.StepLoad {
+			if n++; n == 2 {
+				break
+			}
+		}
+	}
+	return k.NoFilter().WithPath(q, false).WithDeep().WithFilter(ps, id, pos)
+}
+
 // rootKey covers k with a key on its input's root, with k's flags: Deep on
 // Root when k stands for no pointer of the input's object itself (k is Deep,
 // or its path has a load), else GE on Root, which covers every key of the
@@ -480,7 +500,12 @@ func antichainKeys(ps domain.Paths, keys []domain.Key, why []Reason) ([]domain.K
 
 func widenPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, []Reason) {
 	pairs, why = antichainPairs(ps, pairs, why)
-	for pass := 0; pass < 3; pass++ { // pass 2: the sources' type filters (widenKeys)
+	// Pass 0 cuts both keys of a pair through their second load (cutTwo),
+	// which keeps a pair inside the memory its first load reaches (a store
+	// within a captured record's variable stays there); pass 1 cuts through
+	// the first load, pass 2 to the roots, pass 3 drops the sources' type
+	// filters (widenKeys).
+	for pass := 0; pass < 4; pass++ {
 		n := map[int]int{}
 		for _, p := range pairs {
 			n[p.Src.Input()]++
@@ -496,9 +521,11 @@ func widenPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, 
 					continue
 				}
 				switch pass {
-				case 2:
+				case 3:
 					pairs[i].Src = p.Src.NoFilter()
 				case 0:
+					pairs[i] = StorePair{cutTwo(ps, p.Src), cutTwo(ps, p.Dst)}
+				case 1:
 					pairs[i] = StorePair{cutKey(ps, p.Src), cutKey(ps, p.Dst)}
 				default:
 					pairs[i] = StorePair{rootKey(ps, p.Src), rootKey(ps, p.Dst)}

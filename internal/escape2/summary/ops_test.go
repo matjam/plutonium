@@ -137,3 +137,29 @@ func TestWidenCovers(t *testing.T) {
 		}
 	}
 }
+
+// Past MaxStorePerInput, store pairs inside the memory an input's second
+// load reaches (a store within a closure record's captured variable) are
+// first cut through that load: they stay within it instead of covering the
+// whole input from its first load.
+func TestWidenPairsCutTwo(t *testing.T) {
+	ps := summarytest.NewPaths()
+	s := &summary.Summary{Inputs: 1}
+	for i := range domain.Step(4) {
+		for j := range domain.Step(4) {
+			for k := range domain.Step(4) {
+				for l := range domain.Step(4) {
+					s.Store = append(s.Store, summary.StorePair{
+						Src: key(ps, 0, false, 1, L, 0, L, i, L, j),
+						Dst: key(ps, 0, false, 1, L, 0, L, k, L, l)})
+					s.Reasons = append(s.Reasons, summary.Reason{})
+				}
+			}
+		}
+	}
+	summary.Widen(ps, s)
+	want := domain.MakeKey(0, ps.Of(1, L, 0, L), domain.KeyFlags{Deep: true})
+	if len(s.Store) != 1 || s.Store[0].Src != want || s.Store[0].Dst != want {
+		t.Fatalf("widened to %v, want one pair on %v", s.Store, want)
+	}
+}
