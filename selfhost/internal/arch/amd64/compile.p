@@ -3,7 +3,6 @@
 package amd64
 
 import (
-	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
@@ -41,7 +40,7 @@ func Compile(f *ssa.Func, listing bool) (*Code, error) {
 	order := layoutBlocks(mf)
 	code, err := encodeFunc(mf, order)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", f.Name, err)
+		return nil, compat.Wrap(compat.Sprintfb("%s: %w", compat.ArgS(f.Name), compat.ArgW(err)), err)
 	}
 	code.Sym = f.Sym
 	code.Consts = mf.consts

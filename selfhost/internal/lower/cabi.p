@@ -105,7 +105,7 @@ func (l *Lowerer) cSignature(sig *types2.Signature) (*cSig, error) {
 		gop, err := l.cClassify(cs.results[0])
 		p := pu.New(gop)
 		if err != nil {
-			return nil, fmt.Errorf("result: %w", err)
+			return nil, compat.Wrap(compat.Sprintfb("result: %w", compat.ArgW(err)), err)
 		}
 		cs.result = p
 	default:
@@ -113,7 +113,7 @@ func (l *Lowerer) cSignature(sig *types2.Signature) (*cSig, error) {
 		offs := l.resultOffsets(&abiSig{results: resultParams(cs.results)})
 		for i, T := range cs.results {
 			if err := l.cCheckType(T, false); err != nil {
-				return nil, fmt.Errorf("result %d: %w", i+1, err)
+				return nil, compat.Wrap(compat.Sprintfb("result %d: %w", compat.ArgI(int64(i+1)), compat.ArgW(err)), err)
 			}
 			fields = compat.Append(fields, cField{off: offs[i], typ: T})
 		}
@@ -148,7 +148,7 @@ func (l *Lowerer) cSignature(sig *types2.Signature) (*cSig, error) {
 	for i, T := range params {
 		p, err := l.cClassify(T)
 		if err != nil {
-			return nil, fmt.Errorf("parameter %d: %w", i+1, err)
+			return nil, compat.Wrap(compat.Sprintfb("parameter %d: %w", compat.ArgI(int64(i+1)), compat.ArgW(err)), err)
 		}
 		switch {
 		case p.scalar != nil:
@@ -332,7 +332,7 @@ func (l *Lowerer) cCheckType(T types2.Type, top bool) error {
 	case *types2.Struct:
 		for i := 0; i < u.NumFields(); i++ {
 			if err := l.cCheckType(u.Field(i).Type(), false); err != nil {
-				return fmt.Errorf("field %s: %w", u.Field(i).Name(), err)
+				return compat.Wrap(compat.Sprintfb("field %s: %w", compat.ArgS(u.Field(i).Name()), compat.ArgW(err)), err)
 			}
 		}
 	case *types2.Wrapper:

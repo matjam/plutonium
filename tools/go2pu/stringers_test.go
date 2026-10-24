@@ -55,6 +55,11 @@ func TestStringerRewrites(t *testing.T) {
 		// Errorf without %w is an error of the text; with %w it is fmt's.
 		`err := compat.NewError(compat.Sprintfb("failed %v: %d", compat.ArgS(compat.StringOf(nd)), compat.ArgI(int64(7))))`,
 		`fmt.Errorf("wrapped %v: %w", c, pf)`,
+		// One plain %w of an error-typed operand: an error that keeps
+		// the operand, the others copied into its text.
+		`werr3 := compat.Wrap(compat.Sprintfb("wrapped %s, %d: %w!", compat.ArgS(compat.StringOf(nd)), compat.ArgI(int64(3)), compat.ArgW(ie)), ie)`,
+		`nerr := compat.Wrap(compat.Sprintfb("nil %w", compat.ArgW(ne)), ne)`,
+		`fmt.Errorf("%w %w", ie, ie)`,
 		`compat.Fprintfb(os.Stdout, "%s and %v\n", compat.ArgS(compat.StringOf(nd)), compat.ArgS((sp).String()))`,
 		`nw, werr2 := compat.Fprintfb(os.Stdout, "%d bytes\n", compat.ArgI(int64(12)))`,
 		`fmt.Fprintln(os.Stdout, n, nd)`,

@@ -371,7 +371,7 @@ func prefixed(prefix string, err error) error {
 		c.Msg = compat.Concat(prefix, ": ", (*d).Msg)
 		return c
 	}
-	return fmt.Errorf("%s: %w", prefix, err)
+	return compat.Wrap(compat.Sprintfb("%s: %w", compat.ArgS(prefix), compat.ArgW(err)), err)
 }
 
 // internal turns an error from the compiler's later stages, which all mean

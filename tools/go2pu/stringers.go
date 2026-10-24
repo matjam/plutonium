@@ -38,8 +38,11 @@ import (
 //   - the format is a constant (Sprint, Sprintln and Println get one made
 //     from their operands: %v each, with fmt's spaces and newline), with
 //     one simple verb per operand: no explicit argument index, no * width
-//     or precision, no # flag, %w left to fmt, and for each kind only the
-//     verbs and flags compat's formatter implements (printfb.p);
+//     or precision, no # flag, and for each kind only the verbs and flags
+//     compat's formatter implements (printfb.p); %w only in Errorf, once,
+//     plain, of a variable whose static type is an interface that is an
+//     error: the call becomes compat.Wrap of the text and the variable, an
+//     error that keeps only those, and the other operands are not boxed;
 //   - an operand's static type is not an interface or a type parameter,
 //     has no Format method, and is a string, integer or boolean type, or
 //     has a String or Error method fmt calls for its verb (%v %s %x %X %q),
@@ -88,7 +91,32 @@ type stringerArg struct {
 
 // basicCall is a formatting call routed to compat's formatter.
 type basicCall struct {
-	pf printfFunc
+	pf   printfFunc
+	wrap ast.Expr // Errorf's %w operand: compat.Wrap
+}
+
+// errorVar reports whether a is a variable whose static type is an
+// interface type that implements error: what Errorf's %w wraps as it is,
+// with no conversion (a concrete operand is left to fmt, which prints
+// <nil> for a nil pointer whose Error panics), and which reading twice
+// does not change.
+func (tc *translator) errorVar(a ast.Expr) bool {
+	id, ok := ast.Unparen(a).(*ast.Ident)
+	if !ok {
+		return false
+	}
+	if _, isVar := tc.info.Uses[id].(*types.Var); !isVar {
+		return false
+	}
+	tv, ok := tc.info.Types[a]
+	if !ok || tv.Type == nil || tv.IsNil() || !types.IsInterface(tv.Type) {
+		return false
+	}
+	if _, isTP := types.Unalias(tv.Type).(*types.TypeParam); isTP {
+		return false
+	}
+	errT := types.Universe.Lookup("error").Type().Underlying().(*types.Interface)
+	return types.Implements(tv.Type, errT)
 }
 
 // basicOp is an operand of a routed call.
@@ -176,7 +204,19 @@ func (tc *translator) planBasicCall(call *ast.CallExpr, decls map[*types.Func]*a
 	plan := make([]basicOp, len(ops))
 	stringers := map[ast.Expr]stringerArg{}
 	isStr := make([]bool, len(ops))
+	var wrap ast.Expr
 	for i, a := range ops {
+		if specs[i].verb == 'w' {
+			// Errorf's %w: one, plain, of a variable whose static type
+			// is an interface that is an error (compat.Wrap; the
+			// variable is read twice, for its text and to be wrapped).
+			if pf.out != 'E' || wrap != nil || specs[i] != (verbSpec{verb: 'w'}) || !tc.errorVar(a) {
+				return
+			}
+			wrap = a
+			plan[i] = basicOp{kind: 'W'}
+			continue
+		}
 		op, sa, str, ok := tc.basicOperand(a, specs[i], decls)
 		if !ok {
 			return
@@ -186,7 +226,7 @@ func (tc *translator) planBasicCall(call *ast.CallExpr, decls map[*types.Func]*a
 			stringers[a] = *sa
 		}
 	}
-	bc := &basicCall{pf: pf}
+	bc := &basicCall{pf: pf, wrap: wrap}
 	if pf.kind != printfFormat {
 		var b strings.Builder
 		for i := range ops {
@@ -447,9 +487,17 @@ func (t *fileTr) basicText(n ast.Node) (string, bool) {
 		if bc.pf.out != 'E' {
 			return "", false
 		}
-		// fmt.Errorf without %w is an error of the text.
 		t.basicing[n] = true
 		defer delete(t.basicing, n)
+		if bc.wrap != nil {
+			// With a %w operand, an error of the text that wraps it
+			// (the operand itself the second time, not its ArgW).
+			text := t.splice(call)
+			t.basicingOp[bc.wrap] = true
+			defer delete(t.basicingOp, bc.wrap)
+			return fmt.Sprintf("%s.Wrap(%s, %s)", t.compat(), text, t.render(bc.wrap)), true
+		}
+		// fmt.Errorf without %w is an error of the text.
 		return fmt.Sprintf("%s.NewError(%s)", t.compat(), t.splice(call)), true
 	}
 	name := map[byte]string{'S': "Sprintfb", 'E': "Sprintfb", 'F': "Fprintfb", 'P': "Printfb"}[bc.pf.out]

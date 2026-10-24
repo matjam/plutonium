@@ -168,7 +168,7 @@ func stringsAndBytes() {
 	compat.Printfb("%v\n", compat.ArgS(compat.Join([]string{"x", "y", "z"}, "-")))
 
 	msg := compat.Sprintfb("%s=%d", compat.ArgS("k"), compat.ArgI(int64(42)))
-	err := fmt.Errorf("wrapped %q: %w", msg, errBase)
+	err := compat.Wrap(compat.Sprintfb("wrapped %q: %w", compat.ArgS(msg), compat.ArgW(errBase)), errBase)
 	fmt.Println(err, errors.Is(err, errBase), errors.Unwrap(err) == errBase)
 	for i := 0; i < 3; i++ {
 		e := compat.NewError(compat.Concat("made at run time: ", s))
@@ -241,7 +241,7 @@ func parsePair(a, b string) (int, error) {
 	check(x) or return
 	y, err := strconv.Atoi(b)
 	if err != nil {
-		return -1, fmt.Errorf("second: %w", err)
+		return -1, compat.Wrap(compat.Sprintfb("second: %w", compat.ArgW(err)), err)
 	}
 	return x + y, nil
 }

@@ -169,6 +169,14 @@ func main() {
 	fmt.Println(err.Error())
 	werr := fmt.Errorf("wrapped %v: %w", c, pf)
 	fmt.Println(werr, errors.Is(werr, pf))
+	// A %w operand of type error: compat.Wrapf.
+	var ie error = pf
+	werr3 := fmt.Errorf("wrapped %s, %d: %w!", nd, 3, ie)
+	fmt.Println(werr3, errors.Is(werr3, pf), errors.Unwrap(werr3) == ie)
+	var ne error
+	nerr := fmt.Errorf("nil %w", ne)
+	fmt.Println(nerr, errors.Unwrap(nerr) == nil)
+	fmt.Println(fmt.Errorf("%w %w", ie, ie)) // two: left to fmt
 	fmt.Fprintf(os.Stdout, "%s and %v\n", nd, sp)
 	fmt.Printf("%v %s %d\n", c, nd, 9)
 	fmt.Fprint(os.Stdout, c, 1, 2, "x\n")

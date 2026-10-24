@@ -12,7 +12,6 @@ package load
 
 import (
 	"pluto/errors"
-	"pluto/fmt"
 	"pluto/path/filepath"
 	path "pluto/path/filepath"
 	"pluto/slices"
@@ -402,7 +401,7 @@ func prefixed(prefix string, err error) error {
 		c.Msg = compat.Concat(prefix, ": ", (*d).Msg)
 		return c
 	}
-	return fmt.Errorf("%s: %w", prefix, err)
+	return compat.Wrap(compat.Sprintfb("%s: %w", compat.ArgS(prefix), compat.ArgW(err)), err)
 }
 
 func (l *loader) load(importPath string, src source, dir string) (*Package, error) {
@@ -649,7 +648,7 @@ func constraintMatches(tags map[string]bool, data []byte, isAsm bool) (bool, err
 		}
 		c, err := constraint.Parse(compat.Concat("//go:build ", expr))
 		if err != nil {
-			return false, fmt.Errorf("bad build constraint %q: %w", expr, err)
+			return false, compat.Wrap(compat.Sprintfb("bad build constraint %q: %w", compat.ArgS(expr), compat.ArgW(err)), err)
 		}
 		return constraint.EvalTags(c, tags), nil
 	}

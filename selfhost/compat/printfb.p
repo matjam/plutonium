@@ -1,6 +1,7 @@
 package compat
 
 import (
+	"pluto/alloc"
 	"pluto/io"
 	"pluto/os"
 	"pluto/strconv"
@@ -38,6 +39,7 @@ const (
 	argInt
 	argUint
 	argBool
+	argWrap // a %w operand (ArgW), its text in s
 )
 
 // ArgS is a string operand.
@@ -56,6 +58,35 @@ func ArgB(b bool) Arg {
 	}
 	return Arg{kind: argBool}
 }
+
+// ArgW is a plain %w operand: the text fmt prints for err (its Error, or
+// %!w(<nil>) for a nil err).
+func ArgW(err error) Arg {
+	if err == nil {
+		return Arg{kind: argWrap, s: "%!w(<nil>)"}
+	}
+	return Arg{kind: argWrap, s: err.Error()}
+}
+
+// Wrap is fmt.Errorf of basic operands and one plain %w operand err, made
+// of msg, the text Sprintfb formats (with ArgW(err) for the %w): an error
+// in memory from alloc.Default() whose Unwrap returns err. It keeps err and
+// msg, nothing of the other operands, which the text holds copies of.
+func Wrap(msg string, err error) error {
+	e := alloc.New[wrapError]()
+	e.msg = msg
+	e.err = err
+	return e
+}
+
+// A wrapError is Wrap's result.
+type wrapError struct {
+	msg string
+	err error
+}
+
+func (e *wrapError) Error() string { return e.msg }
+func (e *wrapError) Unwrap() error { return e.err }
 
 // Sprintfb is fmt.Sprintf of basic operands, into a new string from
 // alloc.Default().
@@ -212,6 +243,8 @@ func printfb(b *fbuf, format string, args []Arg) {
 		switch a.kind {
 		case argString:
 			fmtString(b, &f, verb, a.s)
+		case argWrap:
+			b.WriteString(a.s) // a plain %w: the error's text
 		case argBool:
 			if a.u != 0 {
 				padb(b, &f, "true")

@@ -5,7 +5,6 @@
 package opt
 
 import (
-	"pluto/fmt"
 	"selfhost/compat"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
@@ -127,7 +126,7 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 	if checkSSA {
 		for _, f := range prog.Funcs {
 			if err := verify(f); err != nil {
-				return fmt.Errorf("before optimization: %w", err)
+				return compat.Wrap(compat.Sprintfb("before optimization: %w", compat.ArgW(err)), err)
 			}
 		}
 	}
@@ -142,7 +141,7 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 			if checkSSA {
 				for _, f := range prog.Funcs {
 					if err := verify(f); err != nil {
-						return fmt.Errorf("after %s: %w", st.prog.Name, err)
+						return compat.Wrap(compat.Sprintfb("after %s: %w", compat.ArgS(st.prog.Name), compat.ArgW(err)), err)
 					}
 				}
 			}
@@ -152,7 +151,7 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 			st.fn.Run(f)
 			if checkSSA {
 				if err := verify(f); err != nil {
-					return fmt.Errorf("after %s: %w", st.fn.Name, err)
+					return compat.Wrap(compat.Sprintfb("after %s: %w", compat.ArgS(st.fn.Name), compat.ArgW(err)), err)
 				}
 			}
 			if after != nil {

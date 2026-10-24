@@ -175,6 +175,14 @@ func main() {
 	compat.Printfb("%v\n", compat.ArgS(err.Error()))
 	werr := fmt.Errorf("wrapped %v: %w", c, pf)
 	fmt.Println(werr, errors.Is(werr, pf))
+	// A %w operand of type error: compat.Wrapf.
+	var ie error = pf
+	werr3 := compat.Wrap(compat.Sprintfb("wrapped %s, %d: %w!", compat.ArgS(compat.StringOf(nd)), compat.ArgI(int64(3)), compat.ArgW(ie)), ie)
+	fmt.Println(werr3, errors.Is(werr3, pf), errors.Unwrap(werr3) == ie)
+	var ne error
+	nerr := compat.Wrap(compat.Sprintfb("nil %w", compat.ArgW(ne)), ne)
+	fmt.Println(nerr, errors.Unwrap(nerr) == nil)
+	fmt.Println(fmt.Errorf("%w %w", ie, ie)) // two: left to fmt
 	compat.Fprintfb(os.Stdout, "%s and %v\n", compat.ArgS(compat.StringOf(nd)), compat.ArgS((sp).String()))
 	compat.Printfb("%v %s %d\n", compat.ArgS((c).String()), compat.ArgS(compat.StringOf(nd)), compat.ArgI(int64(9)))
 	compat.Fprintfb(os.Stdout, "%v %v %v%v", compat.ArgS((c).String()), compat.ArgI(int64(1)), compat.ArgI(int64(2)), compat.ArgS("x\n"))
