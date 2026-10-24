@@ -124,7 +124,9 @@ func RunWith(p *eir.Program, opts Options) *Result {
 	}
 	env.virt = newVirtuals(p, env.paths)
 	if env.opts.Contract == nil {
-		env.opts.Contract = newContractSummaries(env.paths).lookup
+		// The table itself, not its method value: the self-hosted
+		// compiler would make the method value in this frame.
+		env.contracts = newContractSummaries(env.paths)
 	}
 	for i := range env.inSCC {
 		env.inSCC[i] = -1
@@ -409,8 +411,11 @@ type env struct {
 	inSCC   []int32
 	current int32
 	opts    Options
-	virt    *virtuals
-	g       *callGraph
+	// contracts is the contract table's summaries when opts.Contract is
+	// nil: internal/escape2/contract's.
+	contracts *contractSummaries
+	virt      *virtuals
+	g         *callGraph
 	// solving is the function being solved (NoFunc: none known).
 	solving eir.FuncID
 	// reads are the members of the current SCC whose summaries the solve
@@ -486,10 +491,13 @@ func (e *env) Candidates(f *eir.Func, c *eir.Call) []eir.FuncID {
 }
 
 func (e *env) Contract(name string) (*summary.Summary, bool) {
-	if e.opts.Contract == nil {
-		return nil, false
+	if e.opts.Contract != nil {
+		return e.opts.Contract(name)
 	}
-	return e.opts.Contract(name)
+	if e.contracts != nil {
+		return e.contracts.lookup(name)
+	}
+	return nil, false
 }
 
 // CanRead reports whether the solve of f may read the summary of id: id is
