@@ -1743,6 +1743,9 @@ func (h *heapOnly) holdsCounted(t types2.Type) bool {
 		if w, ok := t.Underlying().(*types2.Wrapper); ok && (w.Kind() == types2.WrapShared || w.Kind() == types2.WrapSynced) {
 			return true
 		}
+		if types2.IsCountedError(t) {
+			return true // an interface that may hold a counted box
+		}
 	}
 	return false
 }

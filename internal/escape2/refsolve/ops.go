@@ -164,6 +164,8 @@ func (s *solver) load(v value) value {
 			// (rules.go, "Paths past the limits").
 			p, c := s.extend(x.t.path, domain.StepLoad)
 			out.add(ptr(tok{kind: kIn, id: x.t.id, path: p, deep: c}))
+		case kCHeap:
+			out.add(ptr(tok{kind: kCHeap})) // what a counted reference's memory holds (solve/rules.go, OpLoad)
 		default:
 			out.add(ptr(tok{kind: kHeap}))
 		}

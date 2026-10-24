@@ -797,6 +797,11 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			s.subscribe(t.base, t.path, t.ge, dst, subLoad)
 		case tIn:
 			s.addTok(dst, s.loadIn(asPointer(t)))
+		case tCHeap:
+			// What a counted reference's memory holds lives while it is
+			// held: a counted error loaded from a box made afresh is not
+			// held past it (rules.go, OpLoad).
+			s.addTok(dst, tok{kind: tCHeap})
 		default:
 			s.addTok(dst, heapTok)
 		}
@@ -809,8 +814,9 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			}
 			s.subscribe(t.base, t.path, t.ge, n, subReach)
 		case tCHeap:
-			// A load through a counted reference reads heap memory.
-			s.addTok(n, geify(heapTok))
+			// A load through a counted reference reads what it holds
+			// (cLoad).
+			s.addTok(n, geify(tok{kind: tCHeap}))
 		}
 	case cStore:
 		val := uint32(a)
