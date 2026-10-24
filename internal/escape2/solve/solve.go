@@ -1317,9 +1317,11 @@ func BoxNeeded(env Env, o *eir.Object) bool {
 // directValue reports whether an interface holds a value of type T in its
 // data word, unboxed: pointer-shaped, or a scalar of at most a word; or
 // whether T has no bytes, so its box holds no memory to outlive anything (a
-// zero-sized value).
+// zero-sized value); or whether T is an interface type, whose value an
+// instance converts to another interface by taking its data word, making
+// no box (lower: a conversion between interfaces).
 func directValue(T types2.Type) bool {
-	if types2.PointerShaped(T) || zeroSized(T) {
+	if types2.PointerShaped(T) || zeroSized(T) || types2.IsInterface(T) {
 		return true
 	}
 	b, ok := T.Underlying().(*types2.Basic)

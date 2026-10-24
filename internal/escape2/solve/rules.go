@@ -286,7 +286,8 @@ package solve
 //	             own) and Dst ⊇ <Obj(Obj, Root), Root, false>. A box whose
 //	             Type is a type parameter is made only for a non-direct
 //	             instance: when Env.Instantiated knows every instance and each
-//	             is direct (pointer-shaped, a scalar of at most a word, or zero-sized),
+//	             is direct (pointer-shaped, a scalar of at most a word, zero-sized, or an
+//	             interface, converted by taking its data word),
 //	             Dst ⊇ X as for NoObj (solve.BoxNeeded).
 //	OpClosure    store(Obj(Obj, [k]), Args[k], own) for each k;
 //	             Dst ⊇ <Obj(Obj, Root), Root, false>
