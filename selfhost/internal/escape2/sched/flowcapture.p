@@ -66,6 +66,59 @@ type capSite struct {
 	in *eir.Instr
 }
 
+// A capResolver finds which captures are by reference, to which objects
+// (newCaptures). It is a type rather than a recursive closure so that the
+// self-hosted compiler's escape analysis does not follow the closure's
+// record through its own variable (tools/go2pu).
+type capResolver struct {
+	fl        *funcFlow
+	cp        *captures
+	resolving map[capKey]bool
+}
+
+// resolve returns the objects capture c is a reference to, and whether they
+// are all known. A capture of an address loaded from the maker's own record
+// is the maker's capture, so the objects are found by following captures
+// outward.
+func (r *capResolver) resolve(c capKey, depth int) ([]objKey, bool) {
+	cp, p := r.cp, r.fl.p
+	if objs, ok := cp.byRef[c]; ok {
+		return objs, !cp.unknownRef[c]
+	}
+	if r.resolving[c] || depth > 32 {
+		return nil, false
+	}
+	r.resolving[c] = true
+	defer delete(r.resolving, c)
+	var objs []objKey
+	known := true
+	for _, s := range cp.sites[c.f] {
+		if c.k >= len(s.in.Args) {
+			known = false
+			continue
+		}
+		mf := p.Funcs[s.f]
+		defs := r.fl.c.defsOf(mf)
+		a := s.in.Args[c.k]
+		if o, ok := addrObj(mf, defs, a); ok {
+			objs = compat.Append(objs, o)
+			continue
+		}
+		if outer, ok := capAddr(mf, defs, a); ok {
+			os, ok := r.resolve(outer, depth+1)
+			objs = compat.Append(objs, os...)
+			known = known && ok
+			continue
+		}
+		known = false
+	}
+	cp.byRef[c] = objs
+	if !known {
+		cp.unknownRef[c] = true
+	}
+	return objs, known
+}
+
 func newCaptures(fl *funcFlow) *captures {
 	cp := pu.New(captures{
 		sites:      map[eir.FuncID][]capSite{},
@@ -90,50 +143,12 @@ func newCaptures(fl *funcFlow) *captures {
 	// Which captures are by reference, to which objects. A capture of an
 	// address loaded from the maker's own record is the maker's capture,
 	// so the objects are found by following captures outward.
-	var resolve func(c capKey, depth int) ([]objKey, bool)
-	resolving := map[capKey]bool{}
-	resolve = func(c capKey, depth int) ([]objKey, bool) {
-		if objs, ok := cp.byRef[c]; ok {
-			return objs, !cp.unknownRef[c]
-		}
-		if resolving[c] || depth > 32 {
-			return nil, false
-		}
-		resolving[c] = true
-		defer delete(resolving, c)
-		var objs []objKey
-		known := true
-		for _, s := range cp.sites[c.f] {
-			if c.k >= len(s.in.Args) {
-				known = false
-				continue
-			}
-			mf := p.Funcs[s.f]
-			defs := fl.c.defsOf(mf)
-			a := s.in.Args[c.k]
-			if o, ok := addrObj(mf, defs, a); ok {
-				objs = compat.Append(objs, o)
-				continue
-			}
-			if outer, ok := capAddr(mf, defs, a); ok {
-				os, ok := resolve(outer, depth+1)
-				objs = compat.Append(objs, os...)
-				known = known && ok
-				continue
-			}
-			known = false
-		}
-		cp.byRef[c] = objs
-		if !known {
-			cp.unknownRef[c] = true
-		}
-		return objs, known
-	}
+	r := &capResolver{fl: fl, cp: cp, resolving: map[capKey]bool{}}
 	for lit, ss := range cp.sites {
 		for _, s := range ss {
 			for k := range s.in.Args {
 				c := capKey{lit, k}
-				objs, _ := resolve(c, 0)
+				objs, _ := r.resolve(c, 0)
 				for _, o := range objs {
 					cp.capturedBy[o] = appendUnique(cp.capturedBy[o], lit)
 				}
