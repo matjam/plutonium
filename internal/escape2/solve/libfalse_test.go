@@ -221,6 +221,29 @@ func f(s string) {
 func main() { f("x") }
 `, "main.p:", "",
 	},
+	{
+		// errors.As(err, &t) with a frame error: *target = e stores into
+		// the caller's variable only. As's store pairs, cut for the count
+		// of err's keys through its Unwrap candidates, kept the
+		// destination a place in t (summary.CutKey: FieldsGE, not GE), so
+		// the frame error is not stored in what t pointed to before
+		// (testdata/lib/errors.p, errorsnew.p).
+		"errors_as_frame", `package main
+
+import (
+	"pluto/errors"
+	"pluto/fmt"
+)
+
+func main() {
+	first := fmt.Errorf("x %d", 1)
+	var t *errors.Text
+	println(errors.As(first, &t))
+	var lit error = &errors.Text{Msg: "literal"}
+	println(errors.As(lit, &t), t.Msg)
+}
+`, "main.p:", "",
+	},
 }
 
 func TestLibraryControls(t *testing.T) {

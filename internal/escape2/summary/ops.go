@@ -191,10 +191,17 @@ const MaxRawStorePerInput = 64 * MaxStorePerInput
 // CutKey is the widening of one key: its path cut, GE set; a Deep key whose
 // path has no load stays Deep, on Root (what the input points at, anywhere
 // in its object, transitively, covers it and never the input's own
-// pointers).
+// pointers); an exact or FieldsGE key whose path has no load, a place in
+// the input's own object, becomes FieldsGE on its path (that place and every
+// offset under it: GE would add what the object points to, and a store
+// pair cut for its source's count would make its destination every
+// pointer the caller's object leads to).
 func CutKey(ps domain.Paths, k domain.Key) domain.Key {
 	if k.Deep() && ps.Loads(k.Path()) == 0 {
 		return k.WithPath(domain.Root, false).WithDeep()
+	}
+	if !k.GE() && !k.Deep() && ps.Loads(k.Path()) == 0 {
+		return k.WithPath(k.Path(), false).WithFieldsGE()
 	}
 	if ps.Loads(k.Path()) >= 2 {
 		// The path goes on past its first load with offsets, a load and

@@ -40,3 +40,31 @@ func TestCutKeyDeep(t *testing.T) {
 		t.Errorf("a key of one load: cut to path %v Deep=%v GE=%v; want GE on [7 load]", ps.Steps(one.Path()), one.Deep(), one.GE())
 	}
 }
+
+// TestCutKeyNoLoad: a key with no load, a place in the input's own object,
+// is cut to FieldsGE on its path: it covers the key and every offset under
+// it, never a pointer found through a load (errors.As: *target = e, a store
+// whose destination is the caller's variable, not what it points to). A GE
+// key with no load stays GE.
+func TestCutKeyNoLoad(t *testing.T) {
+	ps := summarytest.NewPaths()
+	for _, steps := range [][]domain.Step{nil, {3}, {3, 1}} {
+		k := key(ps, 1, false, steps...)
+		c := summary.CutKey(ps, k)
+		if !c.FieldsGE() || c.GE() || c.Deep() || c.Path() != k.Path() {
+			t.Fatalf("CutKey(%v) = path %v FieldsGE=%v GE=%v Deep=%v; want FieldsGE on its path", steps, ps.Steps(c.Path()), c.FieldsGE(), c.GE(), c.Deep())
+		}
+		if !domain.Covers(ps, c, k) || !domain.Covers(ps, c, c) {
+			t.Errorf("%v: the cut does not cover the key", steps)
+		}
+		if w := append(append([]domain.Step(nil), steps...), 2); !domain.KeyMatches(ps, c, w) {
+			t.Errorf("%v: the cut does not stand for %v", steps, w)
+		}
+		if w := append(append([]domain.Step(nil), steps...), L); domain.KeyMatches(ps, c, w) {
+			t.Errorf("%v: the cut stands for %v, through a load", steps, w)
+		}
+	}
+	if c := summary.CutKey(ps, key(ps, 1, true)); !c.GE() || c.Path() != domain.Root {
+		t.Errorf("a GE key on Root: cut to path %v GE=%v", ps.Steps(c.Path()), c.GE())
+	}
+}
