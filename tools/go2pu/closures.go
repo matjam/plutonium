@@ -1064,7 +1064,10 @@ func (p *closurePlan) decide(res *Result) {
 			}
 			used[name] = true
 			cl.field[v] = name
-			if tc.shared(v) {
+			// A variable on the heap already (Go moved it there: a capture
+			// of more than 128 bytes is by reference) is held by pointer
+			// as well, as Go's closure holds it.
+			if tc.shared(v) || tc.heap[v] {
 				cl.ptr[v] = true
 				tc.heap[v] = true
 			}
