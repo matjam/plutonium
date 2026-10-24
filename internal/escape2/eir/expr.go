@@ -315,7 +315,7 @@ func (fb *fnb) varValue(v *types2.Var) Reg {
 		if !hasPointers(v.Type()) {
 			return 0
 		}
-		return fb.load(fb.heap(HeapStatic), v.Type())
+		return fb.load(fb.staticAddr(v.Type()), v.Type())
 	}
 	return fb.readLocal(v)
 }

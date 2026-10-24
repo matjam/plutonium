@@ -115,6 +115,10 @@ func (p *Program) InstrString(in *Instr) string {
 		return compat.Sprintfb("enddrop o%d", compat.ArgU(uint64(in.Obj)))
 	case OpBorrow:
 		return compat.Sprintfb("%sborrow r%d r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgU(uint64(in.Y)))
+	case OpRecount:
+		return compat.Sprintfb("%srecount r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)))
+	case OpLend:
+		return compat.Sprintfb("%slend r%d r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgU(uint64(in.Y)))
 	case OpArenaView:
 		return compat.Sprintfb("%sarenaview r%d o%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgI(int64(int32(in.Obj))))
 	}

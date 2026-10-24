@@ -157,6 +157,31 @@ func (k Key) Flags() KeyFlags {
 // it by offset steps (fields and elements), but no load.
 func (k Key) FieldsGE() bool { return k&keyFieldsGE != 0 }
 
+// lendRank orders a key's lending: 0 a counted copy (Counts), 1 neither, 2 a
+// view of a lent counted error (Borrowed). A key covers only keys of a rank
+// no higher than its own.
+func lendRank(k Key) int {
+	switch {
+	case k&keyBorrowed != 0 && k&keyCounts != 0:
+		return 3 // no solver makes it; a rank of its own keeps Covers a partial order
+	case k&keyBorrowed != 0:
+		return 2
+	case k&keyCounts != 0:
+		return 0
+	}
+	return 1
+}
+
+// Counts reports whether the key stands for a counted copy of a value of its
+// input (eir.OpRecount): a reference of its own, which no holder of the
+// caller's bounds.
+func (k Key) Counts() bool { return k&keyCounts != 0 }
+
+// Borrowed reports whether the key stands for a value taken out of a counted
+// error its input holds (eir.OpBorrow): a view of what holds the error at the
+// call (eir.OpLend).
+func (k Key) Borrowed() bool { return k&keyBorrowed != 0 }
+
 // WithFieldsGE returns k followed by any offset steps: for an exact key, its
 // path and every extension of it by offset steps. A GE or Deep key, which
 // already stands for every offset of its pointers, is returned unchanged.
@@ -197,7 +222,10 @@ func (k Key) WithPath(p PathID, ge bool) Key {
 }
 
 // Covers reports whether a covers b: same input and flags other than GE,
-// FieldsGE and Deep, and
+// FieldsGE, Deep, Borrowed and Counts, a Borrowed if b is and b Counts if a
+// does (a Borrowed key stands for what its twin does and the holder of a
+// lent counted error besides; a Counts key, a counted copy, for its twin
+// less that holder), and
 //
 //   - a is GE and its path is a prefix of b's (b's included), or
 //   - a is FieldsGE, b is neither GE nor Deep, and b's path is a's followed
@@ -213,8 +241,8 @@ func (k Key) WithPath(p PathID, ge bool) Key {
 // stays a partial order.) Antichains under Covers are how summaries keep
 // their sets small.
 func Covers(ps Paths, a, b Key) bool {
-	const flags = keyBorrowed | keyCounts | keyDirectCount
-	if a.Input() != b.Input() || a&flags != b&flags {
+	const flags = keyDirectCount
+	if a.Input() != b.Input() || a&flags != b&flags || lendRank(a) < lendRank(b) {
 		return false
 	}
 	switch {

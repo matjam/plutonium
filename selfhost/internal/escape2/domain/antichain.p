@@ -22,24 +22,46 @@ func CoveredBy(ps Paths, keys []Key, k Key) bool {
 }
 
 // coveredByOther reports whether keys holds a key other than k that covers
-// k.
+// k: one with k's flags, or for a key that is not Borrowed, a Borrowed one
+// (Covers), its Borrowed twin included.
 func coveredByOther(ps Paths, keys []Key, k Key) bool {
+	if coveredByFlags(ps, keys, k, k) {
+		return true
+	}
+	// The twins of higher lending rank (Covers): plain and Borrowed for a
+	// Counts key, Borrowed for a plain one.
+	base := k &^ (keyBorrowed | keyCounts)
+	for _, bits := range [...]Key{0, keyBorrowed, keyCounts, keyBorrowed | keyCounts} {
+		b := base | bits
+		if b == k || lendRank(b) < lendRank(k) {
+			continue
+		}
+		if hasKey(keys, b) || coveredByFlags(ps, keys, b, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// coveredByFlags reports whether keys holds a key other than self that
+// covers k with k's flags.
+func coveredByFlags(ps Paths, keys []Key, k, self Key) bool {
 	loads := ps.Loads(k.Path())
 	steps := ps.Steps(k.Path())
 	// Walk the prefixes from Root; Extend within the limits only re-finds
 	// interned paths.
 	p := Root
 	for i := 0; ; i++ {
-		if g := k.WithPath(p, true); g != k && hasKey(keys, g) {
+		if g := k.WithPath(p, true); g != self && hasKey(keys, g) {
 			return true
 		}
 		if !k.GE() && !k.Deep() && ps.Loads(p) == loads {
-			if g := k.WithPath(p, false).WithFieldsGE(); g != k && hasKey(keys, g) {
+			if g := k.WithPath(p, false).WithFieldsGE(); g != self && hasKey(keys, g) {
 				return true
 			}
 		}
 		if ps.Loads(p) < loads || k.Deep() {
-			if g := k.WithPath(p, false).WithDeep(); g != k && hasKey(keys, g) {
+			if g := k.WithPath(p, false).WithDeep(); g != self && hasKey(keys, g) {
 				return true
 			}
 		}

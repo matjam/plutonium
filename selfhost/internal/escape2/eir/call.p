@@ -110,7 +110,8 @@ func (fb *fnb) callResults(e *ast.CallExpr) ([]Reg, []types2.Type) {
 		return nil, nil
 	}
 	c.Args = args
-	return fb.arenaCall(e, c, fb.emitCall(c, e.Pos())), resultTypes(c.Sig)
+	types := resultTypes(c.Sig)
+	return fb.freshCounted(fb.arenaCall(e, c, fb.emitCall(c, e.Pos())), types), types // borrow.go
 }
 
 // specialMethodCall builds the method calls that are not calls of a method:
@@ -496,7 +497,13 @@ func (fb *fnb) args(e *ast.CallExpr, sig *types2.Signature, fn *types2.Func) ([]
 	}
 	for i := 0; i < fixed && i < len(srcs); i++ {
 		T := params.At(i).Type()
-		out = compat.AppendPlain(out, eval(srcs[i], T))
+		r := eval(srcs[i], T)
+		if srcs[i].e != nil && types2.IsCountedError(T) && types2.IsCountedError(fb.typeOf(srcs[i].e)) {
+			// What the callee takes out of the error borrows the
+			// caller's holder (borrow.go).
+			r = fb.lendError(srcs[i].e, r)
+		}
+		out = compat.AppendPlain(out, r)
 		types = compat.Append(types, T)
 	}
 	if !sig.Variadic() && len(srcs) < n {

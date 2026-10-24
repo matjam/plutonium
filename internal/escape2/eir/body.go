@@ -108,7 +108,7 @@ func (b *builder) buildInit(f *Func, p *load.Package) {
 			v := init.Lhs[0]
 			val := fb.exprAs(init.Rhs, v.Type())
 			if v.Name() != "_" {
-				fb.store(fb.heap(HeapStatic), val, v.Type())
+				fb.store(fb.staticAddr(v.Type()), val, v.Type())
 			} else {
 				fb.ownerTemp(val, v.Type())
 			}
@@ -117,7 +117,7 @@ func (b *builder) buildInit(f *Func, p *load.Package) {
 			for i, v := range init.Lhs {
 				if v.Name() != "_" {
 					val := fb.convertReg(vals[i], types[i], v.Type(), init.Rhs.Pos())
-					fb.store(fb.heap(HeapStatic), val, v.Type())
+					fb.store(fb.staticAddr(v.Type()), val, v.Type())
 				} else {
 					fb.ownerTemp(vals[i], types[i])
 				}

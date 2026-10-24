@@ -197,6 +197,12 @@ func (fb *fnb) heap(k HeapKind) Reg {
 	return r
 }
 
+// staticAddr returns the address of a package variable of type T: static
+// memory, a pointer to T (Instr.Type, for stage B's place types).
+func (fb *fnb) staticAddr(T types2.Type) Reg {
+	return fb.emitDst(Instr{Op: OpHeap, Heap: HeapStatic, Type: types2.NewPointer(T)})
+}
+
 // sink sends x to a sink.
 func (fb *fnb) sink(k SinkKind, x Reg, index int, pos token.Pos) {
 	if x == 0 {

@@ -48,6 +48,9 @@ import (
 //	                              of its dynamic calls
 //	ESCAPE2_EXPLAIN_STEPS=1       the functions whose solves take the most
 //	                              steps
+//	ESCAPE2_EXPLAIN_HEAPONLY=p.T.f  whether field f of type T of package p is
+//	                              heap-only (stage B), and if not, the chain of
+//	                              requirements to the write that withdrew it
 //
 // Function names are eir.Func.Name ("selfhost/internal/types2.(*Checker).labels",
 // "func literal in ... at file:line:col").
@@ -118,6 +121,9 @@ func TestExplain(t *testing.T) {
 				}
 			}
 		}
+	}
+	if ho := os.Getenv("ESCAPE2_EXPLAIN_HEAPONLY"); ho != "" {
+		x.heapOnly(ho)
 	}
 	chain := os.Getenv("ESCAPE2_EXPLAIN_CHAIN")
 	if chain != "" || os.Getenv("ESCAPE2_EXPLAIN_CLASSIFY") != "" {
@@ -438,6 +444,42 @@ func (x *explainer) measureSteps(on bool) func() {
 			x.t.Logf("STEPS %12d in %5d solves, max %10d, limited %d: %s", a.steps, a.n, a.maxSteps, a.limited, k)
 		}
 	}
+}
+
+// heapOnly prints whether the field named by spec (pkgpath.Type.field) is
+// heap-only, and why not.
+func (x *explainer) heapOnly(spec string) {
+	i := strings.LastIndex(spec, ".")
+	j := strings.LastIndex(spec[:max(i, 0)], ".")
+	if i < 0 || j < 0 {
+		x.t.Logf("HEAPONLY %s: want pkgpath.Type.field", spec)
+		return
+	}
+	pkgPath, typeName, field := spec[:j], spec[j+1:i], spec[i+1:]
+	for _, pkg := range x.prog.Packages {
+		if pkg.Path != pkgPath || pkg.Types == nil {
+			continue
+		}
+		tn, ok := pkg.Types.Scope().Lookup(typeName).(*types2.TypeName)
+		if !ok {
+			continue
+		}
+		st, ok := tn.Type().Underlying().(*types2.Struct)
+		if !ok {
+			continue
+		}
+		for k := 0; k < st.NumFields(); k++ {
+			if st.Field(k).Name() != field {
+				continue
+			}
+			x.t.Logf("HEAPONLY %s: %v", spec, x.e.facts.HeapOnly(tn.Type(), k))
+			for _, l := range x.e.facts.ho.explain(tn.Type(), k) {
+				x.t.Logf("    %s", l)
+			}
+			return
+		}
+	}
+	x.t.Logf("HEAPONLY %s: no such field", spec)
 }
 
 func contains(ss []string, s string) bool {

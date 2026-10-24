@@ -166,7 +166,7 @@ func (fb *fnb) lvalue(e ast.Expr) lval {
 // varLV is the place of a variable.
 func (fb *fnb) varLV(v *types2.Var) lval {
 	if fb.isGlobal(v) {
-		return lval{kind: lvMem, addr: fb.heap(HeapStatic), T: v.Type()}
+		return lval{kind: lvMem, addr: fb.staticAddr(v.Type()), T: v.Type()}
 	}
 	if fb.isLocal(v) {
 		return lval{kind: lvVar, v: v, T: v.Type()}
@@ -307,7 +307,11 @@ func (fb *fnb) fieldPath(addr Reg, T types2.Type, path []int) (Reg, types2.Type)
 				return addr, T
 			}
 		}
-		addr = fb.field(addr, idx)
+		// The type of what addr points to: the field's class, for a
+		// load of a heap-only field (solve/rules.go, OpLoad).
+		if addr != 0 {
+			addr = fb.emitDst(Instr{Op: OpField, X: addr, Path: []int{idx}, Type: T})
+		}
 		T = st.Field(idx).Type()
 	}
 	return addr, T

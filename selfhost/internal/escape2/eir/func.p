@@ -139,6 +139,7 @@ func (fb *fnb) store(x, y Reg, T types2.Type) {
 	if x == 0 || y == 0 || !hasPointers(T) {
 		return
 	}
+	y = fb.recount(y, T) // a counted error stored is its own reference (borrow.go)
 	fb.emit(Instr{Op: OpStore, X: x, Y: y, Type: T})
 }
 
@@ -198,6 +199,12 @@ func (fb *fnb) heap(k HeapKind) Reg {
 		r = fb.inArena(r) // in a local arena's window (arena.go)
 	}
 	return r
+}
+
+// staticAddr returns the address of a package variable of type T: static
+// memory, a pointer to T (Instr.Type, for stage B's place types).
+func (fb *fnb) staticAddr(T types2.Type) Reg {
+	return fb.emitDst(Instr{Op: OpHeap, Heap: HeapStatic, Type: types2.NewPointer(T)})
 }
 
 // sink sends x to a sink.

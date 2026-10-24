@@ -52,6 +52,9 @@ func (fb *fnb) exprAs(e ast.Expr, T types2.Type) Reg {
 	} else {
 		r = fb.expr(e)
 	}
+	if from := fb.typeOf(e); isInterface(from) && T != nil && isInterface(T) && lendsError(from, T) {
+		r = fb.lendView(r) // borrow.go
+	}
 	return fb.convertReg(r, fb.typeOf(e), T, e.Pos())
 }
 
@@ -316,7 +319,7 @@ func (fb *fnb) varValue(v *types2.Var) Reg {
 		if !hasPointers(v.Type()) {
 			return 0
 		}
-		return fb.load(fb.heap(HeapStatic), v.Type())
+		return fb.load(fb.staticAddr(v.Type()), v.Type())
 	}
 	return fb.readLocal(v)
 }
@@ -416,6 +419,12 @@ func (fb *fnb) typeAssert(e *ast.TypeAssertExpr, commaOk bool) Reg {
 	if types2.UnionVariants(fb.typeOf(e.X)) != nil {
 		// A union's payload.
 		return x
+	}
+	switch countsTo(fb.typeOf(e.X), T) { // borrow.go
+	case lendView:
+		return fb.borrowError(e.X, fb.assertTo(x, T, e.Pos()))
+	case lendCopy:
+		return fb.recount(fb.assertTo(x, T, e.Pos()), T)
 	}
 	return fb.assertTo(x, T, e.Pos())
 }

@@ -44,9 +44,20 @@ func Diagnostics(prog *load.Program, p *eir.Program, res *sched.Result) []*diag.
 	r := newReporter(prog, p, res)
 	var out []*diag.Diagnostic
 	seen := map[string]bool{}
+	var countedAs []*diag.Diagnostic
+	for _, fd := range res.Findings {
+		if r.isCountedAsFinding(fd) {
+			countedAs = r.countedAsDiagnostics() // counted.go
+			break
+		}
+	}
+	out = compat.Append(out, countedAs...)
 	for i, fd := range res.Findings {
 		if r.explainedBy(fd, res.Findings, i) {
 			continue
+		}
+		if len(countedAs) > 0 && r.isCountedAsFinding(fd) {
+			continue // reported at the Unwrap methods (counted.go)
 		}
 		d := r.safeDiagnostic(fd)
 		key := compat.Concat(d.Pos.String(), "|", string(d.Code), "|", d.Msg)
