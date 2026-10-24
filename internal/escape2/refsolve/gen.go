@@ -112,6 +112,9 @@ func Random(seed int64, ps domain.Paths) *Case {
 	}
 	g.env.Contracts["c0"] = g.randSummary(2, 1)
 	g.body()
+	if nin > 0 && g.rng.Intn(6) == 0 { // drawn last: the earlier draws make the same programs
+		g.b.F.ResultHolds = []int{g.rng.Intn(nin)} // //pu:resultholds
+	}
 	return &Case{Seed: seed, F: g.b.F, Env: g.env}
 }
 

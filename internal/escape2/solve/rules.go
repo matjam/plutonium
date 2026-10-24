@@ -338,10 +338,18 @@ package solve
 //	                 u = Heap / CHeap                     Res[Index].Heap /
 //	                                                      CountedHeap T
 //	             SinkGlobal: sink(X, E3002); SinkSend: sink(X, E3005);
-//	             SinkTask: sink(X, E3004); SinkExternal: sink(X, E3003)
+//	             SinkTask: sink(X, E3004); SinkExternal: sink(X, E3003);
+//	             SinkBoxCopy: each Obj(m, ...) in X with m an object of
+//	             Func.ArenaMem (a local arena's memory) is a finding E3313
+//	             (the box's copy is released after the arena is gone)
 //	OpDrop       for an object o of LifeStmt: every register live after the
 //	             drop whose value holds Obj(o, ...) is a finding E3009 at the
 //	             drop (a place that holds it is found by the store check)
+//	OpArenaView  Dst ⊇ X, each <Obj(o, ...), T, g> taken as
+//	             <Obj(m, Root, false), T, g>, m = Func.ArenaMem[o], or Obj
+//	             for an o with none (or a region): what memory allocated
+//	             from the allocator X is a view of (eir/arena.go); In,
+//	             Heap and CHeap tokens stay
 //	OpCall       for each candidate c (CallStatic: Callee; CallIface,
 //	             CallTypeParam, CallFunc: Env.Candidates, all of them, by
 //	             union; CallContract: Env.Contract), with s its summary.
@@ -438,4 +446,9 @@ package solve
 // pointers does not hold n*m pairs. Then summary.Widen applies the caps and makes every set an
 // antichain (the reference solver calls the same Widen, so the two agree on
 // the reduction). Store pairs with both keys of one input are kept (I4(b)).
-// Paths are those of Env.Paths, shared by both solvers.
+// Paths are those of Env.Paths, shared by both solvers. Esc and HeapStore
+// keys of an input in eir.Func.ResultHolds are left out: a standard
+// library function's //pu:resultholds p says it keeps p only in its result
+// (section 20.3), which the caller checks as it checks any result; for
+// alloc.Use, what is allocated in the window it opens is a view of p
+// (eir/arena.go).

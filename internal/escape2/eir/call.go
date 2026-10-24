@@ -106,7 +106,7 @@ func (fb *fnb) callResults(e *ast.CallExpr) ([]Reg, []types2.Type) {
 		return nil, nil
 	}
 	c.Args = args
-	return fb.emitCall(c, e.Pos()), resultTypes(c.Sig)
+	return fb.arenaCall(e, c, fb.emitCall(c, e.Pos())), resultTypes(c.Sig)
 }
 
 // specialMethodCall builds the method calls that are not calls of a method:
@@ -529,9 +529,12 @@ func (fb *fnb) defaultArg(fn *types2.Func, i, n int, T types2.Type, e *ast.CallE
 		fb.b.errorf(e.Pos(), "no argument for parameter %d of %s", i+1, fn.Name())
 		return 0
 	}
-	saved := fb.pos
+	saved, savedAt := fb.pos, fb.defaultAt
 	fb.pos = e.Pos()
-	defer func() { fb.pos = saved }()
+	if !fb.defaultAt.IsValid() {
+		fb.defaultAt = e.Pos()
+	}
+	defer func() { fb.pos, fb.defaultAt = saved, savedAt }()
 	return fb.exprAs(defs[k], T)
 }
 
@@ -964,7 +967,12 @@ func (fb *fnb) mapCall(name string, m *types2.Map, args []Reg, pos token.Pos, im
 	fb.f.Facts.Instances = append(fb.f.Facts.Instances, Instance{Obj: fn, Args: []types2.Type{m.Key(), m.Elem()}})
 	sig := fn.Type().(*types2.Signature)
 	if q := "pluto/rt." + name; contract.IsTrusted(q) {
-		return fb.emitCall(&Call{Kind: CallContract, Contract: q, Sig: sig, Args: args, Implicit: impl}, pos)
+		res := fb.emitCall(&Call{Kind: CallContract, Contract: q, Sig: sig, Args: args, Implicit: impl}, pos)
+		if name == "mapMakeWith" && len(res) > 0 && len(args) > 0 && fb.cur != nil {
+			// The table is memory of its allocator (arena.go).
+			res = []Reg{fb.union(res[0], []Reg{fb.arenaView(args[0], fb.allocatorMemObj(pos))}, types2.Typ[types2.UnsafePointer])}
+		}
+		return res
 	}
 	res := fb.emitCall(&Call{Kind: CallStatic, Callee: fb.b.funcOf(fn), Sig: sig, Args: args, Implicit: impl}, pos)
 	if name == "mapMake" || name == "mapMakeWith" {

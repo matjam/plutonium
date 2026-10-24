@@ -17,7 +17,7 @@ package refsolve
 
 import (
 	"fmt"
-
+	"slices"
 	"sort"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
@@ -81,13 +81,17 @@ func Solve(f *eir.Func, env solve.Env) solve.Result {
 func (s *solver) result() solve.Result {
 	sm := &summary.Summary{Inputs: len(s.f.Inputs), Res: make([]summary.Result, len(s.res))}
 	for k := range s.esc {
-		sm.Esc = append(sm.Esc, k)
+		if !slices.Contains(s.f.ResultHolds, k.Input()) { // kept only in the result (//pu:resultholds)
+			sm.Esc = append(sm.Esc, k)
+		}
 	}
 	for p := range s.stores {
 		sm.Store = append(sm.Store, p)
 	}
 	for k := range s.hstore {
-		sm.HeapStore = append(sm.HeapStore, k)
+		if !slices.Contains(s.f.ResultHolds, k.Input()) {
+			sm.HeapStore = append(sm.HeapStore, k)
+		}
 	}
 	for i, r := range s.res {
 		for rk := range r.from {

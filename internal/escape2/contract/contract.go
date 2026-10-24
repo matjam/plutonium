@@ -180,6 +180,10 @@ func init() {
 	heap1 := Effect{Heap: []bool{true}}
 	add(Trusted, "", Effect{Stores: []Store{{self(1), self(0), "the key in the map"}, {self(2), self(0), "the element in the map"}}}, "pluto/rt.mapAssign")
 	add(Trusted, "", Effect{Stores: []Store{{self(1), self(0), "the key in the map"}}, Heap: []bool{true}}, "pluto/rt.mapAssignPtr")
+	// make(map[K]V, hint, a): a table allocated from a, which records a
+	// to free to it (section 18.9). EIR makes the map a view of the
+	// memory of a local arena a (eir/arena.go); nothing else keeps a.
+	add(Trusted, "", heap1, "pluto/rt.mapMakeWith")
 	add(Trusted, "", heap1, "pluto/rt.mapAccess")
 	add(Trusted, "", Effect{Heap: []bool{true, false}}, "pluto/rt.mapAccessOk")
 	add(Trusted, "", none, "pluto/rt.mapDelete", "pluto/rt.mapLen", "pluto/rt.mapClear")

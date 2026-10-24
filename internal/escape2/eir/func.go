@@ -188,7 +188,13 @@ func (fb *fnb) either(a, b Reg) Reg {
 var eitherVar = types2.NewVar(token.NoPos, nil, "either", types2.Typ[types2.UnsafePointer])
 
 // heap returns a pointer to heap or static memory.
-func (fb *fnb) heap(k HeapKind) Reg { return fb.emitDst(Instr{Op: OpHeap, Heap: k}) }
+func (fb *fnb) heap(k HeapKind) Reg {
+	r := fb.emitDst(Instr{Op: OpHeap, Heap: k})
+	if k == HeapCurrent || k == HeapCountedCurrent {
+		r = fb.inArena(r) // in a local arena's window (arena.go)
+	}
+	return r
+}
 
 // sink sends x to a sink.
 func (fb *fnb) sink(k SinkKind, x Reg, index int, pos token.Pos) {

@@ -294,6 +294,7 @@ var codes = []diag.Code{
 	diag.LoopFrameView,     // 5 E3006
 	diag.TempViewKept,      // 6 E3009
 	diag.ClosureRegionLoop, // 7 E3101
+	diag.StaleView,         // 8 E3313
 }
 
 const (
@@ -305,8 +306,20 @@ const (
 	cE3006
 	cE3009
 	cE3101
+	cE3313
 	cTask // at a task starter (ImplTask): E3004 for a local sync.WaitGroup, else E3003
 )
+
+// isArenaMem reports whether frame object o is the memory of a local
+// arena (eir.Func.ArenaMem).
+func (s *solver) isArenaMem(o uint32) bool {
+	for _, m := range s.f.ArenaMem {
+		if uint32(m) == o {
+			return true
+		}
+	}
+	return false
+}
 
 // isWaitGroup reports whether frame object o is a sync.WaitGroup: passing
 // its address to a function that starts a task with it is E3004 (section
@@ -785,6 +798,10 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		default:
 			s.addHeapStore(s.storeDst(d, t))
 		}
+	case cArenaBox:
+		if t.kind == tObj && s.isArenaMem(t.base) {
+			s.report(cE3313, t.base, b)
+		}
 	case cSink:
 		switch t.kind {
 		case tObj:
@@ -917,6 +934,9 @@ func (s *solver) recordDeriv() bool {
 }
 
 func (s *solver) addEsc(k domain.Key, why uint64) {
+	if slices.Contains(s.f.ResultHolds, k.Input()) {
+		return // kept only in the result (//pu:resultholds)
+	}
 	if s.derivs && s.nderivs < MaxDerivs && s.derivSeen.add(s.a, uint64(k)<<4|1, why) && s.recordDeriv() {
 		s.escDerivs.push(s.a, uint64(k))
 		s.escDerivs.push(s.a, why)
@@ -980,6 +1000,9 @@ func (s *solver) storeSeenAdd(src, dst domain.Key) bool {
 }
 
 func (s *solver) addHeapStore(k domain.Key) {
+	if slices.Contains(s.f.ResultHolds, k.Input()) {
+		return // kept only in the result (//pu:resultholds)
+	}
 	if s.sumSeen.add(s.a, sHeapStore, uint64(k)) {
 		s.heapSt.push(s.a, uint64(k))
 	}
@@ -1246,9 +1269,13 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 			s.addCons(uint32(in.X), cSink, cE3004, own(in.Sink))
 		case eir.SinkExternal:
 			s.addCons(uint32(in.X), cSink, cE3003, own(in.Sink))
+		case eir.SinkBoxCopy:
+			s.addCons(uint32(in.X), cArenaBox, 0, own(in.Sink))
 		default:
 			panic("internal compiler error: escape2/solve: unknown sink kind")
 		}
+	case eir.OpArenaView:
+		s.edge(in.X, dst, xw(xArena, domain.PathID(in.Obj), false))
 	case eir.OpDrop:
 		if int(in.Obj) < len(s.f.Objects) && s.f.Objects[in.Obj].Life == eir.LifeStmt {
 			s.drops.push(s.a, uint64(b)<<32|uint64(i))

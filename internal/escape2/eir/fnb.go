@@ -75,6 +75,15 @@ type fnb struct {
 	// variables they capture (regions.go).
 	regionNodes map[ast.Node]bool
 	regionVars  map[*types2.Var]bool
+
+	// The windows of the calls of alloc.Use in the body (arena.go), for
+	// the function whose body holds them (windowHome), found once.
+	windows     []*arenaWindow
+	windowsDone bool
+	// defaultAt is the position of the call whose default argument is
+	// being built: the default's expression is another function's source,
+	// and the windows open are those of the call.
+	defaultAt token.Pos
 }
 
 // outerObj names a frame object of another function, for a closure record
@@ -182,6 +191,14 @@ func (fb *fnb) declareVar(v *types2.Var, kind ObjKind, pos token.Pos) {
 			life = LifeCaller // in the caller's region (section 11.5)
 		}
 		fb.objs[v] = fb.newObj(Object{Kind: kind, Type: v.Type(), Var: v, Pos: pos, Name: v.Name(), Life: life})
+		if isCheckedArena(v.Type()) {
+			// The memory allocated from the arena (arena.go).
+			mem := fb.newObj(Object{Kind: ObjArenaWindow, Type: v.Type(), Var: v, Pos: pos, Name: v.Name(), Life: life})
+			if fb.f.ArenaMem == nil {
+				fb.f.ArenaMem = map[ObjID]ObjID{}
+			}
+			fb.f.ArenaMem[fb.objs[v]] = mem
+		}
 		return
 	}
 	fb.locals[v] = true

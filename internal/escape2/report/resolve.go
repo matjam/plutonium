@@ -66,6 +66,11 @@ func (r *reporter) diagnostic(fd solve.Finding) *diag.Diagnostic {
 	case diag.ClosureRegionLoop:
 		e.sink = sinkRegionLoop
 		r.regionStore(e, f)
+	case diag.StaleView:
+		// A counted value of a local arena copied into an interface box
+		// (eir.SinkBoxCopy).
+		e.sink = sinkBox
+		e.expr = r.exprAt(fd.Pos)
 	default: // E3002, E3009
 		r.stored(e, f)
 	}

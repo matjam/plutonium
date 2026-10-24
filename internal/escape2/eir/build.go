@@ -3,6 +3,7 @@ package eir
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
@@ -177,6 +178,9 @@ func (b *builder) declare() {
 				if fd.Body == nil {
 					f.Bodyless = true
 				}
+				if strings.HasPrefix(b.fset.Position(fd.Pos()).Filename, load.StdPrefix) {
+					f.ResultHolds = resultHolds(fd, obj.Type().(*types2.Signature))
+				}
 			}
 		}
 		f := b.newFunc(FuncKey{Init: p.Types}, p.Path+" package initialization", p.Types, types2.NewSignatureType(nil, nil, nil, nil, nil, false), token.NoPos, token.NoPos)
@@ -269,6 +273,37 @@ func isExternalDecl(fd *ast.FuncDecl) bool {
 		}
 	}
 	return false
+}
+
+// resultHolds returns the inputs fd's //pu:resultholds directives name
+// (the receiver is input 0). internal/escape reports a directive outside
+// the standard library or one that names no parameter.
+func resultHolds(fd *ast.FuncDecl, sig *types2.Signature) []int {
+	if fd.Doc == nil {
+		return nil
+	}
+	var out []int
+	for _, c := range fd.Doc.List {
+		rest, ok := strings.CutPrefix(c.Text, "//pu:resultholds")
+		if !ok || rest != "" && rest[0] != ' ' && rest[0] != '\t' {
+			continue
+		}
+		for _, name := range strings.Fields(rest) {
+			base := 0
+			if sig.Recv() != nil {
+				if sig.Recv().Name() == name {
+					out = append(out, 0)
+				}
+				base = 1
+			}
+			for i := 0; i < sig.Params().Len(); i++ {
+				if sig.Params().At(i).Name() == name {
+					out = append(out, base+i)
+				}
+			}
+		}
+	}
+	return out
 }
 
 // funcName names a declared function for messages: "pkg.F", "pkg.(*T).M".

@@ -36,7 +36,7 @@ import (
 
 const (
 	magic   = "PUESCSUM"
-	version = 5 // 2: domain.Key.FieldsGE; 3: summary.Summary.Deferred; 4: domain.Key.Deep; 5: summary.Region.Lits
+	version = 6 // 2: domain.Key.FieldsGE; 3: summary.Summary.Deferred; 4: domain.Key.Deep; 5: summary.Region.Lits; 6: local arenas (eir/arena.go)
 	// maxVariants bounds the entries of one function in a file; past it the
 	// entries this run did not write go first.
 	maxVariants = 8

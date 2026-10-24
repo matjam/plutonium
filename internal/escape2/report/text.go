@@ -29,6 +29,7 @@ const (
 	sinkSend                       // sent on a channel
 	sinkLoop                       // kept in a variable the next iteration of a loop can see
 	sinkRegionLoop                 // the closure of a call in a loop kept past the iteration (E3101)
+	sinkBox                        // converted to an interface, whose copy stays in the frame until the function returns (E3313)
 )
 
 // A storeKind says why the memory a view is stored in outlives it.
@@ -374,9 +375,18 @@ func (r *reporter) viewDiag(e *viewErr) *diag.Diagnostic {
 	case sinkRegionLoop:
 		d.Code = diag.ClosureRegionLoop
 		r.regionLoopDiag(d, e, add)
+	case sinkBox:
+		d.Code = diag.StaleView
+		d.Msg = fmt.Sprintf("cannot convert %s to an interface: it points into %s, which is gone before the interface's copy is released", x, r.noun(l, q))
+		add(sentence(about, fmt.Sprintf("Converting %s to an interface puts a copy of it in %s frame, and the copy holds a reference to the text until %s returns. That is after the arena %s is dropped, and releasing the reference would write into the arena's memory.", x, possessive(e.fn), e.fn, l.name())))
+		d.Fix = &diag.Fix{
+			Intro: "Use the text without converting it to an interface, for example by writing its bytes",
+			Code:  "os.Stdout.Write(b.Bytes())",
+		}
+		d.More = []*diag.Fix{{Intro: "Or convert a string made from an allocator that outlives the arena, passed explicitly, or from the default allocator before the arena is installed"}}
 	}
 	d.Text = strings.Join(text, "\n")
-	if l.kind == lkStmtTemp && e.sink != sinkLoop {
+	if l.kind == lkStmtTemp && e.sink != sinkLoop && e.sink != sinkBox {
 		d.Code = diag.TempViewKept
 	}
 	return d

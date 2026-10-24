@@ -110,6 +110,9 @@ func (fb *fnb) conv(r Reg, from, I types2.Type, pos token.Pos) Reg {
 		in.Obj = o
 	}
 	d := fb.emitDst(in)
+	if in.Obj != NoObj && len(fb.f.ArenaMem) > 0 && releasesCounted(from) {
+		fb.sink(SinkBoxCopy, r, 0, pos) // arena.go
+	}
 	if isTypeParam(from) {
 		// The instance decides: a direct type is its own data word.
 		return fb.either(d, r)

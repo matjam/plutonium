@@ -71,9 +71,28 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 		s.ruleSink(in)
 	case eir.OpDrop:
 		s.ruleDrop(b, in)
+	case eir.OpArenaView:
+		s.ruleArenaView(in)
 	case eir.OpCall:
 		s.ruleCall(in)
 	}
+}
+
+// OpArenaView: Dst ⊇ X, each pointer to a frame object o taken as one to
+// Func.ArenaMem[o], or to Obj for an o with none (solve/rules.go).
+func (s *solver) ruleArenaView(in *eir.Instr) {
+	w := value{}
+	for x := range s.val(in.X) {
+		if x.t.kind == kObj && s.objs[x.t.id].life != eir.LifeHeap {
+			o := int(in.Obj)
+			if m, ok := s.f.ArenaMem[eir.ObjID(x.t.id)]; ok && x.t.id < len(s.f.Objects) {
+				o = int(m)
+			}
+			x = tv{t: tok{kind: kObj, id: o, path: domain.Root}, tag: x.tag, g: x.g}
+		}
+		w.add(x)
+	}
+	s.def(in.Dst, w)
 }
 
 // objPtr is the pointer value Obj(o, Root), or Heap for an object of
@@ -308,6 +327,18 @@ func (s *solver) ruleSink(in *eir.Instr) {
 		s.sink(x, diag.GoFrameView, in.Sink, in.Pos, own)
 	case eir.SinkExternal:
 		s.sink(x, diag.PassFrameView, in.Sink, in.Pos, own)
+	case eir.SinkBoxCopy:
+		// E3313 for the memory of a local arena (solve/rules.go).
+		for v := range x {
+			if v.t.kind != kObj {
+				continue
+			}
+			for _, m := range s.f.ArenaMem {
+				if int(m) == v.t.id {
+					s.finding(diag.StaleView, in.Pos, v.t.id, in.Sink, own)
+				}
+			}
+		}
 	}
 }
 

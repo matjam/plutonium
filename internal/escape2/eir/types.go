@@ -188,6 +188,14 @@ type Func struct {
 	// Bodyless: no body (assembly, C, //pu:extern); its effects come from
 	// the contract table or the default for bodyless functions.
 	Bodyless bool
+	// ResultHolds are the inputs a standard library function's
+	// //pu:resultholds names (section 20.3): it keeps each only in its
+	// result, so what it does with them otherwise is no escape.
+	ResultHolds []int
+	// ArenaMem gives each frame variable of a checked arena type
+	// (arena.Fixed, arena.Chunked) its ObjArenaWindow object: the memory
+	// allocated from it, of the variable's lifetime (OpArenaView).
+	ArenaMem map[ObjID]ObjID
 }
 
 // Input is one input of a function.
@@ -296,6 +304,12 @@ const (
 	OpSink                    // X goes to Sink (Index: the result, for SinkReturn)
 	OpPhi                     // Dst = one of Args, by predecessor
 	OpDrop                    // the end of Obj's lifetime (the place where E3006 and E3009 are checked)
+	// OpArenaView: Dst = X, the allocator a call allocates from, as what
+	// that memory is a view of (section 18.9, arena.go): each pointer of X
+	// to a frame object o becomes a pointer to Func.ArenaMem[o], or to Obj
+	// (an ObjArenaWindow) for a frame object with none; other pointers
+	// stay (memory from a caller's allocator is a view of the caller's).
+	OpArenaView
 )
 
 // ElemStep is the path step of an array or slice element in OpAddr and
@@ -338,6 +352,10 @@ const (
 	SinkSend                         // sent on a channel
 	SinkTask                         // passed to a task statement
 	SinkExternal                     // passed to code outside Plutonium
+	// SinkBoxCopy: copied into an interface box in the frame, whose
+	// counted references are released when the function returns (section
+	// 18.9): memory of a local arena it points to is gone by then (E3313).
+	SinkBoxCopy
 )
 
 // Instr is one instruction. Which fields mean something depends on Op.

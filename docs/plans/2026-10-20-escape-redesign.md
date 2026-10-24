@@ -538,6 +538,30 @@ Each stage ends with an adversarial review of its rules, as the last four did of
 reference solver (the same rules applied naively to a fixed point, no deltas, no caps) runs on the
 review programs and `soundness_test.go` cases to check the optimised solver.
 
+**Known gaps before the switch (2026-10-24).** Local arenas (section 18.9) are modelled in EIR
+(`eir/arena.go`, D52): `alloc.Use` windows, `//pu:resultholds`, explicit arena text, the E3313 box copy,
+and maps made from an arena. Left for later, each a false finding of the translated compiler
+(`selfhost/cmd/pluto`, deferral on), with its mechanism:
+
+- **A closure returned into the caller's region** (4 findings, `lower.(*fnState).collectCleanupGoexit`'s
+  literal, via `defer s.collectCleanupGoexit()()`): the region's objects are one token with
+  `Region.Self`, so a load through the closure's record yields the region itself, and a store of it into
+  the caller's memory looks like a frame view. Fixing it needs the summary to say what each region
+  object holds.
+- **A call of a function value whose result holds pointers** (1 finding, `escape.(*analyzer).add`'s
+  `mk()`): D49 defers only calls whose results hold no pointers, so this one falls back to the join of
+  every `func() *diag.Diagnostic` literal, one of which keeps its `pu.Box` arguments.
+- **A range over an iterator returned by a call** (1 finding, `token.(*FileSet).Iterate` calling yield
+  through `s.tree.all()`): the call of yield falls back to candidates that include another program's
+  literal (`build.renamed`'s), whose record is bound to the rest of the value.
+
+Waiting on D51 (type-filtered summary entries, extended to direct pointers): the corpus programs whose
+interface calls join every candidate's effects on a receiver of one type (`lib/vec`, whose allocator
+interface applies `arena.Chunked`'s internals to an `arena.Arena`; `lib/fmtappend`), or whose fmt
+summaries keep every operand (`lib/fmtstringerkeeps`, `examples/24-errors`, `lib/errors` line 221).
+A counted reference released before a borrowed pointer to it (`diag/counted_error_unwrap`, which the
+new analysis accepts) needs a rule for when counted references are released (D52), before the switch.
+
 ### (h) Risks and what I am unsure of
 
 - **A giant SCC.** If interface dispatch in the translated type checker ties thousands of functions into

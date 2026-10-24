@@ -51,6 +51,7 @@ const (
 	xNoRec          // identity, without the closure records ownRecord resolves (funccall.go)
 	xOnlyIn         // identity, In tokens only (defer.go, splitNode)
 	xNoIn           // identity, without In tokens
+	xArena          // OpArenaView: a frame object's pointer becomes one to its arena memory, Obj(path) for one with none
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -81,6 +82,7 @@ const (
 	cDArg                  // a: dcall index: an argument of a deferred call (defer.go)
 	cFRec                  // a: fcall index: a function value called (funccall.go)
 	cFRest                 // a: fcall index: the function value less its own closures (funccall.go)
+	cArenaBox              // a counted value copied into an interface box: E3313 for a local arena's memory (SinkBoxCopy)
 )
 
 func (s *solver) newNode(kind uint64) uint32 {
@@ -358,6 +360,15 @@ func (s *solver) transform(x uint64, t tok) {
 		if t.kind != tIn {
 			s.buf.push(s.a, s.intern(t))
 		}
+	case xArena:
+		if t.kind == tObj {
+			o := uint32(path)
+			if m, ok := s.f.ArenaMem[eir.ObjID(t.base)]; ok && !s.isRegion(t.base) {
+				o = uint32(m)
+			}
+			t = tok{kind: tObj, base: o, path: domain.Root, tag: t.tag, tagGE: t.tagGE}
+		}
+		s.buf.push(s.a, s.intern(t))
 	case xNoRec:
 		if _, ok := s.ownRecord(t); ok {
 			return

@@ -88,6 +88,15 @@ func (r *reporter) safeDiagnostic(fd solve.Finding) (d *diag.Diagnostic) {
 // that pointer, and the other message names the variable the program wrote.
 func (r *reporter) explainedBy(fd solve.Finding, all []solve.Finding, i int) bool {
 	fn := r.p.Funcs[fd.Func]
+	if mem, ok := fn.ArenaMem[fd.Obj]; ok {
+		// A local arena whose memory is reported at the same place: a
+		// string buffer or box allocated from it records the arena.
+		for j, o := range all {
+			if j != i && o.Func == fd.Func && o.Pos == fd.Pos && o.Code == fd.Code && o.Obj == mem {
+				return true
+			}
+		}
+	}
 	if fd.Obj == eir.NoObj || int(fd.Obj) >= len(fn.Objects) || fn.Objects[fd.Obj].Kind != eir.ObjBox {
 		return false
 	}
