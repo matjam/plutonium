@@ -246,7 +246,8 @@ package solve
 // values. A function value reached through many origin calls would apply
 // its literal once per origin call otherwise.
 //
-// The origin calls of the Deferred keys of one input are at most
+// The origin calls of the Deferred keys of one input, less the function's
+// own calls (Origin the function), are at most
 // MaxDeferredOrigins: ranked by (Origin, Site), those past it make no
 // Deferred entry, and their dcalls resolve here, the In tokens of the rest
 // bound with nothing left out (the In-full group). As more origin calls

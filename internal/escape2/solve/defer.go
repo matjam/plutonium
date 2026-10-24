@@ -376,7 +376,14 @@ func (s *solver) splitNode(n uint32, in bool) uint32 {
 // must not push the function's own origin calls past the bound, which
 // would make them fall back in turn (a recursive walker such as
 // ast.inspect, whose fallbacks' candidates call it again with closures of
-// their own, fell back at each of its 360 calls). Past it, the dcalls of the origin calls that rank past the
+// their own, fell back at each of its 360 calls). Nor are the function's
+// own calls (Origin is the function): they are as many as its code has,
+// whatever lies below it, and falling back at one binds the record of a
+// closure that calls closures of its record to the whole rest of the
+// value, whose paths through the record are cut to GE, which joins every
+// cell the record leads to (a type checker's walker of nested closures,
+// with twenty calls of its record, joined all its captured variables).
+// Past it, the dcalls of the origin calls that rank past the
 // bound (by Origin, then Site) for some input resolve here, as they would
 // without deferral: the fallback, with the record bound to the whole rest
 // of the function value, and no Deferred entry. The ranks are over the
@@ -389,6 +396,9 @@ const MaxDeferredOrigins = 16
 // the dcalls whose origin calls rank past MaxDeferredOrigins for it.
 func (s *solver) capDeferred(i, in int) {
 	dc := s.dcalls[i]
+	if dc.origin == s.f.ID {
+		return // an own call: not counted
+	}
 	g := uint64(dc.origin)<<32 | uint64(uint32(dc.site))
 	if s.deferOrigins == nil {
 		s.deferOrigins = map[int][]uint64{}
@@ -410,7 +420,7 @@ func (s *solver) capDeferred(i, in int) {
 	}
 	// Exactly one origin call goes past the bound: the new one, or the one
 	// it pushes down. Its dcalls with keys of in resolve here.
-	past := gs[MaxDeferredOrigins]
+	past := gs[max(at, MaxDeferredOrigins)]
 	for _, j := range s.originDcalls[past] {
 		d := s.dcalls[j]
 		if d.noDefer {

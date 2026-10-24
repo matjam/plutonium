@@ -158,8 +158,8 @@ func (s *solver) resolve() {
 func (s *solver) capDeferred() {
 	groups := map[int][]uint64{}
 	for _, dc := range s.dcalls {
-		if dc.fb {
-			continue
+		if dc.fb || dc.origin == s.f.ID {
+			continue // a fallback's, or an own call: not counted
 		}
 		g := uint64(dc.origin)<<32 | uint64(uint32(dc.site))
 		for k := range dc.keys {

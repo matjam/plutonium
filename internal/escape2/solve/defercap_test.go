@@ -61,3 +61,62 @@ func TestDeferredFallbackDoesNotFeedCap(t *testing.T) {
 		t.Errorf("walk's own call fell back: %s", e.describe(r.Summary))
 	}
 }
+
+// capCand is a candidate of a function value that leaks its record: what
+// a fallback of a call of the value applies.
+func capCand(t *testing.T, e *testEnv) eir.FuncID {
+	c := e.fn("leak", 1, 0) // (record)
+	c.sink(eir.SinkGlobal, c.input(0))
+	e.solve(t, c.f)
+	return c.f.ID
+}
+
+// A closure that calls more closures of its record than
+// MaxDeferredOrigins (a type checker's walker of nested closures): its
+// own calls are not counted, so each stays deferred and none falls back.
+// A fallback there would bind the record to the rest of the value, whose
+// paths through the record the candidate's entries cut to GE.
+func TestDeferredOwnCallsNotCapped(t *testing.T) {
+	e := newEnv()
+	leak := capCand(t, e)
+	f := e.fn("walker", 1, 0) // (record)
+	n := MaxDeferredOrigins + 4
+	for j := range n {
+		c := &eir.Call{Kind: eir.CallFunc, Target: f.load(f.field(f.input(0), j))}
+		f.call(c)
+		e.deferred[c] = true
+		e.cands[c] = []eir.FuncID{leak}
+	}
+	r := e.solve(t, f.f)
+	if len(r.Summary.Deferred) != n {
+		t.Errorf("%d own calls, %d Deferred entries: %s", n, len(r.Summary.Deferred), e.describe(r.Summary))
+	}
+	if len(r.Summary.Esc) != 0 {
+		t.Errorf("an own call fell back: %s", e.describe(r.Summary))
+	}
+}
+
+// The calls a function forwards from its callees are still capped: past
+// MaxDeferredOrigins origin calls of one input, the rest fall back.
+func TestDeferredForwardedCallsCapped(t *testing.T) {
+	e := newEnv()
+	leak := capCand(t, e)
+	g := e.fn("forwarder", 1, 0)
+	n := MaxDeferredOrigins + 4
+	for j := range n {
+		c := e.fn("callee", 1, 0)
+		call := &eir.Call{Kind: eir.CallFunc, Target: c.load(c.field(c.input(0), j))}
+		c.call(call)
+		e.deferred[call] = true
+		e.cands[call] = []eir.FuncID{leak}
+		e.solve(t, c.f)
+		g.static(c.f, 0, g.input(0))
+	}
+	r := e.solve(t, g.f)
+	if len(r.Summary.Deferred) != MaxDeferredOrigins {
+		t.Errorf("%d forwarded origin calls, %d Deferred entries, want %d: %s", n, len(r.Summary.Deferred), MaxDeferredOrigins, e.describe(r.Summary))
+	}
+	if len(r.Summary.Esc) == 0 {
+		t.Errorf("no forwarded call past the bound fell back: %s", e.describe(r.Summary))
+	}
+}
