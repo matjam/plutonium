@@ -15,6 +15,20 @@ import (
 	"github.com/matjam/plutonium/internal/testguard"
 )
 
+// Running the tests under bigjob.sh (one slot is 10 GB; BIGJOB_SLOTS=2 takes
+// all three for 20 GB, so use it only for what needs it):
+//
+//   - TestMixedPipeline reserves 8.6 GB for lib/strconvfloat at -O2 and
+//     passes 10 GB beside the other tests: run it alone under
+//     BIGJOB_SLOTS=2 (-run TestMixedPipeline, about 4 minutes), and the rest
+//     of the package in one slot with -skip TestMixedPipeline and the
+//     default parallelism.
+//   - With GO2PU_SLOW=1, TestTypeCheck and TestDifferential/diagdemo each pass
+//     10 GB even alone at -parallel 1; together at -parallel 1 under
+//     BIGJOB_SLOTS=2 (PLUTO_TEST_RSS_MB=19000) the translated typecheck-O0
+//     passed 13 GB and the run 19 GB. TestLower needs PLUTO_TEST_RSS_MB=22000.
+//     These are measurements of one session (2026-10-24), to be refined.
+
 // The checked-in translations under selfhost/, and where they come from.
 var translations = []struct {
 	dir  string // Go package, relative to this directory
