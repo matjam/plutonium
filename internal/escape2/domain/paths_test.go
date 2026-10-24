@@ -131,7 +131,37 @@ func TestExtendInvalidStep(t *testing.T) {
 			t.Fatal("no panic for an invalid step")
 		}
 	}()
-	NewPaths().Extend(Root, -3)
+	NewPaths().Extend(Root, -4)
+}
+
+// TestStepCap: a StepCap load is a load for Loads, Cut and the segments,
+// and MaxLoads does not count it.
+func TestStepCap(t *testing.T) {
+	ps := NewPaths()
+	p := Root
+	for _, s := range []Step{0, StepCap, StepLoad, 0, StepLoad, 0, StepLoad} {
+		var cut bool
+		if p, cut = ps.Extend(p, s); cut {
+			t.Fatalf("cut at step %d of a path with three counted loads", s)
+		}
+	}
+	if n := ps.Loads(p); n != 4 {
+		t.Errorf("Loads = %d, want 4", n)
+	}
+	if _, cut := ps.Extend(p, StepLoad); !cut {
+		t.Errorf("a fourth counted load is not cut")
+	}
+	if got := ps.Steps(ps.Cut(p)); len(got) != 3 || got[2] != StepLoad {
+		t.Errorf("Cut = %v, want the prefix through the first StepLoad", got)
+	}
+	q, _ := ps.Extend(Root, 1)
+	q, _ = ps.Extend(q, StepCap)
+	if got := ps.Steps(ps.Cut(q)); len(got) != 2 {
+		t.Errorf("Cut of a path whose only load is StepCap = %v", got)
+	}
+	if !IsLoad(StepCap) || IsLoad(StepElem) {
+		t.Errorf("IsLoad")
+	}
 }
 
 // randStep returns a random step from a small alphabet, so that walks

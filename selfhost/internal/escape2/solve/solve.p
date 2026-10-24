@@ -744,8 +744,8 @@ func (s *solver) valNode(base uint32, p domain.PathID, ge bool) uint32 {
 	n := s.newNode(nkReg)
 	s.derived.put(s.a, uint64(base)<<2|dVal, uint64(p), uint64(n))
 	last := steps[len(steps)-1]
-	if last == domain.StepLoad {
-		s.addCons(parent, cLoad, uint64(n), 0)
+	if domain.IsLoad(last) {
+		s.addCons(parent, cLoad, uint64(n), loadKind(last))
 	} else {
 		lp, _ := s.pathOf(steps[len(steps)-1:])
 		s.addEdge(parent, n, xw(xStep, lp, false), 0)
@@ -787,7 +787,7 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 	switch kind {
 	case cLoad:
 		dst := uint32(a)
-		if b != 0 {
+		if b&loadHeap != 0 {
 			s.addTok(dst, heapTok)
 			return
 		}
@@ -799,7 +799,11 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			}
 			s.subscribe(t.base, t.path, t.ge, dst, subLoad)
 		case tIn:
-			s.addTok(dst, s.loadIn(asPointer(t)))
+			st := domain.StepLoad
+			if b&loadCap != 0 {
+				st = domain.StepCap
+			}
+			s.addTok(dst, s.loadInStep(asPointer(t), st))
 		default:
 			s.addTok(dst, heapTok)
 		}
@@ -1233,7 +1237,11 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 			s.addTok(dst, heapTok) // whatever X holds (rules.go, OpLoad)
 			return
 		}
-		s.addCons(uint32(in.X), cLoad, uint64(dst), 0)
+		st := domain.StepLoad
+		if in.Cap {
+			st = domain.StepCap
+		}
+		s.addCons(uint32(in.X), cLoad, uint64(dst), loadKind(st))
 	case eir.OpStore:
 		if in.X == 0 || in.Y == 0 {
 			return

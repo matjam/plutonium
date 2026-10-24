@@ -29,7 +29,7 @@ import (
 //	keys     := uvarint(n) key*            (sorted by bytes)
 //	pairs    := uvarint(n) (key key)*      (sorted by bytes)
 //	key      := uvarint(input) byte(flags: 1 GE, 2 Borrowed, 4 Counts, 8 DirectCount, 16 FieldsGE, 32 Deep) path
-//	path     := uvarint(n) varint(step)*   (StepLoad -2, StepElem -1, field >= 0)
+//	path     := uvarint(n) varint(step)*   (StepCap -3, StepLoad -2, StepElem -1, field >= 0)
 //	result   := uvarint(n) (key path byte(fieldGE))* paths(heap) paths(counted)
 //	paths    := uvarint(n) path*           (sorted by bytes)
 
@@ -280,7 +280,7 @@ func (r *reader) path(ps domain.Paths) domain.PathID {
 	p := domain.Root
 	for i := 0; i < n && r.err == nil; i++ {
 		s := r.varint()
-		if s < int64(domain.StepLoad) || s > 1<<20 {
+		if s < int64(domain.StepCap) || s > 1<<20 {
 			r.fail()
 			break
 		}

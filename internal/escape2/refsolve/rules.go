@@ -180,7 +180,11 @@ func (s *solver) ruleLoad(in *eir.Instr) {
 		s.def(in.Dst, single(ptr(tok{kind: kHeap})))
 		return
 	}
-	s.def(in.Dst, s.load(s.val(in.X)))
+	st := domain.StepLoad
+	if in.Cap {
+		st = domain.StepCap // a captured location's address: not counted by the limits
+	}
+	s.def(in.Dst, s.loadStep(s.val(in.X), st))
 }
 
 // heapOnlyField says whether the location the pointer register x was made

@@ -26,12 +26,20 @@ const (
 
 // Step is one step of an access path: a load through a pointer, an element of
 // an array or slice (elements are not told apart), or a field index (>= 0).
+// StepCap is a load too: that of a captured variable's address from a
+// closure record (eir.Instr.Cap). It is a load in every respect but the
+// limits: MaxLoads counts the loads the program makes, and reading a
+// variable a function literal captures is not one (spec 18.3).
 type Step int32
 
 const (
+	StepCap  Step = -3
 	StepLoad Step = -2
 	StepElem Step = -1
 )
+
+// IsLoad reports whether s is a load: StepLoad or StepCap.
+func IsLoad(s Step) bool { return s == StepLoad || s == StepCap }
 
 // PathID names an interned access path. Root (0) is the empty path: the
 // input's own pointers.
@@ -55,7 +63,7 @@ type Paths interface {
 	// Steps returns the steps of p, in order. The slice is shared: do not
 	// change it.
 	Steps(p PathID) []Step
-	// Loads returns the number of loads in p.
+	// Loads returns the number of loads in p, StepCap ones included.
 	Loads(p PathID) int
 	// HasPrefix reports whether prefix is a prefix of p (p itself included).
 	HasPrefix(p, prefix PathID) bool

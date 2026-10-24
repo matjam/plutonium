@@ -122,8 +122,11 @@ func (o *overlay) Cut(p domain.PathID) domain.PathID {
 		return c - 1
 	}
 	c := p
-	if o.Loads(p) > 0 {
+	switch st := o.Steps(p); {
+	case domain.LimitLoads(st) > 0:
 		c = o.throughLoad(p, 1)
+	case o.Loads(p) > 0:
+		c = o.throughCap(p, 1)
 	}
 	o.cuts[i] = c + 1
 	return c
@@ -132,11 +135,14 @@ func (o *overlay) Cut(p domain.PathID) domain.PathID {
 // cut is the interner's cut: the prefix through the second load (or the
 // last, or Root).
 func (o *overlay) cut(p domain.PathID) domain.PathID {
-	n := o.Loads(p)
+	n := domain.LimitLoads(o.Steps(p))
 	if n > 2 {
 		n = 2
 	}
 	if n == 0 {
+		if c := o.Loads(p); c > 0 {
+			return o.throughCap(p, c) // only StepCap loads: through the last
+		}
 		return domain.Root
 	}
 	return o.throughLoad(p, n)
@@ -145,7 +151,18 @@ func (o *overlay) cut(p domain.PathID) domain.PathID {
 func (o *overlay) throughLoad(p domain.PathID, n int) domain.PathID {
 	for {
 		st := o.Steps(p)
-		if o.Loads(p) == n && st[len(st)-1] == domain.StepLoad {
+		if domain.LimitLoads(st) == n && st[len(st)-1] == domain.StepLoad {
+			return p
+		}
+		p = o.parentOf(p)
+	}
+}
+
+// throughCap is the prefix of p ending with its n-th StepCap.
+func (o *overlay) throughCap(p domain.PathID, n int) domain.PathID {
+	for {
+		st := o.Steps(p)
+		if len(st) > 0 && st[len(st)-1] == domain.StepCap && o.Loads(p)-domain.LimitLoads(st) == n {
 			return p
 		}
 		p = o.parentOf(p)
@@ -156,7 +173,7 @@ func (o *overlay) throughLoad(p domain.PathID, n int) domain.PathID {
 func (o *overlay) segment(p domain.PathID) int {
 	st := o.Steps(p)
 	n := 0
-	for i := len(st) - 1; i >= 0 && st[i] != domain.StepLoad; i-- {
+	for i := len(st) - 1; i >= 0 && !domain.IsLoad(st[i]); i-- {
 		n++
 	}
 	return n
@@ -164,12 +181,18 @@ func (o *overlay) segment(p domain.PathID) int {
 
 // Extend is the interner's Extend (domain/paths.go), the same limits.
 func (o *overlay) Extend(p domain.PathID, s domain.Step) (domain.PathID, bool) {
-	if s < domain.StepLoad {
+	if s < domain.StepCap {
 		panic("escape2/sched: Extend: invalid step")
 	}
 	depth := len(o.Steps(p))
-	if s == domain.StepLoad {
-		if o.Loads(p)+1 > domain.MaxLoads || depth+1 > domain.MaxSteps {
+	switch s {
+	case domain.StepLoad:
+		if domain.LimitLoads(o.Steps(p))+1 > domain.MaxLoads || depth+1 > domain.MaxSteps {
+			return o.cut(p), true
+		}
+		return o.child(p, s), false
+	case domain.StepCap:
+		if depth+1 > domain.MaxSteps {
 			return o.cut(p), true
 		}
 		return o.child(p, s), false
@@ -196,7 +219,7 @@ func (o *overlay) child(p domain.PathID, s domain.Step) domain.PathID {
 	c := o.baseLen + domain.PathID(len(o.parent))
 	st := append(append(make([]domain.Step, 0, len(o.Steps(p))+1), o.Steps(p)...), s)
 	loads := o.Loads(p)
-	if s == domain.StepLoad {
+	if domain.IsLoad(s) {
 		loads++
 	}
 	o.parent = append(o.parent, p)

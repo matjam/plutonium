@@ -159,7 +159,8 @@ the result does hold `p` (E3007), and the directive is an error outside the stan
   checked against every function of that type whose value the program takes, narrowed to the closures of
   the current function where only those can be there.
 - Summaries follow pointers up to three loads deep and eight field steps; beyond that, everything
-  reachable is assumed kept.
+  reachable is assumed kept. A function literal's use of a variable it captures is not one of the
+  three loads.
 - A local variable whose address is never taken is followed along the control flow, so reusing a
   variable (`err` above all) for a view of the frame and later for heap memory is accepted. Other
   storage is followed field by field, two levels deep, without regard to the order of statements.

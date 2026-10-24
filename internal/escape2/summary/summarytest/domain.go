@@ -57,8 +57,10 @@ func (p *Paths) Of(steps ...domain.Step) domain.PathID {
 func within(s []domain.Step) bool {
 	loads, nest := 0, 0
 	for _, x := range s {
-		if x == domain.StepLoad {
-			loads++
+		if domain.IsLoad(x) {
+			if x == domain.StepLoad {
+				loads++ // MaxLoads does not count StepCap
+			}
 			nest = 0
 		} else {
 			nest++
@@ -79,7 +81,7 @@ func (p *Paths) Extend(id domain.PathID, s domain.Step) (domain.PathID, bool) {
 	}
 	// A field step past the nesting limit: p itself, which with GE covers
 	// p+s. A load past the limits: the cut of p+s.
-	if s != domain.StepLoad {
+	if !domain.IsLoad(s) {
 		return id, true
 	}
 	return p.Cut(p.intern(n[:len(n)-1])), true
@@ -92,7 +94,7 @@ func (p *Paths) Steps(id domain.PathID) []domain.Step { return p.steps[id] }
 func (p *Paths) Loads(id domain.PathID) int {
 	n := 0
 	for _, s := range p.steps[id] {
-		if s == domain.StepLoad {
+		if domain.IsLoad(s) {
 			n++
 		}
 	}
@@ -111,6 +113,9 @@ func (p *Paths) Cut(id domain.PathID) domain.PathID {
 	s := p.steps[id]
 	i := slices.Index(s, domain.StepLoad)
 	if i < 0 {
+		i = slices.Index(s, domain.StepCap) // only StepCap loads
+	}
+	if i < 0 {
 		return id
 	}
 	return p.intern(slices.Clone(s[:i+1]))
@@ -126,6 +131,8 @@ func (p *Paths) String(id domain.PathID) string {
 		switch s {
 		case domain.StepLoad:
 			b.WriteByte('*')
+		case domain.StepCap:
+			b.WriteByte('^')
 		case domain.StepElem:
 			b.WriteString("[]")
 		default:

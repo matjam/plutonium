@@ -408,7 +408,7 @@ func (r *reporter) renderPath(g *eir.Func, k domain.Key) (string, pathText) {
 			}
 		}
 		switch step {
-		case domain.StepLoad:
+		case domain.StepLoad, domain.StepCap:
 			switch {
 			case isAddr:
 				isAddr = false
@@ -454,7 +454,7 @@ func (r *reporter) renderPath(g *eir.Func, k domain.Key) (string, pathText) {
 func loadsIn(steps []domain.Step) int {
 	n := 0
 	for _, s := range steps {
-		if s == domain.StepLoad {
+		if domain.IsLoad(s) {
 			n++
 		}
 	}

@@ -275,7 +275,7 @@ func (fb *fnb) captured(key any) Reg {
 	ptr := fb.newReg()
 	fb.prologue = append(fb.prologue,
 		Instr{Op: OpField, Dst: slot, X: fb.record, Path: []int{i}, Pos: fb.f.Pos},
-		Instr{Op: OpLoad, Dst: ptr, X: slot, Type: types2.Typ[types2.UnsafePointer], Pos: fb.f.Pos})
+		Instr{Op: OpLoad, Dst: ptr, X: slot, Type: types2.Typ[types2.UnsafePointer], Pos: fb.f.Pos, Cap: true})
 	fb.capPtr[key] = ptr
 	return ptr
 }

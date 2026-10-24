@@ -106,6 +106,12 @@ func (b *B) In(i int) eir.Reg { return b.Emit(eir.Instr{Op: eir.OpInput, Index: 
 // Load is r = *x.
 func (b *B) Load(x eir.Reg) eir.Reg { return b.Emit(eir.Instr{Op: eir.OpLoad, X: x}, true) }
 
+// LoadCap is r = *x, the load of a captured location's address from a
+// closure record (eir.Instr.Cap, domain.StepCap).
+func (b *B) LoadCap(x eir.Reg) eir.Reg {
+	return b.Emit(eir.Instr{Op: eir.OpLoad, X: x, Cap: true}, true)
+}
+
 // Store is *x = y.
 func (b *B) Store(x, y eir.Reg) { b.Emit(eir.Instr{Op: eir.OpStore, X: x, Y: y}, false) }
 

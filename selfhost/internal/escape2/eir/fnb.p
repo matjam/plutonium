@@ -277,7 +277,7 @@ func (fb *fnb) captured(key any) Reg {
 	}
 	slot := fb.newReg()
 	ptr := fb.newReg()
-	fb.prologue = compat.Append(fb.prologue, Instr{Op: OpField, Dst: slot, X: fb.record, Path: compat.Clone([]int{i}), Pos: fb.f.Pos}, Instr{Op: OpLoad, Dst: ptr, X: slot, Type: types2.Typ[types2.UnsafePointer], Pos: fb.f.Pos})
+	fb.prologue = compat.Append(fb.prologue, Instr{Op: OpField, Dst: slot, X: fb.record, Path: compat.Clone([]int{i}), Pos: fb.f.Pos}, Instr{Op: OpLoad, Dst: ptr, X: slot, Type: types2.Typ[types2.UnsafePointer], Pos: fb.f.Pos, Cap: true})
 	fb.capPtr[key] = ptr
 	return ptr
 }

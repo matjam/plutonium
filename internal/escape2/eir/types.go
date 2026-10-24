@@ -397,6 +397,10 @@ type Instr struct {
 	Callee FuncID       // OpClosure: the literal's function
 	Call   *Call        // OpCall
 	Pos    token.Pos
+	// Cap, on OpLoad, says the load reads a captured location's address
+	// from the function's closure record: domain.StepCap, a load the
+	// limits do not count (spec 18.3).
+	Cap bool
 }
 
 // CallKind says how a call finds its callee.

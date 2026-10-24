@@ -75,7 +75,7 @@ const edgeWords = 5
 const consWords = 4
 
 const (
-	cLoad       = iota + 1 // a: the destination node; b: 1 if heap-only
+	cLoad       = iota + 1 // a: the destination node; b: loadHeap if heap-only, loadCap for a StepCap load
 	cReach                 // the node's own tokens: subscribe their places
 	cStore                 // a: the value node; b: why
 	cStoreIn               // a: the destination token; b: why

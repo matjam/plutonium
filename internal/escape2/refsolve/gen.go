@@ -49,6 +49,9 @@ func dumpInstr(in *eir.Instr) string {
 		s += fmt.Sprintf(" call{kind=%d callee=%d contract=%q target=r%d args=%v results=%v site=%d}",
 			c.Kind, int32(c.Callee), c.Contract, c.Target, c.Args, c.Results, c.Site)
 	}
+	if in.Cap {
+		s += " cap"
+	}
 	return s
 }
 
@@ -139,7 +142,11 @@ func (g *gen) randKey(inputs int) domain.Key {
 	steps := []domain.Step{domain.StepLoad, domain.StepElem, 0, 1}
 	for i := g.rng.Intn(4); i > 0; i-- {
 		var cut bool
-		p, cut = g.ps.Extend(p, steps[g.rng.Intn(len(steps))])
+		st := steps[g.rng.Intn(len(steps))]
+		if st == domain.StepLoad && g.extra.Intn(4) == 0 {
+			st = domain.StepCap // as a closure's key of its record
+		}
+		p, cut = g.ps.Extend(p, st)
 		ge = ge || cut
 	}
 	f := domain.KeyFlags{GE: ge}
@@ -400,7 +407,14 @@ func (g *gen) instr() {
 			g.add(b.Heap())
 		}
 	case 6, 7:
-		g.add(b.Load(g.pick()))
+		// One load in four is of a captured location's address, which
+		// the limits do not count (drawn from extra: the programs stay
+		// as they were).
+		if g.extra.Intn(4) == 0 {
+			g.add(b.LoadCap(g.pick()))
+		} else {
+			g.add(b.Load(g.pick()))
+		}
 	case 8, 9:
 		b.Store(g.pick(), g.pick())
 	case 10:

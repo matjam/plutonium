@@ -103,6 +103,8 @@ func CanonPath(ps domain.Paths, p domain.PathID) string {
 		switch st {
 		case domain.StepLoad:
 			b.WriteString("*")
+		case domain.StepCap:
+			b.WriteString("^")
 		case domain.StepElem:
 			b.WriteString("[]")
 		default:

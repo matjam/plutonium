@@ -52,8 +52,9 @@ func (i pathInfo) depth() int   { return int(i & 0xf) }         // number of ste
 func (i pathInfo) loads() int   { return int(i >> 4 & 0x3) }    // loads among them
 func (i pathInfo) segment() int { return int(i >> 6 & 0x3) }    // offset steps after the last load
 func (i pathInfo) chunk() int   { return int(i >> 8 & 0xffff) } // the chunk its steps are stored in
-func makeInfo(depth, loads, seg, chunk int) pathInfo {
-	return pathInfo(depth | loads<<4 | seg<<6 | chunk<<8)
+func (i pathInfo) caps() int    { return int(i >> 24 & 0xf) }   // StepCap loads, which the limits do not count
+func makeInfo(depth, loads, seg, chunk, caps int) pathInfo {
+	return pathInfo(depth | loads<<4 | seg<<6 | chunk<<8 | caps<<24)
 }
 
 // paths implements Paths.
@@ -73,7 +74,7 @@ func NewPaths() Paths {
 	ps := &paths{table: make([]uint32, 64)}
 	ps.parent = append(ps.parent, Root)
 	ps.step = append(ps.step, 0)
-	ps.info = append(ps.info, makeInfo(0, 0, 0, 0))
+	ps.info = append(ps.info, makeInfo(0, 0, 0, 0, 0))
 	ps.off = append(ps.off, 0)
 	ps.chunks = append(ps.chunks, make([]Step, 0, stepChunk))
 	return ps
@@ -81,7 +82,7 @@ func NewPaths() Paths {
 
 func (ps *paths) Len() int { return len(ps.parent) }
 
-func (ps *paths) Loads(p PathID) int { return ps.info[p].loads() }
+func (ps *paths) Loads(p PathID) int { return ps.info[p].loads() + ps.info[p].caps() }
 
 func (ps *paths) Steps(p PathID) []Step {
 	i := ps.info[p]
@@ -99,12 +100,29 @@ func (ps *paths) HasPrefix(p, prefix PathID) bool {
 }
 
 // Cut returns the prefix of p through its first load, or p itself when it
-// has no load. With GE set the result covers p.
+// has no load. With GE set the result covers p. A StepCap load is passed
+// over when the path has a StepLoad: the cut keeps which captured variable
+// the path goes through.
 func (ps *paths) Cut(p PathID) PathID {
-	if ps.info[p].loads() == 0 {
-		return p
+	i := ps.info[p]
+	switch {
+	case i.loads() > 0:
+		return ps.throughLoad(p, 1)
+	case i.caps() > 0:
+		return ps.throughCap(p, 1)
 	}
-	return ps.throughLoad(p, 1)
+	return p
+}
+
+// throughCap returns the prefix of p that ends with its n-th StepCap; p has
+// at least n of them.
+func (ps *paths) throughCap(p PathID, n int) PathID {
+	for {
+		if ps.info[p].caps() == n && ps.step[p] == StepCap {
+			return p
+		}
+		p = ps.parent[p]
+	}
 }
 
 // cut returns the prefix of p through its second load, which with GE covers
@@ -117,6 +135,11 @@ func (ps *paths) cut(p PathID) PathID {
 		n = 2
 	}
 	if n == 0 {
+		// Past MaxSteps with no load the limits count: through its
+		// last StepCap, if any.
+		if c := ps.info[p].caps(); c > 0 {
+			return ps.throughCap(p, c)
+		}
 		return Root
 	}
 	return ps.throughLoad(p, n)
@@ -135,13 +158,20 @@ func (ps *paths) throughLoad(p PathID, n int) PathID {
 }
 
 func (ps *paths) Extend(p PathID, s Step) (PathID, bool) {
-	if s < StepLoad {
+	if s < StepCap {
 		panic("escape2/domain: Extend: invalid step")
 	}
 	i := ps.info[p]
 	steps := i.depth() // every stored step counts
-	if s == StepLoad {
+	switch s {
+	case StepLoad:
 		if i.loads()+1 > MaxLoads || steps+1 > MaxSteps {
+			return ps.cut(p), true
+		}
+		return ps.child(p, s), false
+	case StepCap:
+		// Not a load the program makes: MaxLoads does not count it.
+		if steps+1 > MaxSteps || i.caps() == 0xf {
 			return ps.cut(p), true
 		}
 		return ps.child(p, s), false
@@ -153,6 +183,18 @@ func (ps *paths) Extend(p PathID, s Step) (PathID, bool) {
 		return ps.cut(p), true
 	}
 	return ps.child(p, s), false
+}
+
+// LimitLoads returns the loads among steps that MaxLoads counts: the
+// StepLoad ones, not StepCap.
+func LimitLoads(steps []Step) int {
+	n := 0
+	for _, s := range steps {
+		if s == StepLoad {
+			n++
+		}
+	}
+	return n
 }
 
 // hashChild hashes a (parent, step) pair.
@@ -182,9 +224,12 @@ func (ps *paths) child(p PathID, s Step) PathID {
 		panic("escape2/domain: too many paths")
 	}
 	i := ps.info[p]
-	depth, loads, seg := i.depth()+1, i.loads(), i.segment()+1
-	if s == StepLoad {
+	depth, loads, seg, caps := i.depth()+1, i.loads(), i.segment()+1, i.caps()
+	switch s {
+	case StepLoad:
 		loads, seg = loads+1, 0
+	case StepCap:
+		caps, seg = caps+1, 0
 	}
 	ch := len(ps.chunks) - 1
 	if len(ps.chunks[ch])+depth > stepChunk {
@@ -200,7 +245,7 @@ func (ps *paths) child(p PathID, s Step) PathID {
 	c := PathID(len(ps.parent))
 	ps.parent = append(ps.parent, p)
 	ps.step = append(ps.step, s)
-	ps.info = append(ps.info, makeInfo(depth, loads, seg, ch))
+	ps.info = append(ps.info, makeInfo(depth, loads, seg, ch, caps))
 	ps.off = append(ps.off, uint16(o))
 	if 2*len(ps.parent) > len(ps.table) {
 		ps.rehash(2 * len(ps.table))
@@ -253,7 +298,7 @@ func ExtendKey(ps Paths, k Key, s Step) Key {
 		return k
 	}
 	if k.FieldsGE() {
-		if s != StepLoad {
+		if !IsLoad(s) {
 			return k
 		}
 		if !segmentFull(ps, k.Path()) {
@@ -272,7 +317,7 @@ func segmentFull(ps Paths, p PathID) bool {
 	}
 	st := ps.Steps(p)
 	n := 0
-	for i := len(st) - 1; i >= 0 && st[i] != StepLoad; i-- {
+	for i := len(st) - 1; i >= 0 && !IsLoad(st[i]); i-- {
 		n++
 	}
 	return n == MaxFieldNest
@@ -310,7 +355,7 @@ func deepMatches(ps Paths, p PathID, w []Step) bool {
 	// offsets are those of FieldsGE p, so try each prefix of w ending
 	// before a load.
 	for j, s := range w {
-		if s == StepLoad && pathMatches(ps, p, false, true, w[:j]) {
+		if IsLoad(s) && pathMatches(ps, p, false, true, w[:j]) {
 			return true
 		}
 	}
@@ -349,7 +394,7 @@ func pathMatches(ps Paths, p PathID, ge, fieldsGE bool, w []Step) bool {
 	j := 0   // position in w
 	seg := 0 // offset steps of p since its last load
 	for _, s := range ps.Steps(p) {
-		if s == StepLoad {
+		if IsLoad(s) {
 			j = skipOffsets(w, j, seg)
 			seg = 0
 		} else {
@@ -371,7 +416,7 @@ func pathMatches(ps Paths, p PathID, ge, fieldsGE bool, w []Step) bool {
 // offset steps is full and so stands for any further ones.
 func skipOffsets(w []Step, j, seg int) int {
 	if seg == MaxFieldNest {
-		for j < len(w) && w[j] != StepLoad {
+		for j < len(w) && !IsLoad(w[j]) {
 			j++
 		}
 	}

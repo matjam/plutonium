@@ -55,8 +55,10 @@ func validPrefix(steps []domain.Step) int {
 		if i >= domain.MaxSteps {
 			return i
 		}
-		if s == domain.StepLoad {
-			loads++
+		if domain.IsLoad(s) {
+			if s == domain.StepLoad {
+				loads++ // MaxLoads does not count StepCap
+			}
 			run = 0
 			if loads > domain.MaxLoads {
 				return i
@@ -87,7 +89,7 @@ func (p *NaivePaths) Steps(q domain.PathID) []domain.Step { return p.steps[q] }
 func (p *NaivePaths) Loads(q domain.PathID) int {
 	n := 0
 	for _, s := range p.steps[q] {
-		if s == domain.StepLoad {
+		if domain.IsLoad(s) {
 			n++
 		}
 	}

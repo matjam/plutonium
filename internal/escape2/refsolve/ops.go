@@ -17,7 +17,7 @@ func (s *solver) extend(a domain.PathID, st domain.Step) (domain.PathID, bool) {
 		// The prefix of a through its last load (a itself without one).
 		steps := s.ps.Steps(a)
 		i := len(steps)
-		for i > 0 && steps[i-1] != domain.StepLoad {
+		for i > 0 && !domain.IsLoad(steps[i-1]) {
 			i--
 		}
 		if i == 0 || i == len(steps) {
@@ -120,8 +120,8 @@ func (s *solver) pre(v value, q domain.PathID, qcut bool) value {
 
 // step(v, st): one step of a key path applied to v.
 func (s *solver) step(v value, st domain.Step) value {
-	if st == domain.StepLoad {
-		return s.load(v)
+	if domain.IsLoad(st) {
+		return s.loadStep(v, st)
 	}
 	q, qc := s.extend(domain.Root, st)
 	out := s.sel(v, q, qc)
@@ -140,7 +140,11 @@ func (s *solver) step(v value, st domain.Step) value {
 }
 
 // load(v): what the pointers of v point at.
-func (s *solver) load(v value) value {
+func (s *solver) load(v value) value { return s.loadStep(v, domain.StepLoad) }
+
+// loadStep is load by the load st: StepLoad, or StepCap for the load of a
+// captured location's address from a closure record.
+func (s *solver) loadStep(v value, st domain.Step) value {
 	out := value{}
 	for x := range v {
 		switch x.t.kind {
@@ -162,7 +166,7 @@ func (s *solver) load(v value) value {
 			}
 			// Past the limits: Deep on the path through its last load
 			// (rules.go, "Paths past the limits").
-			p, c := s.extend(x.t.path, domain.StepLoad)
+			p, c := s.extend(x.t.path, st)
 			out.add(ptr(tok{kind: kIn, id: x.t.id, path: p, deep: c}))
 		default:
 			out.add(ptr(tok{kind: kHeap}))
@@ -320,7 +324,7 @@ func (s *solver) anyOffset(v value) value {
 			}
 			steps := s.ps.Steps(t.path)
 			i := len(steps)
-			for i > 0 && steps[i-1] != domain.StepLoad {
+			for i > 0 && !domain.IsLoad(steps[i-1]) {
 				i--
 			}
 			p := domain.Root

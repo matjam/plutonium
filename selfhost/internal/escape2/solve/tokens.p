@@ -139,7 +139,7 @@ func (s *solver) extend(p domain.PathID, st domain.Step) (domain.PathID, bool) {
 func (s *solver) throughLastLoad(p domain.PathID) domain.PathID {
 	steps := s.ps.Steps(p)
 	i := len(steps)
-	for i > 0 && steps[i-1] != domain.StepLoad {
+	for i > 0 && !domain.IsLoad(steps[i-1]) {
 		i--
 	}
 	if i == 0 || i == len(steps) {
@@ -215,7 +215,7 @@ func (s *solver) anyOffset(t tok) tok {
 		}
 		steps := s.ps.Steps(t.path)
 		i := len(steps)
-		for i > 0 && steps[i-1] != domain.StepLoad {
+		for i > 0 && !domain.IsLoad(steps[i-1]) {
 			i--
 		}
 		t.path, _ = s.pathOf(steps[:i])
@@ -231,7 +231,11 @@ func (s *solver) anyOffset(t tok) tok {
 // limits is Deep on the path through its last load (rules.go, "Paths past
 // the limits"): what the load and every extension reach, not the pointers
 // the path names itself.
-func (s *solver) loadIn(t tok) tok {
+func (s *solver) loadIn(t tok) tok { return s.loadInStep(t, domain.StepLoad) }
+
+// loadInStep is loadIn by the load st: StepLoad, or StepCap for the load of
+// a captured location's address from a closure record.
+func (s *solver) loadInStep(t tok, st domain.Step) tok {
 	switch {
 	case t.wide():
 		// It covers the load: the token itself, lent or not.
@@ -240,10 +244,24 @@ func (s *solver) loadIn(t tok) tok {
 	default:
 		// What a view holds is not a view of the box (OpBorrow), nor
 		// what a counted copy holds a copy.
-		t.path, t.deep = s.extend(t.path, domain.StepLoad)
+		t.path, t.deep = s.extend(t.path, st)
 		t.lent, t.cnt = false, false
 	}
 	return t
+}
+
+// The b word of a cLoad constraint.
+const (
+	loadHeap = 1 << iota // the location is heap-only: the load gives heap
+	loadCap              // a StepCap load (eir.Instr.Cap)
+)
+
+// loadKind is the b word of a cLoad by the load st.
+func loadKind(st domain.Step) uint64 {
+	if st == domain.StepCap {
+		return loadCap
+	}
+	return 0
 }
 
 // sel selects field steps Q of the value holding t (rules.go, sel). ok is
