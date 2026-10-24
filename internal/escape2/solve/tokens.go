@@ -214,14 +214,17 @@ func (s *solver) anyOffset(t tok) tok {
 }
 
 // loadIn is In token t loaded through: its path followed by a load; a GE or
-// Deep token stays; an fge token becomes Deep on its path.
+// Deep token stays; an fge token becomes Deep on its path. A load past the
+// limits is Deep on the path through its last load (rules.go, "Paths past
+// the limits"): what the load and every extension reach, not the pointers
+// the path names itself.
 func (s *solver) loadIn(t tok) tok {
 	switch {
 	case t.wide():
 	case t.fge:
 		t.fge, t.deep = false, true
 	default:
-		t.path, t.ge = s.extend(t.path, domain.StepLoad)
+		t.path, t.deep = s.extend(t.path, domain.StepLoad)
 	}
 	return t
 }

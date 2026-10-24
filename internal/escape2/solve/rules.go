@@ -93,7 +93,15 @@ package solve
 // extension. (The domain's own cut goes back to its prefix through the
 // second load, which may name the pointer P was reached through rather than
 // what it leads to; keeping all of P's steps costs ten times the work on
-// the corpus's largest function.) Every "cut" below is this.
+// the corpus's largest function.) Every "cut" below is this, except a load
+// past the limits (load, In): its pointers are those the load and its
+// extensions reach, never those of P or of P offset (P through its last
+// load is the start of the object P points into, and every step after it
+// is an offset), so it is Deep on that prefix, which covers them and leaves
+// out the pointers P names: section 18.3's "everything reachable" beyond the
+// limit, not the pointer the walk was reached through (a closure record's
+// pointer to a captured variable, under the records of the closures that
+// call it).
 //
 // # Operations on values
 //
@@ -125,7 +133,9 @@ package solve
 //	                 r = p+R        -> pre(pt(q), R), g set if rg or pg
 //	                 p = r+R        -> sel(pt(q), R), g set if pg
 //	                 (any other r: not the same memory)
-//	             In(i,P,false): <In(i, P+load, cut), Root, false>;
+//	             In(i,P,false): <In(i, P+load), Root, false>; past the
+//	                 limits <In(i, P', deep), Root, false>, P' the prefix of
+//	                 P through its last load ("Paths past the limits");
 //	             In(i,P,true): <In(i,P,true), Root, false> (it covers P+load)
 //	             In(i,P,fge): <In(i,P,deep), Root, false>
 //	             In(i,P,deep): <In(i,P,deep), Root, false> (it covers P+load)
