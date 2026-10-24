@@ -39,10 +39,10 @@ var escape2DemoPrograms = []string{
 // translated escape analysis, cannot be built: internal/escape needs more
 // than 20 GB for it (its keys of escapes grow without bound on the
 // translated internal/escape2/eir with the type checker), and
-// internal/escape2 alone (PLUTO_ESCAPE=new still runs internal/escape for
-// internal/moves) rejects parts of the translated compiler and gives
-// internal/moves no facts about calls (stage 4 of
-// docs/plans/2026-10-20-escape-redesign.md).
+// internal/escape2 (PLUTO_ESCAPE=new, which runs it alone) rejects parts of
+// the translated compiler: about 80 sites, nearly all E3003, most through
+// fmt and the per-signature join of func() literals
+// (docs/plans/2026-10-20-escape-redesign.md).
 const escape2DemoUnbuilt = "the Go compiler cannot build the translated escape analysis yet"
 
 // TestEscape2Demo runs the escape2demo program, built from the Go escape
