@@ -411,8 +411,7 @@ func joinLifetimeErrors(errs ...error) error {
 }
 
 func internal(err error) error {
-	var d *diag.Diagnostic
-	if err == nil || errors.As(err, &d) {
+	if _, ok := errors.AsType[*diag.Diagnostic](err); err == nil || ok {
 		return err
 	}
 	return &diag.Diagnostic{Code: diag.InternalError, Msg: "internal compiler error: " + err.Error()}

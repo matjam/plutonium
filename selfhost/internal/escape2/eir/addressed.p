@@ -160,7 +160,7 @@ func (a *addrScan) visit(n ast.Node) bool {
 		a.mark(n.X)
 	case *ast.SelectorExpr:
 		sel := a.b.selections[n]
-		if sel != nil && (sel.Kind() == types2.MethodVal || sel.Kind() == types2.FieldVal && len(sel.Index()) > 1) {
+		if sel != nil && (sel.Kind() == types2.MethodVal && a.takesAddress(sel, n.X) || sel.Kind() == types2.FieldVal && len(sel.Index()) > 1) {
 			// A method may take a pointer receiver, reached through
 			// embedded fields; a promoted field may be reached through
 			// an embedded pointer, which the path loads.
@@ -266,4 +266,32 @@ func (b *builder) isRangeFunc(st *ast.RangeStmt) bool {
 		return true
 	}
 	return signatureOf(tv.Type) != nil
+}
+
+// takesAddress reports whether the method selection x.m may take the
+// address of x: a method promoted through embedded fields, or one with a
+// pointer receiver selected on a value that is not a pointer (x.m means
+// (&x).m). A method with a value receiver copies x, and one selected on a
+// pointer receives the pointer's value.
+func (a *addrScan) takesAddress(sel *types2.Selection, x ast.Expr) bool {
+	if len(sel.Index()) > 1 {
+		return true
+	}
+	fn, ok := sel.Obj().(*types2.Func)
+	if !ok {
+		return true
+	}
+	sig, ok := fn.Type().(*types2.Signature)
+	if !ok || sig.Recv() == nil {
+		return true
+	}
+	if _, ptrRecv := sig.Recv().Type().Underlying().(*types2.Pointer); !ptrRecv {
+		return false
+	}
+	T := a.b.types[x].Type
+	if T == nil {
+		return true
+	}
+	_, isPtr := T.Underlying().(*types2.Pointer)
+	return !isPtr
 }

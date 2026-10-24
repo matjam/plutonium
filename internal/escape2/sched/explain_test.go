@@ -420,6 +420,13 @@ func (x *explainer) sums(names []string) {
 		}
 		for _, d := range s.Deferred {
 			x.t.Logf("  deferred fn %s origin %d site %d, %d args", x.keyString(d.Fn), d.Origin, d.Site, len(d.Args))
+			for i, a := range d.Args {
+				var ks []string
+				for _, k := range a.Keys {
+					ks = append(ks, x.keyString(k))
+				}
+				x.t.Logf("    arg %d heap=%v %v", i, a.Heap, ks)
+			}
 		}
 		x.t.Logf("  region builds=%v outer=%v lits=%v self=%v", s.Region.Builds, s.Region.OuterResults, s.Region.Lits, s.Region.Self)
 	}

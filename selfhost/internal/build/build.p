@@ -391,8 +391,7 @@ func joinLifetimeErrors(errs ...error) error {
 }
 
 func internal(err error) error {
-	d := pu.Alloc[*diag.Diagnostic]()
-	if err == nil || errors.As(err, d) {
+	if _, ok := errors.AsType[*diag.Diagnostic](err); err == nil || ok {
 		return err
 	}
 	return pu.New(diag.Diagnostic{Code: diag.InternalError, Msg: compat.Concat("internal compiler error: ", err.Error())})

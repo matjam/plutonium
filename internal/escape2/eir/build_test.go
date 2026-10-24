@@ -272,3 +272,40 @@ func main() {
 		t.Errorf("no adapter of main.L for Stringer:\n%s", out)
 	}
 }
+
+// TestBuildMethodCallCapture checks that a method call takes the address of
+// its operand only where Go's x.m means (&x).m: a closure captures by value
+// a pointer whose pointer-receiver method it calls, and a value whose
+// value-receiver method it calls, but by address a value whose
+// pointer-receiver method it calls.
+func TestBuildMethodCallCapture(t *testing.T) {
+	out := dumpMain(t, `package main
+
+type T struct{ n int }
+
+func (t *T) ptr() int { return t.n }
+func (t T) val() int  { return t.n }
+
+func f(p *T, v T, w T) func() int {
+	return func() int { return p.ptr() + v.val() + w.ptr() }
+}
+
+func main() { println(f(&T{1}, T{2}, T{3})()) }
+`)
+	i := strings.Index(out, "func main.f\n")
+	if i < 0 {
+		t.Fatalf("no f in\n%s", out)
+	}
+	root := out[i:]
+	if k := strings.Index(root[1:], "func "); k >= 0 {
+		root = root[:k+1]
+	}
+	for _, name := range []string{`"p"`, `"v"`} {
+		if strings.Contains(root, name) {
+			t.Errorf("%s is a frame object: the closure captures it by address\n%s", name, root)
+		}
+	}
+	if !strings.Contains(root, `"w"`) {
+		t.Errorf("w is not a frame object, though w.ptr() takes its address\n%s", root)
+	}
+}
