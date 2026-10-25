@@ -209,7 +209,7 @@ func (fb *fnb) stmt(st ast.Stmt) {
 		// only less precise; one less would be a hole).
 		dropsBefore := fb.drops
 		defer func() {
-			if fb.b.gx.active && !fb.gxCatch() && (fb.drops != dropsBefore || fb.b.mayRelease(st)) {
+			if fb.b.gx.active && fb.b.gx.cleanup && !fb.gxCatch() && (fb.drops != dropsBefore || fb.b.mayRelease(st)) {
 				fb.leaveForExit(st.Pos())
 			}
 		}()

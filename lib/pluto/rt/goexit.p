@@ -69,6 +69,17 @@ func CatchAllocFree(a Allocator, p unsafe.Pointer, size, align uintptr) bool {
 	return takeGoexit()
 }
 
+// ResumeAllocFreeExit ends the task with the ExitTask that CatchAllocFree
+// caught, once the allocator that called it has finished its own cleanup.
+// The compiler takes a call of it to end with Goexit only when some
+// allocator's Free may (lower/goexit.go), so that an allocator which passes
+// on its parent's exits does not make every Free call a possible exit. It
+// sets the flag itself: naming ExitTask here would make every program look
+// like one that calls it, and check for an exit after every possible call.
+func ResumeAllocFreeExit() {
+	setGoexit()
+}
+
 // mainGoexited is set once main has called ExitTask.
 var mainGoexited bool
 

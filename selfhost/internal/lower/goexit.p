@@ -80,7 +80,10 @@ type gxEdge struct {
 
 // goexitInfo is the result of the analysis.
 type goexitInfo struct {
-	active     bool         // the program calls rt.ExitTask somewhere
+	active bool // the program calls rt.ExitTask somewhere
+	// cleanup says implicit cleanup (a Drop method, an allocator's Free)
+	// may end with Goexit, so a release must be checked.
+	cleanup    bool
 	catch      *types2.Func // rt.CatchExitTask
 	catchFree  *types2.Func // rt.CatchAllocFree, typed mandatory allocator cleanup
 	catchTimer *types2.Func // rt.DispatchTimerFunc, task publication boundary
@@ -208,6 +211,10 @@ func (l *Lowerer) analyzeGoexit() {
 					gx.members = compat.Append(gx.members, n)
 					continue
 				}
+				if e, ok := resumeFreeEdge(fn, gx.catchFree); ok {
+					n.edges = compat.Append(n.edges, e)
+					continue
+				}
 				walk(p.Info, fd.Body, n)
 			}
 		}
@@ -268,6 +275,50 @@ func (l *Lowerer) analyzeGoexit() {
 			}
 		}
 	}
+	// Implicit cleanup runs Drop methods and frees memory through an
+	// allocator's Free, and nothing else that may end the task.
+	gx.cleanup = gx.mayMethod("Drop", types2.NewSignatureType(nil, nil, nil, nil, nil, false))
+	if free, ok := allocFree(gx.catchFree); ok {
+		gx.cleanup = gx.cleanup || gx.mayMethod("Free", free)
+	}
+}
+
+// resumeFreeEdge returns, when fn is rt.ResumeAllocFreeExit, its one edge:
+// it ends the task with an exit that catchFree (rt.CatchAllocFree) caught
+// from an allocator's Free, so it may end with Goexit only if a Free called
+// through rt.Allocator may. Taken as calling rt.ExitTask, it would make
+// every Free call in a program that installs an arena a possible exit.
+func resumeFreeEdge(fn, catchFree *types2.Func) (gxEdge, bool) {
+	if catchFree == nil || fn.Name() != "ResumeAllocFreeExit" || fn.Pkg() != catchFree.Pkg() {
+		return gxEdge{}, false
+	}
+	free, ok := allocFree(catchFree)
+	if !ok {
+		return gxEdge{}, false
+	}
+	return gxEdge{name: "Free", msig: free}, true
+}
+
+// allocFree returns the signature of rt.Allocator's Free, found through
+// the first parameter of catchFree (rt.CatchAllocFree).
+func allocFree(catchFree *types2.Func) (*types2.Signature, bool) {
+	if catchFree == nil {
+		return nil, false
+	}
+	params := catchFree.Type().(*types2.Signature).Params()
+	if params.Len() == 0 {
+		return nil, false
+	}
+	it, ok := params.At(0).Type().Underlying().(*types2.Interface)
+	if !ok {
+		return nil, false
+	}
+	for i := 0; i < it.NumMethods(); i++ {
+		if m := it.Method(i); m.Name() == "Free" {
+			return m.Type().(*types2.Signature), true
+		}
+	}
+	return nil, false
 }
 
 // rtFuncOrNil returns the named function of package pluto/rt, or nil.
@@ -558,7 +609,7 @@ func (s *fnState) checkGoexit(pos token.Pos) {
 	if s.cleanupGoexit != nil {
 		// Required cleanup keeps running when a helper raises another exit.
 		// Re-entering this frame's return cleanup would release it twice.
-		s.noteImplicitGoexit()
+		s.collectGoexit()
 		return
 	}
 	taken := s.callRuntime("takeGoexit", compat.Clone([]*ssa.Type{ssa.TBool}))[0]
@@ -634,10 +685,18 @@ func (s *fnState) beginCleanupGoexit() {
 	}
 }
 
+// noteImplicitGoexit follows a release the compiler inserted: it may end
+// with Goexit only when some Drop method or allocator's Free may.
 func (s *fnState) noteImplicitGoexit() {
-	if !s.l.gx.active {
+	if !s.l.gx.active || !s.l.gx.cleanup {
 		return
 	}
+	s.collectGoexit()
+}
+
+// collectGoexit records an exit taken by the call just made in the
+// destruction accumulator, to be propagated once cleanup is done.
+func (s *fnState) collectGoexit() {
 	s.implicitGoexits++
 	if s.cleanupGoexit != nil {
 		s.noteGoexit(s.cleanupGoexit)

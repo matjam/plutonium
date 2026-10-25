@@ -36,9 +36,44 @@ type gxEdge struct {
 
 type goexitInfo struct {
 	active   bool
+	cleanup  bool                  // implicit cleanup may end with Goexit (lower's gx.cleanup)
 	boundary map[*types2.Func]bool // functions at which an exit stops
 	funcs    map[*types2.Func]*gxNode
 	members  []*gxNode
+}
+
+// resumeFreeEdge is lower's: rt.ResumeAllocFreeExit may end with Goexit
+// only if a Free called through rt.Allocator may.
+func resumeFreeEdge(fn, catchFree *types2.Func) (gxEdge, bool) {
+	if catchFree == nil || fn.Name() != "ResumeAllocFreeExit" || fn.Pkg() != catchFree.Pkg() {
+		return gxEdge{}, false
+	}
+	free, ok := allocFree(catchFree)
+	if !ok {
+		return gxEdge{}, false
+	}
+	return gxEdge{name: "Free", msig: free}, true
+}
+
+// allocFree is lower's: the signature of rt.Allocator's Free.
+func allocFree(catchFree *types2.Func) (*types2.Signature, bool) {
+	if catchFree == nil {
+		return nil, false
+	}
+	params := catchFree.Type().(*types2.Signature).Params()
+	if params.Len() == 0 {
+		return nil, false
+	}
+	it, ok := params.At(0).Type().Underlying().(*types2.Interface)
+	if !ok {
+		return nil, false
+	}
+	for i := 0; i < it.NumMethods(); i++ {
+		if m := it.Method(i); m.Name() == "Free" {
+			return m.Type().(*types2.Signature), true
+		}
+	}
+	return nil, false
 }
 
 // analyzeGoexit works out which functions may end with rt.ExitTask
@@ -47,6 +82,7 @@ func (b *builder) analyzeGoexit() {
 	gx := &goexitInfo{funcs: map[*types2.Func]*gxNode{}, boundary: map[*types2.Func]bool{}}
 	b.gx = gx
 	goexit := b.rtFunc("ExitTask")
+	catchFree := b.rtFunc("CatchAllocFree")
 	for _, name := range []string{"CatchExitTask", "CatchAllocFree", "DispatchTimerFunc", "taskMain"} {
 		if fn := b.rtFunc(name); fn != nil {
 			gx.boundary[fn] = true
@@ -152,6 +188,10 @@ func (b *builder) analyzeGoexit() {
 					gx.members = append(gx.members, n)
 					continue
 				}
+				if e, ok := resumeFreeEdge(fn, catchFree); ok {
+					n.edges = append(n.edges, e)
+					continue
+				}
 				walk(fd.Body, n)
 			}
 		}
@@ -206,6 +246,11 @@ func (b *builder) analyzeGoexit() {
 				}
 			}
 		}
+	}
+	// Implicit cleanup runs Drop methods and an allocator's Free.
+	gx.cleanup = gx.mayMethod("Drop", types2.NewSignatureType(nil, nil, nil, nil, nil, false))
+	if free, ok := allocFree(catchFree); ok {
+		gx.cleanup = gx.cleanup || gx.mayMethod("Free", free)
 	}
 }
 

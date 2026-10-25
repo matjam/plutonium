@@ -22,55 +22,7 @@ package main
       pluto/arena/fixed.p:93:5: call pluto/arena.*lifetime.reclaim
     calls pluto/rt.getg
       ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ExitTask
-      pluto/rt/goexit.p:27:7: call pluto/rt.current
+      pluto/arena/fixed.p:94:3: call pluto/rt.ResumeAllocFreeExit
+      pluto/rt/goexit.p:80:2: call pluto/rt.setGoexit
+      pluto/rt/goexit.p:48:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
-    calls pluto/rt.printString
-      ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ExitTask
-      pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:483:2: call pluto/rt.printString
-    calls pluto/rt.casUint64
-      ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ExitTask
-      pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:482:2: call pluto/rt.startPanic
-      pluto/rt/panic.p:126:5: call pluto/rt.casUint64
-    calls pluto/rt.loadUint64
-      ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ExitTask
-      pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:482:2: call pluto/rt.startPanic
-      pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
-    calls pluto/rt.lastResort
-      ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ExitTask
-      pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:482:2: call pluto/rt.startPanic
-      pluto/rt/panic.p:135:2: call pluto/rt.lastResort
-    calls pluto/rt.callerFrame
-      ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ExitTask
-      pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:488:2: call pluto/rt.fatal
-      pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
-    calls pluto/rt.raise
-      ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ExitTask
-      pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:488:2: call pluto/rt.fatal
-      pluto/rt/panic.p:169:2: call pluto/rt.raise
-    calls pluto/rt.syscall3
-      ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ExitTask
-      pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:482:2: call pluto/rt.startPanic
-      pluto/rt/panic.p:125:8: call pluto/rt.selfID
-      pluto/rt/rt_linux.p:314:38: call pluto/rt.syscall3
-    calls pluto/rt.inc32
-      ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ExitTask
-      pluto/rt/goexit.p:29:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:482:2: call pluto/rt.startPanic
-      pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
-      pluto/rt/sched.p:304:3: call pluto/rt.inc32
