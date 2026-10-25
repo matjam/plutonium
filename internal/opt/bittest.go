@@ -21,7 +21,10 @@ func BitTest(f *ssa.Func) {
 	for _, b := range f.Blocks {
 		for _, v := range b.Values {
 			for _, a := range v.Args {
-				users[a] = append(users[a], v)
+				// Only chain nodes' users are asked for.
+				if (a.Op == ssa.OpOr || a.Op == ssa.OpAnd) && a.Type.IsBool() {
+					users[a] = append(users[a], v)
+				}
 			}
 		}
 	}

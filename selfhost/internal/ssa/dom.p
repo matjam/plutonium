@@ -51,10 +51,14 @@ func (f *Func) ReversePostOrder() []*Block {
 
 // A DomTree is the dominator tree of a function.
 type DomTree struct {
-	idom      []*Block   // immediate dominator by block ID; nil for the entry and unreachable blocks
-	children  [][]*Block // dominator tree children by block ID
-	pre, post []int32    // preorder and postorder numbers in the tree, for O(1) dominance tests
-	rpoNum    []int32    // reverse postorder number by block ID; -1 if unreachable
+	idom []*Block // immediate dominator by block ID; nil for the entry and unreachable blocks
+	// The children of the block with ID i in the dominator tree are
+	// kids[kidStart[i]:kidStart[i+1]], in reverse postorder: one array
+	// for all the blocks instead of a slice for each.
+	kids      []*Block
+	kidStart  []int32
+	pre, post []int32 // preorder and postorder numbers in the tree, for O(1) dominance tests
+	rpoNum    []int32 // reverse postorder number by block ID; -1 if unreachable
 }
 
 // Dom returns the dominator tree, computing it if needed.
@@ -69,10 +73,12 @@ func (f *Func) Dom() *DomTree {
 // "A Simple, Fast Dominance Algorithm".
 func computeDom(f *Func) *DomTree {
 	n := f.NumBlocks()
-	rpo := f.ReversePostOrder()
+	// The blocks in reverse postorder are po read backwards; the cached
+	// postorder is not copied.
+	po := f.PostOrder()
 	d := pu.New(DomTree{
 		idom:     compat.Make[*Block](n),
-		children: compat.Make[[]*Block](n),
+		kidStart: compat.Make[int32](n + 1),
 		pre:      compat.Make[int32](n),
 		post:     compat.Make[int32](n),
 		rpoNum:   compat.Make[int32](n),
@@ -80,8 +86,8 @@ func computeDom(f *Func) *DomTree {
 	for i := range d.rpoNum {
 		d.rpoNum[i] = -1
 	}
-	for i, b := range rpo {
-		d.rpoNum[b.ID] = int32(i)
+	for i, b := range po {
+		d.rpoNum[b.ID] = int32(len(po) - 1 - i)
 	}
 
 	entry := f.Entry
@@ -99,7 +105,8 @@ func computeDom(f *Func) *DomTree {
 	}
 	for changed := true; changed; {
 		changed = false
-		for _, b := range rpo[1:] {
+		for i := len(po) - 2; i >= 0; i-- {
+			b := po[i]
 			var newIdom *Block
 			for _, e := range b.Preds {
 				p := e.B
@@ -119,9 +126,24 @@ func computeDom(f *Func) *DomTree {
 		}
 	}
 	d.idom[entry.ID] = nil
-	for _, b := range rpo[1:] {
+	// Count each block's children, turn the counts into starts, and fill
+	// the children in reverse postorder.
+	for i := len(po) - 2; i >= 0; i-- {
+		if p := d.idom[po[i].ID]; p != nil {
+			d.kidStart[p.ID+1]++
+		}
+	}
+	for i := 1; i <= n; i++ {
+		d.kidStart[i] += d.kidStart[i-1]
+	}
+	d.kids = compat.Make[*Block](int(d.kidStart[n]))
+	fill := compat.Make[int32](n)
+	copy(fill, d.kidStart[:n])
+	for i := len(po) - 2; i >= 0; i-- {
+		b := po[i]
 		if p := d.idom[b.ID]; p != nil {
-			d.children[p.ID] = compat.Append(d.children[p.ID], b)
+			d.kids[fill[p.ID]] = b
+			fill[p.ID]++
 		}
 	}
 
@@ -136,7 +158,7 @@ func computeDom(f *Func) *DomTree {
 	pre++
 	for len(stack) > 0 {
 		top := &stack[len(stack)-1]
-		kids := d.children[top.b.ID]
+		kids := d.Children(top.b)
 		if top.i < len(kids) {
 			c := kids[top.i]
 			top.i++
@@ -156,7 +178,10 @@ func computeDom(f *Func) *DomTree {
 func (d *DomTree) Idom(b *Block) *Block { return d.idom[b.ID] }
 
 // Children returns the blocks b immediately dominates.
-func (d *DomTree) Children(b *Block) []*Block { return d.children[b.ID] }
+func (d *DomTree) Children(b *Block) []*Block {
+	lo, hi := d.kidStart[b.ID], d.kidStart[b.ID+1]
+	return d.kids[lo:hi:hi]
+}
 
 // Reachable reports whether b is reachable from the entry.
 func (d *DomTree) Reachable(b *Block) bool { return d.rpoNum[b.ID] >= 0 }

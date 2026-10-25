@@ -75,26 +75,33 @@ func Mem2Reg(f *ssa.Func) {
 		}
 	}
 
-	// Renaming along the dominator tree.
+	// Renaming along the dominator tree. cur holds each slot's value on
+	// the path from the entry; undo logs the values it replaced, so that
+	// leaving a block puts them back without copying cur for every block.
 	cur := map[*ssa.Slot]*ssa.Value{}
+	var undo []slotUndo
+	set := func(s *ssa.Slot, v *ssa.Value) {
+		undo = append(undo, slotUndo{s, cur[s]})
+		cur[s] = v
+	}
 	current := func(s *ssa.Slot) *ssa.Value {
 		if v := cur[s]; v != nil {
 			return v
 		}
 		// Read before any store on this path: the zero value.
 		z := zeroConst(f, types[s])
-		cur[s] = z
+		set(s, z)
 		return z
 	}
+	var vals []*ssa.Value
 	var rename func(b *ssa.Block)
 	rename = func(b *ssa.Block) {
-		saved := make(map[*ssa.Slot]*ssa.Value, len(cur))
-		for k, v := range cur {
-			saved[k] = v
-		}
-		for _, v := range append([]*ssa.Value(nil), b.Values...) {
+		mark := len(undo)
+		// zeroConst may add values to b, so walk a copy of its values.
+		vals = append(vals[:0], b.Values...)
+		for _, v := range vals {
 			if s, ok := phiSlot[v]; ok {
-				cur[s] = v
+				set(s, v)
 				continue
 			}
 			s, ok := accessSlot[v]
@@ -105,10 +112,10 @@ func Mem2Reg(f *ssa.Func) {
 			case ssa.OpLoad:
 				v.CopyOf(current(s))
 			case ssa.OpStore:
-				cur[s] = v.Args[1]
+				set(s, v.Args[1])
 				v.CopyOf(v.Args[2])
 			case ssa.OpZero:
-				cur[s] = zeroConst(f, types[s])
+				set(s, zeroConst(f, types[s]))
 				v.CopyOf(v.Args[1])
 			}
 		}
@@ -125,7 +132,15 @@ func Mem2Reg(f *ssa.Func) {
 		for _, c := range dom.Children(b) {
 			rename(c)
 		}
-		cur = saved
+		for len(undo) > mark {
+			u := undo[len(undo)-1]
+			undo = undo[:len(undo)-1]
+			if u.v == nil {
+				delete(cur, u.s)
+			} else {
+				cur[u.s] = u.v
+			}
+		}
 	}
 	rename(f.Entry)
 
@@ -180,4 +195,10 @@ func newPhiAtStart(b *ssa.Block, t *ssa.Type) *ssa.Value {
 		return b.NewValue(ssa.OpPhi, t)
 	}
 	return b.NewValueBefore(b.Values[0], ssa.OpPhi, t)
+}
+
+// A slotUndo is a slot's value before Mem2Reg's renaming replaced it.
+type slotUndo struct {
+	s *ssa.Slot
+	v *ssa.Value
 }
