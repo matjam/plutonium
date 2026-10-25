@@ -7,6 +7,7 @@ import (
 	"github.com/matjam/plutonium/internal/escape2/eir"
 	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/escape2/summary"
+	"github.com/matjam/plutonium/internal/scratch"
 )
 
 // The summary of a dynamic call (decision D47, revised: no language rule
@@ -113,7 +114,13 @@ func (v *virtuals) summary(id eir.FuncID, sum func(eir.FuncID) *summary.Summary)
 	if !v.dirty[i] && v.cache[i] != nil {
 		return v.cache[i]
 	}
+	// The join's work is garbage once it is done: in a solve it runs in
+	// the solve's scratch memory, and only the joined summary, which the
+	// cache keeps past the solve, is copied to the caller's memory.
 	s := join(v.p, v.paths, v.sets[i], v.iface[i], sum)
+	r := scratch.Outer()
+	s = clone(s)
+	r.Restore()
 	v.cache[i], v.dirty[i] = s, false
 	return s
 }

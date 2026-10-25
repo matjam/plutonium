@@ -57,6 +57,21 @@ func (c *Calls) Arg(e ast.Expr) *ArgFacts {
 // (internal/escape2).
 func NewCalls() *Calls { return pu.New(Calls{args: map[ast.Expr]*ArgFacts{}}) }
 
+// Clone returns a deep copy of c, from the current allocator: the build
+// runs the escape analysis as a scratch step and keeps only this.
+func (c *Calls) Clone() *Calls {
+	if c == nil {
+		return nil
+	}
+	n := pu.New(Calls{args: make(map[ast.Expr]*ArgFacts, len(c.args))})
+	for e, af := range c.args {
+		cp := pu.New(*af)
+		cp.Into = compat.Append([]Into(nil), af.Into...)
+		n.args[e] = cp
+	}
+	return n
+}
+
 // Add merges af into what c knows of the call argument e.
 func (c *Calls) Add(e ast.Expr, af *ArgFacts) {
 	if c.args[e] == nil {

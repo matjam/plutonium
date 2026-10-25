@@ -269,7 +269,18 @@ func (l *Lowerer) memoType(memo *map[types2.Type]bool, T types2.Type, q func(typ
 		return r
 	}
 	final := l.ifaceDepth == 0
-	r := q(T, map[types2.Type]bool{})
+	// q may call memoType again, so the seen sets form a pool rather than
+	// one set.
+	var seen map[types2.Type]bool
+	if n := len(l.seenPool); n > 0 {
+		seen = l.seenPool[n-1]
+		l.seenPool = l.seenPool[:n-1]
+	} else {
+		seen = map[types2.Type]bool{}
+	}
+	r := q(T, seen)
+	clear(seen)
+	l.seenPool = compat.Append(l.seenPool, seen)
 	if final && l.ifaceDepth == 0 {
 		if *memo == nil {
 			*memo = map[types2.Type]bool{}

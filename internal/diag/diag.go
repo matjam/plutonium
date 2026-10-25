@@ -121,3 +121,25 @@ func (l *List) Err() error {
 	}
 	return l
 }
+
+// Clone returns a deep copy of d, with its text from the current
+// allocator, so that it outlives a scratch step (internal/scratch).
+func (d *Diagnostic) Clone() *Diagnostic {
+	n := *d
+	n.Pos.Filename = strings.Clone(d.Pos.Filename)
+	n.Msg = strings.Clone(d.Msg)
+	n.Text = strings.Clone(d.Text)
+	n.Fix = d.Fix.clone()
+	n.More = nil
+	for _, f := range d.More {
+		n.More = append(n.More, f.clone())
+	}
+	return &n
+}
+
+func (f *Fix) clone() *Fix {
+	if f == nil {
+		return nil
+	}
+	return &Fix{Intro: strings.Clone(f.Intro), Code: strings.Clone(f.Code)}
+}

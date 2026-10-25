@@ -167,9 +167,7 @@ func (w *worker) Summary(id eir.FuncID) *summary.Summary {
 		}
 		mu := &w.pf.vmu[i%len(w.pf.vmu)]
 		mu.Lock()
-		r := scratch.Outer()
 		s := e.virt.summary(id, func(m eir.FuncID) *summary.Summary { return e.sums[m] })
-		r.Restore()
 		mu.Unlock()
 		return s
 	}

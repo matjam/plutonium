@@ -9,6 +9,7 @@ package types2
 import (
 	"pluto/sync/atomic"
 	"selfhost/compat"
+	"selfhost/internal/scratch"
 	"selfhost/pu"
 )
 
@@ -135,6 +136,7 @@ func (t *TypeParam) iface() *Interface {
 
 	// If we don't have an interface, wrap constraint into an implicit interface.
 	if ityp == nil {
+		defer scratch.Heap().Restore() // t.bound outlives any scratch step
 		ityp = NewInterfaceType(nil, compat.Clone([]Type{bound}))
 		ityp.implicit = true
 		t.bound = ityp // update t.bound for next time (optimization)

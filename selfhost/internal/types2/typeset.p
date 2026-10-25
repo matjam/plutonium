@@ -9,6 +9,7 @@ package types2
 import (
 	"pluto/slices"
 	"selfhost/compat"
+	"selfhost/internal/scratch"
 	"selfhost/internal/syntax/token"
 	. "selfhost/internal/types2/errors"
 	"selfhost/pu"
@@ -161,6 +162,7 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 	if ityp.tset != nil {
 		return ityp.tset
 	}
+	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
 
 	// If the interface is not fully set up yet, the type set will
 	// not be complete, which may lead to errors when using the
@@ -417,7 +419,7 @@ func computeUnionTypeSet(check *Checker, unionSets map[*Union]*_TypeSet, pos tok
 	return unionSets[utyp]
 }
 
-// goClosure_computeInterfaceTypeSet_1 is the function literal at typeset.go:246, converted to a struct
+// goClosure_computeInterfaceTypeSet_1 is the function literal at typeset.go:248, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_computeInterfaceTypeSet_1 struct {
 	pos   token.Pos

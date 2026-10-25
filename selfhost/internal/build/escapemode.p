@@ -3,9 +3,13 @@
 package build
 
 import (
+	"selfhost/compat"
+	"selfhost/internal/diag"
 	"selfhost/internal/escape"
 	"selfhost/internal/escape2"
 	"selfhost/internal/load"
+	"selfhost/internal/scratch"
+	"selfhost/pu"
 )
 
 // analyzeEscapes runs the escape analysis that PLUTO_ESCAPE selects
@@ -22,4 +26,36 @@ func analyzeEscapes(prog *load.Program) (*escape.Calls, error) {
 		return calls, err
 	}
 	return escape2.Analyze(prog, mode)
+}
+
+// escapeStep runs the escape analysis as a scratch step: its program
+// representation, summaries and solver state die with it, and only what it
+// found about calls and its errors are kept.
+type escapeStep struct {
+	prog  *load.Program
+	calls *escape.Calls
+	err   error
+}
+
+func (s *escapeStep) ScratchWork() { s.calls, s.err = analyzeEscapes(s.prog) }
+
+func (s *escapeStep) ScratchKeep() {
+	s.calls = s.calls.Clone()
+	if l, ok := s.err.(*diag.List); ok {
+		n := pu.Alloc[diag.List]()
+		for _, d := range *l {
+			(*n) = diag.List(compat.Append((*n), d.Clone()))
+		}
+		s.err = n
+	} else {
+		s.err = scratch.Error(s.err)
+	}
+}
+
+// runEscapes is analyzeEscapes in a scratch step of its own.
+func runEscapes(prog *load.Program) (*escape.Calls, error) {
+	s := pu.New(escapeStep{prog: prog})
+	scratch.Do(s)
+	scratch.Trim()
+	return s.calls, s.err
 }

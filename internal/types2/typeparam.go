@@ -4,7 +4,11 @@
 
 package types2
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+
+	"github.com/matjam/plutonium/internal/scratch"
+)
 
 // Note: This is a uint32 rather than a uint64 because the
 // respective 64 bit atomic instructions are not available
@@ -129,6 +133,7 @@ func (t *TypeParam) iface() *Interface {
 
 	// If we don't have an interface, wrap constraint into an implicit interface.
 	if ityp == nil {
+		defer scratch.Heap().Restore() // t.bound outlives any scratch step
 		ityp = NewInterfaceType(nil, []Type{bound})
 		ityp.implicit = true
 		t.bound = ityp // update t.bound for next time (optimization)

@@ -31,10 +31,11 @@ type Step interface {
 // Do runs s.ScratchWork, then s.ScratchKeep, and then frees what
 // ScratchWork allocated. ScratchKeep copies text out with String and Error.
 // Nothing ScratchWork allocated may be reachable from anything else after
-// Do returns. Do does not nest.
+// Do returns. Do nests, up to three deep: the inner step's ScratchKeep
+// copies into the outer step's memory.
 //
 // Builds here may run on several goroutines at once, so Do keeps no state
-// and cannot check that it does not nest; the self-hosted Do checks.
+// and cannot check how deeply it nests; the self-hosted Do checks.
 func Do(s Step) {
 	s.ScratchWork()
 	s.ScratchKeep()
@@ -52,6 +53,11 @@ func Error(err error) error {
 	return errors.New(String(err.Error()))
 }
 
+// Trim returns to the heap the spare memory the self-hosted arenas keep
+// for later steps, after a large step whose like does not follow. Here it
+// does nothing.
+func Trim() {}
+
 // Outer makes the allocator that was current when Do began the current one
 // until Restore is called, so that memory a step adds to state outliving it
 // (a memo table, an interning table, a pool) does not come from scratch
@@ -60,6 +66,12 @@ func Error(err error) error {
 //
 //	defer scratch.Outer().Restore()
 func Outer() Restorer { return Restorer{} }
+
+// Heap makes the heap the current allocator until Restore is called, so
+// that a cache filled lazily by whichever step first asks (the type
+// checker's expanded methods and underlying types) does not come from any
+// step's scratch memory. Here it does nothing.
+func Heap() Restorer { return Restorer{} }
 
 // A Restorer puts back the allocator Outer replaced.
 type Restorer struct{}

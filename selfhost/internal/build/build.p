@@ -197,7 +197,7 @@ func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 	// checker uses what the escape analysis finds about calls, to follow
 	// views of local owners (spec section 18.3).
 	phase("escape")
-	calls, escErr := analyzeEscapes(prog)
+	calls, escErr := runEscapes(prog)
 	phase("moves")
 	info, moveErr := moves.AnalyzeWith(prog, calls)
 	// The race check runs before lowering, which makes the checks it

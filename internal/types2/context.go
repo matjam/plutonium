@@ -7,6 +7,7 @@ package types2
 import (
 	"bytes"
 	"fmt"
+	"github.com/matjam/plutonium/internal/scratch"
 	"strconv"
 	"strings"
 	"sync"
@@ -107,6 +108,7 @@ func (ctxt *Context) lookup(h string, orig Type, targs []Type) Type {
 // for the hash h.
 func (ctxt *Context) update(h string, orig Type, targs []Type, inst Type) Type {
 	assert(inst != nil)
+	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
 
 	ctxt.mu.Lock()
 	defer ctxt.mu.Unlock()

@@ -19,17 +19,31 @@ import (
 	"unsafe"
 )
 
-// chunkSize is the size of the arena's chunks. Released chunks of this size
-// stay with the arena for the next step; larger ones go back to the heap.
+// chunkSize is the size of the arenas' chunks. Released chunks of this
+// size stay with an arena for the next step at its level; larger ones go
+// back to the heap.
 const chunkSize = 1 << 20
 
-var (
+// maxDepth is how deeply Do nests: a phase of the compiler run as a step,
+// and steps within it.
+const maxDepth = 3
+
+// A level is the state of the Do running at one nesting depth. Each level
+// has its own arena, and in check mode its own pages, so that the end of
+// an inner step frees and seals only that step's memory.
+type level owner struct {
 	scr   arena.Chunked
 	ready bool
-	busy  bool            // a Do's work is running
-	outer alloc.Allocator // the allocator current when that Do began
-	check bool            // PLUTO_SCRATCH_CHECK
+	outer alloc.Allocator // the allocator current when the Do began
 	pages checkPages
+}
+
+var (
+	levels [maxDepth]level
+	depth  int  // Do's whose work is running
+	heap   alloc.Allocator // the allocator of the first Do, parent of the arenas
+	check  bool // PLUTO_SCRATCH_CHECK
+	inited bool
 )
 
 // A Step is a step of the compiler run by Do. Its methods' names are
@@ -45,45 +59,74 @@ type Step interface {
 	ScratchKeep()
 }
 
-// Do runs s.ScratchWork with the arena as the default allocator, then
+// Do runs s.ScratchWork with an arena as the default allocator, then
 // s.ScratchKeep with the caller's, and then frees everything ScratchWork
-// allocated. Do does not nest.
+// allocated. Do nests up to maxDepth deep: a Do within another's work
+// uses an arena of its own, and its ScratchKeep copies into the outer
+// step's memory.
 func Do(s Step) {
-	if busy {
-		panic("scratch.Do within another Do's work")
-	}
-	if !ready {
+	if !inited {
 		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
-		if check {
-			scr = arena.NewChunked(chunkSize, &pages)
-		} else {
-			scr = arena.NewChunked(chunkSize, alloc.Default())
-		}
-		ready = true
+		heap = alloc.Default()
+		inited = true
 	}
-	busy = true
-	outer = alloc.Default()
-	m := scr.Mark()
-	r := alloc.Use(&scr)
+	if depth == maxDepth {
+		panic("scratch.Do nested too deeply")
+	}
+	l := &levels[depth]
+	if !l.ready {
+		if check {
+			l.scr = arena.NewChunked(chunkSize, &l.pages)
+		} else {
+			l.scr = arena.NewChunked(chunkSize, heap)
+		}
+		l.ready = true
+	}
+	l.outer = alloc.Default()
+	m := l.scr.Mark()
+	depth++
+	r := alloc.Use(&l.scr)
 	s.ScratchWork()
 	r.Restore()
-	busy = false
-	outer = nil
+	depth--
+	l.outer = nil
 	s.ScratchKeep()
-	scr.Release(m)
+	l.scr.Release(m)
 	if check {
-		scr.Trim()
-		pages.seal()
+		l.scr.Trim()
+		l.pages.seal()
 	}
 }
 
-// Outer makes the allocator that was current when Do began the current one
-// until Restore is called, so that memory a step adds to state outliving it
-// (a memo table, an interning table, a pool) does not come from scratch
-// memory. Outside a Do's work it changes nothing.
+// Trim returns to the heap the spare memory that the arenas keep for later
+// steps, after a large step whose like does not follow.
+func Trim() {
+	for i := depth; i < maxDepth; i++ {
+		if levels[i].ready {
+			levels[i].scr.Trim()
+		}
+	}
+}
+
+// Outer makes the allocator that was current when the innermost running
+// Do began the current one until Restore is called, so that memory a step
+// adds to state outliving it (a memo table, an interning table, a pool)
+// does not come from that step's scratch memory. Outside a Do's work it
+// changes nothing.
 func Outer() alloc.Restore {
-	if busy {
-		return alloc.Use(outer)
+	if depth > 0 {
+		return alloc.Use(levels[depth-1].outer)
+	}
+	return alloc.Use(alloc.Default())
+}
+
+// Heap makes the heap the current allocator until Restore is called, so
+// that a cache filled lazily by whichever step first asks (the type
+// checker's expanded methods and underlying types) does not come from any
+// step's scratch memory.
+func Heap() alloc.Restore {
+	if depth > 0 {
+		return alloc.Use(heap)
 	}
 	return alloc.Use(alloc.Default())
 }

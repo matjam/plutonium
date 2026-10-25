@@ -10,6 +10,7 @@ import (
 	"pluto/strings"
 	"pluto/sync/atomic"
 	"selfhost/compat"
+	"selfhost/internal/scratch"
 	"selfhost/internal/syntax/token"
 	"selfhost/pu"
 )
@@ -225,6 +226,8 @@ func (n *Named) unpack() *Named {
 		return n
 	}
 
+	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
+
 	// TODO(rfindley): if n.check is non-nil we can avoid locking here, since
 	// type-checking is not concurrent. Evaluate if this is worth doing.
 	n.mu.Lock()
@@ -391,6 +394,7 @@ func (t *Named) Method(i int) *Func {
 
 	assert(t.inst != nil) // only instances should have unexpanded methods
 	orig := t.inst.orig
+	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -587,6 +591,7 @@ func (t *Named) String() string { return TypeString(t, nil) }
 // the directCycles check phase.
 func (n *Named) resolveUnderlying() {
 	assert(n.stateHas(lazyLoaded | unpacked))
+	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
 
 	var seen map[*Named]bool // for debugging only
 	_ = seen

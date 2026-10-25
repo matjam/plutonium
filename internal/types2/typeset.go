@@ -5,6 +5,7 @@
 package types2
 
 import (
+	"github.com/matjam/plutonium/internal/scratch"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	. "github.com/matjam/plutonium/internal/types2/errors"
 	"slices"
@@ -160,6 +161,7 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 	if ityp.tset != nil {
 		return ityp.tset
 	}
+	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
 
 	// If the interface is not fully set up yet, the type set will
 	// not be complete, which may lead to errors when using the
