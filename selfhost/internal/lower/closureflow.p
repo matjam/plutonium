@@ -254,7 +254,30 @@ func (f *closureFlow) typeOf(e ast.Expr) types2.Type {
 }
 
 // carries reports whether a value of type T can hold a func value.
-func (l *Lowerer) carries(T types2.Type) bool { return l.mayHoldFunc(T, map[types2.Type]bool{}) }
+//
+// The closure analysis asks it of every expression it walks, many times
+// over, so the answers are kept; only those made outside an
+// interfaceMayHoldFunc are, as one made inside may rest on an assumption.
+func (l *Lowerer) carries(T types2.Type) bool {
+	return l.memoType(&l.carriesMemo, T, l.mayHoldFunc)
+}
+
+// memoType answers q(T) from *memo, or asks q with a fresh seen set and
+// keeps a final answer.
+func (l *Lowerer) memoType(memo *map[types2.Type]bool, T types2.Type, q func(types2.Type, map[types2.Type]bool) bool) bool {
+	if r, ok := (*memo)[T]; ok {
+		return r
+	}
+	final := l.ifaceDepth == 0
+	r := q(T, map[types2.Type]bool{})
+	if final && l.ifaceDepth == 0 {
+		if *memo == nil {
+			*memo = map[types2.Type]bool{}
+		}
+		(*memo)[T] = r
+	}
+	return r
+}
 
 // implementers returns the types of the program that can implement an
 // interface with methods: the named types that have methods or embed a field
@@ -459,7 +482,9 @@ func (l *Lowerer) mayHoldFunc(T types2.Type, seen map[types2.Type]bool) bool {
 // or a value of a type parameter, which may be a pointer. What is stored
 // there through another pointer can be read through it, and a callee given
 // it can store there.
-func (l *Lowerer) refers(T types2.Type) bool { return l.mayReach(T, map[types2.Type]bool{}) }
+func (l *Lowerer) refers(T types2.Type) bool {
+	return l.memoType(&l.refersMemo, T, l.mayReach)
+}
 
 func (l *Lowerer) mayReach(T types2.Type, seen map[types2.Type]bool) bool {
 	if T == nil {

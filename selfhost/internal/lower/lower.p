@@ -103,6 +103,8 @@ type Lowerer struct {
 	implDone          bool
 	ifaceDepth        int
 	ifaceHolds        map[*types2.Interface]bool     // interfaceMayHoldFunc, by interface
+	carriesMemo       map[types2.Type]bool           // carries, final answers
+	refersMemo        map[types2.Type]bool           // refers, final answers
 	flowVersion       int                            // counts the growths of any summary (closureSummary)
 	flowReported      map[token.Pos]bool             // returned closure records already reported
 	noRet             map[*types2.Func]int           // which functions never return (noreturn.go)
