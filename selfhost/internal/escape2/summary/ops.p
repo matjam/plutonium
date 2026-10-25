@@ -301,23 +301,35 @@ func cutKeyPlain(ps domain.Paths, k domain.Key) domain.Key {
 func cutKey(ps domain.Paths, k domain.Key) domain.Key { return CutKey(ps, k) }
 
 // cutTwo covers k with a key on the prefix of its path through the second
-// load, Deep, when the path goes on past that load; any other key is kept.
-// Deep on the prefix covers the path and every extension, as in cutKeyPlain.
+// load: Deep when the path goes on to a third load (Deep on the prefix
+// covers the path and every extension, as in cutKeyPlain), GE when it goes
+// on by offsets only. A key whose path ends at its second load, or that has
+// fewer loads, is kept.
 func cutTwo(ps domain.Paths, k domain.Key) domain.Key {
-	if ps.Loads(k.Path()) < 3 {
+	n := ps.Loads(k.Path())
+	if n < 2 {
 		return k
 	}
 	id, pos := k.Filter()
-	q, n := domain.Root, 0
+	q, seen := domain.Root, 0
 	for _, s := range ps.Steps(k.Path()) {
 		q, _ = ps.Extend(q, s)
 		if s == domain.StepLoad {
-			if n++; n == 2 {
+			if seen++; seen == 2 {
 				break
 			}
 		}
 	}
-	return k.NoFilter().WithPath(q, false).WithDeep().WithFilter(ps, id, pos)
+	if q == k.Path() {
+		return k
+	}
+	plain := k.NoFilter()
+	if n >= 3 {
+		plain = plain.WithPath(q, false).WithDeep()
+	} else {
+		plain = plain.WithPath(q, true)
+	}
+	return plain.WithFilter(ps, id, pos)
 }
 
 // rootKey covers k with a key on its input's root, with k's flags: Deep on
@@ -352,9 +364,11 @@ func widenKeys(ps domain.Paths, keys []domain.Key, why []Reason, limit int) ([]d
 	// Cuts keep the type filters (D51) where the cut path still reaches
 	// them, and the filtered forms of a key merge into one, with the union
 	// of their filters (mergeKeyFilters): an input of a join of many
-	// candidates stays filtered by its members' receivers. Only a third
-	// pass drops them.
-	for pass := 0; pass < 3; pass++ {
+	// candidates stays filtered by its members' receivers. Only a fourth
+	// pass drops them. As for store pairs (widenPairs), the first pass cuts
+	// through the second load (cutTwo): an escape within a captured
+	// closure's record stays within the field it names.
+	for pass := 0; pass < 4; pass++ {
 		over := false
 		for in, n := range perInput(keys) {
 			if n <= limit {
@@ -366,9 +380,11 @@ func widenKeys(ps domain.Paths, keys []domain.Key, why []Reason, limit int) ([]d
 					continue
 				}
 				switch pass {
-				case 2:
+				case 3:
 					keys[i] = k.NoFilter()
 				case 0:
+					keys[i] = cutTwo(ps, k)
+				case 1:
 					keys[i] = cutKey(ps, k)
 				default:
 					keys[i] = rootKey(ps, k)
@@ -503,11 +519,17 @@ func antichainKeys(ps domain.Paths, keys []domain.Key, why []Reason) ([]domain.K
 func widenPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, []Reason) {
 	pairs, why = antichainPairs(ps, pairs, why)
 	// Pass 0 cuts both keys of a pair through their second load (cutTwo),
-	// which keeps a pair inside the memory its first load reaches (a store
-	// within a captured record's variable stays there); pass 1 cuts through
-	// the first load, pass 2 to the roots, pass 3 drops the sources' type
+	// which keeps a pair inside the memory its second load reaches (a store
+	// within a captured variable's memory stays there). Later passes cut the
+	// destination a step ahead of the source: an input's pairs are many when
+	// it is stored into many places, and covering those places with fewer
+	// keys keeps what is stored precise (a pointer whose contents are stored
+	// into many fields of another input's memory is not made to be stored
+	// itself). Pass 1 cuts the destinations through their first load (cutKey),
+	// pass 2 the sources too, pass 3 the destinations to their roots
+	// (rootKey), pass 4 the sources too, and pass 5 drops the sources' type
 	// filters (widenKeys).
-	for pass := 0; pass < 4; pass++ {
+	for pass := 0; pass < 6; pass++ {
 		n := map[int]int{}
 		for _, p := range pairs {
 			n[p.Src.Input()]++
@@ -523,14 +545,18 @@ func widenPairs(ps domain.Paths, pairs []StorePair, why []Reason) ([]StorePair, 
 					continue
 				}
 				switch pass {
-				case 3:
-					pairs[i].Src = p.Src.NoFilter()
 				case 0:
 					pairs[i] = StorePair{cutTwo(ps, p.Src), cutTwo(ps, p.Dst)}
 				case 1:
-					pairs[i] = StorePair{cutKey(ps, p.Src), cutKey(ps, p.Dst)}
+					pairs[i].Dst = cutKey(ps, p.Dst)
+				case 2:
+					pairs[i].Src = cutKey(ps, p.Src)
+				case 3:
+					pairs[i].Dst = rootKey(ps, p.Dst)
+				case 4:
+					pairs[i].Src = rootKey(ps, p.Src)
 				default:
-					pairs[i] = StorePair{rootKey(ps, p.Src), rootKey(ps, p.Dst)}
+					pairs[i].Src = p.Src.NoFilter()
 				}
 			}
 		}

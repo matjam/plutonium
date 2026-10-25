@@ -163,3 +163,46 @@ func TestWidenPairsCutTwo(t *testing.T) {
 		t.Fatalf("widened to %v, want one pair on %v", s.Store, want)
 	}
 }
+
+// TestWidenKeysCutTwo checks that escape keys past MaxEscPerInput are cut
+// through their second load first: an escape within a closure's record
+// field stays within it.
+func TestWidenKeysCutTwo(t *testing.T) {
+	ps := summarytest.NewPaths()
+	s := &summary.Summary{Inputs: 1}
+	for i := range domain.Step(9) {
+		for j := range domain.Step(9) {
+			s.Esc = append(s.Esc, key(ps, 0, false, 1, L, 0, L, i, L, j))
+			s.Reasons = append(s.Reasons, summary.Reason{})
+		}
+	}
+	summary.Widen(ps, s)
+	want := domain.MakeKey(0, ps.Of(1, L, 0, L), domain.KeyFlags{Deep: true})
+	if len(s.Esc) != 1 || s.Esc[0] != want {
+		t.Fatalf("widened to %v, want %v", s.Esc, want)
+	}
+}
+
+// TestWidenPairsDstFirst checks that store pairs past MaxStorePerInput
+// coarsen their destinations before their source: a source stored into
+// many places stays precise.
+func TestWidenPairsDstFirst(t *testing.T) {
+	ps := summarytest.NewPaths()
+	s := &summary.Summary{Inputs: 2}
+	src := key(ps, 1, false, L)
+	for i := range domain.Step(12) {
+		for j := range domain.Step(12) {
+			s.Store = append(s.Store, summary.StorePair{Src: src, Dst: key(ps, 0, false, i, L, j, L)})
+			s.Reasons = append(s.Reasons, summary.Reason{})
+		}
+	}
+	summary.Widen(ps, s)
+	if len(s.Store) == 0 || len(s.Store) > summary.MaxStorePerInput {
+		t.Fatalf("widened to %d pairs", len(s.Store))
+	}
+	for _, p := range s.Store {
+		if p.Src != src {
+			t.Errorf("source widened to %v, want %v", p.Src, src)
+		}
+	}
+}
