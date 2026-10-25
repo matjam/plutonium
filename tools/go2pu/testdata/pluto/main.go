@@ -29,7 +29,10 @@ const version = "0.1.0-dev"
 //
 //pu:stack 1G
 func main() {
-	os.Exit(execute(os.Args[1:], os.Stdout, os.Stderr))
+	stop := startAllocProfile()
+	code := execute(os.Args[1:], os.Stdout, os.Stderr)
+	stop()
+	os.Exit(code)
 }
 
 // A flagKind is the type of a flag's value.

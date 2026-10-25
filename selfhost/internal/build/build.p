@@ -102,6 +102,7 @@ func Build(cfg *Config) error {
 	if err != nil {
 		return err
 	}
+	phase("load")
 	prog, err := load.Load(lcfg, cfg.Dir)
 	if err != nil {
 		return err
@@ -177,6 +178,17 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 // buildProgram compiles and links a loaded program.
 // lowerProgram runs the front end on a loaded program: the lifetime and
 // race checks, then lowering to SSA.
+// phases says to name each phase of a build on standard error as it
+// starts, so that a memory or time profile taken from outside can be
+// matched to the phases.
+var phases = compat.Getenv("PLUTO_PHASES") != ""
+
+func phase(name string) {
+	if phases {
+		compat.Fprintfb(os.Stderr, "%v %v\n", compat.ArgS("pluto: phase"), compat.ArgS(name))
+	}
+}
+
 func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 	// The move checker's account of moves tells lowering where owners are
 	// destroyed. Lowering reports the constructs Plutonium does not
@@ -184,7 +196,9 @@ func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 	// errors of both lifetime checks are reported together. The move
 	// checker uses what the escape analysis finds about calls, to follow
 	// views of local owners (spec section 18.3).
+	phase("escape")
 	calls, escErr := analyzeEscapes(prog)
+	phase("moves")
 	info, moveErr := moves.AnalyzeWith(prog, calls)
 	// The race check runs before lowering, which makes the checks it
 	// leaves to run time (spec section 19.4), but its errors are reported
@@ -194,8 +208,10 @@ func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 	var raceErr error
 	lifetimeErr := joinLifetimeErrors(moveErr, escErr)
 	if lifetimeErr == nil {
+		phase("race")
 		overlaps, raceErr = race.AnalyzeWith(prog, info)
 	}
+	phase("lower")
 	sp := lower.Lower(pu.New(lower.Config{
 		Overlaps:     overlaps,
 		Freestanding: cfg.Freestanding || cfg.Kernel,
@@ -220,10 +236,12 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 	if err != nil {
 		return err
 	}
+	phase("opt")
 	if err := optimize(cfg, sp, prog); err != nil {
 		return internal(err)
 	}
 
+	phase("emit")
 	obj, err := emitObject(cfg, sp, prog)
 	if err != nil {
 		return internal(err)

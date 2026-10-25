@@ -442,3 +442,32 @@ func popcount(x uint8) int {
 	}
 	return n
 }
+
+// CallerStack stores in out the functions on the running stack, starting
+// with its caller's caller, as table entries FuncName names, and returns
+// how many it stored. It does not allocate, so an allocator may call it,
+// as a profiler does to say where memory is allocated.
+//
+//pu:noinline
+func CallerStack(out []unsafe.Pointer) int {
+	var fr [3]uintptr
+	callerFrame(&fr)
+	var fw frameWalk
+	fw.start(traceTable(), fr[0], fr[1], fr[2], false)
+	n := 0
+	for fw.fn != nil && n < len(out) {
+		out[n] = fw.fn
+		n++
+		if fw.bottom() {
+			break
+		}
+		fw.next()
+	}
+	return n
+}
+
+// FuncName returns the name of the function whose table entry
+// CallerStack stored.
+func FuncName(fn unsafe.Pointer) string {
+	return traceString(traceTable(), *(*uint32)(unsafe.Add(fn, 12)))
+}
