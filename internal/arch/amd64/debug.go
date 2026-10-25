@@ -252,3 +252,19 @@ func frameStates(insts []*MInst, starts []int, size int, entry int64) ([]FrameSt
 	}
 	return states, prologueEnd
 }
+
+// Clone returns a deep copy of d, or nil, from the current allocator.
+func (d *FuncDebug) Clone() *FuncDebug {
+	if d == nil {
+		return nil
+	}
+	c := *d
+	c.Lines = append([]LineEntry(nil), d.Lines...)
+	c.Saved = append([]Reg(nil), d.Saved...)
+	c.CFI = make([]FrameState, len(d.CFI))
+	for i, s := range d.CFI {
+		s.Saved = append([]RegSave(nil), s.Saved...)
+		c.CFI[i] = s
+	}
+	return &c
+}

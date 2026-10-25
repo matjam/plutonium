@@ -30,7 +30,7 @@ import (
 
 func main() {
 	level := 0
-	cfg := backend.Config{}
+	cfg := pu.New(backend.Config{})
 	file := ""
 	args := compat.Args()[1:]
 	for i := 0; i < len(args); i++ {
@@ -72,7 +72,7 @@ func main() {
 	if err := opt.ForLevel(level).Run(p, nil); err != nil {
 		fail(compat.Concat("opt: ", err.Error()))
 	}
-	obj, err := backend.Emit(&cfg, p, debuginfo.New(fset))
+	obj, err := backend.Emit(cfg, p, debuginfo.New(fset))
 	if err != nil {
 		fail(compat.Concat("emit: ", err.Error()))
 	}

@@ -1,0 +1,53 @@
+// Package scratch runs a step of the compiler whose allocations die with
+// it, such as generating one function's code (self-hosting plan section
+// 3.4).
+//
+// In the self-hosted compiler, Do runs the step with an arena as the
+// default allocator and frees the arena's memory afterwards, so the
+// compiler's memory stays bounded by its largest step instead of growing
+// with the program. Here Go's collector frees what the step leaves, so Do
+// only calls its methods and the copies are plain copies. The hand-written
+// selfhost/internal/scratch/scratch.p replaces this file there.
+package scratch
+
+import (
+	"errors"
+	"strings"
+)
+
+// A Step is a step of the compiler run by Do. Its methods' names are
+// unique to it: the goexit analysis (internal/lower/goexit.go) takes an
+// interface call to reach every method of its name and signature, and a
+// call through a func() value to reach every func() literal, so Step keeps
+// the step's code from widening either set.
+type Step interface {
+	// ScratchWork does the step's work, allocating from scratch memory.
+	ScratchWork()
+	// ScratchKeep copies out of scratch memory what ScratchWork made that
+	// must outlive the step, allocating from the caller's allocator.
+	ScratchKeep()
+}
+
+// Do runs s.ScratchWork, then s.ScratchKeep, and then frees what
+// ScratchWork allocated. ScratchKeep copies text out with String and Error.
+// Nothing ScratchWork allocated may be reachable from anything else after
+// Do returns. Do does not nest.
+//
+// Builds here may run on several goroutines at once, so Do keeps no state
+// and cannot check that it does not nest; the self-hosted Do checks.
+func Do(s Step) {
+	s.ScratchWork()
+	s.ScratchKeep()
+}
+
+// String returns a copy of s from the current allocator.
+func String(s string) string { return strings.Clone(s) }
+
+// Error returns an error with err's text whose memory comes from the
+// current allocator, or nil.
+func Error(err error) error {
+	if err == nil {
+		return nil
+	}
+	return errors.New(String(err.Error()))
+}

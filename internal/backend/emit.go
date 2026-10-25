@@ -14,6 +14,7 @@ import (
 	"github.com/matjam/plutonium/internal/arch/amd64"
 	"github.com/matjam/plutonium/internal/debuginfo"
 	"github.com/matjam/plutonium/internal/objfile"
+	"github.com/matjam/plutonium/internal/scratch"
 	"github.com/matjam/plutonium/internal/ssa"
 )
 
@@ -32,71 +33,119 @@ type Config struct {
 	CompDir string    // DWARF's compilation directory
 }
 
+// An emitter generates one function's code (ScratchWork) and adds it to
+// the object (ScratchKeep), as a scratch.Step.
+type emitter struct {
+	cfg       *Config
+	obj       *objfile.Object
+	text      *objfile.Section
+	rodata    *objfile.Section
+	dbg       *debuginfo.Table
+	constDone map[string]bool
+	names     map[string]string // the symbol names copied out of scratch memory
+
+	f    *ssa.Func
+	code *amd64.Code
+	err  error
+}
+
+// ScratchWork generates the code of e.f.
+func (e *emitter) ScratchWork() {
+	amd64.Prepare(e.f)
+	if e.err = e.f.Verify(); e.err == nil {
+		e.code, e.err = amd64.Compile(e.f, e.cfg.Listing != nil)
+	}
+}
+
+// ScratchKeep adds the generated code to the object, or keeps its error.
+func (e *emitter) ScratchKeep() {
+	if e.err != nil {
+		e.err = scratch.Error(e.err)
+		return
+	}
+	e.err = e.emit(e.f, e.code)
+	e.code = nil
+}
+
+// name returns a copy of s that outlives the step, one per name.
+func (e *emitter) name(s string) string {
+	if n, ok := e.names[s]; ok {
+		return n
+	}
+	n := scratch.String(s)
+	e.names[n] = n
+	return n
+}
+
+func (e *emitter) emit(f *ssa.Func, code *amd64.Code) error {
+	cfg, obj, dbg := e.cfg, e.obj, e.dbg
+	if cfg.Listing != nil {
+		if _, err := fmt.Fprintln(cfg.Listing, code.Asm); err != nil {
+			return err
+		}
+	}
+	sec := e.text
+	if f.Section != "" {
+		sec = obj.Section(f.Section, elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_EXECINSTR, 16)
+	}
+	off := sec.Append(code.Bytes, 16)
+	obj.Define(&objfile.Symbol{Name: f.Sym.Name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
+		Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
+	df := &debuginfo.Func{Sym: f.Sym.Name, Pkg: f.Pkg, Pos: f.Pos, Size: len(code.Bytes),
+		Debug: code.Debug.Clone(), Inlines: f.Inlines}
+	if f.DeferRunner != nil {
+		// Frame layout has placed the record (amd64.Compile).
+		df.DeferRunner, df.DeferOff = f.DeferRunner.Name, f.DeferRecord.Offset
+	}
+	dbg.Add(df)
+	for _, name := range f.Exports {
+		obj.Define(&objfile.Symbol{Name: name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
+			Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
+	}
+	for _, r := range code.Relocs {
+		typ := elf.R_X86_64_PC32
+		switch r.Type {
+		case amd64.RelPLT32:
+			typ = elf.R_X86_64_PLT32
+		case amd64.Rel64:
+			typ = elf.R_X86_64_64
+		case amd64.RelAbs32S:
+			typ = elf.R_X86_64_32S
+		}
+		sec.Relocs = append(sec.Relocs, objfile.Reloc{Off: off + uint64(r.Off), Sym: e.name(r.Sym.Name), Type: typ, Addend: r.Addend})
+	}
+	// Pool constants are named by their contents, so one copy serves
+	// every function. Packed SSE operands need 16-byte alignment.
+	for _, c := range code.Consts {
+		if e.constDone[c.Sym.Name] {
+			continue
+		}
+		cname := e.name(c.Sym.Name)
+		e.constDone[cname] = true
+		if e.rodata == nil {
+			e.rodata = obj.Section(".rodata", elf.SHT_PROGBITS, elf.SHF_ALLOC, 16)
+		}
+		off := e.rodata.Append(c.Bytes[:], 16)
+		obj.Define(&objfile.Symbol{Name: cname, Section: e.rodata, Value: off, Size: 16,
+			Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT})
+	}
+	return nil
+}
+
 // Emit generates code for every function of p and lays out its data.
 // dbg holds the positions of p and the naming of its files.
 func Emit(cfg *Config, p *ssa.Program, dbg *debuginfo.Table) (*objfile.Object, error) {
 	obj := objfile.New()
 	text := obj.Section(".text", elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_EXECINSTR, 16)
 	obj.Section(".note.GNU-stack", elf.SHT_PROGBITS, 0, 1)
-	var rodata *objfile.Section
-	constDone := map[string]bool{}
+	// Each function's code is generated in scratch memory (internal/scratch);
+	// the emitter copies out what the object file and debug information keep.
+	e := &emitter{cfg: cfg, obj: obj, text: text, dbg: dbg, constDone: map[string]bool{}, names: map[string]string{}}
 	for _, f := range p.Funcs {
-		amd64.Prepare(f)
-		if err := f.Verify(); err != nil {
-			return nil, err
-		}
-		code, err := amd64.Compile(f, cfg.Listing != nil)
-		if err != nil {
-			return nil, err
-		}
-		if cfg.Listing != nil {
-			if _, err := fmt.Fprintln(cfg.Listing, code.Asm); err != nil {
-				return nil, err
-			}
-		}
-		sec := text
-		if f.Section != "" {
-			sec = obj.Section(f.Section, elf.SHT_PROGBITS, elf.SHF_ALLOC|elf.SHF_EXECINSTR, 16)
-		}
-		off := sec.Append(code.Bytes, 16)
-		obj.Define(&objfile.Symbol{Name: f.Sym.Name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
-			Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
-		df := &debuginfo.Func{Sym: f.Sym.Name, Pkg: f.Pkg, Pos: f.Pos, Size: len(code.Bytes),
-			Debug: code.Debug, Inlines: f.Inlines}
-		if f.DeferRunner != nil {
-			// Frame layout has placed the record (amd64.Compile).
-			df.DeferRunner, df.DeferOff = f.DeferRunner.Name, f.DeferRecord.Offset
-		}
-		dbg.Add(df)
-		for _, name := range f.Exports {
-			obj.Define(&objfile.Symbol{Name: name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
-				Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC})
-		}
-		for _, r := range code.Relocs {
-			typ := elf.R_X86_64_PC32
-			switch r.Type {
-			case amd64.RelPLT32:
-				typ = elf.R_X86_64_PLT32
-			case amd64.Rel64:
-				typ = elf.R_X86_64_64
-			case amd64.RelAbs32S:
-				typ = elf.R_X86_64_32S
-			}
-			sec.Relocs = append(sec.Relocs, objfile.Reloc{Off: off + uint64(r.Off), Sym: r.Sym.Name, Type: typ, Addend: r.Addend})
-		}
-		// Pool constants are named by their contents, so one copy serves
-		// every function. Packed SSE operands need 16-byte alignment.
-		for _, c := range code.Consts {
-			if constDone[c.Sym.Name] {
-				continue
-			}
-			constDone[c.Sym.Name] = true
-			if rodata == nil {
-				rodata = obj.Section(".rodata", elf.SHT_PROGBITS, elf.SHF_ALLOC, 16)
-			}
-			off := rodata.Append(c.Bytes[:], 16)
-			obj.Define(&objfile.Symbol{Name: c.Sym.Name, Section: rodata, Value: off, Size: 16,
-				Bind: elf.STB_LOCAL, Type: elf.STT_OBJECT})
+		e.f = f
+		scratch.Do(e)
+		if e.err != nil {
+			return nil, e.err
 		}
 	}
 

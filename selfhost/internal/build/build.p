@@ -476,6 +476,6 @@ func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Objec
 			return nil, err
 		}
 	}
-	return backend.Emit(&backend.Config{Listing: cfg.Listing, NoTrace: cfg.NoTrace,
-		NoDWARF: cfg.NoDWARF || cfg.Strip, CompDir: dir}, p, dbg)
+	return backend.Emit(pu.New(backend.Config{Listing: cfg.Listing, NoTrace: cfg.NoTrace,
+		NoDWARF: cfg.NoDWARF || cfg.Strip, CompDir: dir}), p, dbg)
 }
