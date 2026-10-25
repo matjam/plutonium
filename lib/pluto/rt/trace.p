@@ -99,11 +99,25 @@ func traceback[W Writer](w W, pc, sp, bp uintptr, exact, skipRuntime bool, durin
 // table: fn is the trace table entry of the current frame's function (nil
 // once the walk ends), pc the instruction it is at (exact) or the return
 // address into it, and sp and bp the stack pointer and RBP there.
+//
+// lo and hi, when hi is not 0, bound the stack the walk may read: a
+// profiler's signal handler interrupts code anywhere, and stops the walk
+// rather than read outside the stack it interrupted.
 type frameWalk struct {
 	tab        unsafe.Pointer
 	fn         unsafe.Pointer
 	pc, sp, bp uintptr
 	exact      bool
+	lo, hi     uintptr
+}
+
+// load reads the word at addr, or reports false if it lies outside the
+// walk's bounds.
+func (w *frameWalk) load(addr uintptr) (uintptr, bool) {
+	if w.hi != 0 && (addr < w.lo || addr > w.hi-8 || addr&7 != 0) {
+		return 0, false
+	}
+	return *(*uintptr)(unsafe.Pointer(addr)), true
 }
 
 // start begins a walk at the machine state pc, sp and bp.
@@ -114,7 +128,11 @@ func (w *frameWalk) start(tab unsafe.Pointer, pc, sp, bp uintptr, exact bool) {
 		// A fault in assembly the table does not describe, such as an
 		// atomic operation: such functions are leaves with no frame, so
 		// the return address is at the stack pointer.
-		w.pc = *(*uintptr)(unsafe.Pointer(sp))
+		ret, ok := w.load(sp)
+		if !ok {
+			return
+		}
+		w.pc = ret
 		w.sp = sp + 8
 		w.exact = false
 		w.fn = findFunc(tab, w.look())
@@ -153,15 +171,22 @@ func (w *frameWalk) next() {
 		return
 	}
 	var cfa, callerBP uintptr
+	ok := true
 	start := *(*uintptr)(fn)
+	size := uintptr(*(*uint32)(unsafe.Add(fn, 8)))
 	mask := *(*uint8)(unsafe.Add(fn, 22))
 	prologueEnd := uintptr(*(*uint16)(unsafe.Add(fn, 20)))
+	epilogue := false
+	if w.exact && w.pc-start >= prologueEnd {
+		cfa, callerBP, epilogue = w.epilogueCFA(start + size)
+	}
 	switch {
+	case epilogue:
 	case w.exact && w.pc-start < prologueEnd:
-		cfa, callerBP = prologueCFA(w.pc-start, mask, flags&traceFlagFP != 0, w.sp, w.bp)
+		cfa, callerBP, ok = w.prologueCFA(w.pc-start, mask, flags&traceFlagFP != 0)
 	case flags&traceFlagFP != 0:
 		cfa = w.bp + 16
-		callerBP = *(*uintptr)(unsafe.Pointer(w.bp))
+		callerBP, ok = w.load(w.bp)
 	default:
 		frameSize := uintptr(*(*uint32)(unsafe.Add(fn, 16)))
 		cfa = w.sp + frameSize + 8*uintptr(popcount(mask)) + 8
@@ -172,13 +197,17 @@ func (w *frameWalk) next() {
 			if mask&1 != 0 {
 				at -= 8
 			}
-			callerBP = *(*uintptr)(unsafe.Pointer(at))
+			callerBP, ok = w.load(at)
 		}
 	}
-	if cfa <= w.sp || cfa&7 != 0 {
+	if !ok || cfa <= w.sp || cfa&7 != 0 {
 		return
 	}
-	w.pc = *(*uintptr)(unsafe.Pointer(cfa - 8))
+	ret, ok := w.load(cfa - 8)
+	if !ok {
+		return
+	}
+	w.pc = ret
 	w.sp, w.bp = cfa, callerBP
 	w.exact = false
 	w.fn = findFunc(w.tab, w.look())
@@ -217,15 +246,17 @@ func (w *frameWalk) deferRecord() (uintptr, uintptr) {
 // complete. The prologue is "push rbp; mov rbp, rsp" for frame-pointer
 // frames, then a push for each saved register (RBX and RBP are one byte,
 // R12 to R15 two), then the stack adjustment.
-func prologueCFA(off uintptr, mask uint8, fp bool, sp, bp uintptr) (uintptr, uintptr) {
+func (w *frameWalk) prologueCFA(off uintptr, mask uint8, fp bool) (uintptr, uintptr, bool) {
+	sp, bp := w.sp, w.bp
 	if fp {
 		switch {
 		case off == 0:
-			return sp + 8, bp
+			return sp + 8, bp, true
 		case off < 4:
-			return sp + 16, bp
+			return sp + 16, bp, true
 		}
-		return bp + 16, *(*uintptr)(unsafe.Pointer(bp))
+		callerBP, ok := w.load(bp)
+		return bp + 16, callerBP, ok
 	}
 	pos := uintptr(0)
 	depth := uintptr(8)
@@ -243,12 +274,93 @@ func prologueCFA(off uintptr, mask uint8, fp bool, sp, bp uintptr) (uintptr, uin
 		}
 		depth += 8
 	}
-	return sp + depth, bp
+	return sp + depth, bp, true
+}
+
+// epilogueCFA returns the canonical frame address and the caller's RBP for
+// an exact pc in an epilogue (internal/arch/amd64/frame.go): an optional
+// "add rsp, imm" or "lea rsp, [rbp+disp]", then a pop for each saved
+// register, then ret. It reports false if the code at pc is not one; end
+// is the end of the function's code.
+func (w *frameWalk) epilogueCFA(end uintptr) (uintptr, uintptr, bool) {
+	p := w.pc
+	sp := w.sp
+	if p+4 <= end && codeByte(p) == 0x48 {
+		b1, b2 := codeByte(p+1), codeByte(p+2)
+		switch {
+		case b1 == 0x83 && b2 == 0xC4: // add rsp, imm8
+			sp += uintptr(int64(int8(codeByte(p + 3))))
+			p += 4
+		case b1 == 0x81 && b2 == 0xC4 && p+7 <= end: // add rsp, imm32
+			sp += uintptr(int64(int32(codeWord(p + 3))))
+			p += 7
+		case b1 == 0x8D && b2 == 0x65: // lea rsp, [rbp+disp8]
+			sp = w.bp + uintptr(int64(int8(codeByte(p+3))))
+			p += 4
+		case b1 == 0x8D && b2 == 0xA5 && p+7 <= end: // lea rsp, [rbp+disp32]
+			sp = w.bp + uintptr(int64(int32(codeWord(p+3))))
+			p += 7
+		default:
+			return 0, 0, false
+		}
+	}
+	callerBP := w.bp
+	for i := 0; i < 8 && p < end; i++ {
+		c := codeByte(p)
+		switch {
+		case c == 0xC3: // ret
+			return sp + 8, callerBP, true
+		case c == 0x5D: // pop rbp
+			v, ok := w.load(sp)
+			if !ok {
+				return 0, 0, false
+			}
+			callerBP = v
+			sp += 8
+			p++
+		case c == 0x5B: // pop rbx
+			sp += 8
+			p++
+		case c == 0x41 && p+1 < end && codeByte(p+1) >= 0x5C && codeByte(p+1) <= 0x5F: // pop r12-r15
+			sp += 8
+			p += 2
+		default:
+			return 0, 0, false
+		}
+	}
+	return 0, 0, false
+}
+
+func codeByte(p uintptr) byte { return *(*byte)(unsafe.Pointer(p)) }
+
+func codeWord(p uintptr) uint32 {
+	return uint32(codeByte(p)) | uint32(codeByte(p+1))<<8 | uint32(codeByte(p+2))<<16 | uint32(codeByte(p+3))<<24
 }
 
 // findFunc returns the table entry of the function containing pc, or nil.
+// Once IndexFuncs has run it searches by address; before, it looks at
+// every entry, as a panic must not depend on an index being built.
 func findFunc(tab unsafe.Pointer, pc uintptr) unsafe.Pointer {
 	n := int(*(*uint32)(tab))
+	if funcIndexed && tab == traceTable() {
+		lo, hi := 0, n
+		for lo < hi {
+			mid := int(uint(lo+hi) >> 1)
+			if *(*uintptr)(indexedFunc(tab, mid)) <= pc {
+				lo = mid + 1
+			} else {
+				hi = mid
+			}
+		}
+		if lo == 0 {
+			return nil
+		}
+		fn := indexedFunc(tab, lo-1)
+		if pc < *(*uintptr)(fn)+uintptr(*(*uint32)(unsafe.Add(fn, 8))) {
+			return fn
+		}
+		return nil
+	}
 	for i := 0; i < n; i++ {
 		fn := unsafe.Add(tab, traceHeaderSize+i*traceFuncSize)
 		start := *(*uintptr)(fn)

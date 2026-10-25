@@ -411,14 +411,40 @@ For the innermost frame of a fault inside a prologue, the runtime counts the pus
 mask (pushes of RBX and RBP are one byte, of R12 to R15 two) and the frame-pointer setup
 (`push rbp` is one byte, `mov rbp, rsp` three).
 
-Functions are found by a linear search, which is fast enough for printing a trace once. A sorted index
-would be needed for sampling profilers in the runtime; none exists yet.
+Functions are found by a linear search, which is fast enough for printing a trace once. A profiler
+calls `rt.IndexFuncs` first, which checks that the table is sorted by start address (the linker emits it
+in that order) or builds a sorted index of it, and from then on functions are found by binary search.
 
 A hosted panic walks the same frames to run their deferred calls (language spec section 17.2): for each
 frame whose function has a defer record, the record lies at the frame's RSP plus the listed offset, its
 first word holds the armed bits, and the runtime calls the listed function with the record's address if
 any is set. Such a frame's runner is left out of traces, and a trace of a panic in a deferred call goes
 on, at the runtime's call of the deferred calls, with the frames of the panic they ran for.
+
+### Profiling
+
+Package `pluto/prof` (hosted, Linux) writes profiles in the pprof format, an uncompressed `profile.proto`
+that `go tool pprof` and other pprof viewers read with the executable for its symbols:
+
+- `StartCPUProfile` and `StopCPUProfile(name)` sample the stacks of running code 100 times a second of
+  CPU time. A `SIGPROF` timer (`setitimer(ITIMER_PROF)`) interrupts a thread, and the handler walks the
+  interrupted stack with the trace table, as a fault trace does, reading memory only between the
+  interrupted RSP and the top of the stack it is on (the current task's stack, or the main thread's).
+  The handler takes no locks and allocates nothing: stacks go into a fixed table in pages mapped when
+  profiling starts, keyed by a hash of the stack, with the counts added atomically. Stacks that do not
+  fit are counted and reported as dropped when the profile is written.
+- `StartAllocProfile(rate)` and `StopAllocProfile(name)` sample allocations through the default
+  allocator (`rt.SetDefaultAllocator`), one sample each time another `rate` bytes have been allocated
+  (512 KiB by default), so a sample stands for `rate` bytes. Allocations through an allocator a task
+  chose with `UseAllocator` are not seen.
+
+The stacks of a profile are lists of code addresses (`rt.CallerPCs`); `rt.PCFrames` turns an address
+into its function, file and line and the calls inlined at it, which the profile records as the lines of a
+location, so `pprof` shows inlined calls as frames of their own.
+
+The compiler profiles itself when `PLUTO_CPUPROFILE` or `PLUTO_MEMPROFILE` names a file to write. The
+allocation profiler works only in programs built with `--gencheck=false` for now: with generation checks
+on, memory passed through the sampler is registered twice and allocation fails.
 
 ## 6. Frame pointers or a table
 
@@ -479,6 +505,7 @@ changes nothing in the code that is generated (language spec section 21.3).
 
 ## 9. Not done yet
 
+- The allocation profiler under generation checks.
 - Variable and type information (`DW_TAG_variable`, `DW_TAG_formal_parameter`, `DW_TAG_*_type`) and
   locations, first for parameters at -O0, where they live in stack slots.
 - Column numbers in the line table.
@@ -486,7 +513,6 @@ changes nothing in the code that is generated (language spec section 21.3).
 - Traces of the other tasks in a panic report (a panic handler can call `rt.TraceTask`, but the
   runtime keeps no list of tasks for it to walk outside the hosted deadlock report), and of parked
   tasks in gdb.
-- A sorted function index in the trace table, for in-process sampling profilers.
 - Call frame information for `//pu:interrupt` handlers describes the interrupted RIP (and the error
   code's slot) but not the interrupted RSP, which the CPU saved in its frame; a debugger attached to a
   kernel stops its backtrace at the handler.

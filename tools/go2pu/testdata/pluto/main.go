@@ -29,7 +29,7 @@ const version = "0.1.0-dev"
 //
 //pu:stack 1G
 func main() {
-	stop := startAllocProfile()
+	stop := startProfiles()
 	code := execute(os.Args[1:], os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
