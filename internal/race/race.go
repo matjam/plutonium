@@ -856,8 +856,10 @@ func (a *analyzer) calleesOf(u *unit, n ast.Node) {
 					if f := a.funcs[fn.Origin()]; f != nil && f.unit != nil {
 						u.callee[f.unit] = true
 					}
-					if r := fn.Type().(*types2.Signature).Recv(); r != nil && isInterface(r.Type()) || isTypeParamRecv(sel) {
-						for _, c := range a.byName[fn.Name()] {
+					if sig := fn.Type().(*types2.Signature); sig.Recv() != nil && isInterface(sig.Recv().Type()) || isTypeParamRecv(sel) {
+						// The methods the call may reach, as the walker
+						// finds them (methodCandidates).
+						for _, c := range a.methodCandidates(fn.Name(), sig) {
 							u.callee[c.unit] = true
 						}
 					}
