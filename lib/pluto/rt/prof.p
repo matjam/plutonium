@@ -26,32 +26,6 @@ func indexedFunc(tab unsafe.Pointer, i int) unsafe.Pointer {
 	return unsafe.Add(tab, traceHeaderSize+i*traceFuncSize)
 }
 
-// IndexFuncs makes looking up the function at an address take logarithmic
-// time instead of linear, as a profiler needs: it sorts the trace table's
-// entries by address if they are not already. A profiler calls it before it
-// starts, from ordinary code; it allocates from the default allocator, once.
-func IndexFuncs() {
-	if funcIndexed {
-		return
-	}
-	tab := traceTable()
-	n := int(*(*uint32)(tab))
-	sorted := true
-	for i := 1; i < n && sorted; i++ {
-		sorted = *(*uintptr)(unsafe.Add(tab, traceHeaderSize+(i-1)*traceFuncSize)) <=
-			*(*uintptr)(unsafe.Add(tab, traceHeaderSize+i*traceFuncSize))
-	}
-	if !sorted {
-		idx := DefaultAllocator().Alloc(uintptr(n*8+8), 8)
-		for i := 0; i < n; i++ {
-			*(*unsafe.Pointer)(unsafe.Add(idx, i*8)) = unsafe.Add(tab, traceHeaderSize+i*traceFuncSize)
-		}
-		heapSortFuncs(idx, n)
-		funcIndex = idx
-	}
-	funcIndexed = true
-}
-
 // heapSortFuncs sorts n table entry pointers at idx by start address.
 func heapSortFuncs(idx unsafe.Pointer, n int) {
 	at := func(i int) *unsafe.Pointer { return (*unsafe.Pointer)(unsafe.Add(idx, i*8)) }
