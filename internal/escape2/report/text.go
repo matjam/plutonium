@@ -3,6 +3,7 @@ package report
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/syntax/ast"
@@ -80,7 +81,8 @@ func upperFirst(s string) string {
 	if s == "" {
 		return s
 	}
-	return strings.ToUpper(s[:1]) + s[1:]
+	_, n := utf8.DecodeRuneInString(s)
+	return strings.ToUpper(s[:n]) + s[n:]
 }
 
 // tpargText names the type argument a type-parameter box is copied for:

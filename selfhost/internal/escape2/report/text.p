@@ -4,6 +4,7 @@ package report
 
 import (
 	"pluto/strings"
+	"pluto/unicode/utf8"
 	"selfhost/compat"
 	"selfhost/internal/diag"
 	"selfhost/internal/syntax/ast"
@@ -82,7 +83,8 @@ func upperFirst(s string) string {
 	if s == "" {
 		return s
 	}
-	return compat.Concat(strings.ToUpper(strings.Slice(s, 0, 1)), strings.SliceFrom(s, 1))
+	_, n := utf8.DecodeRuneInString(s)
+	return compat.Concat(strings.ToUpper(strings.Slice(s, 0, n)), strings.SliceFrom(s, n))
 }
 
 // tpargText names the type argument a type-parameter box is copied for:
