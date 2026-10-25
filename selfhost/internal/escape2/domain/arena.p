@@ -15,10 +15,11 @@ package domain
 //     fill every word it handed out with PoisonWord and drop it, so a slice
 //     kept past them reads poison instead of another SCC's data.
 //
-// Release gives an arena's chunks to a pool that every arena takes new
-// chunks from, cleared. An arena made fresh for each solve then reuses the
-// memory of the solves before it, and still holds, and reports in Bytes,
-// only the chunks it took itself.
+// Release gives an arena's chunks, and Reset its big allocations, to a pool
+// that every arena takes memory from, cleared. An arena made fresh for each
+// solve then reuses the memory of the solves before it, and still holds,
+// and reports in Bytes, only what it took itself. The self-hosted compiler
+// frees nothing, and without the pool held the memory of every solve.
 
 import (
 	"selfhost/compat"
@@ -30,7 +31,9 @@ const PoisonWord uint64 = 0xdeadbeefdeadbeef
 
 // chunkWords is the size of an arena chunk; allocations of more than a
 // quarter of it get a chunk of their own.
-const chunkWords = 8192
+const chunkWords = 1 << chunkClass
+
+const chunkClass = 13
 
 // arena implements Arena.
 type arena struct {
@@ -52,29 +55,56 @@ func NewArena() Arena { return pu.New(arena{}) }
 // at Reset, for tests that a client keeps nothing past a Reset.
 func NewCheckedArena() Arena { return pu.New(arena{checked: true}) }
 
-// chunkPool holds the chunks of released arenas, at most maxPooledChunks.
-var chunkPool struct {
-	mu     compat.Mutex
-	chunks [][]uint64
+// pool holds the memory of released arenas, and the big allocations of
+// reset ones, for other arenas: blocks of a power of two words, by size,
+// at most maxPooledWords in all.
+var pool struct {
+	mu    compat.Mutex
+	free  [64][][]uint64 // free[k]: blocks of 1<<k words
+	words int
 }
 
-// maxPooledChunks bounds the pool: 4096 chunks of 64 KiB.
-const maxPooledChunks = 4096
+// maxPooledWords bounds the pool: 1 GiB.
+const maxPooledWords = 1 << 27
 
-// newChunk returns a zeroed chunk, from the pool if it has one.
-func newChunk() []uint64 {
-	chunkPool.mu.Lock()
-	var c []uint64
-	if n := len(chunkPool.chunks); n > 0 {
-		c = chunkPool.chunks[n-1]
-		chunkPool.chunks = chunkPool.chunks[:n-1]
+// sizeClass is the k of the smallest block of 1<<k words that holds n.
+func sizeClass(n int) int {
+	k := 0
+	for 1<<k < n {
+		k++
 	}
-	chunkPool.mu.Unlock()
-	if c == nil {
-		return compat.Make[uint64](chunkWords)
+	return k
+}
+
+// take returns a zeroed block of 1<<k words, from the pool if it has one.
+func take(k int) []uint64 {
+	pool.mu.Lock()
+	var b []uint64
+	if f := pool.free[k]; len(f) > 0 {
+		b = f[len(f)-1]
+		pool.free[k] = f[:len(f)-1]
+		pool.words -= len(b)
 	}
-	clear(c)
-	return c
+	pool.mu.Unlock()
+	if b == nil {
+		return compat.Make[uint64](1 << k)
+	}
+	clear(b)
+	return b
+}
+
+// give puts blocks made by take into the pool, while it has room.
+func give(bs [][]uint64) {
+	pool.mu.Lock()
+	for _, b := range bs {
+		if pool.words+len(b) > maxPooledWords {
+			break
+		}
+		k := sizeClass(len(b))
+		pool.free[k] = compat.Append(pool.free[k], b)
+		pool.words += len(b)
+	}
+	pool.mu.Unlock()
 }
 
 func (a *arena) Alloc(n int) []uint64 {
@@ -86,15 +116,20 @@ func (a *arena) Alloc(n int) []uint64 {
 	}
 	a.alloc += n
 	if n > chunkWords/4 {
-		b := compat.Make[uint64](n)
+		var b []uint64
+		if a.checked {
+			b = compat.Make[uint64](n)
+		} else {
+			b = take(sizeClass(n))
+		}
 		a.big = compat.Append(a.big, b)
 		a.bigSize += n
 		a.notePeak()
-		return b
+		return b[:n:n]
 	}
 	if a.used == 0 || a.pos+n > chunkWords {
 		if a.used == len(a.chunks) {
-			a.chunks = compat.Append(a.chunks, newChunk())
+			a.chunks = compat.Append(a.chunks, take(chunkClass))
 			a.notePeak()
 		} else {
 			clear(a.chunks[a.used])
@@ -129,6 +164,8 @@ func (a *arena) Reset() {
 			poison(b)
 		}
 		a.chunks = nil
+	} else {
+		give(a.big)
 	}
 	a.used, a.pos, a.alloc = 0, 0, 0
 	a.big, a.bigSize = nil, 0
@@ -137,13 +174,7 @@ func (a *arena) Reset() {
 
 func (a *arena) Release() {
 	if !a.checked {
-		chunkPool.mu.Lock()
-		for _, c := range a.chunks {
-			if len(chunkPool.chunks) < maxPooledChunks {
-				chunkPool.chunks = compat.Append(chunkPool.chunks, c)
-			}
-		}
-		chunkPool.mu.Unlock()
+		give(a.chunks)
 		a.chunks = nil
 	}
 	a.Reset()
