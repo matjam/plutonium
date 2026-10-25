@@ -11,6 +11,7 @@ import (
 	"selfhost/internal/escape2/eir"
 	"selfhost/internal/escape2/solve"
 	"selfhost/internal/escape2/summary"
+	"selfhost/internal/scratch"
 	"selfhost/internal/types2"
 	"selfhost/pu"
 )
@@ -166,7 +167,9 @@ func (w *worker) Summary(id eir.FuncID) *summary.Summary {
 		}
 		mu := &w.pf.vmu[i%len(w.pf.vmu)]
 		mu.Lock()
+		r := scratch.Outer()
 		s := e.virt.summary(id, func(m eir.FuncID) *summary.Summary { return e.sums[m] })
+		r.Restore()
 		mu.Unlock()
 		return s
 	}
@@ -194,30 +197,35 @@ func (w *worker) Contract(name string) (*summary.Summary, bool) {
 	}
 	w.pf.mu.Lock()
 	defer w.pf.mu.Unlock()
+	defer scratch.Outer().Restore()
 	return w.pf.e.Contract(name)
 }
 
 func (w *worker) HeapOnly(T types2.Type, field int) bool {
 	w.pf.mu.Lock()
 	defer w.pf.mu.Unlock()
+	defer scratch.Outer().Restore()
 	return w.pf.e.HeapOnly(T, field)
 }
 
 func (w *worker) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
 	w.pf.mu.Lock()
 	defer w.pf.mu.Unlock()
+	defer scratch.Outer().Restore()
 	return w.pf.e.Instantiated(tp)
 }
 
 func (w *worker) Methods(t types2.Type, m *types2.Func) []eir.FuncID {
 	w.pf.mu.Lock()
 	defer w.pf.mu.Unlock()
+	defer scratch.Outer().Restore()
 	return w.pf.e.Methods(t, m)
 }
 
 func (w *worker) PointerWrappers(u types2.Type) ([]types2.Type, bool) {
 	w.pf.mu.Lock()
 	defer w.pf.mu.Unlock()
+	defer scratch.Outer().Restore()
 	return w.pf.e.PointerWrappers(u)
 }
 

@@ -407,6 +407,13 @@ func Munmap(p unsafe.Pointer, n uintptr) {
 	syscall3(sysMunmap, uintptr(p), n, 0)
 }
 
+// Discard frees the pages of n bytes of mapped memory at p, which must be
+// page-aligned; the memory reads as zero if it is accessed again.
+func Discard(p unsafe.Pointer, n uintptr) {
+	const madvDontneed = 4
+	syscall3(sysMadvise, uintptr(p), n, madvDontneed)
+}
+
 // Memory protections for Mprotect.
 const (
 	ProtNone  = 0x0

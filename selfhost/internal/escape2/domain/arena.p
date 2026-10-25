@@ -23,6 +23,7 @@ package domain
 
 import (
 	"selfhost/compat"
+	"selfhost/internal/scratch"
 	"selfhost/pu"
 )
 
@@ -87,6 +88,7 @@ func take(k int) []uint64 {
 	}
 	pool.mu.Unlock()
 	if b == nil {
+		defer scratch.Outer().Restore()
 		return compat.Make[uint64](1 << k)
 	}
 	clear(b)
@@ -95,6 +97,7 @@ func take(k int) []uint64 {
 
 // give puts blocks made by take into the pool, while it has room.
 func give(bs [][]uint64) {
+	defer scratch.Outer().Restore()
 	pool.mu.Lock()
 	for _, b := range bs {
 		if pool.words+len(b) > maxPooledWords {

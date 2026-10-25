@@ -5,6 +5,7 @@ package solve
 import (
 	"selfhost/internal/escape2/domain"
 	"selfhost/internal/escape2/eir"
+	"selfhost/internal/scratch"
 	"selfhost/internal/types2"
 	"selfhost/pu"
 )
@@ -319,6 +320,7 @@ type assertKey struct{ T types2.Type }
 // RecvFilterID is RecvFilter interned in table fs (0: none), memoized
 // there: a join applies it to its members each time it is made.
 func RecvFilterID(fs *domain.Filters, p *eir.Program, cand eir.FuncID, iface bool) domain.FilterID {
+	defer scratch.Outer().Restore()
 	return fs.Memo(pu.Box(recvKey{p, cand, iface}), func() domain.FilterID {
 		if f, ok := RecvFilter(p, cand, iface); ok {
 			return fs.Intern(f)
@@ -333,6 +335,7 @@ func AssertFilterID(fs *domain.Filters, T types2.Type) domain.FilterID {
 	if T == nil {
 		return 0
 	}
+	defer scratch.Outer().Restore()
 	return fs.Memo(pu.Box(assertKey{T}), func() domain.FilterID {
 		if f, ok := AssertFilter(T); ok {
 			return fs.Intern(f)

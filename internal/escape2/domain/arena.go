@@ -19,7 +19,11 @@ package domain
 // and reports in Bytes, only what it took itself. The self-hosted compiler
 // frees nothing, and without the pool held the memory of every solve.
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/matjam/plutonium/internal/scratch"
+)
 
 // PoisonWord is what a checked arena writes over its memory at Reset.
 const PoisonWord uint64 = 0xdeadbeefdeadbeef
@@ -82,6 +86,7 @@ func take(k int) []uint64 {
 	}
 	pool.mu.Unlock()
 	if b == nil {
+		defer scratch.Outer().Restore()
 		return make([]uint64, 1<<k)
 	}
 	clear(b)
@@ -90,6 +95,7 @@ func take(k int) []uint64 {
 
 // give puts blocks made by take into the pool, while it has room.
 func give(bs [][]uint64) {
+	defer scratch.Outer().Restore()
 	pool.mu.Lock()
 	for _, b := range bs {
 		if pool.words+len(b) > maxPooledWords {

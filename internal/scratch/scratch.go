@@ -51,3 +51,18 @@ func Error(err error) error {
 	}
 	return errors.New(String(err.Error()))
 }
+
+// Outer makes the allocator that was current when Do began the current one
+// until Restore is called, so that memory a step adds to state outliving it
+// (a memo table, an interning table, a pool) does not come from scratch
+// memory. Outside a Do's work it changes nothing. Here, where Go's
+// collector frees, it does nothing:
+//
+//	defer scratch.Outer().Restore()
+func Outer() Restorer { return Restorer{} }
+
+// A Restorer puts back the allocator Outer replaced.
+type Restorer struct{}
+
+// Restore puts back the allocator Outer replaced.
+func (Restorer) Restore() {}

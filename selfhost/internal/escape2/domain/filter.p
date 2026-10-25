@@ -6,6 +6,7 @@ import (
 	"pluto/slices"
 	"pluto/strings"
 	"selfhost/compat"
+	"selfhost/internal/scratch"
 	"selfhost/internal/types2"
 	"selfhost/pu"
 )
@@ -154,6 +155,7 @@ func (fs *Filters) Intern(f Filter) FilterID {
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
+	defer scratch.Outer().Restore()
 	return fs.intern(f)
 }
 
@@ -230,6 +232,7 @@ func (fs *Filters) Union(a, b FilterID) FilterID {
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
+	defer scratch.Outer().Restore()
 	if u, ok := fs.union[[2]FilterID{a, b}]; ok {
 		return u
 	}
@@ -269,6 +272,7 @@ func (fs *Filters) coversID(a, b FilterID) bool {
 	if ok {
 		return c
 	}
+	defer scratch.Outer().Restore()
 	c = true
 	for _, x := range fb.Atoms {
 		if !slices.ContainsFunc(fa.Atoms, x.same) {
@@ -382,6 +386,7 @@ func (fs *Filters) Canonical() []FilterID {
 // interns it in fs) the first time: the filter of an assertion's type or
 // of a candidate's receiver, which the solvers ask for at every solve.
 func (fs *Filters) Memo(k any, compute func() FilterID) FilterID {
+	defer scratch.Outer().Restore()
 	fs.mu.Lock()
 	id, ok := fs.memo[k]
 	fs.mu.Unlock()
