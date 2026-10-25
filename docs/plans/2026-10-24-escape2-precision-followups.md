@@ -68,3 +68,15 @@ closure's record stays within the field it names. widenPairs coarsens a
 pair's destination before its source: the source names what the caller's
 view checks follow, and a destination cut to its root still says which
 argument the pointers land in.
+
+## 5. Binary data in strings
+
+The self-hosted compiler's strings hold valid UTF-8: converting a
+`[]byte` to a string replaces invalid bytes with U+FFFD, so two distinct
+binary keys can become equal. The scheduler and defer map keys collided
+this way and are now decimal text (16077a64). The summary cache still
+keeps binary data in strings (cache/file.go `string(e.sum)`,
+cache.go `string(d[:])`, format.go `str()`); it runs only when
+`cache.EnvVar` is set, and should switch to hex or another text form
+before the cache is used under the self-hosted compiler. go2pu could
+warn on `string(b)` of a byte slice built with encoding/binary.
