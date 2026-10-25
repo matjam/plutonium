@@ -163,6 +163,9 @@ func (a *Arena) Allocated() int { return a.bytes }
 // Reset frees everything.
 func (a *Arena) Reset() { a.bytes = 0 }
 
+// Release frees everything; the arena is not used after it.
+func (a *Arena) Release() { a.bytes = 0 }
+
 // Sets is a hash-consing set table.
 type Sets struct {
 	sets  [][]uint64

@@ -159,3 +159,51 @@ func TestParallelRoundReads(t *testing.T) {
 		t.Errorf("b's summary %v lacks a's key: b was not solved again after a grew", res.Summaries[b.f.ID].Esc)
 	}
 }
+
+// TestReleasedArenasUnused checks that no state is read from an arena after
+// the driver released it: with checked arenas, which poison their memory on
+// Release, the analysis is the same as with plain ones. It runs the
+// parallel and the sequential driver, with the memory limit as it is and
+// lowered so that some solves are past it (their workspaces are spares
+// released at once), and with D49 off, as the parallel driver keeps
+// solver states (and releases the dropped ones) only then.
+func TestReleasedArenasUnused(t *testing.T) {
+	if testing.Short() {
+		t.Skip("loads programs")
+	}
+	for _, low := range []bool{false, true} {
+		for _, dir := range []string{"../../../examples/15-interfaces", "../../../examples/22-maps"} {
+			for _, seq := range []bool{false, true} {
+				for _, defer_ := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/low=%v/seq=%v/defer=%v", dir[len("../../../examples/"):], low, seq, defer_), func(t *testing.T) {
+						savedDefer := deferralOn
+						deferralOn = defer_
+						defer func() { deferralOn = savedDefer }()
+						if low {
+							restore := solve.SetLimits(96<<10, solve.MaxFuncSteps)
+							defer restore()
+						}
+						savedSeq := sequential
+						sequential = seq
+						defer func() { sequential = savedSeq }()
+						t.Setenv("PLUTO_ESCAPE2_JOBS", "3")
+						want := analyse(t, dir)
+						saved := newArena
+						newArena = domain.NewCheckedArena
+						defer func() { newArena = saved }()
+						got := analyse(t, dir)
+						if !reflect.DeepEqual(got.findings, want.findings) {
+							t.Fatalf("findings differ with checked arenas")
+						}
+						if !reflect.DeepEqual(got.sums, want.sums) {
+							t.Fatalf("summaries differ with checked arenas")
+						}
+						if !reflect.DeepEqual(got.paths, want.paths) {
+							t.Fatalf("paths differ with checked arenas")
+						}
+					})
+				}
+			}
+		}
+	}
+}

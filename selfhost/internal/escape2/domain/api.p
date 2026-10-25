@@ -331,4 +331,9 @@ type Arena interface {
 	Peak() int
 	// Reset frees everything allocated.
 	Reset()
+	// Release frees everything allocated, as Reset does, and gives the
+	// arena's memory to other arenas: the arena must not be used after it.
+	// The self-hosted compiler has no collector, so an arena dropped
+	// without Release holds its memory until the program ends.
+	Release()
 }

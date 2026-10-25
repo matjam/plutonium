@@ -113,6 +113,8 @@ func (r *retained) drop(id eir.FuncID) {
 		k.ws.Sets.Reset()
 		k.ws.Arena.Reset()
 		r.pool = compat.Append(r.pool, k.ws)
+	} else {
+		k.ws.Arena.Release()
 	}
 }
 
@@ -123,6 +125,9 @@ const maxPooled = 4
 func (r *retained) release() {
 	for id := range r.kept {
 		r.drop(id)
+	}
+	for _, ws := range r.pool {
+		ws.Arena.Release()
 	}
 	r.pool = nil
 	r.peak = 0

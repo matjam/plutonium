@@ -9,9 +9,16 @@ package domain
 //
 //   - every Reset starts a new epoch, and a Sets table on the arena makes IDs
 //     that carry their epoch, so an old SetID panics when used;
-//   - an arena made by NewCheckedArena never reuses memory: Reset fills every
-//     word it handed out with PoisonWord and drops it, so a slice kept past
-//     Reset reads poison instead of another SCC's data.
+//   - an arena made by NewCheckedArena never reuses memory: Reset and Release
+//     fill every word it handed out with PoisonWord and drop it, so a slice
+//     kept past them reads poison instead of another SCC's data.
+//
+// Release gives an arena's chunks to a pool that every arena takes new
+// chunks from, cleared. An arena made fresh for each solve then reuses the
+// memory of the solves before it, and still holds, and reports in Bytes,
+// only the chunks it took itself.
+
+import "sync"
 
 // PoisonWord is what a checked arena writes over its memory at Reset.
 const PoisonWord uint64 = 0xdeadbeefdeadbeef
@@ -40,6 +47,31 @@ func NewArena() Arena { return &arena{} }
 // at Reset, for tests that a client keeps nothing past a Reset.
 func NewCheckedArena() Arena { return &arena{checked: true} }
 
+// chunkPool holds the chunks of released arenas, at most maxPooledChunks.
+var chunkPool struct {
+	mu     sync.Mutex
+	chunks [][]uint64
+}
+
+// maxPooledChunks bounds the pool: 4096 chunks of 64 KiB.
+const maxPooledChunks = 4096
+
+// newChunk returns a zeroed chunk, from the pool if it has one.
+func newChunk() []uint64 {
+	chunkPool.mu.Lock()
+	var c []uint64
+	if n := len(chunkPool.chunks); n > 0 {
+		c = chunkPool.chunks[n-1]
+		chunkPool.chunks = chunkPool.chunks[:n-1]
+	}
+	chunkPool.mu.Unlock()
+	if c == nil {
+		return make([]uint64, chunkWords)
+	}
+	clear(c)
+	return c
+}
+
 func (a *arena) Alloc(n int) []uint64 {
 	if n < 0 {
 		panic("escape2/domain: Alloc: negative size")
@@ -57,7 +89,7 @@ func (a *arena) Alloc(n int) []uint64 {
 	}
 	if a.used == 0 || a.pos+n > chunkWords {
 		if a.used == len(a.chunks) {
-			a.chunks = append(a.chunks, make([]uint64, chunkWords))
+			a.chunks = append(a.chunks, newChunk())
 			a.notePeak()
 		} else {
 			clear(a.chunks[a.used])
@@ -96,6 +128,21 @@ func (a *arena) Reset() {
 	a.used, a.pos, a.alloc = 0, 0, 0
 	a.big, a.bigSize = nil, 0
 	a.epoch++
+}
+
+func (a *arena) Release() {
+	if !a.checked {
+		chunkPool.mu.Lock()
+		for _, c := range a.chunks {
+			if len(chunkPool.chunks) < maxPooledChunks {
+				chunkPool.chunks = append(chunkPool.chunks, c)
+			}
+		}
+		chunkPool.mu.Unlock()
+		a.chunks = nil
+	}
+	a.Reset()
+	a.chunks = nil
 }
 
 func poison(s []uint64) {

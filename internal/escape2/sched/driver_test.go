@@ -30,6 +30,7 @@ func (fakePaths) Len() int { return 1 }
 type fakeArena struct {
 	bytes, peak, resets int
 	fresh               int // new arenas: the fake newArena gives this one, emptied
+	releases            int
 }
 
 func (a *fakeArena) Alloc(n int) []uint64 {
@@ -43,6 +44,7 @@ func (a *fakeArena) Bytes() int     { return a.bytes }
 func (a *fakeArena) Peak() int      { return a.peak }
 func (a *fakeArena) Allocated() int { return a.bytes }
 func (a *fakeArena) Reset()         { a.bytes = 0; a.resets++ }
+func (a *fakeArena) Release()       { a.bytes = 0; a.releases++ }
 
 type fakeSets struct{ a *fakeArena }
 

@@ -269,6 +269,9 @@ type outcome struct {
 	kept     *keptSolve // the state to keep, if any
 	resumed  bool
 	ownWS    int // the bytes of the workspace of its own a solve used, if any
+	// spare is that workspace's arena when the state was not kept, for run
+	// to release.
+	spare domain.Arena
 }
 
 // run solves one task.
@@ -311,6 +314,13 @@ func (w *worker) run(t task) outcome {
 	if o.ownWS > 0 {
 		o.arenaB, o.setsB = o.ownWS, 0
 	}
+	// Nothing of the outcome is in the workspace (the summary is cloned),
+	// so its memory goes to the next solve's.
+	w.arena.Release()
+	if o.spare != nil {
+		o.spare.Release()
+		o.spare = nil
+	}
 	w.ov = nil
 	return o
 }
@@ -344,10 +354,13 @@ func (w *worker) solve(t task, f *eir.Func, o *outcome) solve.Result {
 	r, st := solveKeepFunc(f, w, ws)
 	o.ownWS = ws.Arena.Bytes() + ws.Sets.Bytes()
 	if r.Limit != nil {
+		o.spare = a
 		return limitResult(f, w)
 	}
 	if len(w.ov.parent) == 0 {
 		o.kept = pu.New(keptSolve{ws: ws, st: st, bytes: st.Bytes()})
+	} else {
+		o.spare = a
 	}
 	return r
 }
@@ -365,6 +378,10 @@ type keptStates struct {
 	m     map[eir.FuncID]*keptSolve
 	bytes int
 	peak  int
+	// dropped are the states dropped in the commit, released after it
+	// (flush) unless kept again: a resumed state is kept as itself, and
+	// may be put after the budget dropped it earlier in the commit.
+	dropped []*keptSolve
 }
 
 func (ks *keptStates) put(id eir.FuncID, k *keptSolve, solves map[eir.FuncID]int) {
@@ -393,7 +410,26 @@ func (ks *keptStates) drop(id eir.FuncID) {
 	if k := ks.m[id]; k != nil {
 		ks.bytes -= k.bytes
 		delete(ks.m, id)
+		ks.dropped = compat.Append(ks.dropped, k)
 	}
+}
+
+// flush releases the workspaces of the dropped states not kept again.
+func (ks *keptStates) flush() {
+	if len(ks.dropped) == 0 {
+		return
+	}
+	live := make(map[*keptSolve]bool, len(ks.m))
+	for _, k := range ks.m {
+		live[k] = true
+	}
+	for _, k := range ks.dropped {
+		if !live[k] {
+			live[k] = true // released once
+			k.ws.Arena.Release()
+		}
+	}
+	ks.dropped = ks.dropped[:0]
 }
 
 // sccRun is the state of an SCC in the parallel driver.
@@ -508,6 +544,7 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 	}
 
 	for len(active) > 0 {
+		ks.flush()
 		// The round's tasks, in SCC order and member order.
 		sortRuns(active)
 		var tasks []task
@@ -658,6 +695,7 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 			start(ci)
 		}
 	}
+	ks.flush()
 	for ci, d := range pf.done {
 		if !d {
 			// Name a callee SCC that was not done either, and how many of
