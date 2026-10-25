@@ -26,14 +26,16 @@ func SimplifyCFG(f *ssa.Func) {
 			verifyStep(f, "foldConstBranch")
 			changed = true
 		}
-		step = false
+		// Merges and skips are made in one sweep each: one per round made
+		// the pass quadratic in the number of blocks.
+		var merged []*ssa.Block
 		for _, b := range f.Blocks {
 			if mergeIntoPred(f, b) {
-				step = true
-				break // f.Blocks changed
+				merged = compat.Append(merged, b)
 			}
 		}
-		if step {
+		if merged != nil {
+			dropBlocks(f, merged)
 			verifyStep(f, "mergeIntoPred")
 			changed = true
 		}
@@ -41,7 +43,6 @@ func SimplifyCFG(f *ssa.Func) {
 		for _, b := range f.Blocks {
 			if skipEmpty(f, b) {
 				step = true
-				break
 			}
 		}
 		if step {
@@ -148,15 +149,26 @@ func mergeIntoPred(f *ssa.Func, b *ssa.Block) bool {
 		s.Preds[e.I] = ssa.Edge{B: p, I: len(p.Succs) - 1}
 		b.Succs = b.Succs[1:]
 	}
-	// b is now empty and unreachable: drop it.
-	for i, x := range f.Blocks {
-		if x == b {
-			f.Blocks = compat.Append(f.Blocks[:i], f.Blocks[i+1:]...)
-			break
-		}
-	}
+	// b is now empty and unreachable; the caller drops it.
 	f.InvalidateCFG()
 	return true
+}
+
+// dropBlocks removes the blocks bs from f.Blocks, keeping the order of the
+// rest.
+func dropBlocks(f *ssa.Func, bs []*ssa.Block) {
+	drop := compat.Make[bool](f.NumBlocks())
+	for _, b := range bs {
+		drop[b.ID] = true
+	}
+	live := f.Blocks[:0]
+	for _, b := range f.Blocks {
+		if !drop[b.ID] {
+			live = compat.Append(live, b)
+		}
+	}
+	clear(f.Blocks[len(live):])
+	f.Blocks = live
 }
 
 // skipEmpty redirects predecessors of an empty block that only jumps on,
@@ -166,7 +178,9 @@ func skipEmpty(f *ssa.Func, b *ssa.Block) bool {
 		return false
 	}
 	target := b.Succs[0].B
-	if target == b || hasPhis(target) {
+	// A target with no preds was skipped earlier in the same sweep and is
+	// dead; forwarding into it would revive it.
+	if target == b || hasPhis(target) || len(target.Preds) == 0 {
 		return false
 	}
 	for _, e := range compat.Append([]ssa.Edge(nil), b.Preds...) {
