@@ -578,11 +578,17 @@ func (c *Cmd) pump(out, errOut sink) error {
 					continue
 				}
 				if m > 0 {
-					s := out
+					// Each sink is written through its own name: a
+					// sink chosen into one variable would join the
+					// two, and a Vec's store into itself would read as
+					// a store of one sink's buffer into the other.
+					var werr error
 					if fd == c.err {
-						s = errOut
+						werr = errOut.write(buf[:m])
+					} else {
+						werr = out.write(buf[:m])
 					}
-					if werr := s.write(buf[:m]); werr != nil && firstErr == nil {
+					if werr != nil && firstErr == nil {
 						firstErr = werr
 					}
 				}

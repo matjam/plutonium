@@ -46,3 +46,25 @@ keys (rootKey) is coarser than the escapes were. It needs a store-pair
 widening that keeps a pair of one input within that input (a cut that
 leaves both keys on the input's own memory, never turning into an escape)
 before it can land.
+
+## 3. Self-stores through a joined value
+
+A callee that stores memory loaded through its input back into that same
+input (`(*vec.Vec).Append` stores `v.data`'s buffer into `*v`) has the
+pair `in0[L] -> in0[]`. When the caller passes a local that joins two
+values (`s := out; if c { s = errOut }; s.write(p)`), the pair becomes the
+product `out -> errOut`, `errOut -> out` and so on, and internal/moves
+reports a view stored into the other value (E3314), though each value
+only ever holds its own buffer. os/exec's pump now writes each sink
+through its own name. A fix in the analysis would keep the pair
+relational: a store whose source and destination name the same joined
+local applies to each member alone.
+
+## 4. Widening order
+
+widenKeys cuts through the second load before the first (cutTwo, then
+cutKey, then the root, then the filters), so an escape within a captured
+closure's record stays within the field it names. widenPairs coarsens a
+pair's destination before its source: the source names what the caller's
+view checks follow, and a destination cut to its root still says which
+argument the pointers land in.
