@@ -660,7 +660,17 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 	}
 	for ci, d := range pf.done {
 		if !d {
-			panic(pu.Box(compat.Sprintfb("internal compiler error: escape2: SCC %d was never solved", compat.ArgI(int64(ci)))))
+			// Name a callee SCC that was not done either, and how many of
+			// them its count still waited for.
+			undone := -1
+			for _, id := range comps[ci] {
+				for _, dep := range g.deps[id] {
+					if dc := pf.scc[dep]; dc >= 0 && dc != int32(ci) && !pf.done[dc] {
+						undone = int(dc)
+					}
+				}
+			}
+			panic(pu.Box(compat.Sprintfb("internal compiler error: escape2: SCC %d (%s, %d functions) was never solved: waiting for %d callee SCCs; undone callee %d", compat.ArgI(int64(ci)), compat.ArgS(p.Funcs[comps[ci][0]].Name), compat.ArgI(int64(len(comps[ci]))), compat.ArgI(int64(preds[ci])), compat.ArgI(int64(undone)))))
 		}
 	}
 }

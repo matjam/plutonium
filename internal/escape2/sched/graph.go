@@ -1,7 +1,7 @@
 package sched
 
 import (
-	"encoding/binary"
+	"strconv"
 
 	"github.com/matjam/plutonium/internal/escape2/eir"
 )
@@ -80,9 +80,13 @@ func buildGraphD(p *eir.Program, rule dispatchRule, def *deferral) *callGraph {
 						edge(int32(ids[0]))
 						continue
 					}
+					// The key is text: the self-hosted compiler's strings
+					// hold valid UTF-8, and its conversion of other bytes
+					// would make distinct keys equal.
 					key = key[:0]
 					for _, id := range ids {
-						key = binary.LittleEndian.AppendUint32(key, uint32(id))
+						key = strconv.AppendInt(key, int64(id), 10)
+						key = append(key, ' ')
 					}
 					d, ok := dispatch[string(key)]
 					if !ok {

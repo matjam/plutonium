@@ -1,7 +1,7 @@
 package sched
 
 import (
-	"encoding/binary"
+	"strconv"
 
 	"github.com/matjam/plutonium/internal/escape2/domain"
 	"github.com/matjam/plutonium/internal/escape2/eir"
@@ -56,12 +56,16 @@ func (v *virtuals) of(ids []eir.FuncID, iface bool) []eir.FuncID {
 			return ids
 		}
 	}
-	key := make([]byte, 0, 4*len(ids)+1)
+	// The key is text: the self-hosted compiler's strings hold valid
+	// UTF-8, and its conversion of other bytes would make distinct keys
+	// equal.
+	key := make([]byte, 0, 8*len(ids)+1)
 	if iface {
-		key = append(key, 1)
+		key = append(key, 'i')
 	}
 	for _, id := range ids {
-		key = binary.LittleEndian.AppendUint32(key, uint32(id))
+		key = strconv.AppendInt(key, int64(id), 10)
+		key = append(key, ' ')
 	}
 	if vid, ok := v.index[string(key)]; ok {
 		return []eir.FuncID{vid}

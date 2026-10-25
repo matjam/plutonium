@@ -82,9 +82,13 @@ func buildGraphD(p *eir.Program, rule dispatchRule, def *deferral) *callGraph {
 						edge(int32(ids[0]))
 						continue
 					}
+					// The key is text: the self-hosted compiler's strings
+					// hold valid UTF-8, and its conversion of other bytes
+					// would make distinct keys equal.
 					key = key[:0]
 					for _, id := range ids {
-						key = compat.AppendUint32(key, uint32(id))
+						key = compat.AppendInt(key, int64(id), 10)
+						key = compat.AppendPlain(key, ' ')
 					}
 					d, ok := dispatch[compat.String(key)]
 					if !ok {

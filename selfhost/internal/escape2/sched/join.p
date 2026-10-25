@@ -58,12 +58,16 @@ func (v *virtuals) of(ids []eir.FuncID, iface bool) []eir.FuncID {
 			return ids
 		}
 	}
-	key := compat.MakeCap[byte](0, 4*len(ids)+1)
+	// The key is text: the self-hosted compiler's strings hold valid
+	// UTF-8, and its conversion of other bytes would make distinct keys
+	// equal.
+	key := compat.MakeCap[byte](0, 8*len(ids)+1)
 	if iface {
-		key = compat.AppendPlain(key, 1)
+		key = compat.AppendPlain(key, 'i')
 	}
 	for _, id := range ids {
-		key = compat.AppendUint32(key, uint32(id))
+		key = compat.AppendInt(key, int64(id), 10)
+		key = compat.AppendPlain(key, ' ')
 	}
 	if vid, ok := v.index[compat.String(key)]; ok {
 		return compat.Clone([]eir.FuncID{vid})

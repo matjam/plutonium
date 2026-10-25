@@ -550,13 +550,17 @@ func deferredOnly(d summary.Deferred, i int) bool {
 func (s *solver) argNode(a summary.DeferredArg, bind []uint64) uint32 {
 	// The key: the (node, key) pairs, and a last byte for Heap. The lookup
 	// converts the reused buffer without allocating; only a new key is
-	// copied.
+	// copied. It is text: the self-hosted compiler's strings hold valid
+	// UTF-8, and its conversion of other bytes would make distinct keys
+	// equal.
 	b := s.argBuf[:0]
 	for _, k := range a.Keys {
 		i := k.Input()
 		if i < len(bind) && bind[i] != 0 {
-			b = compat.AppendUint64(b, bind[i])
-			b = compat.AppendUint64(b, uint64(k))
+			b = compat.AppendInt(b, int64(bind[i]), 10)
+			b = compat.AppendPlain(b, ',')
+			b = compat.AppendInt(b, int64(k), 10)
+			b = compat.AppendPlain(b, ' ')
 		}
 	}
 	if a.Heap {
