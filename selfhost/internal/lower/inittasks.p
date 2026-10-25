@@ -17,13 +17,14 @@ import (
 // start, for example, follows its lock acquisition.
 func (l *Lowerer) checkInitTasks(g *callGraph) {
 	skip := map[*ssa.Sym]bool{}
+	free := map[*ssa.Sym]bool{} // reach no spawn (outside skip)
 	for _, r := range l.initRoots {
 		skip[r.sym] = true
 	}
 	for _, r := range l.initRoots {
 		root := pu.New(ctxNode{sym: r.sym})
 		if r.decl != nil {
-			if n, last, op := g.searchSpawn(root, skip); n != nil {
+			if n, last, op := g.searchSpawn(root, skip, free); n != nil {
 				l.reportInitTask(g, r, n, last, op)
 			}
 			continue
@@ -43,7 +44,7 @@ func (l *Lowerer) checkInitTasks(g *callGraph) {
 				done[v] = true
 				continue
 			}
-			if n, last, op := g.searchSpawn(pu.New(ctxNode{sym: h.to, via: h, parent: root}), skip); n != nil {
+			if n, last, op := g.searchSpawn(pu.New(ctxNode{sym: h.to, via: h, parent: root}), skip, free); n != nil {
 				l.reportInitTask(g, r, n, last, op)
 				done[v] = true
 			}
@@ -51,12 +52,21 @@ func (l *Lowerer) checkInitTasks(g *callGraph) {
 	}
 }
 
-func (g *callGraph) searchSpawn(start *ctxNode, skip map[*ssa.Sym]bool) (*ctxNode, *hop, *blockOp) {
+// searchSpawn finds the nearest spawn reachable from start, not passing
+// through skip. A search that finds none proves every function it visited
+// spawn-free, so later searches prune those through free; that leaves
+// their results unchanged.
+func (g *callGraph) searchSpawn(start *ctxNode, skip, free map[*ssa.Sym]bool) (*ctxNode, *hop, *blockOp) {
+	if free[start.sym] {
+		return nil, nil, nil
+	}
 	seen := map[*ssa.Sym]bool{start.sym: true}
 	queue := []*ctxNode{start}
+	var visited []*ssa.Sym
 	for len(queue) > 0 {
 		n := queue[0]
 		queue = queue[1:]
+		visited = compat.Append(visited, n.sym)
 		if fb, ok := g.l.bodies[n.sym]; ok {
 			for _, goop := range blockingOps(fb) {
 				op := pu.New(goop)
@@ -71,12 +81,15 @@ func (g *callGraph) searchSpawn(start *ctxNode, skip map[*ssa.Sym]bool) (*ctxNod
 			if isSpawn(h.to) {
 				return n, h, nil
 			}
-			if skip[h.to] || seen[h.to] {
+			if skip[h.to] || seen[h.to] || free[h.to] {
 				continue
 			}
 			seen[h.to] = true
 			queue = compat.Append(queue, pu.New(ctxNode{sym: h.to, via: h, parent: n}))
 		}
+	}
+	for _, s := range visited {
+		free[s] = true
 	}
 	return nil, nil, nil
 }
