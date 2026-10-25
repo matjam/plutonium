@@ -267,7 +267,7 @@ func isExternalDecl(fd *ast.FuncDecl) bool {
 	}
 	for _, c := range fd.Doc.List {
 		for _, d := range []string{"//pu:export", "//pu:interrupt", "//pu:panic"} {
-			if len(c.Text) >= len(d) && c.Text[:len(d)] == d {
+			if strings.HasPrefix(c.Text, d) {
 				return true
 			}
 		}
