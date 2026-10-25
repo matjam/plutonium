@@ -208,8 +208,6 @@ func liveness(f *MFunc) []regSet {
 // ----------------------------------------------------------------------------
 // Iterated register coalescing
 
-type edge struct{ a, b Reg }
-
 type allocator struct {
 	f      *MFunc
 	class  RegClass
@@ -236,7 +234,7 @@ type allocator struct {
 	moveOrder map[*MInst]int
 	pending   intHeap
 
-	adjSet    map[edge]bool
+	adjSet    interference
 	adjList   map[Reg][]Reg
 	degree    map[Reg]int
 	moveList  map[Reg][]*MInst
@@ -244,6 +242,11 @@ type allocator struct {
 	color     map[Reg]Reg
 	cost      map[Reg]float64
 	spillTemp map[Reg]bool // registers created by spilling: never spill again
+
+	// conservative's record of the nodes it has counted: those whose stamp
+	// is gen.
+	stamp map[Reg]uint32
+	gen   uint32
 }
 
 // allocate assigns physical registers to every virtual register in f,
@@ -290,9 +293,9 @@ func newAllocator(f *MFunc, class RegClass, spillTemps map[Reg]bool) *allocator 
 		coalesced: map[Reg]bool{}, colored: map[Reg]bool{}, onStack: map[Reg]bool{},
 		coalescedMoves: map[*MInst]bool{}, constrainedMoves: map[*MInst]bool{}, frozenMoves: map[*MInst]bool{},
 		worklistMoves: map[*MInst]bool{}, activeMoves: map[*MInst]bool{}, moveOrder: map[*MInst]int{},
-		adjSet: map[edge]bool{}, adjList: map[Reg][]Reg{}, degree: map[Reg]int{},
+		adjSet: newInterference(f.numRegIndexes()), adjList: map[Reg][]Reg{}, degree: map[Reg]int{},
 		moveList: map[Reg][]*MInst{}, alias: map[Reg]Reg{}, color: map[Reg]Reg{}, cost: map[Reg]float64{},
-		spillTemp: spillTemps,
+		spillTemp: spillTemps, stamp: map[Reg]uint32{},
 	}
 	for r := Reg(0); r < NumPhys; r++ {
 		if r.PhysClass() == class {
@@ -309,14 +312,68 @@ func newAllocator(f *MFunc, class RegClass, spillTemps map[Reg]bool) *allocator 
 	return a
 }
 
+func (a *allocator) interferes(u, v Reg) bool {
+	return a.adjSet.has(a.f.regIndex(u), a.f.regIndex(v))
+}
+
+// interference is the symmetric interference relation over register
+// indexes: a triangular bit matrix, or for functions with very many
+// registers a map of the pairs.
+type interference struct {
+	bits []uint64
+	big  map[[2]int]bool
+}
+
+// maxMatrixRegs bounds the registers of a bit matrix to 1 MiB of bits.
+const maxMatrixRegs = 4096
+
+func newInterference(n int) interference {
+	if n <= maxMatrixRegs {
+		return interference{bits: make([]uint64, (n*(n+1)/2+63)/64)}
+	}
+	return interference{big: map[[2]int]bool{}}
+}
+
+func triangle(i, j int) int {
+	if i < j {
+		i, j = j, i
+	}
+	return i*(i+1)/2 + j
+}
+
+func (s *interference) has(i, j int) bool {
+	if s.big != nil {
+		return s.big[[2]int{min(i, j), max(i, j)}]
+	}
+	k := triangle(i, j)
+	return s.bits[k/64]&(1<<(k%64)) != 0
+}
+
+// add records that i and j interfere and reports whether that is new.
+func (s *interference) add(i, j int) bool {
+	if s.big != nil {
+		key := [2]int{min(i, j), max(i, j)}
+		if s.big[key] {
+			return false
+		}
+		s.big[key] = true
+		return true
+	}
+	k := triangle(i, j)
+	w, b := k/64, uint64(1)<<(k%64)
+	if s.bits[w]&b != 0 {
+		return false
+	}
+	s.bits[w] |= b
+	return true
+}
+
 func (a *allocator) inClass(r Reg) bool { return a.f.classOf(r) == a.class && r != RSP }
 
 func (a *allocator) addEdge(u, v Reg) {
-	if u == v || a.adjSet[edge{u, v}] {
+	if u == v || !a.adjSet.add(a.f.regIndex(u), a.f.regIndex(v)) {
 		return
 	}
-	a.adjSet[edge{u, v}] = true
-	a.adjSet[edge{v, u}] = true
 	if !a.precolored[u] {
 		a.adjList[u] = append(a.adjList[u], v)
 		a.degree[u]++
@@ -426,15 +483,10 @@ func (a *allocator) makeWorklist() {
 	}
 }
 
-func (a *allocator) adjacent(n Reg) []Reg {
-	var out []Reg
-	for _, m := range a.adjList[n] {
-		if !a.onStack[m] && !a.coalesced[m] {
-			out = append(out, m)
-		}
-	}
-	return out
-}
+// adjacent reports whether m, a neighbour in an adjacency list, is still
+// in the graph: the Adjacent set of Appel's algorithm is the members of
+// adjList[n] for which it holds.
+func (a *allocator) adjacent(m Reg) bool { return !a.onStack[m] && !a.coalesced[m] }
 
 func (a *allocator) nodeMoves(n Reg) []*MInst {
 	var out []*MInst
@@ -472,8 +524,10 @@ func (a *allocator) simplify() {
 	delete(a.simplifyWL, n)
 	a.selectStack = append(a.selectStack, n)
 	a.onStack[n] = true
-	for _, m := range a.adjacent(n) {
-		a.decrementDegree(m)
+	for _, m := range a.adjList[n] {
+		if a.adjacent(m) {
+			a.decrementDegree(m)
+		}
 	}
 }
 
@@ -484,7 +538,12 @@ func (a *allocator) decrementDegree(m Reg) {
 	d := a.degree[m]
 	a.degree[m] = d - 1
 	if d == a.k {
-		a.enableMoves(append(a.adjacent(m), m))
+		for _, t := range a.adjList[m] {
+			if a.adjacent(t) {
+				a.enableMovesOf(t)
+			}
+		}
+		a.enableMovesOf(m)
 		delete(a.spillWL, m)
 		if a.moveRelated(m) {
 			a.freezeWL[m] = true
@@ -496,11 +555,15 @@ func (a *allocator) decrementDegree(m Reg) {
 
 func (a *allocator) enableMoves(nodes []Reg) {
 	for _, n := range nodes {
-		for _, m := range a.moveList[n] {
-			if a.activeMoves[m] {
-				delete(a.activeMoves, m)
-				a.addWorklistMove(m)
-			}
+		a.enableMovesOf(n)
+	}
+}
+
+func (a *allocator) enableMovesOf(n Reg) {
+	for _, m := range a.moveList[n] {
+		if a.activeMoves[m] {
+			delete(a.activeMoves, m)
+			a.addWorklistMove(m)
 		}
 	}
 }
@@ -521,20 +584,22 @@ func (a *allocator) addWorkList(u Reg) {
 
 // ok is George's test: t can merge into precolored r.
 func (a *allocator) ok(t, r Reg) bool {
-	return a.degree[t] < a.k || a.precolored[t] || a.adjSet[edge{t, r}]
+	return a.degree[t] < a.k || a.precolored[t] || a.interferes(t, r)
 }
 
-// conservative is Briggs's test.
-func (a *allocator) conservative(nodes []Reg) bool {
+// conservative is Briggs's test on the neighbours of u and v.
+func (a *allocator) conservative(u, v Reg) bool {
+	a.gen++
 	k := 0
-	seen := map[Reg]bool{}
-	for _, n := range nodes {
-		if seen[n] {
-			continue
-		}
-		seen[n] = true
-		if a.degree[n] >= a.k {
-			k++
+	for _, list := range [2][]Reg{a.adjList[u], a.adjList[v]} {
+		for _, n := range list {
+			if !a.adjacent(n) || a.stamp[n] == a.gen {
+				continue
+			}
+			a.stamp[n] = a.gen
+			if a.degree[n] >= a.k {
+				k++
+			}
 		}
 	}
 	return k < a.k
@@ -609,11 +674,11 @@ func (a *allocator) coalesce() {
 	case u == v:
 		a.coalescedMoves[m] = true
 		a.addWorkList(u)
-	case a.precolored[v] || a.adjSet[edge{u, v}]:
+	case a.precolored[v] || a.interferes(u, v):
 		a.constrainedMoves[m] = true
 		a.addWorkList(u)
 		a.addWorkList(v)
-	case a.precolored[u] && a.allOK(v, u), !a.precolored[u] && a.conservative(append(a.adjacent(u), a.adjacent(v)...)):
+	case a.precolored[u] && a.allOK(v, u), !a.precolored[u] && a.conservative(u, v):
 		a.coalescedMoves[m] = true
 		a.combine(u, v)
 		a.addWorkList(u)
@@ -623,8 +688,8 @@ func (a *allocator) coalesce() {
 }
 
 func (a *allocator) allOK(v, u Reg) bool {
-	for _, t := range a.adjacent(v) {
-		if !a.ok(t, u) {
+	for _, t := range a.adjList[v] {
+		if a.adjacent(t) && !a.ok(t, u) {
 			return false
 		}
 	}
@@ -640,10 +705,12 @@ func (a *allocator) combine(u, v Reg) {
 	a.coalesced[v] = true
 	a.alias[v] = u
 	a.moveList[u] = append(a.moveList[u], a.moveList[v]...)
-	a.enableMoves([]Reg{v})
-	for _, t := range a.adjacent(v) {
-		a.addEdge(t, u)
-		a.decrementDegree(t)
+	a.enableMovesOf(v)
+	for _, t := range a.adjList[v] {
+		if a.adjacent(t) {
+			a.addEdge(t, u)
+			a.decrementDegree(t)
+		}
 	}
 	if a.degree[u] >= a.k && a.freezeWL[u] {
 		delete(a.freezeWL, u)
