@@ -11,11 +11,8 @@ import (
 // when it is unset or "old", the analysis being rebuilt in internal/escape2
 // for "new", and both for "both", which keeps the old verdict and reports
 // every program and error site where the two differ (on standard error,
-// and appended to the file PLUTO_ESCAPE_DIFF names).
-//
-// The self-hosted compiler runs internal/escape alone: its translation of
-// this file is written by hand (selfhost/internal/build/escapemode.p, which
-// says why).
+// and appended to the file PLUTO_ESCAPE_DIFF names). The self-hosted
+// compiler links both, from go2pu's translation of this file.
 func analyzeEscapes(prog *load.Program) (*escape.Calls, error) {
 	mode, err := escape2.ModeFromEnv()
 	if err != nil {
