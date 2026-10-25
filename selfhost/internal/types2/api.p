@@ -207,12 +207,21 @@ type Config struct {
 	// DefaultMaxNesting, which matches the parser's own limit.
 	MaxNesting int
 
-	// Plutonium: if StackCheck != nil, it is called every few levels of
+	// Plutonium: if StackCheck != nil, its StackOK is called every few levels of
 	// nesting and reports whether enough stack remains to go deeper; when
 	// it returns false the construct is reported as nested too deeply. A
 	// compiler running on a fixed stack sets it from pluto/rt.StackLeft;
 	// the Go-hosted compiler, whose stacks grow, leaves it nil.
-	StackCheck func() bool
+	StackCheck StackChecker
+}
+
+// StackChecker is the type of Config.StackCheck. It is an interface rather
+// than a func value so that escape analysis, which reaches every func value
+// of a signature through a func loaded from memory, reaches only the types
+// the program makes a StackChecker of.
+type StackChecker interface {
+	// StackOK reports whether enough stack remains to go deeper.
+	StackOK() bool
 }
 
 // DefaultMaxNesting is the nesting limit when Config.MaxNesting is 0: the

@@ -23,7 +23,7 @@ func (check *Checker) enter(e ast.Expr) bool {
 	}
 	tooDeep := check.nesting >= limit
 	if !tooDeep && check.conf.StackCheck != nil && check.nesting%stackCheckEvery == stackCheckEvery-1 {
-		tooDeep = !check.conf.StackCheck()
+		tooDeep = !check.conf.StackCheck.StackOK()
 	}
 	if tooDeep {
 		if !check.nestingAt {

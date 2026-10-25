@@ -44,9 +44,9 @@ func TestNestingLimit(t *testing.T) {
 		{"both over limit", deepExpr + deepType[len("package p\n"):], types2.Config{MaxNesting: 100}, 1},
 		{"under limit", shallow, types2.Config{MaxNesting: 100}, 0},
 		{"default limit", deepExpr, types2.Config{}, 0},
-		{"stack check stops", deepExpr, types2.Config{StackCheck: func() bool { return false }}, 1},
-		{"stack check allows", deepExpr, types2.Config{StackCheck: func() bool { return true }}, 0},
-		{"stack check on types", deepType, types2.Config{StackCheck: func() bool { return false }}, 1},
+		{"stack check stops", deepExpr, types2.Config{StackCheck: stackStop{}}, 1},
+		{"stack check allows", deepExpr, types2.Config{StackCheck: stackAllow{}}, 0},
+		{"stack check on types", deepType, types2.Config{StackCheck: stackStop{}}, 1},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			errs := checkWith(t, c.conf, c.src)
@@ -64,3 +64,13 @@ func TestNestingLimit(t *testing.T) {
 		})
 	}
 }
+
+// stackStop and stackAllow are StackCheckers that report the stack as
+// running out and as never running out.
+type (
+	stackStop  struct{}
+	stackAllow struct{}
+)
+
+func (stackStop) StackOK() bool  { return false }
+func (stackAllow) StackOK() bool { return true }
