@@ -58,6 +58,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/load"
@@ -111,7 +112,24 @@ func AnalyzeWith(prog *load.Program, mv *moves.Info) (scoped.Overlaps, error) {
 		// One task alone cannot race.
 		return nil, nil
 	}
+	// The type rule is asked only about the types that crossing values
+	// reach, and recording the uses of every type's fields, through every
+	// caller, costs more than the rest of the analysis together. So the
+	// first analysis records none; when values that reach struct types
+	// cross, the program is analysed again recording those types' fields.
+	a.keyTypes = map[string]bool{}
 	a.run()
+	if need := a.crossTypes(); len(need) > 0 {
+		if debug {
+			fmt.Fprintf(os.Stderr, "race: %d types cross; analysing again\n", len(need))
+		}
+		a = newAnalyzer(prog)
+		a.moves = mv
+		a.keyTypes = need
+		a.callGraph()
+		a.mayStartTasks()
+		a.run()
+	}
 	if debug {
 		fmt.Fprintf(os.Stderr, "race: summaries done; checking\n")
 	}
@@ -188,8 +206,8 @@ type analyzer struct {
 	capSites map[capSite]bool
 	// applyMemo holds what each call instantiated at the last walk.
 	applyMemo map[applyKey]*applyMemo
-	prog *load.Program
-	fset *token.FileSet
+	prog      *load.Program
+	fset      *token.FileSet
 
 	scoped *scoped.Info // the scoped tasks of sync.Scope (scope.go)
 	moves  *moves.Info  // what moves, for the uses of scoped tasks
@@ -218,9 +236,13 @@ type analyzer struct {
 	units               []*unit
 	byName              map[string][]*function // methods by name
 	values              []*function            // functions and literals used as values
-	valuesAt            map[*unit][]*function  // the values each unit makes (mayStartTasks)
-	program             *function
-	inits               []*function
+	// globalFuncs holds, for a package variable of func type whose address
+	// is never taken and to which every store is a function or literal,
+	// the functions it may hold: a call through it reaches only those.
+	globalFuncs map[*types2.Var][]*function
+	valuesAt    map[*unit][]*function // the values each unit makes (mayStartTasks)
+	program     *function
+	inits       []*function
 
 	// Per-CPU variables and regions (region.go).
 	cpuOn       bool                   // the program has a per-CPU variable outside the runtime
@@ -262,8 +284,11 @@ type analyzer struct {
 	crossMaps    map[int]bool                        // map type numbers a crossing value reaches (checkMaps)
 	tpArgs       map[*types2.TypeParam][]types2.Type // the type arguments each type parameter is instantiated with
 	typeAcc      map[string][]*typeAccess            // uses of each field of objects, for the type rule
-	typeSeen     map[typeSeenKey]bool
-	resultNodes  map[resultKey]ast.Node // the memory a call's fresh results are
+	// keyTypes are the types whose fields' uses the type rule records,
+	// by typeKey; nil records every type's (typerule.go, crossTypes).
+	keyTypes    map[string]bool
+	typeSeen    map[typeSeenKey]bool
+	resultNodes map[resultKey]ast.Node // the memory a call's fresh results are
 
 	errs    diag.List
 	errSeen map[string]bool
@@ -376,6 +401,7 @@ func newAnalyzer(prog *load.Program) *analyzer {
 		}
 	}
 	a.scanValues()
+	a.scanGlobalFuncs()
 	a.scanPerCPU()
 	return a
 }
@@ -469,6 +495,125 @@ func (a *analyzer) scanValues() {
 				})
 			}
 		}
+	}
+}
+
+// scanGlobalFuncs fills globalFuncs: the package variables of func type
+// whose every store, in its declaration or an assignment anywhere in the
+// program, names a function or a literal, and whose address is never
+// taken, with the functions stored.
+func (a *analyzer) scanGlobalFuncs() {
+	a.globalFuncs = map[*types2.Var][]*function{}
+	bad := map[*types2.Var]bool{}
+	pkgVar := func(info *types2.Info, e ast.Expr) *types2.Var {
+		var id *ast.Ident
+		switch x := ast.Unparen(e).(type) {
+		case *ast.Ident:
+			id = x
+		case *ast.SelectorExpr:
+			id = x.Sel
+		default:
+			return nil
+		}
+		v, _ := info.Uses[id].(*types2.Var)
+		if v == nil {
+			v, _ = info.Defs[id].(*types2.Var)
+		}
+		if v == nil || !isGlobal(v) {
+			return nil
+		}
+		if _, ok := underlying(v.Type()).(*types2.Signature); !ok {
+			return nil
+		}
+		return v
+	}
+	fnOf := func(info *types2.Info, e ast.Expr) *function {
+		switch x := ast.Unparen(e).(type) {
+		case *ast.FuncLit:
+			return a.lits[x]
+		case *ast.Ident:
+			if fn, ok := info.Uses[x].(*types2.Func); ok {
+				return a.funcs[fn.Origin()]
+			}
+		case *ast.SelectorExpr:
+			if sel := info.Selections[x]; sel != nil {
+				if sel.Kind() != types2.MethodExpr {
+					return nil // a method value binds its receiver
+				}
+				if fn, ok := sel.Obj().(*types2.Func); ok {
+					return a.funcs[fn.Origin()]
+				}
+				return nil
+			}
+			if fn, ok := info.Uses[x.Sel].(*types2.Func); ok {
+				return a.funcs[fn.Origin()] // a qualified identifier
+			}
+		}
+		return nil
+	}
+	store := func(info *types2.Info, v *types2.Var, rhs ast.Expr) {
+		if v == nil || bad[v] {
+			return
+		}
+		f := fnOf(info, rhs)
+		if f == nil || f.bodyless {
+			bad[v] = true
+			return
+		}
+		if !slices.Contains(a.globalFuncs[v], f) {
+			a.globalFuncs[v] = append(a.globalFuncs[v], f)
+		}
+	}
+	for _, p := range a.prog.Packages {
+		info := p.Info
+		for _, file := range p.Files {
+			ast.Inspect(file, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.ValueSpec:
+					for i, id := range n.Names {
+						v := pkgVar(info, id)
+						if v == nil {
+							continue
+						}
+						if len(n.Values) == len(n.Names) {
+							store(info, v, n.Values[i])
+						} else if len(n.Values) > 0 {
+							bad[v] = true
+						} else if _, ok := a.globalFuncs[v]; !ok {
+							a.globalFuncs[v] = nil
+						}
+					}
+				case *ast.AssignStmt:
+					for i, l := range n.Lhs {
+						v := pkgVar(info, l)
+						if v == nil {
+							continue
+						}
+						if len(n.Lhs) == len(n.Rhs) && (n.Tok == token.ASSIGN || n.Tok == token.DEFINE) {
+							store(info, v, n.Rhs[i])
+						} else {
+							bad[v] = true
+						}
+					}
+				case *ast.RangeStmt:
+					for _, e := range []ast.Expr{n.Key, n.Value} {
+						if v := pkgVar(info, e); v != nil {
+							bad[v] = true
+						}
+					}
+				case *ast.UnaryExpr:
+					if n.Op == token.AND {
+						if v := pkgVar(info, n.X); v != nil {
+							bad[v] = true
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	for v := range bad {
+		delete(a.globalFuncs, v)
 	}
 }
 
@@ -670,6 +815,12 @@ func (a *analyzer) scanUnit(u *unit) (spawns bool, handlers []*function) {
 // run computes every summary: units in the order of the call graph, each
 // strongly connected group of units until its summaries stop changing.
 func (a *analyzer) run() {
+	zzT := time.Now()
+	defer func() {
+		if debug {
+			fmt.Fprintf(os.Stderr, "ZZSTAT race %v: joins %d max %d overflow %d (cap %d)\n", time.Since(zzT), zzJoins, zzMax, zzOverflow, maxUses)
+		}
+	}()
 	// a.callGraph has run.
 	idx := 0
 	var stack []*unit
@@ -772,6 +923,7 @@ func (a *analyzer) run() {
 	// The program: initialisation of every package in order, then main.
 	if debug {
 		fmt.Fprintf(os.Stderr, "race: walking the program\n")
+		fmt.Fprintf(os.Stderr, "ZZSTAT summaries %v: joins %d max %d overflow %d\n", time.Since(zzT), zzJoins, zzMax, zzOverflow)
 	}
 	w := newWalker(a, a.program)
 	w.runProgram()

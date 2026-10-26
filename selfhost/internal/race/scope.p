@@ -161,7 +161,8 @@ type frameAcc struct {
 	pos    token.Pos
 	via    token.Pos // the call in the party's own code that makes it
 	typ    types2.Type
-	run    runSet // the starter: the tasks that may be running
+	owner  types2.Type // the type of the object holding the place, when known
+	run    runSet      // the starter: the tasks that may be running
 }
 
 // A party is the starter or one task call.
@@ -175,6 +176,10 @@ type party struct {
 	seen  map[string]bool
 	taken map[*types2.Var]bool
 	lits  []*ast.FuncLit // its literal and the task literals walked with it
+	// home is the declaration of the starter's unit, for a task: memory
+	// allocated outside it, in a function the task calls, is the
+	// instance's own.
+	home ast.Node
 	// required are the variables of the loops between the Scope's block
 	// and the call: a part of each tells instances of the task apart.
 	required map[*types2.Var]bool
@@ -257,7 +262,7 @@ func newFrameCheck(a *analyzer, f *function, ts []*scoped.Task) *frameCheck {
 		return 1 << b
 	}
 	for _, t := range ts {
-		p := pu.New(party{idx: len(fc.parties), task: t, seen: map[string]bool{}, taken: map[*types2.Var]bool{}, mask: bit(t.Scope.Var)})
+		p := pu.New(party{idx: len(fc.parties), task: t, seen: map[string]bool{}, taken: map[*types2.Var]bool{}, mask: bit(t.Scope.Var), home: unitDecl(f)})
 		fc.parties = compat.Append(fc.parties, p)
 		fc.byCall[t.Call] = p
 		fc.fold(p, t)
@@ -432,10 +437,12 @@ func (fc *frameCheck) walker(p *party, f *function) *walker {
 // the parties' callees make.
 func (fc *frameCheck) expandEdges() {
 	for _, e := range fc.edges {
-		x := &expander{a: fc.a, seen: map[expKey]bool{}, keys: map[accKey]bool{}}
+		x := &expander{a: fc.a, seen: map[expKey]bool{}, keys: map[accKey]int{}}
 		x.expand(e.f, e.args, e.locks, false)
 		for _, acc := range x.out {
-			fc.add(e.party, pu.New(frameAcc{place: acc.place, write: acc.write, atomic: acc.atomic, free: acc.free, locks: acc.locks, pos: acc.pos, via: e.pos, typ: acc.typ, run: e.run}))
+			for _, u := range usesOf(acc) {
+				fc.add(e.party, pu.New(frameAcc{place: acc.place, write: acc.write, atomic: acc.atomic, free: acc.free, locks: acc.locks, pos: acc.pos, via: e.pos, typ: u.typ, owner: u.owner, run: e.run}))
+			}
 		}
 	}
 }
@@ -502,6 +509,10 @@ func (fc *frameCheck) add(p *party, x *frameAcc) {
 		return
 	}
 	k := compat.Sprintf("%s|%v%v%v%v|%s|%d|%s", x.place.key(), x.write, x.atomic, x.move, x.free, x.locks, x.pos, x.run.String())
+	if strings.Contains(x.place.path, "#") {
+		// Past a cut, uses are told apart by their types (cutApart).
+		k += "|" + typeName(x.typ) + "|" + typeName(x.owner)
+	}
 	if p.seen[k] {
 		return
 	}
@@ -529,6 +540,9 @@ func (p *party) own(r root) bool {
 		pos = r.v.Pos()
 	case rFresh:
 		pos = r.node.Pos()
+		if p.home != nil && (pos < p.home.Pos() || p.home.End() <= pos) {
+			return true
+		}
 	default:
 		return false
 	}
@@ -790,7 +804,9 @@ func (w *walker) inlineLit(lit *ast.FuncLit, args []origins, task bool, pos toke
 // noteSub records, in a check of scoped tasks, a use that a callee makes
 // of what its parameters reach.
 func (fc *frameCheck) noteSub(w *walker, p vpath, x *access, locks lockset, call token.Pos) {
-	fc.note(w, pu.New(frameAcc{place: p, write: x.write, atomic: x.atomic, free: x.free, locks: locks, pos: x.pos, via: call, typ: x.typ}))
+	for _, u := range usesOf(x) {
+		fc.note(w, pu.New(frameAcc{place: p, write: x.write, atomic: x.atomic, free: x.free, locks: locks, pos: x.pos, via: call, typ: u.typ, owner: u.owner}))
+	}
 }
 
 // noteEdge records a call whose callee's uses of package variables and
@@ -1122,6 +1138,121 @@ func holds(S, T types2.Type, depth int) bool {
 	return false
 }
 
+// cutApart reports whether x and y, one of them at a place cut short (#),
+// use memory of types that cannot be the same: past a cut the path no
+// longer tells objects apart, but the type of what each use reads or
+// writes still does, memory having one type outside unsafe code (section
+// 19.3). A drop writes all its value reaches, so it is never kept apart.
+func cutApart(x, y *frameAcc) bool {
+	if x.free || y.free {
+		return false
+	}
+	if !strings.Contains(x.place.path, "#") && !strings.Contains(y.place.path, "#") {
+		return false
+	}
+	if x.typ != nil && y.typ != nil && !slotsMeet(x.typ, y.typ, 0) && !slotsMeet(y.typ, x.typ, 0) {
+		return true
+	}
+	// Fields of objects of two types are one place only if one object
+	// holds the other in place.
+	return x.owner != nil && y.owner != nil && !slotsMeet(x.owner, y.owner, 0) && !slotsMeet(y.owner, x.owner, 0)
+}
+
+// typeName names T for a key; "" for nil.
+func typeName(T types2.Type) string {
+	if T == nil {
+		return ""
+	}
+	return types2.TypeString(T, nil)
+}
+
+// slotsMeet reports whether memory of type S may be, or hold in place,
+// memory of type T. A slice use may touch its header or its elements.
+// Kinds whose memory may hold others' (maps and channels stand for their
+// elements in some uses, wrappers, unions and
+// packed types share storage, type parameters may be anything) meet
+// everything, as do two basic types (fields packed in one word).
+func slotsMeet(S, T types2.Type, depth int) bool {
+	if depth > 8 || isTypeParam(S) || isTypeParam(T) {
+		return true
+	}
+	us, ut := underlying(S), underlying(T)
+	if types2.Identical(us, ut) {
+		return true
+	}
+	if sl, ok := us.(*types2.Slice); ok {
+		return sliceMeets(sl, T, ut, depth)
+	}
+	if sl, ok := ut.(*types2.Slice); ok {
+		return sliceMeets(sl, S, us, depth)
+	}
+	ks, ok1 := slotKind(us)
+	kt, ok2 := slotKind(ut)
+	if !ok1 || !ok2 {
+		return true
+	}
+	switch u := us.(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if slotsMeet(u.Field(i).Type(), T, depth+1) {
+				return true
+			}
+		}
+		return false
+	case *types2.Array:
+		return slotsMeet(u.Elem(), T, depth+1)
+	}
+	if ks != kt {
+		return false
+	}
+	if ks == 'b' {
+		return true
+	}
+	// Two pointers, interfaces or functions: one slot only if the types
+	// are the same, which a type parameter may make them.
+	return mentionsTypeParam(us) || mentionsTypeParam(ut)
+}
+
+// sliceMeets reports whether a use of a slice of type sl may touch memory
+// of type T (underlying u): its header, a pointer to its elements and two
+// ints, or its elements.
+func sliceMeets(sl *types2.Slice, T, u types2.Type, depth int) bool {
+	if k, ok := slotKind(u); !ok || k == 'b' {
+		return true
+	}
+	if pt, ok := u.(*types2.Pointer); ok {
+		if types2.Identical(pt.Elem(), sl.Elem()) || mentionsTypeParam(pt) || mentionsTypeParam(sl) {
+			return true
+		}
+	}
+	return slotsMeet(sl.Elem(), T, depth+1) || slotsMeet(T, sl.Elem(), depth+1)
+}
+
+func isTypeParam(T types2.Type) bool {
+	_, ok := types2.Unalias(T).(*types2.TypeParam)
+	return ok
+}
+
+// slotKind classifies the memory of a type for slotsMeet; ok is false for
+// the kinds that meet everything.
+func slotKind(u types2.Type) (byte, bool) {
+	switch u.(type) {
+	case *types2.Basic:
+		return 'b', true
+	case *types2.Pointer:
+		return 'p', true
+	case *types2.Interface:
+		return 'i', true
+	case *types2.Signature:
+		return 'f', true
+	case *types2.Struct:
+		return 's', true
+	case *types2.Array:
+		return 'a', true
+	}
+	return 0, false
+}
+
 // meet reports whether uses x (by p) and y (by q) may reach the same
 // memory; self says they are by different instances of one task. alias
 // says they meet only because two views may point to the same memory.
@@ -1135,6 +1266,9 @@ func (fc *frameCheck) meet(x, y *frameAcc, p, q *party, self bool) (meets, alias
 			return false, false
 		}
 		if self && fc.selfDisjoint(p, pa, pb) {
+			return false, false
+		}
+		if cutApart(x, y) {
 			return false, false
 		}
 		return true, false
@@ -1326,6 +1460,18 @@ func viewForm(path string) string {
 }
 
 // fnSpan returns the syntax of a function, signature included.
+// unitDecl returns the declaration of the unit f is in, or nil when it has
+// none (package initialisation, the whole program).
+func unitDecl(f *function) ast.Node {
+	if f.unit == nil || len(f.unit.fns) == 0 {
+		return nil
+	}
+	if d := f.unit.fns[len(f.unit.fns)-1].decl; d != nil {
+		return d
+	}
+	return nil
+}
+
 func fnSpan(f *function) ast.Node {
 	if f.lit != nil {
 		return f.lit

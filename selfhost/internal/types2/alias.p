@@ -90,6 +90,8 @@ func Unalias(t Type) Type {
 	return t
 }
 
+// unalias only reads, so types may be shared by parallel tasks: cleanup
+// fills the actual cache before types are published.
 func unalias(a0 *Alias) Type {
 	if a0.actual != nil {
 		return a0.actual
@@ -98,9 +100,6 @@ func unalias(a0 *Alias) Type {
 	for a := a0; a != nil; a, _ = t.(*Alias) {
 		t = a.fromRHS
 	}
-	// It's fine to memoize nil types since it's the zero value for actual.
-	// It accomplishes nothing.
-	a0.actual = t
 	return t
 }
 
@@ -180,5 +179,5 @@ func viewOf(elem, rhs Type) Type {
 func (a *Alias) cleanup() {
 	// Ensure a.actual is set before types are published,
 	// so unalias is a pure "getter", not a "setter".
-	unalias(a)
+	a.actual = unalias(a)
 }

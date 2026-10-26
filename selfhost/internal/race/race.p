@@ -113,7 +113,24 @@ func AnalyzeWith(prog *load.Program, mv *moves.Info) (scoped.Overlaps, error) {
 		// One task alone cannot race.
 		return nil, nil
 	}
+	// The type rule is asked only about the types that crossing values
+	// reach, and recording the uses of every type's fields, through every
+	// caller, costs more than the rest of the analysis together. So the
+	// first analysis records none; when values that reach struct types
+	// cross, the program is analysed again recording those types' fields.
+	a.keyTypes = map[string]bool{}
 	a.run()
+	if need := a.crossTypes(); len(need) > 0 {
+		if debug {
+			compat.Fprintfb(os.Stderr, "race: %d types cross; analysing again\n", compat.ArgI(int64(len(need))))
+		}
+		a = newAnalyzer(prog)
+		a.moves = mv
+		a.keyTypes = need
+		a.callGraph()
+		a.mayStartTasks()
+		a.run()
+	}
 	if debug {
 		fmt.Fprintf(os.Stderr, "race: summaries done; checking\n")
 	}
@@ -220,9 +237,13 @@ type analyzer struct {
 	units               []*unit
 	byName              map[string][]*function // methods by name
 	values              []*function            // functions and literals used as values
-	valuesAt            map[*unit][]*function  // the values each unit makes (mayStartTasks)
-	program             *function
-	inits               []*function
+	// globalFuncs holds, for a package variable of func type whose address
+	// is never taken and to which every store is a function or literal,
+	// the functions it may hold: a call through it reaches only those.
+	globalFuncs map[*types2.Var][]*function
+	valuesAt    map[*unit][]*function // the values each unit makes (mayStartTasks)
+	program     *function
+	inits       []*function
 
 	// Per-CPU variables and regions (region.go).
 	cpuOn       bool                   // the program has a per-CPU variable outside the runtime
@@ -264,8 +285,11 @@ type analyzer struct {
 	crossMaps    map[int]bool                        // map type numbers a crossing value reaches (checkMaps)
 	tpArgs       map[*types2.TypeParam][]types2.Type // the type arguments each type parameter is instantiated with
 	typeAcc      map[string][]*typeAccess            // uses of each field of objects, for the type rule
-	typeSeen     map[typeSeenKey]bool
-	resultNodes  map[resultKey]ast.Node // the memory a call's fresh results are
+	// keyTypes are the types whose fields' uses the type rule records,
+	// by typeKey; nil records every type's (typerule.go, crossTypes).
+	keyTypes    map[string]bool
+	typeSeen    map[typeSeenKey]bool
+	resultNodes map[resultKey]ast.Node // the memory a call's fresh results are
 
 	errs    diag.List
 	errSeen map[string]bool
@@ -378,6 +402,7 @@ func newAnalyzer(prog *load.Program) *analyzer {
 		}
 	}
 	a.scanValues()
+	a.scanGlobalFuncs()
 	a.scanPerCPU()
 	return a
 }
@@ -472,6 +497,136 @@ func (a *analyzer) scanValues() {
 			}
 		}
 	}
+}
+
+// scanGlobalFuncs fills globalFuncs: the package variables of func type
+// whose every store, in its declaration or an assignment anywhere in the
+// program, names a function or a literal, and whose address is never
+// taken, with the functions stored.
+func (a *analyzer) scanGlobalFuncs() {
+	a.globalFuncs = map[*types2.Var][]*function{}
+	bad := map[*types2.Var]bool{}
+	for _, p := range a.prog.Packages {
+		info := p.Info
+		for _, file := range p.Files {
+			ast.Inspect(file, func(n ast.Node) bool {
+				switch n := n.(type) {
+				case *ast.ValueSpec:
+					for i, id := range n.Names {
+						v := globalFuncVar(info, id)
+						if v == nil {
+							continue
+						}
+						if len(n.Values) == len(n.Names) {
+							a.storeGlobalFunc(info, bad, v, n.Values[i])
+						} else if len(n.Values) > 0 {
+							bad[v] = true
+						} else if _, ok := a.globalFuncs[v]; !ok {
+							a.globalFuncs[v] = nil
+						}
+					}
+				case *ast.AssignStmt:
+					for i, l := range n.Lhs {
+						v := globalFuncVar(info, l)
+						if v == nil {
+							continue
+						}
+						if len(n.Lhs) == len(n.Rhs) && (n.Tok == token.ASSIGN || n.Tok == token.DEFINE) {
+							a.storeGlobalFunc(info, bad, v, n.Rhs[i])
+						} else {
+							bad[v] = true
+						}
+					}
+				case *ast.RangeStmt:
+					if v := globalFuncVar(info, n.Key); v != nil {
+						bad[v] = true
+					}
+					if v := globalFuncVar(info, n.Value); v != nil {
+						bad[v] = true
+					}
+				case *ast.UnaryExpr:
+					if n.Op == token.AND {
+						if v := globalFuncVar(info, n.X); v != nil {
+							bad[v] = true
+						}
+					}
+				}
+				return true
+			})
+		}
+	}
+	for v := range bad {
+		delete(a.globalFuncs, v)
+	}
+}
+
+// globalFuncVar returns the package variable of func type e names, if any.
+func globalFuncVar(info *types2.Info, e ast.Expr) *types2.Var {
+	if e == nil {
+		return nil
+	}
+	var id *ast.Ident
+	switch x := ast.Unparen(e).(type) {
+	case *ast.Ident:
+		id = x
+	case *ast.SelectorExpr:
+		id = x.Sel
+	default:
+		return nil
+	}
+	v, _ := info.Uses[id].(*types2.Var)
+	if v == nil {
+		v, _ = info.Defs[id].(*types2.Var)
+	}
+	if v == nil || !isGlobal(v) {
+		return nil
+	}
+	if _, ok := underlying(v.Type()).(*types2.Signature); !ok {
+		return nil
+	}
+	return v
+}
+
+// storeGlobalFunc notes a store of rhs to package variable v.
+func (a *analyzer) storeGlobalFunc(info *types2.Info, bad map[*types2.Var]bool, v *types2.Var, rhs ast.Expr) {
+	if bad[v] {
+		return
+	}
+	f := a.funcNamed(info, rhs)
+	if f == nil || f.bodyless {
+		bad[v] = true
+		return
+	}
+	if !slices.Contains(a.globalFuncs[v], f) {
+		a.globalFuncs[v] = compat.Append(a.globalFuncs[v], f)
+	}
+}
+
+// funcNamed returns the function or literal e names, if any; a method
+// value, which binds its receiver, names none.
+func (a *analyzer) funcNamed(info *types2.Info, e ast.Expr) *function {
+	switch x := ast.Unparen(e).(type) {
+	case *ast.FuncLit:
+		return a.lits[x]
+	case *ast.Ident:
+		if fn, ok := info.Uses[x].(*types2.Func); ok {
+			return a.funcs[fn.Origin()]
+		}
+	case *ast.SelectorExpr:
+		if sel := info.Selections[x]; sel != nil {
+			if sel.Kind() != types2.MethodExpr {
+				return nil
+			}
+			if fn, ok := sel.Obj().(*types2.Func); ok {
+				return a.funcs[fn.Origin()]
+			}
+			return nil
+		}
+		if fn, ok := info.Uses[x.Sel].(*types2.Func); ok {
+			return a.funcs[fn.Origin()]
+		}
+	}
+	return nil
 }
 
 func stripIndex(e ast.Expr) ast.Expr {

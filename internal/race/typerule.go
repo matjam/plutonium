@@ -197,3 +197,73 @@ func (a *analyzer) typeProblemIn(E types2.Type, seen map[types2.Type]bool) (*wri
 	}
 	return nil, ""
 }
+
+// wantsType reports whether the uses of the fields of the type with key k
+// are recorded for the type rule.
+func (a *analyzer) wantsType(k string) bool {
+	return a.keyTypes == nil || a.keyTypes[k]
+}
+
+// crossTypes returns the keys of the types the type rule may be asked
+// about once the summaries are done: every type that a value crossing to
+// another task reaches through fields, elements, pointers, boxes, type
+// arguments and the types converted to the interfaces in it, as the
+// sendable rule follows them (sendable.go).
+func (a *analyzer) crossTypes() map[string]bool {
+	need := map[string]bool{}
+	seen := map[types2.Type]bool{}
+	add := func(s *summary) {
+		if s == nil {
+			return
+		}
+		for _, c := range s.cross {
+			a.reachTypes(c.typ, seen, need)
+		}
+	}
+	for _, u := range a.units {
+		for _, f := range u.fns {
+			add(f.sum)
+		}
+	}
+	if a.program != nil {
+		add(a.program.sum)
+	}
+	return need
+}
+
+func (a *analyzer) reachTypes(T types2.Type, seen map[types2.Type]bool, need map[string]bool) {
+	if T == nil || seen[T] {
+		return
+	}
+	seen[T] = true
+	if tp, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		for _, arg := range a.tpArgs[tp] {
+			a.reachTypes(arg, seen, need)
+		}
+		return
+	}
+	need[typeKey(T)] = true
+	switch u := underlying(T).(type) {
+	case *types2.Map:
+		a.reachTypes(u.Key(), seen, need)
+		a.reachTypes(u.Elem(), seen, need)
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			a.reachTypes(u.Field(i).Type(), seen, need)
+		}
+	case *types2.Array:
+		a.reachTypes(u.Elem(), seen, need)
+	case *types2.Slice:
+		a.reachTypes(u.Elem(), seen, need)
+	case *types2.Pointer:
+		a.reachTypes(u.Elem(), seen, need)
+	case *types2.Chan:
+		a.reachTypes(u.Elem(), seen, need)
+	case *types2.Wrapper:
+		a.reachTypes(u.Elem(), seen, need)
+	case *types2.Interface:
+		for _, C := range a.convertedTo(u) {
+			a.reachTypes(C, seen, need)
+		}
+	}
+}

@@ -14,6 +14,120 @@ var scopeRejected = []struct {
 	src  string
 	want []string
 }{
+	{"fields of one type past a cut", `
+import "pluto/sync"
+
+type leaf struct {
+	p *int
+	q any
+}
+
+type mid struct{ l *leaf }
+
+type top struct{ m *mid }
+
+var g = &top{m: &mid{l: &leaf{}}}
+
+func run(v *int) {
+	var s sync.Scope
+	s.Task(func() { g.m.l.p = v })
+	s.Task(func() { println(g.m.l.p != nil) })
+	s.Wait()
+}
+
+func main() { run(nil) }`, []string{"g.m.l is written by the task started at main.p:17 while the task started at main.p:18 uses it"}},
+	{"fields of one type in objects of one type past a cut", `
+import "pluto/sync"
+
+type A struct {
+	n   int
+	rhs any
+}
+
+type B struct{ rhs any }
+
+type leaf struct {
+	a *A
+	b *B
+}
+
+type mid struct{ l *leaf }
+
+type top struct{ m *mid }
+
+var g = &top{m: &mid{l: &leaf{a: &A{}, b: &B{}}}}
+
+func run(v any) {
+	var s sync.Scope
+	s.Task(func() { g.m.l.a.rhs = v })
+	s.Task(func() { println(g.m.l.a.rhs != nil) })
+	s.Wait()
+}
+
+func main() { run(nil) }`, []string{"is written by the task started at main.p:24 while the task started at main.p:25 uses it"}},
+	{"slice elements of one type past a cut", `
+import "pluto/sync"
+
+type leaf struct {
+	fs []*int
+	q  any
+}
+
+type mid struct{ l *leaf }
+
+type top struct{ m *mid }
+
+var arr [4]*int
+
+var g = &top{m: &mid{l: &leaf{fs: arr[:]}}}
+
+func run(src []*int) {
+	var s sync.Scope
+	s.Task(func() { copy(g.m.l.fs, src) })
+	s.Task(func() { println(g.m.l.fs[0] != nil) })
+	s.Wait()
+}
+
+func main() { run(nil) }`, []string{"is written by the task started at main.p:19 while the task started at main.p:20 uses it"}},
+	{"call through a package func variable that races", `
+import "pluto/sync"
+
+var hits int
+
+func bump(i int) int { hits++; return i }
+
+func same(i int) int { return i }
+
+var step = same
+
+func fill(out []int) {
+	step = bump
+	var s sync.Scope
+	for i := range out {
+		s.Task(func() { out[i] = step(i) })
+	}
+	s.Wait()
+}
+
+func main() { fill(nil) }`, []string{"hits is written by the tasks started at main.p:16 at the same time as each other"}},
+	{"starter's callee allocation shared", `
+import "pluto/sync"
+
+type box struct{ in *[2]int }
+
+func mk() *box { return &box{in: &[2]int{}} }
+
+func fill(n int) int {
+	b := mk()
+	var s sync.Scope
+	for i := 0; i < n; i++ {
+		s.Task(func() { b.in[0] = i })
+	}
+	s.Wait()
+	return b.in[0]
+}
+
+func main() { println(fill(2)) }`, []string{"the memory allocated at main.p:9"}},
 	{"unguarded counter", `
 import "pluto/sync"
 
@@ -310,6 +424,111 @@ var scopeAccepted = []struct {
 	name string
 	src  string
 }{
+	{"fields of other types past a cut", `
+import "pluto/sync"
+
+type leaf struct {
+	p *int
+	q any
+}
+
+type mid struct{ l *leaf }
+
+type top struct{ m *mid }
+
+var g = &top{m: &mid{l: &leaf{}}}
+
+func run(v *int) {
+	var s sync.Scope
+	s.Task(func() { g.m.l.p = v })
+	s.Task(func() { println(g.m.l.q != nil) })
+	s.Wait()
+}
+
+func main() { run(nil) }`},
+
+	{"fields of one type in objects of other types past a cut", `
+import "pluto/sync"
+
+type A struct {
+	n   int
+	rhs any
+}
+
+type B struct{ rhs any }
+
+type leaf struct {
+	a *A
+	b *B
+}
+
+type mid struct{ l *leaf }
+
+type top struct{ m *mid }
+
+var g = &top{m: &mid{l: &leaf{a: &A{}, b: &B{}}}}
+
+func run(v any) {
+	var s sync.Scope
+	s.Task(func() { g.m.l.a.rhs = v })
+	s.Task(func() { println(g.m.l.b.rhs != nil) })
+	s.Wait()
+}
+
+func main() { run(nil) }`},
+
+	{"slice elements and fields of other types past a cut", `
+import "pluto/sync"
+
+type leaf struct {
+	fs []*int
+	q  any
+}
+
+type mid struct{ l *leaf }
+
+type top struct{ m *mid }
+
+var arr [4]*int
+
+var g = &top{m: &mid{l: &leaf{fs: arr[:]}}}
+
+func run(src []*int) {
+	var s sync.Scope
+	s.Task(func() { copy(g.m.l.fs, src) })
+	s.Task(func() { println(g.m.l.q != nil) })
+	s.Wait()
+}
+
+func main() { run(nil) }`},
+
+	{"atomic word and fields of other types past a cut", `
+import (
+	"pluto/sync"
+	"pluto/sync/atomic"
+)
+
+type leaf struct {
+	state uint32
+	q     any
+}
+
+type mid struct{ l *leaf }
+
+type top struct{ m *mid }
+
+var g = &top{m: &mid{l: &leaf{}}}
+
+func run() {
+	var s sync.Scope
+	s.Task(func() { atomic.OrUint32(&g.m.l.state, 1) })
+	s.Task(func() { atomic.OrUint32(&g.m.l.state, 2) })
+	s.Task(func() { println(g.m.l.q != nil) })
+	s.Wait()
+}
+
+func main() { run() }`},
+
 	{"parallel map", `
 import "pluto/sync"
 
@@ -626,6 +845,53 @@ func fill(out []int, k int) {
 }
 
 func main() { fill(nil, 2) }`},
+
+	{"callee's own allocation written through a field", `
+import "pluto/sync"
+
+type box struct{ m map[int]int }
+
+func mk(v int) *box {
+	b := &box{m: map[int]int{}}
+	b.m[v] = v
+	return b
+}
+
+func fill(out []int) {
+	var s sync.Scope
+	for i := range out {
+		s.Task(func() { out[i] = len(mk(i).m) })
+	}
+	s.Wait()
+}
+
+func main() { fill(nil) }`},
+
+	{"call through a package func variable of known value", `
+import "pluto/sync"
+
+var hits int
+
+func bump(i int) int { hits++; return i }
+
+func same(i int) int { return i }
+
+var step = same
+
+func use() func(int) int { return bump }
+
+func fill(out []int) {
+	var s sync.Scope
+	for i := range out {
+		s.Task(func() { out[i] = step(i) })
+	}
+	s.Wait()
+}
+
+func main() {
+	fill(nil)
+	println(use()(1))
+}`},
 }
 
 func TestScopeRejected(t *testing.T) {

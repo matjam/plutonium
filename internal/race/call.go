@@ -288,8 +288,14 @@ func (w *walker) atomicCall(e *ast.CallExpr, fn *types2.Func) []origins {
 	}
 	if len(args) > 0 {
 		write := !strings.HasPrefix(fn.Name(), "Load")
+		// The type of what the pointer points to, so that a cut path can
+		// still tell this word from other fields (nil for unsafe.Pointer).
+		var T types2.Type
+		if pt, ok := underlying(w.typeOf(e.Args[0])).(*types2.Pointer); ok {
+			T = pt.Elem()
+		}
 		for _, p := range args[0].derefOr("*", w.unknownFor(e.Args[0])) {
-			w.access(p, write, true, e.Pos(), nil, false, "")
+			w.access(p, write, true, e.Pos(), T, false, "", nil)
 		}
 	}
 	return pad(nil, fn.Type().(*types2.Signature).Results().Len())
@@ -376,7 +382,7 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 			if T := w.typeOf(e.Args[0]); types2.MapOf(T) != nil {
 				// len(m) reads the map's count, which writes change.
 				for _, p := range vs[0].derefOr(w.derefStep(T), w.unknownFor(e.Args[0])) {
-					w.access(p, false, false, e.Pos(), T, false, "")
+					w.access(p, false, false, e.Pos(), T, false, "", nil)
 				}
 			}
 		}
@@ -386,7 +392,7 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 		if len(vs) == 2 {
 			T := w.typeOf(e.Args[0])
 			for _, p := range vs[0].derefOr(w.derefStep(T), w.unknownFor(e.Args[0])) {
-				w.access(p, true, false, e.Pos(), T, false, "")
+				w.access(p, true, false, e.Pos(), T, false, "", nil)
 			}
 		}
 		return nil
@@ -416,7 +422,7 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 		}
 		T := w.typeOf(e.Args[0])
 		for _, p := range vs[0].derefOr("%", w.unknownFor(e.Args[0])) {
-			w.access(p, true, false, e.Pos(), T, false, "")
+			w.access(p, true, false, e.Pos(), T, false, "", nil)
 		}
 		for i, v := range vs[1:] {
 			w.publishAt(v, e.Args[i+1].Pos(), "appended to a slice")
@@ -426,11 +432,11 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 		vs := vals()
 		if len(vs) == 2 {
 			for _, p := range vs[0].derefOr("%", w.unknownFor(e.Args[0])) {
-				w.access(p, true, false, e.Pos(), w.typeOf(e.Args[0]), false, "")
+				w.access(p, true, false, e.Pos(), w.typeOf(e.Args[0]), false, "", nil)
 			}
 			if !isString(w.typeOf(e.Args[1])) {
 				for _, p := range vs[1].derefOr("%", w.unknownFor(e.Args[1])) {
-					w.access(p, false, false, e.Pos(), w.typeOf(e.Args[1]), false, "")
+					w.access(p, false, false, e.Pos(), w.typeOf(e.Args[1]), false, "", nil)
 				}
 			}
 		}
@@ -440,7 +446,7 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 		if len(vs) == 1 {
 			ps := vs[0].derefOr(w.derefStep(w.typeOf(e.Args[0])), w.unknownFor(e.Args[0]))
 			for _, p := range ps {
-				w.access(p, true, false, e.Pos(), w.typeOf(e.Args[0]), false, "")
+				w.access(p, true, false, e.Pos(), w.typeOf(e.Args[0]), false, "", nil)
 			}
 			if sl, ok := underlying(w.typeOf(e.Args[0])).(*types2.Slice); ok {
 				// Clearing a slice drops its elements.
@@ -454,8 +460,8 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 				if ps, ok := w.place(u.X); ok {
 					T := w.typeOf(u.X)
 					for _, p := range ps.ps {
-						w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
-						w.access(p, true, false, e.Pos(), T, ps.sync, ps.key)
+						w.access(p, false, false, e.Pos(), T, ps.sync, ps.key, ps.owner)
+						w.access(p, true, false, e.Pos(), T, ps.sync, ps.key, ps.owner)
 					}
 					return one(w.placeValue(ps.ps))
 				}
@@ -719,7 +725,7 @@ func (w *walker) receiver(se *ast.SelectorExpr, sel *types2.Selection, fn *types
 	if !ptrRecv && pointerElem(X) != nil {
 		ps := w.value(se.X).derefOr(w.derefStep(X), w.unknownFor(se.X))
 		for _, p := range ps {
-			w.access(p, false, false, se.Pos(), pointerElem(X), false, "")
+			w.access(p, false, false, se.Pos(), pointerElem(X), false, "", nil)
 		}
 		return w.placeValue(ps), se.X
 	}
@@ -783,9 +789,9 @@ func (w *walker) ringCall(e *ast.CallExpr, t callTarget) []origins {
 		write = true
 	}
 	for _, p := range ps {
-		w.access(p, false, false, e.Pos(), nil, false, "")
+		w.access(p, false, false, e.Pos(), nil, false, "", nil)
 		if write {
-			w.access(p, true, false, e.Pos(), nil, false, "")
+			w.access(p, true, false, e.Pos(), nil, false, "", nil)
 		}
 	}
 	for i, a := range args {
@@ -961,7 +967,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 					rel:    rel,
 					pos:    x.pos,
 					pre:    !base.spawned && x.pre,
-					typ:    x.typ,
+					uses:   x.uses,
 					free:   x.free,
 				}
 				// The memo holds the summary's own accesses, not copies.
@@ -1164,6 +1170,17 @@ func (w *walker) callValue(fv origins, args []origins, pos token.Pos, sig *types
 }
 
 func (w *walker) callValueIn(fv origins, args []origins, pos token.Pos, sig *types2.Signature, name string) []origins {
+	// A package variable that holds only known functions calls those.
+	var held []*function
+	fixed := false
+	for _, o := range fv {
+		if o.vp.root.kind == rGlobal && o.vp.path == "" {
+			if fs, ok := w.a.globalFuncs[o.vp.root.v]; ok {
+				held = append(held, fs...)
+				fixed = true
+			}
+		}
+	}
 	fv = funcOrigins(fv)
 	var res []origins
 	var out *state
@@ -1177,7 +1194,10 @@ func (w *walker) callValueIn(fv origins, args []origins, pos token.Pos, sig *typ
 		res = unionResults(res, r)
 		out = join(out, after)
 	}
-	if len(fv) == 0 {
+	for _, f := range held {
+		applyTo(f, f.sig.Recv() != nil && sig != nil && f.sig.Params().Len() == sig.Params().Len())
+	}
+	if len(fv) == 0 && !fixed {
 		if sig != nil {
 			for _, f := range w.a.valueCandidates(sig, true) {
 				applyTo(f, f.obj != nil && f.sig.Recv() != nil && f.sig.Params().Len() == sig.Params().Len())

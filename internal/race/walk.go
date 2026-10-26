@@ -202,7 +202,7 @@ func (w *walker) runInits() {
 			}
 			p := vpath{root: root{kind: rGlobal, v: v}}
 			w.store([]vpath{p}, vals[i], init.Rhs.Pos())
-			w.access(p, true, false, init.Rhs.Pos(), v.Type(), false, "")
+			w.access(p, true, false, init.Rhs.Pos(), v.Type(), false, "", nil)
 		}
 	}
 	for _, file := range w.fn.pkg.Files {
@@ -526,7 +526,7 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 			}
 			if ps, ok := w.place(st.X); ok {
 				for _, p := range ps.ps {
-					w.access(p.extend("[]"), false, false, st.X.Pos(), u.Elem(), ps.sync, ps.key)
+					w.access(p.extend("[]"), false, false, st.X.Pos(), u.Elem(), ps.sync, ps.key, ps.owner)
 				}
 				val = valuesAt(extendAll(ps.ps, "[]"))
 			} else {
@@ -536,7 +536,7 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 			if arr, ok := underlying(u.Elem()).(*types2.Array); ok && elems {
 				ps := xv.derefOr("*", w.unknownFor(st.X))
 				for _, p := range ps {
-					w.access(p.extend("[]"), false, false, st.X.Pos(), arr.Elem(), false, "")
+					w.access(p.extend("[]"), false, false, st.X.Pos(), arr.Elem(), false, "", nil)
 				}
 				val = valuesAt(extendAll(ps, "[]"))
 			}
@@ -546,7 +546,7 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 			}
 			ps := xv.derefOr("%", w.unknownFor(st.X))
 			for _, p := range ps {
-				w.access(p, false, false, st.X.Pos(), u.Elem(), false, "")
+				w.access(p, false, false, st.X.Pos(), u.Elem(), false, "", nil)
 			}
 			val = valuesAt(ps)
 		case *types2.Signature:
@@ -562,7 +562,7 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 			if types2.MapOf(xt) != nil {
 				ps := xv.derefOr(w.derefStep(xt), w.unknownFor(st.X))
 				for _, p := range ps {
-					w.access(p, false, false, st.X.Pos(), xt, false, "")
+					w.access(p, false, false, st.X.Pos(), xt, false, "", nil)
 				}
 				key, val = valuesAt(ps), valuesAt(ps)
 			}
@@ -682,7 +682,7 @@ func (w *walker) orStmt(st *ast.OrStmt) {
 	errVar, _ := w.a.implicits[st].(*types2.Var)
 	if errVar != nil {
 		if w.frame != nil {
-			w.access(vpath{root: root{kind: rLocal, v: errVar}}, true, false, st.Or, errVar.Type(), false, "")
+			w.access(vpath{root: root{kind: rLocal, v: errVar}}, true, false, st.Or, errVar.Type(), false, "", nil)
 		}
 		w.setVar(errVar, vals[n-1])
 	}
@@ -789,7 +789,7 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 		if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
 			if w.frame != nil {
 				p := vpath{root: root{kind: rLocal, v: v}}
-				w.access(p, true, false, id.Pos(), v.Type(), false, "")
+				w.access(p, true, false, id.Pos(), v.Type(), false, "", nil)
 				if !w.newVar(id) {
 					w.dropWrite([]vpath{p}, v.Type(), id.Pos())
 				}
@@ -817,7 +817,7 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 	}
 	T := w.typeOf(lhs)
 	for _, p := range ps.ps {
-		w.access(p, true, false, lhs.Pos(), T, ps.sync, ps.key)
+		w.access(p, true, false, lhs.Pos(), T, ps.sync, ps.key, ps.owner)
 	}
 	if !ps.sync && !isMap {
 		// The value it replaces is dropped.
@@ -843,8 +843,8 @@ func (w *walker) readWrite(e ast.Expr, pos token.Pos) {
 		if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
 			if w.frame != nil {
 				p := vpath{root: root{kind: rLocal, v: v}}
-				w.access(p, false, false, id.Pos(), v.Type(), false, "")
-				w.access(p, true, false, id.Pos(), v.Type(), false, "")
+				w.access(p, false, false, id.Pos(), v.Type(), false, "", nil)
+				w.access(p, true, false, id.Pos(), v.Type(), false, "", nil)
 			}
 			return
 		}
@@ -862,8 +862,8 @@ func (w *walker) readWrite(e ast.Expr, pos token.Pos) {
 	}
 	T := w.typeOf(e)
 	for _, p := range ps.ps {
-		w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
-		w.access(p, true, false, e.Pos(), T, ps.sync, ps.key)
+		w.access(p, false, false, e.Pos(), T, ps.sync, ps.key, ps.owner)
+		w.access(p, true, false, e.Pos(), T, ps.sync, ps.key, ps.owner)
 	}
 	if !ps.sync && !w.isMapIndex(e) {
 		w.noteViewWrite(e, ps.ps, T)
@@ -1135,12 +1135,12 @@ func exprText(e ast.Expr) string {
 // access records a use of place p of type T. Uses of frame memory and of
 // memory allocated by this function are not shared; uses inside a
 // synchronised type (inSync) are its own business.
-func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Type, inSync bool, key string) {
+func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Type, inSync bool, key string, owner types2.Type) {
 	if inSync || w.quiet > 0 {
 		return
 	}
 	if w.frame != nil {
-		w.frame.note(w, &frameAcc{place: p, write: write, atomic: atomic, free: w.freeing > 0, pos: pos, typ: T, locks: w.st.locks})
+		w.frame.note(w, &frameAcc{place: p, write: write, atomic: atomic, free: w.freeing > 0, pos: pos, typ: T, owner: owner, locks: w.st.locks})
 		return
 	}
 	if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] {
@@ -1158,7 +1158,7 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 		// no other task can reach it yet.
 		return
 	}
-	x := &access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T, free: w.freeing > 0}
+	x := &access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, uses: []typeUse{{typ: T, owner: owner}}, free: w.freeing > 0}
 	if !write && !atomic && isSyncType(T) {
 		// Reading a whole synchronised value copies it, as any read does.
 		x.atomic = false
@@ -1228,7 +1228,7 @@ func (a *analyzer) runtimeVar(v *types2.Var) bool {
 // methods: an atomic access, which conflicts only with plain writes of it.
 func (w *walker) syncUse(ps []vpath, pos token.Pos) {
 	for _, p := range ps {
-		w.access(p, false, true, pos, nil, false, "")
+		w.access(p, false, true, pos, nil, false, "", nil)
 	}
 }
 
@@ -1320,7 +1320,7 @@ func (w *walker) value1(e ast.Expr) origins {
 			if isGlobal(obj) {
 				p := vpath{root: root{kind: rGlobal, v: obj}}
 				w.cpuSite(e, obj)
-				w.access(p, false, false, e.Pos(), obj.Type(), false, "")
+				w.access(p, false, false, e.Pos(), obj.Type(), false, "", nil)
 				return origins{{vp: p}}
 			}
 			if w.frame != nil {
@@ -1352,7 +1352,7 @@ func (w *walker) value1(e ast.Expr) origins {
 			if ps, ok := w.place(e); ok {
 				T := w.typeOf(e)
 				for _, p := range ps.ps {
-					w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
+					w.access(p, false, false, e.Pos(), T, ps.sync, ps.key, ps.owner)
 				}
 				return w.fieldValue(ps, e)
 			}
@@ -1400,7 +1400,7 @@ func (w *walker) value1(e ast.Expr) origins {
 		if ps, ok := w.place(e); ok {
 			T := w.typeOf(e)
 			for _, p := range ps.ps {
-				w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
+				w.access(p, false, false, e.Pos(), T, ps.sync, ps.key, ps.owner)
 			}
 			return w.placeValue(ps.ps)
 		}
@@ -1434,7 +1434,7 @@ func (w *walker) value1(e ast.Expr) origins {
 		ps, _ := w.place(e)
 		T := w.typeOf(e)
 		for _, p := range ps.ps {
-			w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
+			w.access(p, false, false, e.Pos(), T, ps.sync, ps.key, ps.owner)
 		}
 		return w.placeValue(ps.ps)
 	case *ast.UnaryExpr:
@@ -1529,6 +1529,9 @@ type places struct {
 	ps   []vpath
 	sync bool
 	key  string // "field:T.f": the first field after the last pointer followed, for the type rule
+	// owner is the type of the object the last pointer followed led to,
+	// which holds the place in place (scope.go); nil when not known.
+	owner types2.Type
 }
 
 // place returns where an addressable expression is.
@@ -1622,7 +1625,11 @@ func (w *walker) fieldPlace(x ast.Expr, path []int) (places, bool) {
 			if el := pointerElem(S); el != nil {
 				S = el
 			}
-			cur.key = "field:" + typeKey(S) + "." + f.Name()
+			cur.key = ""
+			cur.owner = S
+			if k := typeKey(S); w.a.wantsType(k) {
+				cur.key = "field:" + k + "." + f.Name()
+			}
 		}
 		cur.ps = extendAll(cur.ps, "."+f.Name())
 		T = f.Type()

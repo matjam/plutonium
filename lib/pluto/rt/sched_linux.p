@@ -1494,6 +1494,15 @@ func flushShutdownCaches() {
 	}
 }
 
+// NumCPU returns the number of processors that run the program's tasks:
+// the CPUs the process may run on, or PLUTO_MAXPROCS when it is set.
+func NumCPU() int {
+	if hs.nprocs == 0 {
+		return 1
+	}
+	return int(hs.nprocs)
+}
+
 // ----------------------------------------------------------------------------
 // Pinning to a P, for per-processor caches
 

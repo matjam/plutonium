@@ -69,9 +69,7 @@ func Do(s Step) { do(s, nil) }
 // do is Do, with s.ScratchKeep allocating from keep when it is not nil.
 func do(s Step, keep alloc.Allocator) {
 	if !inited {
-		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
-		heap = alloc.Default()
-		inited = true
+		setup()
 	}
 	if depth == maxDepth {
 		panic("scratch.Do nested too deeply")
@@ -107,6 +105,15 @@ func do(s Step, keep alloc.Allocator) {
 	}
 }
 
+// setup reads the package's settings and notes the heap, at the first
+// step, before any worker starts.
+func setup() {
+	check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
+	heap = alloc.Default()
+	lockedHeap = Locked{a: heap}
+	inited = true
+}
+
 // homes holds, for each key DoHome has been given, the memory of what its
 // last step with that key kept; filling is the home of the step running.
 var (
@@ -127,9 +134,7 @@ func DoHome(key unsafe.Pointer, s Step) {
 		return
 	}
 	if !inited {
-		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
-		heap = alloc.Default()
-		inited = true
+		setup()
 	}
 	filling = home{}
 	do(s, &filling)
@@ -177,9 +182,7 @@ func BeginHome(key unsafe.Pointer) {
 		panic("scratch.BeginHome within a step's work or another BeginHome")
 	}
 	if !inited {
-		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
-		heap = alloc.Default()
-		inited = true
+		setup()
 	}
 	filling = home{}
 	homeKey = key
@@ -240,7 +243,7 @@ func (h *home) Alloc(size, align uintptr) unsafe.Pointer {
 			n = (n + pageSize - 1) &^ (pageSize - 1)
 			c = rt.Mmap(n)
 		} else {
-			c = heap.Alloc(n, 16)
+			c = lockedHeap.Alloc(n, 16)
 		}
 		if c == nil {
 			return nil
@@ -269,7 +272,7 @@ func (h *home) drop() {
 				panic("scratch: mprotect failed (PLUTO_SCRATCH_CHECK)")
 			}
 		} else {
-			heap.Free(c, n, 16)
+			lockedHeap.Free(c, n, 16)
 		}
 		c = next
 	}
@@ -319,8 +322,9 @@ func Outer() alloc.Restore {
 // checker's expanded methods and underlying types) does not come from any
 // step's scratch memory.
 func Heap() alloc.Restore {
-	if depth > 0 {
-		return alloc.Use(heap)
+	if inited {
+		// Through the lock: the workers' steps fill these caches too.
+		return alloc.Use(&lockedHeap)
 	}
 	return alloc.Use(alloc.Default())
 }
@@ -330,25 +334,42 @@ func Heap() alloc.Restore {
 // beside each other (Worker), for what they add to state that outlives
 // their steps.
 type Locked struct {
-	mu rt.Lock // an allocator's lock, which never parks
-	a  alloc.Allocator
+	a alloc.Allocator
 }
+
+// heapLock is the lock of every Locked allocator: all of them reach the
+// heap, so one lock covers them, and the heap itself while workers run.
+var heapLock rt.Lock
+
+// lockedHeap is the heap behind heapLock, for Heap.
+var lockedHeap Locked
 
 // NewLocked returns the current allocator behind a lock. The caller
 // keeps it where the tasks that use it can reach it, such as its frame.
-func NewLocked() Locked { return Locked{a: alloc.Default()} }
+func NewLocked() Locked {
+	// The workers that keep their results here only read the package's
+	// settings, so they are set before any worker starts.
+	if !inited {
+		setup()
+	}
+	if _, ok := alloc.Default().(*home); ok {
+		// A home takes its chunks through the lock itself.
+		panic("scratch.NewLocked while a home is filled")
+	}
+	return Locked{a: alloc.Default()}
+}
 
 func (l *Locked) Alloc(size, align uintptr) unsafe.Pointer {
-	l.mu.Lock()
+	heapLock.Lock()
 	p := l.a.Alloc(size, align)
-	l.mu.Unlock()
+	heapLock.Unlock()
 	return p
 }
 
 func (l *Locked) Free(p unsafe.Pointer, size, align uintptr) {
-	l.mu.Lock()
+	heapLock.Lock()
 	l.a.Free(p, size, align)
-	l.mu.Unlock()
+	heapLock.Unlock()
 }
 
 // A Worker runs steps on a task of its own, beside other workers, in
@@ -361,14 +382,10 @@ type Worker owner struct {
 }
 
 // NewWorker returns a worker whose steps keep their results in outer. Its
-// arena's chunks come from the heap, which tasks share.
+// arena's chunks come from outer, the heap behind its lock, since the
+// workers share it; NewLocked, which made outer, has set up the package.
 func NewWorker(outer *Locked) Worker {
-	if !inited {
-		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
-		heap = alloc.Default()
-		inited = true
-	}
-	w := Worker{scr: newMem(heap), outer: outer}
+	w := Worker{scr: newMem(outer), outer: outer}
 	w.base = w.scr.Mark()
 	return w
 }

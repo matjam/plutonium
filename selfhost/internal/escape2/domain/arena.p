@@ -22,6 +22,8 @@ package domain
 // frees nothing, and without the pool held the memory of every solve.
 
 import (
+	"unsafe"
+
 	"selfhost/compat"
 	"selfhost/internal/scratch"
 	"selfhost/pu"
@@ -58,10 +60,13 @@ func NewCheckedArena() Arena { return pu.New(arena{checked: true}) }
 
 // pool holds the memory of released arenas, and the big allocations of
 // reset ones, for other arenas: blocks of a power of two words, by size,
-// at most maxPooledWords in all.
+// at most maxPooledWords in all. A block in the pool is kept by its
+// address alone: taken out, it is the taker's, which nothing else reaches,
+// so the pool is an allocator, and like one it is unsafe code (spec
+// section 19.3, What is not checked).
 var pool struct {
 	mu    compat.Mutex
-	free  [64][][]uint64 // free[k]: blocks of 1<<k words
+	free  [64][]unsafe.Pointer // free[k]: blocks of 1<<k words
 	words int
 }
 
@@ -80,17 +85,18 @@ func sizeClass(n int) int {
 // take returns a zeroed block of 1<<k words, from the pool if it has one.
 func take(k int) []uint64 {
 	pool.mu.Lock()
-	var b []uint64
+	var p unsafe.Pointer
 	if f := pool.free[k]; len(f) > 0 {
-		b = f[len(f)-1]
+		p = f[len(f)-1]
 		pool.free[k] = f[:len(f)-1]
-		pool.words -= len(b)
+		pool.words -= 1 << k
 	}
 	pool.mu.Unlock()
-	if b == nil {
+	if p == nil {
 		defer scratch.Outer().Restore()
 		return compat.Make[uint64](1 << k)
 	}
+	b := unsafe.Slice((*uint64)(p), 1<<k)
 	clear(b)
 	return b
 }
@@ -104,7 +110,7 @@ func give(bs [][]uint64) {
 			break
 		}
 		k := sizeClass(len(b))
-		pool.free[k] = compat.Append(pool.free[k], b)
+		pool.free[k] = compat.Append(pool.free[k], unsafe.Pointer(unsafe.SliceData(b)))
 		pool.words += len(b)
 	}
 	pool.mu.Unlock()

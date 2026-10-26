@@ -74,7 +74,7 @@ func (w *walker) dropWrite(ps []vpath, T types2.Type, pos token.Pos) {
 		if w.initializing(p, w.st) {
 			continue
 		}
-		w.access(p.extend("#"), true, false, pos, T, false, "")
+		w.access(p.extend("#"), true, false, pos, T, false, "", nil)
 		if p.root.kind == rLocal && localPath(p.path) {
 			// A local variable's value is followed: the memory it owns
 			// has roots of its own (an allocation, a parameter's memory).
@@ -114,7 +114,7 @@ func (w *walker) dropOwned(vals origins, T types2.Type, pos token.Pos, depth int
 			} else {
 				q = q.extend(w.derefStep(T))
 			}
-			w.access(q.extend("#"), true, false, pos, pointerElem(T), false, "")
+			w.access(q.extend("#"), true, false, pos, pointerElem(T), false, "", nil)
 		}
 		return
 	}
@@ -127,7 +127,7 @@ func (w *walker) dropOwned(vals origins, T types2.Type, pos token.Pos, depth int
 		switch {
 		case w.a.ownsField(T, f):
 			for _, q := range vals.field(f.Name()).untag().deref(w.derefStep(f.Type())) {
-				w.access(q.extend("#"), true, false, pos, f.Type(), false, "")
+				w.access(q.extend("#"), true, false, pos, f.Type(), false, "", nil)
 			}
 		case dropsMemory(f.Type()):
 			w.dropOwned(vals.field(f.Name()), f.Type(), pos, depth+1)
@@ -202,7 +202,7 @@ func (w *walker) freeCall(e *ast.CallExpr, fn *types2.Func) {
 	ps := w.freedPlaces(e.Args[0])
 	w.freeing++
 	for _, p := range ps {
-		w.access(p, true, false, e.Pos(), nil, false, "")
+		w.access(p, true, false, e.Pos(), nil, false, "", nil)
 	}
 	w.freeing--
 }
@@ -223,7 +223,7 @@ func (w *walker) rtIntrinsic(e *ast.CallExpr, fn *types2.Func, args []origins) {
 		}
 		T := pointerElem(w.typeOf(e.Args[i]))
 		for _, p := range args[i].derefOr("*", w.unknownFor(e.Args[i])) {
-			w.access(p, write, false, e.Pos(), T, false, "")
+			w.access(p, write, false, e.Pos(), T, false, "", nil)
 		}
 	}
 	switch fn.Name() {

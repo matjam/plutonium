@@ -198,11 +198,11 @@ type access struct {
 	locks  lockset
 	rel    released
 	pos    token.Pos
-	pre    bool        // the program only: before any task was started
-	tkey   string      // "field:T.f": the field of the object a pointer led to, for the type rule
-	typ    types2.Type // the type of what is used, when known (scope.go)
-	cpu    *cpuUse     // a use of a per-CPU variable (region.go), which the rules of sharing do not see
-	free   bool        // a write that frees or drops the memory (free.go)
+	pre    bool      // the program only: before any task was started
+	tkey   string    // "field:T.f": the field of the object a pointer led to, for the type rule
+	uses   []typeUse // the types of what is used, when known (scope.go); none stands for any
+	cpu    *cpuUse   // a use of a per-CPU variable (region.go), which the rules of sharing do not see
+	free   bool      // a write that frees or drops the memory (free.go)
 }
 
 // An accKey identifies what matters of an access for the rules; accesses
@@ -328,8 +328,10 @@ func (e *edge) key() string {
 type summary struct {
 	accesses []*access
 	accKeys  map[accKey]*access
-	typed    []*access // uses of fields through cut places, for the type rule only
+	accAt    map[accKey]int // where accKeys' accesses are in accesses
+	typed    []*access      // uses of fields through cut places, for the type rule only
 	tyKeys   map[accKey]*access
+	tyAt     map[accKey]int
 	calls    []*paramCall
 	callKeys map[string]bool
 	edges    []*edge
@@ -375,14 +377,10 @@ func (s *summary) putAccess(x *access) (acc, ty *access) {
 	}
 	if s.accKeys == nil {
 		s.accKeys = map[accKey]*access{}
+		s.accAt = map[accKey]int{}
 	}
-	k := x.key()
-	if y := s.accKeys[k]; y != nil {
-		return y, ty
-	}
-	s.accKeys[k] = x
-	s.accesses = compat.Append(s.accesses, x)
-	return x, ty
+	s.accesses, acc = putKeyed(s.accesses, s.accKeys, s.accAt, x)
+	return acc, ty
 }
 
 func (s *summary) addTyped(x *access) { s.putTyped(x) }
@@ -391,14 +389,117 @@ func (s *summary) addTyped(x *access) { s.putTyped(x) }
 func (s *summary) putTyped(x *access) *access {
 	if s.tyKeys == nil {
 		s.tyKeys = map[accKey]*access{}
+		s.tyAt = map[accKey]int{}
 	}
+	var y *access
+	s.typed, y = putKeyed(s.typed, s.tyKeys, s.tyAt, x)
+	return y
+}
+
+// putKeyed adds x to list, keyed in keys and at, and returns the list and
+// the access held for it. An access past a cut held already gains x's types: the
+// check of scoped tasks reads them there (cutApart), and one kept without
+// them would hide x. Accesses are shared between summaries, so the one
+// held is replaced, not changed.
+func putKeyed(list []*access, keys map[accKey]*access, at map[accKey]int, x *access) ([]*access, *access) {
 	k := x.key()
-	if y := s.tyKeys[k]; y != nil {
-		return y
+	y := keys[k]
+	if y == nil {
+		keys[k] = x
+		at[k] = len(list)
+		return compat.Append(list, x), x
 	}
-	s.tyKeys[k] = x
-	s.typed = compat.Append(s.typed, x)
-	return x
+	if !strings.Contains(x.place.path, "#") {
+		return list, y
+	}
+	u := joinUses(y.uses, x.uses)
+	if u == nil {
+		return list, y
+	}
+	z := pu.New(*y)
+	z.uses = u
+	keys[k] = z
+	list[at[k]] = z
+	return list, z
+}
+
+// A typeUse is what a use past a cut touches: the type of the memory and
+// the type of the object holding it in place, each nil when not known.
+type typeUse struct{ typ, owner types2.Type }
+
+// maxUses bounds the types one access keeps; past it the access stands
+// for a use of any type, which only makes it meet more.
+const maxUses = 16
+
+// anyUse reports whether uses stand for a use of any type.
+func anyUse(uses []typeUse) bool {
+	for _, u := range uses {
+		if u.typ == nil && u.owner == nil {
+			return true
+		}
+	}
+	return len(uses) == 0
+}
+
+// usesOf returns the uses an access stands for, one of any type when it
+// knows none.
+func usesOf(x *access) []typeUse {
+	if len(x.uses) == 0 {
+		return compat.Append([]typeUse(nil), typeUse{})
+	}
+	return x.uses
+}
+
+// joinUses returns the uses of a and b together, or nil when b adds
+// nothing to a. Neither is changed.
+func joinUses(a, b []typeUse) []typeUse {
+	if anyUse(a) {
+		return nil
+	}
+	if anyUse(b) {
+		return compat.Append([]typeUse(nil), typeUse{})
+	}
+	var out []typeUse
+	for _, v := range b {
+		if hasUse(a, v) || hasUse(out, v) {
+			continue
+		}
+		if out == nil {
+			out = compat.Clone(a)
+		}
+		out = compat.Append(out, v)
+		if len(out) > maxUses {
+			return compat.Append([]typeUse(nil), typeUse{})
+		}
+	}
+	return out
+}
+
+func hasUse(uses []typeUse, v typeUse) bool {
+	for _, u := range uses {
+		if sameType(u.typ, v.typ) && sameType(u.owner, v.owner) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameType(T, U types2.Type) bool {
+	if T == nil || U == nil {
+		return T == nil && U == nil
+	}
+	return types2.Identical(T, U)
+}
+
+// sameUses reports whether the accesses past a cut of a and b, which have
+// the same keys, keep as many types each.
+func sameUses(a, b map[accKey]*access) bool {
+	for k, x := range a {
+		if strings.Contains(x.place.path, "#") && len(x.uses) != len(b[k].uses) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *summary) addSpawn(x *spawn) {
@@ -563,7 +664,7 @@ func sameKeys[K comparable, V any](a, b map[K]V) bool {
 
 // equal reports whether two summaries of a function say the same.
 func (s *summary) equal(t *summary) bool {
-	if !sameKeys(s.accKeys, t.accKeys) || !sameKeys(s.tyKeys, t.tyKeys) || !sameSet(s.callKeys, t.callKeys) || !sameSet(s.edgeKeys, t.edgeKeys) ||
+	if !sameKeys(s.accKeys, t.accKeys) || !sameKeys(s.tyKeys, t.tyKeys) || !sameUses(s.accKeys, t.accKeys) || !sameUses(s.tyKeys, t.tyKeys) || !sameSet(s.callKeys, t.callKeys) || !sameSet(s.edgeKeys, t.edgeKeys) ||
 		!sameSet(s.spKeys, t.spKeys) || !sameSet(s.crKeys, t.crKeys) {
 		return false
 	}

@@ -113,7 +113,7 @@ func (a *analyzer) check() {
 // there. Each function is followed once per context (its arguments, the
 // locks held at the call and whether a task has started).
 func (a *analyzer) expandAll(s *summary) []*access {
-	x := &expander{a: a, seen: map[expKey]bool{}, keys: map[accKey]bool{}}
+	x := &expander{a: a, seen: map[expKey]bool{}, keys: map[accKey]int{}, lsets: map[*function]*lockSets{}}
 	for _, acc := range s.accesses {
 		x.emit(acc)
 	}
@@ -145,19 +145,67 @@ type expKey struct {
 }
 
 type expander struct {
-	a    *analyzer
-	seen map[expKey]bool
-	keys map[accKey]bool
-	out  []*access
+	a     *analyzer
+	seen  map[expKey]bool
+	keys  map[accKey]int // where each kept access is in out
+	out   []*access
+	lsets map[*function]*lockSets
+}
+
+// maxLockSets bounds the sets of locks one function is followed with.
+const maxLockSets = 32
+
+// lockSets are the sets of locks a function was followed with.
+type lockSets struct {
+	keys   map[string]bool
+	common lockset // the locks every one of them holds
+	wide   bool    // past maxLockSets: followed with common alone
+}
+
+// widen returns the locks to follow f with when the task holds locks. A
+// function reached through many chains of calls that take locks, such as
+// an allocator that calls the allocator it wraps, is held under ever more
+// combinations of them; past maxLockSets it is followed only with the
+// locks every earlier set held too. Fewer locks can only find more races.
+func (x *expander) widen(f *function, locks lockset) lockset {
+	if x.lsets == nil {
+		x.lsets = map[*function]*lockSets{}
+	}
+	st := x.lsets[f]
+	if st == nil {
+		st = &lockSets{keys: map[string]bool{}, common: locks}
+		x.lsets[f] = st
+	}
+	st.common = st.common.meet(locks)
+	if st.wide {
+		return st.common
+	}
+	if k := locks.String(); !st.keys[k] {
+		st.keys[k] = true
+		if len(st.keys) > maxLockSets {
+			st.wide = true
+			return st.common
+		}
+	}
+	return locks
 }
 
 func (x *expander) emit(acc *access) {
 	k := acc.key()
-	if x.keys[k] {
+	i, ok := x.keys[k]
+	if !ok {
+		x.keys[k] = len(x.out)
+		x.out = append(x.out, acc)
 		return
 	}
-	x.keys[k] = true
-	x.out = append(x.out, acc)
+	// The same use past a cut gains acc's types (putKeyed).
+	if y := x.out[i]; strings.Contains(acc.place.path, "#") {
+		if u := joinUses(y.uses, acc.uses); u != nil {
+			z := *y
+			z.uses = u
+			x.out[i] = &z
+		}
+	}
 }
 
 // expand adds the accesses f makes of package variables and synced
@@ -197,7 +245,7 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 		}
 		env = trimmed
 	}
-	locks = sharedLocks(locks)
+	locks = x.widen(f, sharedLocks(locks))
 	k := expKey{f: f, pre: pre}
 	if len(locks) > 0 {
 		k.locks = locks.String()
@@ -223,7 +271,7 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 			continue
 		}
 		x.emit(&access{
-			typ:    acc.typ,
+			uses:   acc.uses,
 			tkey:   acc.tkey,
 			place:  acc.place,
 			write:  acc.write,
