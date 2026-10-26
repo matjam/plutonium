@@ -1,6 +1,6 @@
 $DIR/main.p:14:2: cannot pass &x to vec.(*Vec).SetIndex, which keeps it after returning
     &x is a pointer to x. x is a local variable of Global (declared at
-    main.p:13). vec.(*Vec).SetIndex stores it in v.data[i] (vec.p:117), so &x
+    main.p:13). vec.(*Vec).SetIndex stores x in v.data[i] (vec.p:117), so &x
     would outlive x.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
