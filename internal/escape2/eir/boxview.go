@@ -15,7 +15,8 @@ import (
 // as a frame pointer for every check of where it goes, and the object as
 // heap memory for what is stored in it and loaded from it. A box held in a
 // statement's temporary bounds the view by the statement. A box reached any
-// other way (through a pointer, in a package variable, in heap memory)
+// other way (through a pointer, in a package variable, in heap memory, or
+// in the caller's region through the record of a closure, section 11.5)
 // gives a view of heap memory, which generation checks guard at run time
 // (section 18.11).
 
@@ -44,6 +45,13 @@ func (fb *fnb) pointee(x ast.Expr) Reg {
 	}
 	if v := fb.boxRoot(x); v != nil {
 		if owner := fb.ownerOf(v); owner != nil {
+			if owner != fb && owner.regionVars[v] {
+				// v is in the caller's region (section 11.5), reached
+				// here through the record of a closure that may be
+				// returned: a box reached from another object, whose
+				// views generation checks guard (section 18.3).
+				return r
+			}
 			_, whole := ast.Unparen(x).(*ast.Ident)
 			return fb.objAddr(owner, owner.boxViewObj(v, pointerElem(xt), whole))
 		}

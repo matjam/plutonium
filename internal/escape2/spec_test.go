@@ -123,3 +123,42 @@ func main() {
 		t.Errorf("message: %v, want %q", err, want)
 	}
 }
+
+// A counted box in the caller's region, captured by a closure the function
+// returns (section 11.5), may be read through in the closure: the closure
+// reaches it through its record, so a view it makes is of heap memory,
+// which generation checks guard (section 18.3, "Heap memory reached any
+// other way"). The function itself may still not return a view of what
+// the box refers to (E3001).
+func TestRegionBoxView(t *testing.T) {
+	src := `package main
+
+import "pluto/alloc"
+
+type Holder owner struct{ id int }
+
+func fresh() shared[Holder] { return alloc.Shared[Holder]() }
+
+func region() (r shared[Holder], f func() int) {
+	r = fresh()
+	f = func() int { return r.id }
+	return
+}
+
+func leak() (f func(), p *int) {
+	r := fresh()
+	f = func() { println(r.id) }
+	p = &r.id
+	return
+}
+
+func main() {
+	_, f := region()
+	println(f())
+	g, p := leak()
+	g()
+	println(*p)
+}
+`
+	checkSpec(t, "region box", src, "19:2 E3001")
+}
