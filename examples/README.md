@@ -51,6 +51,6 @@ specification (`docs/spec/language/`) that defines it.
 
 Two errors are the first a new reader meets, and a program that has them does
 not compile, so they are not examples. Their full messages are in
-`cmd/pluto/testdata/diag/`: `escape` (E3001, returning a pointer to a local
+`tests/diag/`: `escape` (E3001, returning a pointer to a local
 variable) and `races` (E3502, a package variable written by tasks with no
 lock). `pluto explain E3001` and `pluto explain E3502` print the long form.

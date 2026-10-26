@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	dataDir  = "testdata"
+	dataDir  = "../../../tests/testdata/fmt/printer"
 	tabwidth = 8
 )
 

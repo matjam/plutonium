@@ -1,0 +1,6408 @@
+E0002: BlankPkgName
+
+This error occurs when a package name is the blank identifier "_".
+
+For example:
+
+    package _
+
+See "Package clause" in the Plutonium spec, section 14.2.
+
+E0003: MismatchedPkgName
+
+This error occurs when a file's package name doesn't match the package name
+already established by other files.
+
+See "Package clause" in the Plutonium spec, section 14.2.
+
+E0004: InvalidPkgUse
+
+This error occurs when a package identifier is used outside of a selector
+expression.
+
+For example:
+
+    import "fmt"
+
+    var _ = fmt
+
+See "Import declarations" in the Plutonium spec, section 14.3.
+
+E0005: BadImportPath
+
+This error occurs when an import path is not valid.
+
+See "Import declarations" in the Plutonium spec, section 14.3.
+
+E0006: BrokenImport
+
+The imported package could not be loaded. Check the import path: standard
+library packages are under pluto/, and the program's own packages are under the
+module path in pluto.mod.
+
+For example:
+
+    import "amissingpackage"
+
+See "Import declarations" in the Plutonium spec, section 14.3.
+
+E0007: ImportCRenamed
+
+This error occurs when the special import "C" is renamed. "C" is a
+pseudo-package, and must not be renamed.
+
+For example:
+
+    import _ "C"
+
+See "Import declarations" in the Plutonium spec, section 14.3.
+
+E0008: UnusedImport
+
+The file imports a package but never uses it. Plutonium, like Go, treats an
+unused import as an error, so that a file's imports always show what it really
+depends on.
+
+Delete the import, or use the package.
+
+For example:
+
+    import "pluto/fmt"
+
+    func main() {}
+
+Written correctly:
+
+    func main() {}
+
+See "Import declarations" in the Plutonium spec, section 14.3.
+
+E0009: InvalidInitCycle
+
+Package-level variables are initialized in an order where each comes after the
+ones its initial value uses. Here the values depend on each other in a circle,
+so no order works. Break the circle by setting one of them in an init function
+or at run time.
+
+For example:
+
+    var x int = f()
+
+    func f() int { return x }
+
+See "Package initialization" in the Plutonium spec, section 15.2.
+
+E0010: DuplicateDecl
+
+The same name is declared twice in one scope. Each name in a block, or at
+package level across all the package's files, must be declared once. The message
+shows where the other declaration is.
+
+Rename one of them, or remove the duplicate.
+
+For example:
+
+    var x = 1
+    var x = 2
+
+See "Declarations and scope" in the Plutonium spec, section 10.
+
+E0011: InvalidDeclCycle
+
+A type, constant or variable is defined in terms of itself, so it has no
+well-defined size or value. A struct cannot contain itself directly; it can
+contain a pointer to itself.
+
+For example:
+
+    type Node struct {
+        next Node
+    }
+
+Written correctly:
+
+    type Node struct {
+        next *Node
+    }
+
+See "Type declarations" in the Plutonium spec, section 10.8.
+
+E0012: InvalidTypeCycle
+
+This error occurs when a cycle in type definitions results in a type that is not
+well-defined.
+
+See "Type declarations" in the Plutonium spec, section 10.8.
+
+E0013: InvalidConstInit
+
+A constant's value must be known when compiling: a literal, another constant, or
+an expression of those. A variable or function call is only known at run time.
+Declare a variable instead.
+
+For example:
+
+    var n = 4
+    const size = n * 2
+
+Written correctly:
+
+    const n = 4
+    const size = n * 2
+
+See "Constant declarations" in the Plutonium spec, section 10.6.
+
+E0014: InvalidConstVal
+
+This error occurs when a const value cannot be converted to its target type.
+
+For example:
+
+    const _ = 1 << "hello"
+
+See "Constant declarations" in the Plutonium spec, section 10.6.
+
+E0015: InvalidConstType
+
+This error occurs when the underlying type in a const declaration is not a valid
+constant type.
+
+For example:
+
+    const c *int = 4
+
+See "Constant declarations" in the Plutonium spec, section 10.6.
+
+E0016: UntypedNilUse
+
+nil has no type of its own: it is the zero value of pointers, slices, interfaces
+and func values. A variable declared with := or var and no type takes the type
+of its value, and nil gives it none. Write the type.
+
+For example:
+
+    var p = nil
+
+Written correctly:
+
+    var p *Node = nil
+
+See "Variable declarations" in the Plutonium spec, section 10.10.
+
+E0017: WrongAssignCount
+
+The number of values on the right does not match the number of variables on the
+left. A call that returns several results must be assigned to that many
+variables; use _ for results you do not need.
+
+The functions of pluto/os that return a name or value from the operating system
+(DirEntry.Name, Getenv, LookupEnv, Arg, and so on) return an error as well,
+because the bytes may not be valid UTF-8, which a string must be. Assign both
+results, or use the form with Lossy in its name to display the value, or RawName
+and the Bytes forms to get the exact bytes.
+
+For example:
+
+    n := strconv.Atoi(s)
+
+Written correctly:
+
+    n, err := strconv.Atoi(s)
+
+See "Assignment statements" in the Plutonium spec, section 12.7.
+
+E0018: UnassignableOperand
+
+The left side of an assignment must be something that can hold a value: a
+variable, a pointer dereference, a field of an addressable struct, or a slice or
+array element. Constants, function results and string bytes cannot be assigned
+to.
+
+For example:
+
+    const limit = 10
+    limit = 20
+
+See "Assignment statements" in the Plutonium spec, section 12.7.
+
+E0019: NoNewVar
+
+x := v declares new variables. Every name on the left already exists in this
+scope, so nothing would be declared. Use = to assign to the existing variables.
+
+For example:
+
+    x := 1
+    x := 2
+
+Written correctly:
+
+    x := 1
+    x = 2
+
+See "Short variable declarations" in the Plutonium spec, section 10.11.
+
+E0020: MultiValAssignOp
+
+This error occurs when an assignment operation (+=, *=, etc) does not have
+single-valued left-hand or right-hand side.
+
+For example:
+
+    func f() int {
+        x, y := 1, 2
+        x, y += 1
+        return x + y
+    }
+
+See "Assignment statements" in the Plutonium spec, section 12.7.
+
+E0021: InvalidIfaceAssign
+
+A value can be used as an interface only if its type has every method the
+interface lists, with the same parameters and results. Types satisfy interfaces
+without saying so, so a missing method shows up where the value is used.
+
+The message names the missing or mismatched method. A method declared on *T
+belongs to *T, not to T, so you may need to use a pointer.
+
+For example:
+
+    type Shape interface{ Area() float64 }
+
+    type Square struct{ side float64 }
+
+    var s Shape = Square{2}
+
+Written correctly:
+
+    func (q Square) Area() float64 { return q.side * q.side }
+
+    var s Shape = Square{2}
+
+See "Interface types" in the Plutonium spec, section 7.9.
+
+E0022: InvalidChanAssign
+
+This error occurs when a chan assignment is invalid.
+
+Per the spec, a value x is assignable to a channel type T if: "x is a
+bidirectional channel value, T is a channel type, x's type V and T have
+identical element types, and at least one of V or T is not a defined type."
+
+For example:
+
+    type T1 chan int
+    type T2 chan int
+
+    var x T1
+    // Invalid assignment because both types are named
+    var _ T2 = x
+
+See "Assignability" in the Plutonium spec, section 8.4.
+
+E0023: IncompatibleAssign
+
+A value of one type is used where a different type is needed: in an assignment,
+a variable declaration, an argument or a return. Plutonium, like Go, never
+converts between types by itself, even between int and int64, or between numbers
+and text.
+
+Convert explicitly with T(x) between number types, or use a function such as
+strconv.Atoi to turn text into a number.
+
+For example:
+
+    var count int = "3"
+
+Written correctly:
+
+    var count int = 3
+
+See "Assignability" in the Plutonium spec, section 8.4.
+
+E0024: UnaddressableFieldAssign
+
+This error occurs when trying to assign to a struct field in a map value.
+
+For example:
+
+    func f() {
+        m := make(map[string]struct{i int})
+        m["foo"].i = 42
+    }
+
+See "Assignment statements" in the Plutonium spec, section 12.7.
+
+E0025: NotAType
+
+A name used as a type is not a type: it is a variable, constant, function or
+package. Check the spelling, and whether a local variable hides a type of the
+same name.
+
+For example:
+
+    var size = 4
+    var buf size
+
+See "Types" in the Plutonium spec, section 7.
+
+E0026: InvalidArrayLen
+
+The length of an array type must be a constant integer that is not negative,
+since an array's size is fixed when compiling. For a length known only at run
+time, use a vec.Vec from pluto/vec.
+
+For example:
+
+    n := 8
+    var buf [n]byte
+
+Written correctly:
+
+    n := 8
+    buf := vec.Make[byte](n)
+    defer buf.Free()
+
+See "Array types" in the Plutonium spec, section 7.4.
+
+E0027: BlankIfaceMethod
+
+This error occurs when a method name is '_'.
+
+For example:
+
+    type T interface {
+        _(int)
+    }
+
+See "Interface types" in the Plutonium spec, section 7.9.
+
+E0028: IncomparableMapKey
+
+This error occurs when a map key type does not support the == and != operators.
+
+For example:
+
+    var x map[T]int
+
+    type T []int
+
+See "Map types" in the Plutonium spec, section 7.10.
+
+E0030: InvalidPtrEmbed
+
+This error occurs when an embedded field is of the pointer form *T, and T itself
+is itself a pointer, an unsafe.Pointer, or an interface.
+
+For example:
+
+    type T *int
+
+    type S struct {
+        *T
+    }
+
+See "Struct types" in the Plutonium spec, section 7.6.
+
+E0031: BadRecv
+
+This error occurs when a method declaration does not have exactly one receiver
+parameter.
+
+For example:
+
+    func () _() {}
+
+See "Method declarations" in the Plutonium spec, section 10.14.
+
+E0032: InvalidRecv
+
+This error occurs when a receiver type expression is not of the form T or *T, or
+T is a pointer type.
+
+For example:
+
+    type T struct {}
+
+    func (**T) m() {}
+
+See "Method declarations" in the Plutonium spec, section 10.14.
+
+E0033: DuplicateFieldAndMethod
+
+This error occurs when an identifier appears as both a field and method name.
+
+For example:
+
+    type T struct {
+        m int
+    }
+
+    func (T) m() {}
+
+See "Method declarations" in the Plutonium spec, section 10.14.
+
+E0034: DuplicateMethod
+
+A type has two methods with the same name. Method names must be unique for each
+type, whatever their parameters; there is no overloading.
+
+For example:
+
+    type T struct {}
+    func (T) m() {}
+    func (T) m(i int) int { return i }
+
+See "Method declarations" in the Plutonium spec, section 10.14.
+
+E0035: InvalidBlank
+
+The blank identifier _ can be assigned to, to discard a value, but cannot be
+read. It is not a variable.
+
+For example:
+
+    x := _
+
+See "Blank identifier" in the Plutonium spec, section 10.2.
+
+E0036: InvalidIota
+
+This error occurs when the predeclared identifier iota is used outside of a
+constant declaration.
+
+For example:
+
+    var x = iota
+
+See "Iota" in the Plutonium spec, section 10.7.
+
+E0037: MissingInitBody
+
+This error occurs when an init function is missing its body.
+
+For example:
+
+    func init()
+
+See "Package initialization" in the Plutonium spec, section 15.2.
+
+E0038: InvalidInitSig
+
+This error occurs when an init function declares parameters or results.
+
+Deprecated: no longer emitted by the type checker. _InvalidInitDecl is used
+instead.
+
+See "Package initialization" in the Plutonium spec, section 15.2.
+
+E0039: InvalidInitDecl
+
+This error occurs when init is declared as anything other than a function.
+
+For example:
+
+    var init = 1
+
+See "Package initialization" in the Plutonium spec, section 15.2.
+
+E0040: InvalidMainDecl
+
+In package main, the name main must be the function where the program starts. It
+cannot be a variable or type, and it cannot have type parameters.
+
+See "Program execution" in the Plutonium spec, section 15.4.
+
+E0041: TooManyValues
+
+A function that returns several results is used where one value is expected.
+Assign the results to variables first, and use the one you need.
+
+This includes the functions of pluto/os that return a name or value from the
+operating system (DirEntry.Name, Getenv, and so on): they return an error as
+well, because the bytes may not be valid UTF-8. Use the form with Lossy in its
+name to display the value, or RawName and the Bytes forms to get the exact
+bytes.
+
+For example:
+
+    x := strconv.Atoi(s) + 1
+
+Written correctly:
+
+    n, err := strconv.Atoi(s)
+    x := n + 1
+
+See "Calls" in the Plutonium spec, section 11.14.
+
+E0042: NotAnExpr
+
+Something that is not a value, such as a type or a package name, is used where a
+value is needed.
+
+For example:
+
+    type T struct {}
+
+    func f() {
+        T
+    }
+
+See "Expressions" in the Plutonium spec, section 11.
+
+E0043: TruncatedFloat
+
+A constant with a fraction is used as an integer. Converting it would lose the
+fraction, which Plutonium, like Go, does not do silently for constants. Use an
+integer constant, or convert a variable at run time.
+
+For example:
+
+    var n int = 2.5
+
+See "Representability" in the Plutonium spec, section 8.5.
+
+E0044: NumericOverflow
+
+A constant does not fit in the type it is used as. Each integer type holds a
+fixed range: uint8 holds 0 to 255, int8 holds -128 to 127, and so on. Use a
+wider type, or a smaller constant.
+
+For example:
+
+    var b uint8 = 256
+
+Written correctly:
+
+    var b uint16 = 256
+
+See "Representability" in the Plutonium spec, section 8.5.
+
+E0045: UndefinedOp
+
+The operator is not defined for this type. For example, + works on numbers and
+constant strings, < works on numbers and strings, and ! works only on bools.
+Structs, slices and funcs have no arithmetic.
+
+For example:
+
+    var ok bool
+    n := ok + 1
+
+See "Operators" in the Plutonium spec, section 11.18.
+
+E0046: MismatchedTypes
+
+The two operands of a binary operator, such as + or ==, must have the same type.
+Plutonium, like Go, never converts one to match the other, even between int and
+int64.
+
+Convert one operand to the other's type with T(x).
+
+For example:
+
+    var a int = 1
+    var b int64 = 2
+    c := a + b
+
+Written correctly:
+
+    c := int64(a) + b
+
+See "Arithmetic operators" in the Plutonium spec, section 11.19.
+
+E0047: DivByZero
+
+A constant division by zero. Dividing by a constant 0 is always wrong, so the
+compiler reports it rather than let it panic at run time.
+
+For example:
+
+    const divisor = 0
+    var x int = 1/divisor
+
+See "Arithmetic operators" in the Plutonium spec, section 11.19.
+
+E0048: NonNumericIncDec
+
+++ and -- work only on numbers.
+
+For example:
+
+    func f() {
+        var c = "c"
+        c++
+    }
+
+See "IncDec statements" in the Plutonium spec, section 12.6.
+
+E0049: UnaddressableOperand
+
+& takes the address of a variable, a field of an addressable struct, a slice
+element or a composite literal. Other values, such as constants and function
+results, have no address. Store the value in a variable first.
+
+For example:
+
+    p := &f()
+
+Written correctly:
+
+    v := f()
+    p := &v
+
+See "Address operators" in the Plutonium spec, section 11.22.
+
+E0050: InvalidIndirection
+
+* follows a pointer to the value it points at. The operand here is not a
+pointer.
+
+For example:
+
+    var x int
+    var y = *x
+
+See "Address operators" in the Plutonium spec, section 11.22.
+
+E0051: NonIndexableOperand
+
+Only arrays, slices, strings, pointers to arrays, and generic types whose type
+set allows it can be indexed with [i].
+
+For example:
+
+    var x = 1
+    var y = x[1]
+
+See "Index expressions" in the Plutonium spec, section 11.10.
+
+E0052: InvalidIndex
+
+An index must be an integer that is not negative, and a constant index must be
+inside the bounds of an array or constant string.
+
+For example:
+
+    var s = [...]int{1,2,3}
+    var x = s[5]
+
+See "Index expressions" in the Plutonium spec, section 11.10.
+
+E0053: SwappedSliceIndices
+
+This error occurs when constant indices in a slice expression are decreasing in
+value.
+
+For example:
+
+    var _ = []int{1,2,3}[2:1]
+
+See "Slice expressions" in the Plutonium spec, section 11.12.
+
+E0054: NonSliceableOperand
+
+This error occurs when a slice operation is applied to a value whose type is not
+sliceable, or is unaddressable.
+
+For example:
+
+    var x = [...]int{1, 2, 3}[:1]
+
+See "Slice expressions" in the Plutonium spec, section 11.12.
+
+E0055: InvalidSliceExpr
+
+This error occurs when a three-index slice expression (a[x:y:z]) is applied to a
+string.
+
+For example:
+
+    var s = "hello"
+    var x = s[1:2:3]
+
+See "Slice expressions" in the Plutonium spec, section 11.12.
+
+E0056: InvalidShiftCount
+
+The count of a shift, the right operand of << or >>, must be an integer that is
+not negative.
+
+For example:
+
+    var (
+        x string
+        y int = 1 << x
+    )
+
+See "Arithmetic operators" in the Plutonium spec, section 11.19.
+
+E0057: InvalidShiftOperand
+
+This error occurs when the shifted operand is not an integer.
+
+For example:
+
+    var s = "hello"
+    var x = s << 2
+
+See "Arithmetic operators" in the Plutonium spec, section 11.19.
+
+E0058: InvalidReceive
+
+This error occurs when there is a channel receive from a value that is either
+not a channel, or is a send-only channel.
+
+For example:
+
+    func f() {
+        var x = 1
+        <-x
+    }
+
+See "Receive operator" in the Plutonium spec, section 11.23.
+
+E0059: InvalidSend
+
+This error occurs when there is a channel send to a value that is not a channel,
+or is a receive-only channel.
+
+For example:
+
+    func f() {
+        var x = 1
+        x <- "hello!"
+    }
+
+See "Send statements" in the Plutonium spec, section 12.5.
+
+E0060: DuplicateLitKey
+
+A composite literal gives the same index or key twice.
+
+For example:
+
+    var _ = []int{0:1, 0:2}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0061: MissingLitKey
+
+This error occurs when a map literal is missing a key expression.
+
+For example:
+
+    var _ = map[string]int{1}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0062: InvalidLitIndex
+
+This error occurs when the key in a key-value element of a slice or array
+literal is not an integer constant.
+
+For example:
+
+    var i = 0
+    var x = []string{i: "world"}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0063: OversizeArrayLit
+
+This error occurs when an array literal exceeds its length.
+
+For example:
+
+    var _ = [2]int{1,2,3}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0064: MixedStructLit
+
+A struct literal either names every field it sets (Point{X: 1, Y: 2}) or lists a
+value for every field in order (Point{1, 2}). It cannot mix the two.
+
+For example:
+
+    p := Point{X: 1, 2}
+
+Written correctly:
+
+    p := Point{X: 1, Y: 2}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0065: InvalidStructLit
+
+This error occurs when a positional struct literal has an incorrect number of
+values.
+
+For example:
+
+    var _ = struct{i, j int}{1,2,3}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0066: MissingLitField
+
+The struct literal names a field that the struct type does not have. Check the
+spelling; field names are case-sensitive.
+
+For example:
+
+    var _ = struct{i int}{j: 2}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0067: DuplicateLitField
+
+The struct literal sets the same field twice.
+
+For example:
+
+    var _ = struct{i int}{i: 1, i: 2}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0068: UnexportedLitField
+
+The literal sets a field of another package's struct whose name starts with a
+lower-case letter. Such fields are private to their package. Use a constructor
+function from that package, if it has one.
+
+See "Exported identifiers" in the Plutonium spec, section 10.4.
+
+E0069: InvalidLitField
+
+This error occurs when a field name is not a valid identifier.
+
+For example:
+
+    var _ = struct{i int}{1: 1}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0070: UntypedLit
+
+This error occurs when a composite literal omits a required type identifier.
+
+For example:
+
+    type outer struct{
+        inner struct { i int }
+    }
+
+    var _ = outer{inner: {1}}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0071: InvalidLit
+
+This error occurs when a composite literal expression does not match its type.
+
+For example:
+
+    type P *struct{
+        x int
+    }
+    var _ = P {}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E0072: AmbiguousSelector
+
+This error occurs when a selector is ambiguous.
+
+For example:
+
+    type E1 struct { i int }
+    type E2 struct { i int }
+    type T struct { E1; E2 }
+
+    var x T
+    var _ = x.i
+
+See "Selectors" in the Plutonium spec, section 11.7.
+
+E0073: UndeclaredImportedName
+
+The package has no exported name like this. Only names that start with an
+upper-case letter can be used from other packages. Check the spelling, and the
+package's documentation for the name it uses.
+
+For example:
+
+    import "go/types"
+
+    var _ = types.NotAnActualIdentifier
+
+See "Qualified identifiers" in the Plutonium spec, section 11.2.
+
+E0074: UnexportedName
+
+The name starts with a lower-case letter, so it is private to the package that
+declares it and cannot be used from another package.
+
+For example:
+
+    import "reflect"
+
+    type _ reflect.flag
+
+See "Exported identifiers" in the Plutonium spec, section 10.4.
+
+E0075: UndeclaredName
+
+The name is not declared in any scope that reaches this point. It may be
+misspelled (names are case-sensitive), declared in a block that has ended, or
+belong to a package that is not imported.
+
+For example:
+
+    func main() {
+        count := 1
+        print(cuont)
+    }
+
+See "Declarations and scope" in the Plutonium spec, section 10.
+
+E0076: MissingFieldOrMethod
+
+The type has no field or method with this name. Check the spelling: names are
+case-sensitive, and another package's names must start with an upper-case
+letter. A method declared on *T can be called on a T variable, but not on a T
+value that has no address.
+
+For example:
+
+    type T struct {}
+
+    var x = T{}.f
+
+See "Selectors" in the Plutonium spec, section 11.7.
+
+E0077: BadDotDotDotSyntax
+
+This error occurs when a "..." occurs in a context where it is not valid.
+
+For example:
+
+    var _ = map[int][...]int{0: {}}
+
+See "Passing arguments to ... parameters" in the Plutonium spec, section 11.15.
+
+E0078: NonVariadicDotDotDot
+
+This error occurs when a "..." is used on the final argument to a non-variadic
+function.
+
+For example:
+
+    func printArgs(s []string) {
+        for _, a := range s {
+            println(a)
+        }
+    }
+
+    func f() {
+        s := []string{"a", "b", "c"}
+        printArgs(s...)
+    }
+
+See "Passing arguments to ... parameters" in the Plutonium spec, section 11.15.
+
+E0081: InvalidDotDotDot
+
+This error occurs when a "..." is used in a non-variadic built-in function.
+
+For example:
+
+    var s = []int{1, 2, 3}
+    var l = len(s...)
+
+See "Passing arguments to ... parameters" in the Plutonium spec, section 11.15.
+
+E0082: UncalledBuiltin
+
+A builtin function such as len or cap is used as a value. Builtins can only be
+called; wrap the call in a function literal if you need a func value.
+
+For example:
+
+    var _ = copy
+
+See "Built-in functions" in the Plutonium spec, section 13.
+
+E0083: InvalidAppend
+
+append's first argument must be a slice, and the values after it must fit its
+element type. Plutonium has no append (a slice cannot grow); use pluto/vec.Vec
+for a sequence that grows.
+
+For example:
+
+    var _ = append(1, 2)
+
+See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
+
+E0084: InvalidCap
+
+cap takes an array or a pointer to one, a slice or a channel. Unlike len, it
+does not call methods: a library container or a ring reports its capacity with a
+method of its own.
+
+Call the type's Cap method instead.
+
+For example:
+
+    println(cap(r))
+
+Written correctly:
+
+    println(r.Cap())
+
+See "Length and capacity" in the Plutonium spec, section 13.6.
+
+E0085: InvalidClose
+
+This error occurs when close(...) is called with an argument that is not of
+channel type, or that is a receive-only channel.
+
+For example:
+
+    func f() {
+        var x int
+        close(x)
+    }
+
+See "Close" in the Plutonium spec, section 13.4.
+
+E0086: InvalidCopy
+
+This error occurs when the arguments are not of slice type or do not have
+compatible type.
+
+See https://golang.org/ref/spec#Appending_and_copying_slices for more
+information on the type requirements for the copy built-in.
+
+For example:
+
+    func f() {
+        var x []int
+        y := []int64{1,2,3}
+        copy(x, y)
+    }
+
+See "Copying slices" in the Plutonium spec, section 13.2.
+
+E0087: InvalidComplex
+
+This error occurs when the complex built-in function is called with arguments
+with incompatible types.
+
+For example:
+
+    var _ = complex(float32(1), float64(2))
+
+See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
+
+E0088: InvalidDelete
+
+This error occurs when the delete built-in function is called with a first
+argument that is not a map.
+
+For example:
+
+    func f() {
+        m := "hello"
+        delete(m, "e")
+    }
+
+See "Deletion of map elements" in the Plutonium spec, section 13.5.
+
+E0089: InvalidImag
+
+This error occurs when the imag built-in function is called with an argument
+that does not have complex type.
+
+For example:
+
+    var _ = imag(int(1))
+
+See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
+
+E0090: InvalidLen
+
+len takes a string, an array or a pointer to one, a slice, a map, a channel, an
+owned, shared or synced array, or a value whose type has a method Len() int,
+such as a library container or a ring; len(E) of an enum type E is its number of
+members. A Len method with a pointer receiver needs an operand that is
+addressable or a pointer, as a method call would.
+
+Pass a value of one of these types, or store the value in a variable first.
+
+For example:
+
+    println(len(newRing()))
+
+Written correctly:
+
+    r := newRing()
+    println(len(r))
+
+See "Length and capacity" in the Plutonium spec, section 13.6.
+
+E0091: SwappedMakeArgs
+
+This error occurs when make is called with three arguments, and its length
+argument is larger than its capacity argument.
+
+For example:
+
+    var x = make([]int, 3, 2)
+
+See "Making channels and maps" in the Plutonium spec, section 13.7.
+
+E0092: InvalidMake
+
+This error occurs when make is called with an unsupported type argument.
+
+See https://golang.org/ref/spec#Making_slices_maps_and_channels for information
+on the types that may be created using make.
+
+For example:
+
+    var x = make(int)
+
+See "Making channels and maps" in the Plutonium spec, section 13.7.
+
+E0093: InvalidReal
+
+This error occurs when the real built-in function is called with an argument
+that does not have complex type.
+
+For example:
+
+    var _ = real(int(1))
+
+See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
+
+E0094: InvalidAssert
+
+A type assertion x.(T) asks which concrete type an interface value holds, so x
+must be an interface. This value is not an interface; its type is already known.
+
+For example:
+
+    var x = 1
+    var _ = x.(float64)
+
+See "Type assertions" in the Plutonium spec, section 11.13.
+
+E0095: ImpossibleAssert
+
+The type in the assertion does not have every method of the interface, so no
+value of the interface can hold it, and the assertion would always fail.
+
+For example:
+
+    type T int
+
+    func (t *T) m() int { return int(*t) }
+
+    type I interface { m() int }
+
+    var x I
+    var _ = x.(T)
+
+See "Type assertions" in the Plutonium spec, section 11.13.
+
+E0096: InvalidConversion
+
+This conversion is not allowed. T(x) converts between number types, between
+types with the same underlying type, and between pointers and unsafe.Pointer. It
+does not turn numbers into text: string(65) would make a rune, not "65".
+
+For example:
+
+    var x float64
+    var _ = string(x)
+
+See "Conversions" in the Plutonium spec, section 11.24.
+
+E0097: InvalidUntypedConversion
+
+This error occurs when there is no valid implicit conversion from an untyped
+value satisfying the type constraints of the context in which it is used.
+
+For example:
+
+    func f[T ~int8 | ~int16 | ~int32 | ~int64](x T) T {
+        return x + 1024
+    }
+
+See "Conversions" in the Plutonium spec, section 11.24.
+
+E0098: BadOffsetofSyntax
+
+This error occurs when unsafe.Offsetof is called with an argument that is not a
+selector expression.
+
+For example:
+
+    import "unsafe"
+
+    var x int
+    var _ = unsafe.Offsetof(x)
+
+See "Package unsafe" in the Plutonium spec, section 20.1.
+
+E0099: InvalidOffsetof
+
+This error occurs when unsafe.Offsetof is called with a method selector, rather
+than a field selector, or when the field is embedded via a pointer.
+
+"If f is an embedded field, it must be reachable without pointer indirections
+through fields of the struct. "
+
+For example:
+
+    import "unsafe"
+
+    type T struct { f int }
+    type S struct { *T }
+    var s S
+    var _ = unsafe.Offsetof(s.f)
+
+See "Package unsafe" in the Plutonium spec, section 20.1.
+
+E0100: UnusedExpr
+
+The expression computes a value and throws it away, so it has no effect. A
+statement must do something: call a function, assign, send, and so on. Remove
+it, or assign the value to _ if computing it is the point.
+
+For example:
+
+    x + 1
+
+Written correctly:
+
+    x = x + 1
+
+See "Expression statements" in the Plutonium spec, section 12.4.
+
+E0101: UnusedVar
+
+A local variable is declared but its value is never used. Plutonium, like Go,
+treats this as an error, because it often means a mistake, such as assigning to
+the wrong variable.
+
+Remove the variable, use it, or assign it to _ for now.
+
+For example:
+
+    func main() {
+        n := compute()
+    }
+
+Written correctly:
+
+    func main() {
+        _ = compute()
+    }
+
+See "Variable declarations" in the Plutonium spec, section 10.10.
+
+E0102: MissingReturn
+
+A function that declares results must end every path through its body with a
+return statement (or a panic, or an endless loop). The compiler found a path
+that reaches the closing brace without one.
+
+Add a return at the end, or a panic if that point can never be reached.
+
+For example:
+
+    func sign(x int) int {
+        if x < 0 {
+            return -1
+        }
+    }
+
+Written correctly:
+
+    func sign(x int) int {
+        if x < 0 {
+            return -1
+        }
+        return 1
+    }
+
+See "Terminating statements" in the Plutonium spec, section 12.1.
+
+E0103: WrongResultCount
+
+The return statement gives a different number of values than the function
+declares as results. Return one value for each result, in order.
+
+For example:
+
+    func f() (int, error) {
+        return 0
+    }
+
+Written correctly:
+
+    func f() (int, error) {
+        return 0, nil
+    }
+
+See "Return statements" in the Plutonium spec, section 12.14.
+
+E0104: OutOfScopeResult
+
+This error occurs when the name of a value implicitly returned by an empty
+return statement is shadowed in a nested scope.
+
+For example:
+
+    func factor(n int) (i int) {
+        for i := 2; i < n; i++ {
+            if n%i == 0 {
+                return
+            }
+        }
+        return 0
+    }
+
+See "Return statements" in the Plutonium spec, section 12.14.
+
+E0105: InvalidCond
+
+The condition of an if or for statement must be a bool. Plutonium, like Go, does
+not treat numbers or pointers as true or false; compare explicitly.
+
+For example:
+
+    if n {
+    }
+
+Written correctly:
+
+    if n != 0 {
+    }
+
+See "If statements" in the Plutonium spec, section 12.8.
+
+E0106: InvalidPostDecl
+
+This error occurs when there is a declaration in a for-loop post statement.
+
+For example:
+
+    func f() {
+        for i := 0; i < 10; j := 0 {}
+    }
+
+See "For statements" in the Plutonium spec, section 12.10.
+
+E0108: InvalidIterVar
+
+This error occurs when two iteration variables are used while ranging over a
+channel.
+
+For example:
+
+    func f(c chan int) {
+        for k, v := range c {
+            println(k, v)
+        }
+    }
+
+See "For statements" in the Plutonium spec, section 12.10.
+
+E0109: InvalidRangeExpr
+
+for range works over arrays, slices, strings, integers, channels, enum types and
+iterator functions. This value is none of those.
+
+For example:
+
+    func f(f float64) {
+        for j := range f {
+            println(j)
+        }
+    }
+
+See "For statements" in the Plutonium spec, section 12.10.
+
+E0110: MisplacedBreak
+
+break must be inside a for, switch or select statement.
+
+For example:
+
+    func f() {
+        break
+    }
+
+See "Break statements" in the Plutonium spec, section 12.15.
+
+E0111: MisplacedContinue
+
+continue must be inside a for statement.
+
+For example:
+
+    func sumeven(n int) int {
+        proceed := func() {
+            continue
+        }
+        sum := 0
+        for i := 1; i <= n; i++ {
+            if i % 2 != 0 {
+                proceed()
+            }
+            sum += i
+        }
+        return sum
+    }
+
+See "Continue statements" in the Plutonium spec, section 12.16.
+
+E0112: MisplacedFallthrough
+
+This error occurs when a fallthrough statement is not within an expression
+switch.
+
+For example:
+
+    func typename(i interface{}) string {
+        switch i.(type) {
+        case int64:
+            fallthrough
+        case int:
+            return "int"
+        }
+        return "unsupported"
+    }
+
+See "Fallthrough statements" in the Plutonium spec, section 12.18.
+
+E0113: DuplicateCase
+
+A switch lists the same constant value in two cases. Only the first could ever
+match.
+
+For example:
+
+    func printInt(i int) {
+        switch i {
+        case 1:
+            println("one")
+        case 1:
+            println("One")
+        }
+    }
+
+See "Switch statements" in the Plutonium spec, section 12.9.
+
+E0114: DuplicateDefault
+
+This error occurs when a type or expression switch has multiple default clauses.
+
+For example:
+
+    func printInt(i int) {
+        switch i {
+        case 1:
+            println("one")
+        default:
+            println("One")
+        default:
+            println("1")
+        }
+    }
+
+See "Switch statements" in the Plutonium spec, section 12.9.
+
+E0115: BadTypeKeyword
+
+This error occurs when a .(type) expression is used anywhere other than a type
+switch.
+
+For example:
+
+    type I interface {
+        m()
+    }
+    var t I
+    var _ = t.(type)
+
+See "Switch statements" in the Plutonium spec, section 12.9.
+
+E0116: InvalidTypeSwitch
+
+This error occurs when .(type) is used on an expression that is not of interface
+type.
+
+For example:
+
+    func f(i int) {
+        switch x := i.(type) {}
+    }
+
+See "Switch statements" in the Plutonium spec, section 12.9.
+
+E0117: InvalidExprSwitch
+
+A case value cannot be compared with the switch value: their types differ, or
+the type cannot be compared with ==.
+
+For example:
+
+    func _() {
+        var a struct{ _ func() }
+        switch a /* ERROR cannot switch on a */ {
+        }
+    }
+
+See "Switch statements" in the Plutonium spec, section 12.9.
+
+E0118: InvalidSelectCase
+
+This error occurs when a select case is not a channel send or receive.
+
+For example:
+
+    func checkChan(c <-chan int) bool {
+        select {
+        case c:
+            return true
+        default:
+            return false
+        }
+    }
+
+See "Select statements" in the Plutonium spec, section 12.13.
+
+E0119: UndeclaredLabel
+
+This error occurs when an undeclared label is jumped to.
+
+For example:
+
+    func f() {
+        goto L
+    }
+
+See "Label scopes" in the Plutonium spec, section 10.1.
+
+E0120: DuplicateLabel
+
+This error occurs when a label is declared more than once.
+
+For example:
+
+    func f() int {
+    L:
+    L:
+        return 1
+    }
+
+See "Label scopes" in the Plutonium spec, section 10.1.
+
+E0121: MisplacedLabel
+
+This error occurs when a break or continue label is not on a for, switch, or
+select statement.
+
+For example:
+
+    func f() {
+    L:
+        a := []int{1,2,3}
+        for _, e := range a {
+            if e > 10 {
+                break L
+            }
+            println(a)
+        }
+    }
+
+See "Labeled statements" in the Plutonium spec, section 12.3.
+
+E0122: UnusedLabel
+
+A label is declared but no break, continue or goto uses it. Remove it.
+
+For example:
+
+    func f() {
+    L:
+    }
+
+See "Labeled statements" in the Plutonium spec, section 12.3.
+
+E0123: JumpOverDecl
+
+This error occurs when a label jumps over a variable declaration.
+
+For example:
+
+    func f() int {
+        goto L
+        x := 2
+    L:
+        x++
+        return x
+    }
+
+See "Goto statements" in the Plutonium spec, section 12.17.
+
+E0124: JumpIntoBlock
+
+This error occurs when a forward jump goes to a label inside a nested block.
+
+For example:
+
+    func f(x int) {
+        goto L
+        if x > 0 {
+        L:
+            print("inside block")
+        }
+    }
+
+See "Goto statements" in the Plutonium spec, section 12.17.
+
+E0125: InvalidMethodExpr
+
+This error occurs when a pointer method is called but the argument is not
+addressable.
+
+For example:
+
+    type T struct {}
+
+    func (*T) m() int { return 1 }
+
+    var _ = T.m(T{})
+
+See "Method expressions" in the Plutonium spec, section 11.8.
+
+E0126: WrongArgCount
+
+The call passes a different number of arguments than the function has
+parameters. The message shows the arguments given (have) and the parameters
+(want). Parameters with default values may be left out from the end.
+
+For example:
+
+    func add(a, b int) int { return a + b }
+
+    x := add(1, 2, 3)
+
+Written correctly:
+
+    x := add(1, 2)
+
+See "Calls" in the Plutonium spec, section 11.14.
+
+E0127: InvalidCall
+
+Only functions, methods and func values can be called. The expression before the
+parentheses is something else, or a type used in a way that is not a conversion.
+
+For example:
+
+    var x = "x"
+    var y = x()
+
+See "Calls" in the Plutonium spec, section 11.14.
+
+E0128: UnusedResults
+
+The result of this call must be used. Builtins such as len and cap, and
+conversions, have no effect other than their result.
+
+For example:
+
+    func f(a []int) int {
+        defer len(a)
+        return i
+    }
+
+See "Expression statements" in the Plutonium spec, section 12.4.
+
+E0129: InvalidDefer
+
+This error occurs when a deferred expression is not a function call, for example
+if the expression is a type conversion.
+
+For example:
+
+    func f(i int) int {
+        defer int32(i)
+        return i
+    }
+
+See "Defer statements" in the Plutonium spec, section 12.19.
+
+E0130: InvalidGo
+
+This error occurs when a go expression is not a function call, for example if
+the expression is a type conversion.
+
+For example:
+
+    func f(i int) int {
+        go int32(i)
+        return i
+    }
+
+See "Task statements" in the Plutonium spec, section 12.12.
+
+E0131: BadDecl
+
+This error occurs when a declaration has invalid syntax.
+
+See "Declarations and scope" in the Plutonium spec, section 10.
+
+E0132: RepeatedDecl
+
+This error occurs when an identifier occurs more than once on the left hand side
+of a short variable declaration.
+
+For example:
+
+    func _() {
+        x, y, y := 1, 2, 3
+    }
+
+See "Declarations and scope" in the Plutonium spec, section 10.
+
+E0133: InvalidUnsafeAdd
+
+This error occurs when unsafe.Add is called with a length argument that is not
+of integer type. It also occurs if it is used in a package compiled for a
+language version before go1.17.
+
+For example:
+
+    import "unsafe"
+
+    var p unsafe.Pointer
+    var _ = unsafe.Add(p, float64(1))
+
+See "Package unsafe" in the Plutonium spec, section 20.1.
+
+E0134: InvalidUnsafeSlice
+
+This error occurs when unsafe.Slice is called with a pointer argument that is
+not of pointer type or a length argument that is not of integer type, negative,
+or out of bounds. It also occurs if it is used in a package compiled for a
+language version before go1.17.
+
+For example:
+
+    import "unsafe"
+
+    var x int
+    var _ = unsafe.Slice(x, 1)
+
+See "Package unsafe" in the Plutonium spec, section 20.1.
+
+E0135: UnsupportedFeature
+
+This feature is not available in the language version being compiled.
+
+See "Language version" in the Plutonium spec, section 21.8.
+
+E0136: NotAGenericType
+
+Type arguments in square brackets are given to a type that has no type
+parameters.
+
+For example:
+
+    type T int
+
+    var _ T[int]
+
+See "Instantiations" in the Plutonium spec, section 11.16.
+
+E0137: WrongTypeArgCount
+
+A generic function or type gets a different number of type arguments than it has
+type parameters. Give one for each, or leave out the trailing ones that can be
+inferred from the arguments.
+
+For example:
+
+    type T[p any] int
+
+    var _ T[int, string]
+
+See "Instantiations" in the Plutonium spec, section 11.16.
+
+E0138: CannotInferTypeArgs
+
+A generic function was called without type arguments, and the compiler could not
+work them out from the call's arguments. A type parameter that appears only in
+the results, or only in parameters that were left out, cannot be inferred. Give
+the type arguments explicitly in square brackets.
+
+For example:
+
+    func Zero[T any]() T { var z T; return z }
+
+    x := Zero()
+
+Written correctly:
+
+    x := Zero[int]()
+
+See "Type inference" in the Plutonium spec, section 11.17.
+
+E0139: InvalidTypeArg
+
+A type argument does not satisfy its type parameter's constraint. The constraint
+is an interface that lists the methods the type needs, or the set of types
+allowed (such as ~int | ~float64). The message says which part the type fails.
+
+For example:
+
+    type T[P ~int] struct{}
+
+    var _ T[string]
+
+See "Type parameter declarations" in the Plutonium spec, section 10.9.
+
+E0140: InvalidInstanceCycle
+
+This error occurs when an invalid cycle is detected within the instantiation
+graph.
+
+For example:
+
+    func f[T any]() { f[*T]() }
+
+See "Instantiations" in the Plutonium spec, section 11.16.
+
+E0141: InvalidUnion
+
+This error occurs when an embedded union or approximation element is not valid.
+
+For example:
+
+    type _ interface {
+         ~int | interface{ m() }
+    }
+
+See "Interface types" in the Plutonium spec, section 7.9.
+
+E0142: MisplacedConstraintIface
+
+This error occurs when a constraint-type interface is used outside of constraint
+position.
+
+For example:
+
+     type I interface { ~int }
+
+     var _ I
+
+See "Interface types" in the Plutonium spec, section 7.9.
+
+E0143: InvalidMethodTypeParams
+
+This error occurs when methods have type parameters.
+
+It cannot be encountered with an AST parsed using go/parser.
+
+See "Methods with type parameters" in the Plutonium spec, section 10.15.
+
+E0144: MisplacedTypeParam
+
+This error occurs when a type parameter is used in a place where it is not
+permitted.
+
+For example:
+
+    type T[P any] P
+
+See "Type parameter declarations" in the Plutonium spec, section 10.9.
+
+E0145: InvalidUnsafeSliceData
+
+This error occurs when unsafe.SliceData is called with an argument that is not
+of slice type. It also occurs if it is used in a package compiled for a language
+version before go1.20.
+
+For example:
+
+    import "unsafe"
+
+    var x int
+    var _ = unsafe.SliceData(x)
+
+See "Package unsafe" in the Plutonium spec, section 20.1.
+
+E0146: InvalidUnsafeString
+
+This error occurs when unsafe.String is called with a length argument that is
+not of integer type, negative, or out of bounds. It also occurs if it is used in
+a package compiled for a language version before go1.20.
+
+For example:
+
+    import "unsafe"
+
+    var b [10]byte
+    var _ = unsafe.String(&b[0], -1)
+
+See "Package unsafe" in the Plutonium spec, section 20.1.
+
+E0148: InvalidClear
+
+This error occurs when clear is called with an argument that is not of map or
+slice type.
+
+For example:
+
+    func _(x int) {
+        clear(x)
+    }
+
+See "Clear" in the Plutonium spec, section 13.3.
+
+E0149: TypeTooLarge
+
+This error occurs if unsafe.Sizeof or unsafe.Offsetof is called with an
+expression whose type is too large.
+
+For example:
+
+    import "unsafe"
+
+    type E [1 << 31 - 1]int
+    var a [1 << 31]E
+    var _ = unsafe.Sizeof(a)
+
+See "Implementation limits" in the Plutonium spec, section 21.4.
+
+E0150: InvalidMinMaxOperand
+
+This error occurs if min or max is called with an operand that cannot be ordered
+because it does not support the < operator.
+
+For example:
+
+    const _ = min(true)
+
+See "Min and max" in the Plutonium spec, section 13.8.
+
+E0151: TooNew
+
+This error indicates that, through build tags or a go.mod file, a source file
+requires a version of Go that is newer than the logic of the type checker. As a
+consequence, the type checker may produce spurious errors or fail to report real
+errors. The solution is to rebuild the application with a newer Go release.
+
+See "Language version" in the Plutonium spec, section 21.8.
+
+E1000: SyntaxError
+
+The parser could not read this part of the file as Plutonium. The message says
+what it expected and what it found instead. The mistake is often just before the
+position shown, such as a missing bracket or operator on the line before.
+
+See "Grammar" in the Plutonium spec, section E.
+
+E1001: UnexpectedToken
+
+The parser expected one thing here and found another. The mistake is often just
+before the position shown: a missing comma, bracket or operator, or a keyword
+used as a name.
+
+For example:
+
+    f(a b)
+
+Written correctly:
+
+    f(a, b)
+
+See "Grammar" in the Plutonium spec, section E.
+
+E1002: UnclosedBlock
+
+The file ended while a block was still open: a { has no matching }. The parser
+reports the error at the end of the file, but the missing } belongs somewhere
+earlier.
+
+For example:
+
+    func main() {
+        if ok {
+            run()
+    }
+
+Written correctly:
+
+    func main() {
+        if ok {
+            run()
+        }
+    }
+
+See "Blocks" in the Plutonium spec, section 9.
+
+E1003: StmtOutsideFunc
+
+Outside a function, a file may contain only declarations: package, import,
+const, var, type and func. Statements such as assignments, calls and if or for
+statements must be inside a function body.
+
+The short form x := value is a statement too, so at package level write var x =
+value.
+
+For example:
+
+    count := 1
+
+    func main() {}
+
+Written correctly:
+
+    var count = 1
+
+    func main() {}
+
+See "Short variable declarations" in the Plutonium spec, section 10.11.
+
+E1004: MissingSemicolon
+
+Statements end at the end of a line, or at a semicolon. The parser found the end
+of one statement and then more text on the same line that does not start a new
+one. This usually means a missing operator, comma or bracket, or two statements
+on one line.
+
+For example:
+
+    x := a b
+
+Written correctly:
+
+    x := a + b
+
+See "Semicolons" in the Plutonium spec, section 4.3.
+
+E1005: MissingOperand
+
+The parser expected a value here, such as a name, a number or a call, and found
+an operator or keyword instead. An operand is missing, or there is an extra
+operator.
+
+For example:
+
+    x := := 1
+
+Written correctly:
+
+    x := 1
+
+See "Operands" in the Plutonium spec, section 11.1.
+
+E1006: BraceOnNextLine
+
+The { that opens a block must be on the same line as the if, for, switch or func
+that it belongs to. A line break ends the statement there, so a { on the next
+line is read as a separate block.
+
+For example:
+
+    if ok
+    {
+        run()
+    }
+
+Written correctly:
+
+    if ok {
+        run()
+    }
+
+See "Semicolons" in the Plutonium spec, section 4.3.
+
+E1007: BadImportDecl
+
+An import names a package with a string in double quotes, and all imports come
+right after the package clause, before any other declaration.
+
+For example:
+
+    import pluto/fmt
+
+Written correctly:
+
+    import "pluto/fmt"
+
+See "Import declarations" in the Plutonium spec, section 14.3.
+
+E1008: BadLiteral
+
+A string, rune or number is not written correctly, or the file contains a
+character that is not allowed outside strings and comments. Strings in double
+quotes must end on the same line; use a raw string in backquotes for text over
+several lines. Rune literals in single quotes hold exactly one character. Curly
+quotation marks, often pasted from a word processor, are not quotes to the
+compiler.
+
+For example:
+
+    s := "unterminated
+    t := 'ab'
+
+Written correctly:
+
+    s := "terminated"
+    t := "ab"
+
+See "Lexical elements" in the Plutonium spec, section 4.
+
+E1009: MissingPackage
+
+Every source file starts with a package clause, such as package main, before
+anything else except comments. All files in one directory belong to the same
+package.
+
+Written correctly:
+
+    package main
+
+    func main() {}
+
+See "Package clause" in the Plutonium spec, section 14.2.
+
+E1011: IfaceMethodTParams
+
+Methods may have type parameters of their own, but an interface cannot declare
+such a method. A call through an interface does not know which type's method it
+reaches, so it could not pick an instance of a generic method.
+
+See "Methods with type parameters" in the Plutonium spec, section 10.15.
+
+E1012: GoStatement
+
+A task is started with the task statement, written like a call: task
+worker(jobs). The word go is reserved so that a statement that starts with it
+gets this message, but it starts nothing in Plutonium.
+
+Plutonium has no goroutines. A task runs on its own fixed-size stack and is
+scheduled by the runtime library, so the statement that starts one has its own
+name.
+
+For example:
+
+    go worker(jobs)
+
+Written correctly:
+
+    task worker(jobs)
+
+See "Task statements" in the Plutonium spec, section 12.12.
+
+E1013: OrOperand
+
+An or clause tests the error that a call returns, so or must come right after a
+call: a function, method or function value with its arguments. Here something
+else is in front of or: an operator, parentheses, a selector, or a list of
+values. Such an operand could hide which call's error the clause tests.
+
+For example:
+
+    total := strconv.Atoi(s) + 1 or return
+
+Written correctly:
+
+    n := strconv.Atoi(s) or return
+    total := n + 1
+
+See "Or clauses" in the Plutonium spec, section 11.27.
+
+E2004: RecoverNotPermitted
+
+In Plutonium, panic stops the program. A hosted program first runs the pending
+deferred calls, as Go does, but control never returns to the function that
+panicked, so there is nothing for recover to catch.
+
+Report failures that the caller can handle by returning an error instead.
+
+Resuming a function after a panic needs an unwinder, tables and runtime support
+that a kernel cannot rely on, and a panic in kernel code means the state is
+already wrong.
+
+For example:
+
+    defer func() {
+        if r := recover(); r != nil {
+            log(r)
+        }
+    }()
+
+Return an error instead:
+
+    func parse(s string) (int, error) {
+        if s == "" {
+            return 0, errors.New("empty input")
+        }
+        ...
+    }
+
+See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
+
+E2005: ReflectNotPermitted
+
+Plutonium has no reflect package. Reflection needs a description of every type
+in the running program.
+
+Use a type switch, or generics, to handle values of several types.
+
+Plutonium keeps type descriptors only for the types a program converts to an
+interface, so binaries stay small enough for a kernel.
+
+For example:
+
+    import "reflect"
+
+Written correctly:
+
+    switch v := x.(type) {
+    case int:
+        ...
+    case string:
+        ...
+    }
+
+See "Import declarations" in the Plutonium spec, section 14.3.
+
+E2006: ComplexNotPermitted
+
+Plutonium has no complex number types (complex64 and complex128) and no complex,
+real or imag builtins.
+
+Use a struct of two floats for the real and imaginary parts.
+
+Complex numbers are rarely useful in systems code, and leaving them out keeps
+the code generator small.
+
+For example:
+
+    var z complex128 = 1 + 2i
+
+Use a struct:
+
+    type Complex struct{ Re, Im float64 }
+
+See "Numeric types" in the Plutonium spec, section 7.2.
+
+E2007: MissingAllocatorType
+
+new and make take an optional allocator as their last argument. Its type,
+Allocator, is declared in package pluto/rt, which this build could not find.
+This happens only when the standard library is missing or incomplete.
+
+Check that PLUTOROOT, if set, points at a directory that contains pluto/rt.
+
+See "Allocation" in the Plutonium spec, section 13.9.
+
+E2008: ErrorsNewNotConstant
+
+errors.New takes only a constant message, such as a string literal. The compiler
+makes an error type for each place errors.New is called, with a counter in the
+program image, so the message must be known when compiling.
+
+To build a message from values at run time, use fmt.Errorf, which allocates the
+error.
+
+In Go, errors.New allocates a new error on every call. Plutonium never allocates
+behind the program's back, so each evaluation of errors.New is a new error made
+from the call site's type and a counter, which costs one atomic addition and
+needs no allocator.
+
+For example:
+
+    return errors.New("open " + name)
+
+Written correctly:
+
+    return fmt.Errorf("open %s", name)
+
+See "Sentinels and errors.New" in the Plutonium spec, section 16.3.
+
+E2009: BadMainSignature
+
+func main takes no arguments. It may return nothing, as in Go, or one int64,
+which becomes the program's exit status.
+
+Read command-line arguments with pluto/os instead of parameters.
+
+Either form works:
+
+    func main() { ... }
+    func main() int64 { return 0 }
+
+See "Function declarations" in the Plutonium spec, section 10.12.
+
+E2010: NotSendable
+
+A value that crosses tasks, as the argument or receiver of a task statement or
+as the element of a channel, must be sendable. This type holds a shared[T],
+whose reference count is changed with ordinary arithmetic, so two tasks copying
+or dropping references at once would corrupt it. That holds through pointers,
+slices, maps and interfaces too: two tasks that reach one struct through a
+pointer could both copy the shared[T] out of it. Starting a method of a shared
+box with a task statement (task z.Serve()) hands the box itself to the new task,
+so it needs a synced box as well.
+
+Use synced[T], which counts atomically.
+
+Go's garbage collector makes every pointer safe to share. Plutonium counts
+shared references without atomic instructions, which is only correct on one
+task.
+
+For example:
+
+    type Job struct {
+        data shared[Buffer]
+    }
+
+    jobs := make(chan Job, 16)
+
+Count the references atomically:
+
+    type Job struct {
+        data synced[Buffer]
+    }
+
+    jobs := make(chan Job, 16)
+
+See "Sendable types" in the Plutonium spec, section 8.8.
+
+E2011: FrameViewSent
+
+This value points into the current function's stack frame: the address of a
+local variable or of part of one, a slice of a local array, or the address of a
+composite literal. A task statement or a channel send hands it to another task,
+which may still use it after this function has returned and its frame is gone.
+
+Start the work with a sync.Scope instead: it waits for the tasks it starts
+before its block ends, so they may use the function's variables. Or allocate the
+variable with new, so that it outlives the frame, or make it a package-level
+variable.
+
+Go moves such variables to the heap without saying so. Plutonium never allocates
+behind the program's back, so a local stays in its frame.
+
+For example:
+
+    var wg sync.WaitGroup
+    wg.Add(1)
+    task worker(&wg)
+
+Start the work with a sync.Scope, which waits for it before its block ends:
+
+    var s sync.Scope
+    s.Task(func() { worker(&state) })
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E2012: InvalidUTF8String
+
+Every string in Plutonium holds valid UTF-8 text, so a string literal whose
+escapes spell out bytes that are not valid UTF-8 is an error. Here the escapes
+make a byte or a sequence of bytes that does not encode a character.
+
+Binary data belongs in a []byte or a byte array, which may hold any bytes. To
+write the character itself, use its \u escape or type it.
+
+Go strings may hold any bytes. Plutonium guarantees that a string is text, so
+that ranging over it, slicing it between runes and the library's rune functions
+never meet broken encodings, and so that ASCII strings can be recognized once
+and taken fast paths for.
+
+For example:
+
+    const magic = "\x7fELF\xff"
+
+Written correctly:
+
+    var magic = [4]byte{0x7f, 'E', 'L', 0xff}
+
+See "String literals" in the Plutonium spec, section 4.11.
+
+E2013: AppendNotPermitted
+
+Plutonium has no append. In Go, append grows a slice by allocating a larger
+array behind the program's back, and the garbage collector frees the old one. A
+Plutonium slice is a view of an array that something else owns, so it cannot
+grow.
+
+Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+allocator. To fill a slice's spare capacity without growing it, slice it longer
+and assign, or use copy.
+
+Plutonium has no garbage collector and never allocates memory unless the program
+asks for it in the code, so that every cost is visible and the same code can run
+inside a kernel.
+
+For example:
+
+    var s []int
+    s = append(s, 1)
+    s = append(s, 2, 3)
+
+Written correctly:
+
+    s := vec.New[int]()
+    s.Push(1)
+    s.Append(2, 3)
+
+See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
+
+E2014: MakeSliceNotPermitted
+
+Plutonium has no make for slices. In Go, make([]T, n) allocates an array that
+the garbage collector frees when no slice refers to it. A Plutonium slice is a
+view of an array that something else owns, so a new array needs an owner to free
+it.
+
+vec.Make[T](n) from pluto/vec returns a vec.Vec[T] of n zero elements, which
+owns its array and frees it in Free; vec.WithCapacity[T](c) is make([]T, 0, c).
+v.Slice() lends the elements as a slice, and v[i] and len(v) work on the Vec
+itself. For a size known when the program is compiled, an array needs no
+allocation at all.
+
+Plutonium has no garbage collector and never allocates memory unless the program
+asks for it in the code, so that every cost is visible and the same code can run
+inside a kernel.
+
+For example:
+
+    buf := make([]byte, n)
+    read(buf)
+
+Written correctly:
+
+    buf := vec.Make[byte](n)
+    defer buf.Free()
+    read(buf.Slice())
+
+See "Making channels and maps" in the Plutonium spec, section 13.7.
+
+E2015: BytesToStringNotPermitted
+
+Plutonium has no string(b) for a byte slice b. Every string holds valid UTF-8
+text, but a slice of bytes can hold anything. In Go the conversion keeps the
+bytes. Here it would have to change each byte that is not valid UTF-8 into the
+replacement character U+FFFD without telling you, so two different slices, such
+as {0xfe} and {0xff}, would give equal strings.
+
+Say what you mean. strings.FromUTF8(b) returns the string and an error, and
+fails if the bytes are not valid UTF-8. strings.FromUTF8Lossy(b) returns a
+string in which each invalid byte is replaced by U+FFFD. If the bytes are binary
+data, such as a digest used as a map key, keep them in a byte array or a slice
+and not in a string.
+
+Go strings may hold any bytes. Plutonium strings are text, so a conversion from
+bytes must either check them or replace some of them, and it must not do the
+second without the program saying so. The data in a string must not change
+silently.
+
+For example:
+
+    s := string(b)
+
+Written correctly:
+
+    s, err := strings.FromUTF8(b)
+
+See "Conversions" in the Plutonium spec, section 11.24.
+
+E2016: StringToSliceNotPermitted
+
+Plutonium has no []byte(s) or []rune(s) for a string s. In Go the conversion
+allocates a new slice and the garbage collector frees it later. A Plutonium
+slice is a view of an array that something else owns, so a copy of a string
+needs an owner to free it.
+
+strings.Bytes(s) and strings.Runes(s) from pluto/strings return a vec.Vec that
+owns the copy and frees it when it is dropped; v.Slice() lends the elements as a
+slice. To fill a buffer of your own without allocating, use copy(buf[:], s),
+which works from a string into a []byte. To visit the runes of a string, range
+over it, and to count them, use utf8.RuneCountInString(s).
+
+Go allocates the copy behind the program's back and leaves the garbage collector
+to free it. Plutonium never allocates unless the code says so, and every
+allocation has an owner, so that every cost is visible and the same code can run
+inside a kernel.
+
+For example:
+
+    b := []byte(s)
+    r := []rune(s)
+
+Written correctly:
+
+    b := strings.Bytes(s)
+    r := strings.Runes(s)
+
+See "Conversions" in the Plutonium spec, section 11.24.
+
+E2017: IntToStringNotPermitted
+
+string(i) of an integer does not give the digits of i. In Go it gives the
+character whose code is i, so string(65) is "A" and string(n) for n := 65 is "A"
+too, not "65". Go's own vet tool reports it because programmers expect the
+digits.
+
+Plutonium accepts a conversion to string from a value of type rune and from an
+untyped constant such as string('A'), and nothing else, so the choice is visible
+in the source. A defined type is not accepted even when it is defined as rune or
+int32 (type Fd int32), because string(Fd(3)) cannot be told from a conversion
+meant to write the number. To make the character, convert to a rune first:
+string(rune(i)). To make the digits, use strconv.Itoa(i), or strconv.FormatInt
+and strconv.FormatUint for other integer types.
+
+The same holds for a slice: string(s) accepts a slice whose element type is
+rune, whatever the name of the slice type, and not a slice of myRune or Fd.
+Write each element with rune(c) to a strings.Builder.
+
+A conversion that reads like formatting but means something else is a trap that
+Go itself warns about. Plutonium has no false friends: the program says which of
+the two it means.
+
+For example:
+
+    n := 65
+    s := string(n)
+
+Written correctly:
+
+    n := 65
+    s := strconv.Itoa(n)
+
+See "Conversions" in the Plutonium spec, section 11.24.
+
+E2018: NotPortable
+
+A type parameter declared [T portable] stands for a value that can be sent
+between address spaces, such as two operating system processes that share no
+memory. Its value must mean the same to the receiver as to the sender, so it may
+refer to nothing in the sender's memory. A portable type is made only of
+numbers, booleans, enums and packed types, and of arrays, structs, unions, ring,
+volatile and aligned types of those. A pointer, slice, string, function value,
+channel, map, interface value, box (owned, shared, synced, weak) or owner
+anywhere inside the type makes it not portable. An owner is not portable even
+when it is built from numbers, because sending it would also transfer the duty
+to drop it.
+
+The message names the first field that stops the type and says why. Replace it
+with data that holds its own contents, such as a fixed-size array of bytes and a
+length in place of a string.
+
+Go has one address space, so any value can be passed anywhere and a string or
+pointer always means the same thing. A Plutonium kernel and its processes have
+separate address spaces, and the compiler checks what may cross instead of
+leaving the receiver to read a stale address.
+
+For example:
+
+    type Header struct {
+        name string
+    }
+
+    func Send[T portable](port int, v T) {}
+
+    Send(1, Header{})
+
+Written correctly:
+
+    type Header struct {
+        name  [16]byte
+        nameN uint8
+    }
+
+See "Portable types" in the Plutonium spec, section 8.9.
+
+E2019: StringSliceNotPermitted
+
+A string cannot be cut with a slice expression such as s[i:j]. Every string
+holds valid UTF-8 text, and a character can take up to four bytes, so a cut at
+an arbitrary byte offset could split one in two. In Go the cut works and leaves
+a string that is not valid text. Here the cut would have to panic for some
+offsets, so s[:40] would work for English text and panic on the first accented
+letter.
+
+Say that the offsets are positions between characters. strings.Slice(s, i, j)
+and strings.SliceFrom(s, i) take the substring and panic unless each bound is on
+a character boundary (0, len(s), or the offset of a byte that is not a
+continuation byte). The substring shares the memory of s. An offset from
+strings.Index and the other search functions is always on a boundary. To keep at
+most n bytes, use strings.Truncate(s, n), which rounds down to a boundary, and
+utf8.RuneStartBefore(s, i) to find the boundary yourself. Arrays and slices are
+still cut with a[i:j], and s[i] reads one byte.
+
+Go lets a program cut a string anywhere and does not check that the pieces are
+text. A Plutonium string is always valid UTF-8, and code that is valid Go must
+not compile and then fail on the first non-ASCII input. The cut has a name, so
+the check is visible in the source, and the compiler turns the call into the
+same code as a slice expression.
+
+For example:
+
+    head := title[:40]
+
+Written correctly:
+
+    head := strings.Truncate(title, 40)
+
+See "Slice expressions" in the Plutonium spec, section 11.12.
+
+E2020: UnsendableToError
+
+Every error value may be sent to another task, so a value can become an error
+(or an interface that embeds error) only if its type is sendable. This type
+holds a shared[T], whose reference count is changed with ordinary arithmetic, so
+two tasks copying or dropping references to it at once would corrupt it.
+
+The message names the shared[T]. alloc.Synced allocates an object whose
+references are counted atomically.
+
+Go's garbage collector makes every error safe to share. Plutonium counts a
+shared reference without atomic instructions, which is only correct on one task,
+and it counts the references to an error object in the object, atomically.
+
+For example:
+
+    type Failure struct {
+        detail shared[Detail]
+    }
+
+    func (f Failure) Error() string { return "failed" }
+
+    func fail(f Failure) error {
+        return f
+    }
+
+Written correctly:
+
+    type Failure struct {
+        detail synced[Detail]
+    }
+
+    func (f Failure) Error() string { return "failed" }
+
+    func fail(f Failure) error {
+        return f
+    }
+
+See "Sendable types" in the Plutonium spec, section 8.8.
+
+E2021: BadPackedBytePlacement
+
+A big-endian packed type with a byte array, a []byte or no backing numbers its
+bits byte by byte, and stores a field of several bytes with its most significant
+byte first. A bit field may not cross a byte boundary, since there is no single
+order for its bits. A field of whole bytes (a uint16, say) must start on a byte
+boundary.
+
+Put the field in a packed type of its own with an integer backing, and use that
+type as a field. The nested type is then laid out as an integer, whatever the
+bytes around it.
+
+For example:
+
+    type Header packed be [4]byte {
+        version bits[uint8, 4]
+        offset  bits[uint16, 13]
+        flags   bits[uint8, 3]
+    }
+
+Written correctly:
+
+    type Frag packed be uint16 {
+        offset bits[uint16, 13]
+        flags  bits[uint8, 3]
+    }
+
+    type Header packed be [4]byte {
+        version bits[uint8, 4]
+        _       bits[uint8, 4]
+        frag    Frag
+        _       uint8
+    }
+
+See "packed types" in the Plutonium spec, section 7.14.
+
+E2022: PerCPUAccess
+
+A //pu:percpu variable has one copy for each processor. A lone load or a lone
+store of the whole variable, when it is no larger than a machine word, is one
+instruction and is allowed anywhere, as long as the store does not depend on an
+earlier load of the same variable. Every other use must be inside a region where
+the task cannot move to another processor: a compound assignment or ++, a read
+and a write of the variable in one statement, a variable larger than a word or a
+part of one, a call of a method with a pointer receiver, taking its address, and
+a store whose value, or whose controlling condition, depends on an earlier load
+of the same variable.
+
+That last case is a read-modify-write written as two statements: x := ticks
+followed by ticks = x + 1, or if current == idle { current = next }. The
+dependence is followed through local variables, copies of structs and arrays,
+arithmetic, conditions, loops and calls: the result of a call depends on its
+arguments and on what the called functions load, and a function that stores the
+variable from its argument, or in a branch the caller's condition controls,
+counts as a store at the call. The analysis is conservative where it cannot see:
+a store of the variable after a load of it is rejected unless the value and
+every condition that controls the store are shown not to depend on the load. A
+call that could carry the loaded value (a pointer, slice, map, channel or func
+argument, a func value, a method value, a function without a body, a defer or
+task statement) is assumed to carry it, so are the stores through a pointer from
+&v and the stores to parts of the variable, and a value kept in another per-CPU
+variable. The message says where the analysis cannot see. The load and the store
+must be inside the same region, not in two regions one after the other, and a
+task started inside a region is not covered by it. A call that may switch tasks
+(rt.Yield, rt.Preempt, a channel operation or another wait) ends a region in
+which the task cannot move, since the task may resume on another processor.
+Outside such a region the task could move in the middle of the use, and read one
+processor's copy and write another's.
+
+A region is code between rt.DisablePreemption and rt.EnablePreemption, between
+x86.Cli and x86.Sti or x86.SaveFlagsCli and x86.RestoreFlags, or with an rt.Lock
+held, on every path to the use, including a use in a function that its caller
+calls inside the region. If an interrupt handler also uses the variable, the use
+must be in a region with interrupts disabled, since an interrupt on this
+processor could otherwise run in the middle of it; the message says so and names
+the handler. The body of a handler marked //pu:interrupt, which the processor
+enters through an interrupt gate, is such a region, up to a call of x86.Sti or a
+call that may switch tasks (rt.Yield, rt.Preempt). The body of a //pu:interrupt
+trap handler is not, so it opens a region of its own.
+
+A use through a pointer from &v (section 20.9) is a use of the variable too:
+when a handler uses the variable, it must be in a region with interrupts
+disabled, except a lone store of a whole variable of at most a machine word.
+
+Go has no per-processor variables. A Plutonium kernel keeps its processor's
+state in them, and an ordinary variable would be shared by every processor and
+need a lock. The compiler checks the uses instead, so that the most common use
+(a pointer to the running thread) stays safe code.
+
+For example:
+
+    //pu:percpu
+    var ticks uint64
+
+    func count() {
+        ticks++
+    }
+
+Written correctly:
+
+    //pu:percpu
+    var ticks uint64
+
+    func count() {
+        rt.DisablePreemption()
+        defer rt.EnablePreemption()
+        ticks++
+    }
+
+See "Per-CPU variables" in the Plutonium spec, section 20.9.
+
+E2023: PerCPUPointer
+
+&v for a //pu:percpu variable v points into the copy of the processor that runs
+the code that takes it. The pointer is good only while the task cannot move to
+another processor, so it is bounded by the region it was taken in (preemption
+disabled, interrupts disabled, or an rt.Lock held), that one time the region
+ran. It may be kept only in local variables declared inside the region's code,
+so not in a variable that lives across the passes of a loop or of a goto, nor in
+one that a function literal captures, and a parameter that the function sets to
+&v is such a variable when the function can be called again with the result, as
+a recursive function can. It may not be used after that region ends, in another
+region (even one opened at the same place), or by another task, and may not be
+sent on a channel, passed to a task, stored in a package variable or in memory,
+or returned. The message says which of these the program does.
+
+Use the variable by name inside the region, or copy its value out.
+
+Go has no per-processor variables. A pointer to this processor's copy, used
+after the task has moved, reaches the copy of another processor, which that
+processor's code may be using at the same time.
+
+For example:
+
+    rt.DisablePreemption()
+    p := &ticks
+    rt.EnablePreemption()
+    *p = 0
+
+Written correctly:
+
+    rt.DisablePreemption()
+    ticks = 0
+    rt.EnablePreemption()
+
+See "Per-CPU variables" in the Plutonium spec, section 20.9.
+
+E2101: BadPackedBacking
+
+The backing type of a packed type says how its bits are stored. It must be an
+unsigned or signed integer type (uint32), an array of bytes ([8]byte), or
+[]byte. It can also be left out.
+
+For example:
+
+    type R packed float64 { a bits[uint, 4] }
+
+Written correctly:
+
+    type R packed uint64 { a bits[uint, 4] }
+
+See "packed types" in the Plutonium spec, section 7.14.
+
+E2102: PackedTooLarge
+
+The fields of a packed type are laid out one after another, from bit 0. Their
+widths add up to more bits than the backing type holds.
+
+Use a larger backing type, make fields narrower, or leave the backing type out
+so the size follows the fields.
+
+For example:
+
+    type R packed uint8 {
+        a bits[uint, 6]
+        b bits[uint, 4]
+    }
+
+Written correctly:
+
+    type R packed uint16 {
+        a bits[uint, 6]
+        b bits[uint, 4]
+        _ bits[uint, 6]
+    }
+
+See "packed types" in the Plutonium spec, section 7.14.
+
+E2103: BadBitField
+
+A bit field is written bits[T, N]: N bits read as type T. T must be an integer
+type at least N bits wide, an enum, or bool with N equal to 1.
+
+For example:
+
+    mode bits[uint8, 12]
+
+Written correctly:
+
+    mode bits[uint16, 12]
+
+See "packed types" in the Plutonium spec, section 7.14.
+
+E2104: BadPackedField
+
+A field of a packed type must have a fixed bit layout: an integer, bool, float,
+packed type, or an array of those. Strings, slices, pointers and structs have no
+fixed layout in bits.
+
+See "packed types" in the Plutonium spec, section 7.14.
+
+E2105: BadPackedLiteral
+
+A packed literal must name each field it sets, as field: value. The fields of a
+packed type have no order a literal could follow, since reserved bits sit
+between them.
+
+For example:
+
+    r := ControlReg{5, true}
+
+Written correctly:
+
+    r := ControlReg{mode: 5, enable: true}
+
+See "packed types" in the Plutonium spec, section 7.14.
+
+E2106: WrongWrapperArgs
+
+volatile takes one type argument: volatile[T]. aligned and ring take a type and
+a constant: aligned[T, N] and ring[T, N].
+
+See "volatile[T]" in the Plutonium spec, section 7.15.
+
+E2107: NotPowerOfTwo
+
+The alignment of aligned[T, N] and the size of ring[T, N] must be a power of
+two: 1, 2, 4, 8, 16 and so on. Hardware alignment is always a power of two, and
+a ring of that size finds a slot with a mask instead of a division.
+
+For example:
+
+    var buf ring[byte, 100]
+
+Written correctly:
+
+    var buf ring[byte, 128]
+
+See "aligned[T, N]" in the Plutonium spec, section 7.16.
+
+E2108: BadVolatileElem
+
+volatile[T] makes every read and write of T exactly one load or store. That is
+only possible for a value the processor moves in one instruction: an integer, a
+bool, a pointer, or a packed type backed by an integer.
+
+For example:
+
+    var status volatile[[4]uint32]
+
+Written correctly:
+
+    var status [4]volatile[uint32]
+
+See "volatile[T]" in the Plutonium spec, section 7.15.
+
+E2109: BadWrapperSize
+
+The second argument of aligned[T, N] and ring[T, N] must be a positive integer
+constant, since the layout is fixed when compiling.
+
+See "aligned[T, N]" in the Plutonium spec, section 7.16.
+
+E2110: RingLiteralNotEmpty
+
+A ring literal cannot list elements. Write an empty literal, or use the zero
+value, and add elements with Push.
+
+For example:
+
+    r := ring[int, 4]{1, 2}
+
+Written correctly:
+
+    var r ring[int, 4]
+    r.Push(1)
+    r.Push(2)
+
+See "ring[T, N]" in the Plutonium spec, section 7.17.
+
+E2201: MisplacedDefault
+
+Default parameter values are allowed only on the parameters of a declared
+function or method. Receivers and results cannot have them, and neither can
+function types, function literals or interface methods, because a call through a
+function value or an interface does not know which function it calls, so it
+could not fill in the defaults.
+
+For example:
+
+    type Grower func(n int, factor int = 2) int
+
+See "Default parameter values" in the Plutonium spec, section 10.13.
+
+E2202: VariadicDefault
+
+A variadic function (one whose last parameter is ...T) cannot have default
+values. An argument after the variadic ones could not be told apart from them,
+and a default before them would have to be given whenever any variadic argument
+is.
+
+Variadic functions in the standard library allocate from alloc.Default instead;
+alloc.Use replaces it for a region of code.
+
+For example:
+
+    func Logf(format string, args ...any, w io.Writer = os.Stderr)
+
+See "Default parameter values" in the Plutonium spec, section 10.13.
+
+E2203: MissingDefault
+
+A call may leave out only trailing parameters. So once a parameter has a default
+value, every parameter after it needs one too.
+
+For example:
+
+    func Grow(n int, factor int = 2, limit int) int
+
+Written correctly:
+
+    func Grow(n int, limit int, factor int = 2) int
+
+See "Default parameter values" in the Plutonium spec, section 10.13.
+
+E2204: SharedDefault
+
+A parameter with a default value needs a name and type of its own. In a, b int =
+1 it is unclear whether the default belongs to a, to b, or to both.
+
+For example:
+
+    func f(a, b int = 1)
+
+Written correctly:
+
+    func f(a int = 1, b int = 1)
+
+See "Default parameter values" in the Plutonium spec, section 10.13.
+
+E2205: DefaultRefersToParam
+
+A default value is evaluated by the caller, in the scope where the function is
+declared, before the function runs. The function's parameters do not exist yet
+at that point, so a default cannot use them.
+
+Default to a sentinel value instead, and compute the real value in the body.
+
+For example:
+
+    func Fill(buf []byte, n int = len(buf))
+
+Written correctly:
+
+    func Fill(buf []byte, n int = -1) {
+        if n < 0 {
+            n = len(buf)
+        }
+        ...
+    }
+
+See "Default parameter values" in the Plutonium spec, section 10.13.
+
+E2301: MisplacedEnum
+
+An enum type can only be the type of a type definition, type E enum { ... }. It
+cannot be written inline in a variable or field, or be an alias, because its
+members are reached through its name (E.Member).
+
+For example:
+
+    var c enum { Red; Green }
+
+Written correctly:
+
+    type Color enum { Red; Green }
+
+    var c Color
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2302: GenericEnum
+
+An enum type cannot have type parameters. Its members are constants of one fixed
+integer type.
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2303: BadEnumBase
+
+The type after the enum keyword is the integer type that holds the enum's
+values. It must be an integer type such as uint8 or int32. Leave it out to let
+the compiler pick the smallest one that fits.
+
+For example:
+
+    type Mode enum string { Read; Write }
+
+Written correctly:
+
+    type Mode enum { Read; Write }
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2304: EmptyEnum
+
+An enum needs at least one member, and one member must have the value 0, since
+that is the zero value of the type.
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2305: BlankEnumMember
+
+Every member of an enum needs a name. To skip a value, give the next member an
+explicit value instead.
+
+For example:
+
+    type E enum { A; _; C }
+
+Written correctly:
+
+    type E enum { A; C = 2 }
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2306: DuplicateEnumValue
+
+Two members of an enum have the same value. Each value must belong to one
+member, so that converting a number to the enum, and printing a value's name,
+give one answer.
+
+A member without a value is one more than the member before it, which is often
+how two members end up equal.
+
+For example:
+
+    type E enum {
+        A = 1
+        B
+        C = 2
+    }
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2307: EnumWithoutZero
+
+A variable of an enum type starts as 0, like every Plutonium variable. So one
+member must have the value 0, or a fresh variable would hold a value that is not
+a member.
+
+Add a member for the zero value, often named None, Unknown or Invalid.
+
+For example:
+
+    type Level enum {
+        Low = 1
+        High
+    }
+
+Written correctly:
+
+    type Level enum {
+        Unset
+        Low
+        High
+    }
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2308: EnumOverflow
+
+A member's value does not fit in the enum's integer type. Pick a wider type
+after the enum keyword, or leave the type out so the compiler picks one that
+fits.
+
+For example:
+
+    type E enum uint8 { A; B = 300 }
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2309: BadEnumValue
+
+The value of an enum member must be a constant integer expression, such as 5, 1
+<< 3 or another constant, since members are constants fixed when compiling.
+
+For example:
+
+    type E enum { A = 1.5 }
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2310: EnumSelfReference
+
+An enum's member values cannot use the enum being declared, because those values
+are what decides the enum's integer type.
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2311: UnexportedEnumMember
+
+Enum members follow Go's rule for names: a member whose name starts with a
+lower-case letter is visible only inside its own package.
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2312: MissingEnumCase
+
+A switch on an enum value that has no default case must list every member. That
+way, adding a member to the enum shows every switch that needs to handle it.
+
+Add a case for each missing member, or a default case if the remaining members
+share one action.
+
+Go does not check this. Plutonium does, because an enum is a closed set of
+values, so the compiler can tell when one is forgotten.
+
+For example:
+
+    switch c {
+    case Color.Red:
+        ...
+    }
+
+Written correctly:
+
+    switch c {
+    case Color.Red:
+        ...
+    default:
+        ...
+    }
+
+See "Switch statements" in the Plutonium spec, section 12.9.
+
+E2313: BadEnumConversion
+
+Only integers convert to an enum, and a constant converts only if it is the
+value of a member. Anything else would make an enum value that is not a member.
+
+For example:
+
+    c := Color(7) // Color has no member with value 7
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2314: UncheckedEnumConversion
+
+A number that is not a constant may not be the value of any member, so
+converting it to an enum needs a check. Use the comma-ok form: ok reports
+whether the number is a member's value.
+
+Go allows any integer in a named integer type. Plutonium enums are closed sets,
+so a value outside the set is caught where it enters, not later in a switch.
+
+Use the comma-ok form:
+
+    c, ok := Color(n)
+    if !ok {
+        return errBadColor
+    }
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2315: UntypedEnumConstant
+
+A number written in the source is not a member of an enum, so it cannot be used
+where an enum value is expected. A number that is not a member's value would
+make an enum value that is not a member, and one that is hides the member's
+name.
+
+Name the member, or convert the number: Color(1) is valid when 1 is a member's
+value.
+
+Go lets an untyped constant become any named integer type. Plutonium enums are
+closed sets of named members, so a value is always one of them and the source
+says which.
+
+For example:
+
+    var c Color = 1
+
+Name the member:
+
+    var c Color = Color.Green
+
+See "Assignability" in the Plutonium spec, section 8.4.
+
+E2316: EnumArithmetic
+
+Enum values can be compared, but not added, multiplied, shifted or combined with
+bitwise operators, since the result would usually not be a member. Convert to an
+integer to do arithmetic.
+
+Convert to an integer first:
+
+    next := int(c) + 1
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2317: RangeOverEnumValue
+
+To loop over the members of an enum, range over the enum type itself, not over a
+value of it.
+
+Range over the type:
+
+    for c := range Color {
+        ...
+    }
+
+See "For statements" in the Plutonium spec, section 12.10.
+
+E2318: NotEnumType
+
+This operation needs an enum type, such as len(E) or for v := range E, and the
+type given is not an enum.
+
+See "Enums" in the Plutonium spec, section 7.12.
+
+E2401: MisplacedUnion
+
+A union type can only be the type of a type definition, type U union { ... }. It
+cannot be written inline in a variable or field, or be an alias, because its
+variants are reached through its name (U.V).
+
+For example:
+
+    type Alias = union { A int; B }
+
+Written correctly:
+
+    type Shape union {
+        A int
+        B
+    }
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2402: GenericPackedUnion
+
+A packed union cannot have type parameters. Its layout is fixed bit by bit by
+its backing type, its tag and its fields, so it cannot depend on a type
+argument. An ordinary union can be generic.
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2403: EmptyUnion
+
+A union value holds one of its variants, so a union needs at least one. Variants
+are written like struct fields: a name, and a payload type if the variant
+carries data.
+
+For example:
+
+    type Option union {}
+
+Written correctly:
+
+    type Option union {
+        None
+        Some int
+    }
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2404: BadVariantDecl
+
+Each variant of a union has a name of its own, which is not _, followed by its
+payload type if it has one. Variants have no tags, and in a packed union each
+variant has its own case clause.
+
+For example:
+
+    type Value union {
+        *Node
+        _ int
+    }
+
+Written correctly:
+
+    type Value union {
+        Ref  *Node
+        Size int
+    }
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2405: TooManyVariants
+
+A union numbers its variants with a tag of at most 16 bits, so it can have at
+most 65536 variants. Group related variants into a variant whose payload is
+another union or an enum.
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2406: UnionOwnerPayload
+
+This payload is an owner: an owned[T] box, or a type declared owner, such as a
+file or a vec.Vec. A union that holds one owns the payload of the variant it
+holds. It drops that payload when the union is dropped or given another variant,
+and it moves instead of being copied, so that the payload has exactly one owner.
+Plutonium never makes a type an owner silently, so the union must be declared
+owner union.
+
+If the union should only look at a value that something else owns, hold a
+pointer in the payload instead.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    type Slot union {
+        Empty
+        Full owned[Buffer]
+    }
+
+Declare the union as an owner:
+
+    type Slot owner union {
+        Empty
+        Full owned[Buffer]
+    }
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2407: BadUnionTag
+
+A packed union has a backing type, which fixes its size, and exactly one named
+field before its variants: the tag. The tag is a bool, integer or enum field
+that occupies the same bits in every variant, and each variant lists the tag
+values that select it.
+
+For example:
+
+    type PTE packed union uint64 {
+        Swapped case false { slot bits[uint64, 63] }
+    }
+
+Written correctly:
+
+    type PTE packed union uint64 {
+        present bits[bool, 1]
+
+        Swapped case false { slot bits[uint64, 63] }
+        Mapped case true { frame bits[uint64, 40] }
+    }
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2408: BadVariantCase
+
+The values after case in a packed union variant are the tag values that select
+it. Each must be a constant of the tag's type that fits in the tag's bits, and
+no value may select two variants, so that every bit pattern means at most one
+variant.
+
+For example:
+
+    type Desc packed union uint8 {
+        kind bits[uint8, 2]
+        A case 1 {}
+        B case 1, 4 {}
+    }
+
+Written correctly:
+
+    type Desc packed union uint8 {
+        kind bits[uint8, 2]
+        A case 1 {}
+        B case 2, 3 {}
+    }
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2409: VariantNotType
+
+A variant of a union is not a type. U.V(x) and U.V{...} make a value of the
+union type U holding the variant, and a type switch on a union gives you the
+payload of the variant it holds, which has the payload's own type.
+
+To keep a payload in a variable, give the variable the payload's type.
+
+Go has no unions. Keeping variants out of the type system means a payload always
+has its own type and methods, and generic unions need no special rules.
+
+For example:
+
+    var r DeviceState.Ready
+
+Written correctly:
+
+    var st DeviceState = DeviceState.Ready{irq: 11}
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2410: UnknownVariant
+
+The union has no variant with this name, or the type before the dot is not a
+union, so it has no variants at all. The message lists the variants the union
+has.
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2411: UnexportedVariant
+
+Union variants follow Go's rule for names: a variant whose name starts with a
+lower-case letter is visible only inside its own package. A switch in another
+package that cannot name it needs a default case.
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2412: UnionLiteral
+
+A union value holds one of its variants, so a literal must name the variant:
+U.V{...} for a variant whose payload is a struct, array or packed type, or
+U.V(payload) for any variant with a payload. A variant without a payload is the
+value U.V itself. In a packed union, the variant sets the tag, so its literal
+cannot.
+
+For example:
+
+    st := DeviceState{}
+
+Written correctly:
+
+    st := DeviceState.Off
+    st = DeviceState.Probing{attempt: 1}
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2413: NotAVariant
+
+A type switch on a union value, and a type assertion on one, name the union's
+own variants: U.V, or in a case of the switch the bare name V. A union value is
+never nil, and a variant of another union, or a type, can never match.
+
+A bare variant name is accepted only in the cases of a type switch, where the
+switch says which union is meant.
+
+For example:
+
+    switch v := st.(type) {
+    case int:
+        ...
+    }
+
+Written correctly:
+
+    switch v := st.(type) {
+    case Probing:
+        ...
+    default:
+        ...
+    }
+
+See "Unions" in the Plutonium spec, section 7.13.
+
+E2414: MissingVariantCase
+
+A type switch on a union value that has no default case must name every variant.
+That way, adding a variant to the union shows every switch that needs to handle
+it.
+
+Add a case for each missing variant, or a default case if the remaining variants
+share one action. A switch that names every variant needs no default to end a
+function.
+
+Go cannot check this for interfaces, whose set of types is open. A union's
+variants are a closed set, so the compiler can tell when one is forgotten.
+
+For example:
+
+    switch s := st.(type) {
+    case Off:
+        start()
+    case Probing:
+        retry(s.attempt)
+    }
+
+Written correctly:
+
+    switch s := st.(type) {
+    case Off:
+        start()
+    case Probing:
+        retry(s.attempt)
+    case Ready, Failed:
+    }
+
+See "Switch statements" in the Plutonium spec, section 12.9.
+
+E2415: PackedUnionNoDefault
+
+A packed union's bits usually come from hardware or from converting a raw value,
+so its tag may hold any value its bits allow, including values no variant names.
+A type switch without a default case must therefore cover every value of the
+tag; this one does not.
+
+Add a default case that handles the other values.
+
+For example:
+
+    switch d.(type) {
+    case Seg:
+        ...
+    case Int:
+        ...
+    }
+
+Written correctly:
+
+    switch d.(type) {
+    case Seg:
+        ...
+    case Int:
+        ...
+    default:
+        return errBadDescriptor
+    }
+
+See "Switch statements" in the Plutonium spec, section 12.9.
+
+E2451: MissingIndexMethod
+
+Library containers such as vec.Vec and hash.Map are indexed through methods.
+x[k] calls x.Index(k), x[k] = v calls x.SetIndex(k, v), and v, ok := x[k] calls
+x.IndexOk(k). The container's type does not have the method this use of x[k]
+needs.
+
+Add the method to the type, or call another of its methods directly.
+
+Go builds maps and slices into the language. In Plutonium they are library types
+that own their memory, so the index syntax is lent to them through methods.
+
+To support v, ok := x[k], add:
+
+    func (m *Table) IndexOk(k string) (int, bool) {
+        ...
+    }
+
+See "Indexing library containers" in the Plutonium spec, section 11.11.
+
+E2452: BadIndexMethod
+
+The indexing methods have fixed forms, so that x[k] can be turned into a call:
+Index(k K) V, SetIndex(k K, v V) and IndexOk(k K) (V, bool). They may not have
+type parameters of their own or be variadic.
+
+For example:
+
+    func (v *Vec) Index(i int) (int, error)
+
+Written correctly:
+
+    func (v *Vec) Index(i int) int
+
+See "Indexing library containers" in the Plutonium spec, section 11.11.
+
+E2453: IndexMethodMismatch
+
+The indexing methods of one type must agree: Index, SetIndex and IndexOk take
+the same key type K, and use the same element type V. Otherwise x[k] would have
+a different type depending on whether it is read or assigned, and x[k] += 1
+could not read and write the same element.
+
+For example:
+
+    func (m *M) Index(k string) int
+    func (m *M) SetIndex(k string, v int64)
+
+Written correctly:
+
+    func (m *M) Index(k string) int
+    func (m *M) SetIndex(k string, v int)
+
+See "Indexing library containers" in the Plutonium spec, section 11.11.
+
+E2454: ContainerIndexAddress
+
+x[k] on a container calls its Index method, which returns a copy of the element.
+A copy has no address that would stay valid, and a pointer to the element itself
+would be invalidated as soon as the container grows or rehashes and moves its
+elements.
+
+Call a method that returns the pointer explicitly, such as vec.Vec.Ptr or
+hash.Map.Ptr. Its documentation says how long the pointer is valid.
+
+&s[i] on a slice is safe because a slice never moves its elements. A container
+that grows does, so Plutonium makes the pointer an explicit method call rather
+than give it the same syntax as the safe case.
+
+For example:
+
+    p := &v[i]
+
+Written correctly:
+
+    p := v.Ptr(i)
+
+See "Indexing library containers" in the Plutonium spec, section 11.11.
+
+E2455: ContainerElemAssign
+
+x[k] on a container is a copy that its Index method returns, so assigning to a
+field or element of it would change only the copy. This is the same rule as Go's
+for map elements.
+
+Read the element, change it, and store it back with x[k] = v, or change it in
+place through a pointer from a method such as Ptr.
+
+For example:
+
+    v[i].x = 1
+
+Written correctly:
+
+    v.Ptr(i).x = 1
+
+See "Indexing library containers" in the Plutonium spec, section 11.11.
+
+E2456: RangeOverContainer
+
+A for range loop over a value that is not a string, integer, array, slice, map,
+channel or function calls the value's All method and ranges over the iterator it
+returns, an iter.Seq or iter.Seq2. This type has no All method.
+
+Give the type an All method that returns an iterator, or range over one of its
+other iterators.
+
+Library containers such as vec.Vec and hash.Map are structs, not built-in types,
+so the loop asks them for an iterator by name. vec.Vec and hash.Map have All, so
+they range like Go's slices and maps.
+
+Add an All method:
+
+    func (t *T) All() iter.Seq2[string, int] {
+        return func(yield func(string, int) bool) {
+            // call yield for each key and value
+        }
+    }
+
+See "For statements" in the Plutonium spec, section 12.10.
+
+E2457: UnaddressableContainer
+
+The container's indexing method has a pointer receiver, so x[k] needs the
+address of x. Here x is a value that has no address, such as the result of a
+function call.
+
+Store the container in a variable first, or index through a pointer to it.
+
+For example:
+
+    v := load()["key"]
+
+Store it in a variable first:
+
+    m := load()
+    v := m["key"]
+
+See "Indexing library containers" in the Plutonium spec, section 11.11.
+
+E2458: BadRangeMethod
+
+A for range loop over a container calls its All method, which must take no
+arguments and return an iterator: a function of the form func(yield func(K, V)
+bool), such as iter.Seq[V] or iter.Seq2[K, V]. This type's All method has
+another form.
+
+For example:
+
+    func (l *List) All() []int
+
+    for x := range l { ... }
+
+Written correctly:
+
+    func (l *List) All() iter.Seq[int]
+
+    for x := range l { ... }
+
+See "For statements" in the Plutonium spec, section 12.10.
+
+E2459: UnaddressableRange
+
+A for range loop over a container calls its All method. That method has a
+pointer receiver, so the loop needs the address of the container. Here the
+container is a value that has no address, such as the result of a function call.
+
+Store the container in a variable first, or range over a pointer to it.
+
+For example:
+
+    for k, v := range load() { ... }
+
+Store it in a variable first:
+
+    m := load()
+    for k, v := range m {
+        use(k, v)
+    }
+
+See "For statements" in the Plutonium spec, section 12.10.
+
+E2461: OrNotFunctionCall
+
+An or clause tests the error that a function returns as its last result. A
+conversion, such as int64(x), and a call of a built-in function, such as len(s),
+are written like calls, but they call no function and return no error, so there
+is nothing for or to test.
+
+Remove the or clause, or call a function that returns an error.
+
+For example:
+
+    n := int64(count()) or return
+
+Written correctly:
+
+    n := int64(count())
+
+See "Or clauses" in the Plutonium spec, section 11.27.
+
+E2462: OrNoError
+
+The call before or must return a result of type error last, and the type must be
+error itself. A function that returns no error, or no result at all, cannot fail
+in a way that or can see. A type that implements error, a defined type based on
+error, or a type parameter is not accepted either.
+
+Remove the or clause, or change the function so that its last result has type
+error.
+
+With the type exactly error, the test is always the nil test of one interface
+type, and err in the clause is the result itself, not a conversion of it.
+
+For example:
+
+    s := strconv.Itoa(5) or return
+
+Written correctly:
+
+    s := strconv.Itoa(5)
+
+See "Or clauses" in the Plutonium spec, section 11.27.
+
+E2463: OrClauseCompletes
+
+The clause of an or statement runs when the call failed, and the code after the
+statement uses the values the call did not produce. So the clause must leave: it
+must be a return, break, continue or goto statement, a call of panic, or a block
+that ends in one of these. An if statement in the block leaves only when it has
+an else branch and both branches leave. A call of a function that never returns,
+such as os.Exit or log.Fatal, does not count, since whether a function compiles
+must not depend on the body of another.
+
+End the clause with a return, break, continue, goto or panic.
+
+The or clause is the short form of an if statement that tests an error and
+leaves. Requiring the exit on the line keeps the code after the statement from
+running with values that were never set.
+
+For example:
+
+    cfg := load(path) or log.Printf("loading: %v", err)
+
+Written correctly:
+
+    cfg := load(path) or {
+        log.Printf("loading: %v", err)
+        return err
+    }
+
+See "Or clauses" in the Plutonium spec, section 11.27.
+
+E2464: OrNoErrorResult
+
+An unbraced return with no operands in an or clause returns err as the
+function's last result. This function has no result of type error last, so there
+is nowhere to put err, and returning without it would drop the error.
+
+Handle the error in a block clause, or return values that this function has.
+
+The short form of return exists to pass an error up. In a function that cannot
+return one, the program must say what to do with the error.
+
+For example:
+
+    func main() {
+        load(path) or return
+    }
+
+Written correctly:
+
+    func main() {
+        load(path) or panic(err)
+    }
+
+See "Or clauses" in the Plutonium spec, section 11.27.
+
+E2465: OrPostStmt
+
+The post statement of a for statement runs at the end of each iteration. An or
+statement cannot be the post statement, since a break or continue in its clause
+would end or repeat the iteration that is ending.
+
+Test the error at the end of the loop body instead.
+
+For example:
+
+    for i := 0; i < n; i = next(i) or break {
+        ...
+    }
+
+Written correctly:
+
+    for i := 0; i < n; {
+        ...
+        i = next(i) or break
+    }
+
+See "Or clauses" in the Plutonium spec, section 11.27.
+
+E2500: NotYetSupported
+
+The program is valid, but this compiler cannot compile this construct yet. It
+stops with an error rather than produce wrong code.
+
+Rewrite the code without the construct, or check whether a newer compiler
+supports it.
+
+See "No silent failures" in the Plutonium spec, section 21.2.
+
+E2510: ExternWithBody
+
+//pu:extern says that the function is written in C or assembly and linked in
+under the given symbol. A function with that directive must be declared without
+a body.
+
+For example:
+
+    //pu:extern strlen
+    func strlen(s *byte) uint64 { return 0 }
+
+Written correctly:
+
+    //pu:extern strlen
+    func strlen(s *byte) uint64
+
+See "Assembly and C" in the Plutonium spec, section 20.4.
+
+E2511: BadCSignature
+
+Functions marked //pu:extern or //pu:export are called with the C calling
+convention. Their parameters and results must be types C has: integers, floats,
+bools, pointers, and structs and arrays of those. Strings, slices, interfaces
+and func values have no C equivalent, and variadic functions are not supported.
+
+Pass a pointer and a length instead of a string or slice.
+
+Pass a pointer and a length:
+
+    //pu:extern write
+    func write(fd int32, buf *byte, n uint64) int64
+
+    write(1, unsafe.SliceData(b), uint64(len(b)))
+
+See "Assembly and C" in the Plutonium spec, section 20.4.
+
+E2512: DuplicateExport
+
+Two functions are exported under the same symbol name with //pu:export, or the
+name is already used by another symbol. The linker needs each symbol name to be
+unique.
+
+See "Assembly and C" in the Plutonium spec, section 20.4.
+
+E2513: GenericExport
+
+A generic function is compiled once for each set of type arguments it is used
+with, so there is no single function to export under one C symbol. Export a
+non-generic wrapper that calls it with the types you need.
+
+Export a wrapper:
+
+    //pu:export sum_ints
+    func sumInts(p *int, n int) int { return Sum[int](unsafe.Slice(p, n)) }
+
+See "Assembly and C" in the Plutonium spec, section 20.4.
+
+E2520: KernelFloat
+
+In kernel mode, functions may not use floating point. When an interrupt or
+system call enters the kernel, the processor does not save the floating-point
+registers, so kernel code that used them would corrupt the state of the program
+it interrupted.
+
+Functions marked //pu:fpu may use floats. Whoever calls one must save the
+floating-point state first, with x86.FPUBegin and x86.FPUEnd.
+
+Copying a struct that contains float fields is allowed, since it uses only
+integer registers.
+
+Go has no kernel mode. Plutonium rejects floats here, rather than emulate them
+in software, so that no hidden cost or library ends up in the kernel.
+
+Mark the function, and save the state around calls:
+
+    //pu:fpu
+    func scale(x float64) float64 { return x * 1.5 }
+
+    x86.FPUBegin(&area)
+    y := scale(x)
+    x86.FPUEnd(&area)
+
+See "Floating point in kernel mode" in the Plutonium spec, section 20.7.
+
+E2521: UnprintableArgument
+
+print and println can write a boolean, an integer (an enum too), a
+floating-point number, a string, or a type whose underlying type is one of
+these. They can also write the address of a pointer or function. They cannot
+write an owner type, even when its underlying type is an integer, and they
+cannot write a struct, array, slice, map, or interface. They have no form for
+these, so a program that prints them gets the same text from every compiler, and
+they work in a program that has no standard library.
+
+To print another value, use fmt. To print the number inside an owner, convert it
+first: the conversion reads the value without moving it.
+
+Convert an integer field, or use fmt:
+
+    println(int32(fd))
+
+    import "pluto/fmt"
+
+    fmt.Println(x)
+
+See "Bootstrapping" in the Plutonium spec, section 13.12.
+
+E2530: DeferInLoop
+
+A defer statement in a loop would add a deferred call on every iteration, and
+each needs room in the function's stack frame until it returns. Plutonium gives
+every deferred call a fixed slot in the frame, so a defer statement may run at
+most once in each call of the function.
+
+This defer is allowed in a loop only if every path from it leaves every loop
+that contains it before it can reach the defer again. A path leaves by return,
+by a call of panic or of a function that never returns, by goto to a label
+outside the loop, by a break that ends the loop, or by a labeled continue of a
+loop outside it. An unlabeled continue does not leave. The rule is the same for
+a for statement, a range statement, the body of a loop over a function (for x :=
+range seq) and a loop made by a backward goto.
+
+If the deferred call should run at the end of each iteration, move the loop body
+into a function of its own; its defer then runs at the end of each iteration.
+
+Go keeps the deferred calls of a loop in a list on the heap. Plutonium never
+allocates behind the program's back, and kernel stacks are small and fixed.
+
+For example:
+
+    for _, name := range names {
+        f := open(name)
+        defer f.Close()
+    }
+
+Move the body into a function:
+
+    for _, name := range names {
+        process(name)
+    }
+
+    func process(name string) {
+        f := open(name)
+        defer f.Close()
+        ...
+    }
+
+See "Defer statements" in the Plutonium spec, section 12.19.
+
+E2531: TooManyDefers
+
+A function may contain at most 64 defer statements. Each has a fixed slot in the
+stack frame. Split the function into smaller ones.
+
+See "Defer statements" in the Plutonium spec, section 12.19.
+
+E2532: DeferBuiltin
+
+This builtin cannot be deferred directly. Wrap the call in a function literal
+and defer that.
+
+Defer a function literal:
+
+    defer func() { n = len(s) }()
+
+See "Defer statements" in the Plutonium spec, section 12.19.
+
+E2534: DeferLitCapture
+
+A function literal deferred in the body of a loop over a function runs when the
+enclosing function returns, after the loop body has returned. The body's own
+variables, including the loop variables, live in the body's frame, which is gone
+by then, so the literal cannot capture them.
+
+Pass the values the deferred call needs as arguments: arguments are evaluated
+when the defer statement runs.
+
+Go moves such variables to the heap. Plutonium never moves a variable to the
+heap; a closure is valid only while the frame it captures from is.
+
+For example:
+
+    for x := range seq {
+        if done(x) {
+            defer func() { log(x) }()
+            return
+        }
+    }
+
+Pass the loop variable as an argument:
+
+    for x := range seq {
+        if done(x) {
+            defer func(x int) { log(x) }(x)
+            return
+        }
+    }
+
+See "Range over functions" in the Plutonium spec, section 12.11.
+
+E2542: ErrorsNewValue
+
+errors.New must be called directly. Each place that calls it gets its own error
+type, made when compiling, so taking errors.New as a value, or deferring it, has
+no call site to make that type for.
+
+In Go, errors.New allocates. Plutonium makes an error type per call site, with a
+counter, so that it never allocates.
+
+For example:
+
+    newErr := errors.New
+
+See "Sentinels and errors.New" in the Plutonium spec, section 16.3.
+
+E2550: PerCPUInit
+
+A per-CPU variable can only be initialized with a constant. Package
+initialization runs before any processor has its per-CPU block, so there is
+nowhere to store a value computed at run time. Set the variable at run time on
+each processor instead.
+
+See "Per-CPU variables" in the Plutonium spec, section 20.9.
+
+E2551: PerCPUMode
+
+//pu:percpu variables are reached through the GS segment register, which only a
+kernel sets up. Build with --mode kernel, or remove the directive.
+
+See "Per-CPU variables" in the Plutonium spec, section 20.9.
+
+E2552: PerCPUSection
+
+A per-CPU variable always lives in the .percpu section, so it cannot also be
+placed in another section with //pu:section.
+
+See "Per-CPU variables" in the Plutonium spec, section 20.9.
+
+E2560: StackDirective
+
+//pu:stack sets the size of the stack a hosted program runs on: the runtime
+reserves that much address space before main starts. It belongs on func main in
+package main, and takes a size in bytes, with an optional K, M or G suffix, from
+64K to 64G. A freestanding program sets up its own stack, so the directive has
+nothing to act on there.
+
+Put it on main:
+
+    //pu:stack 256M
+    func main() { ... }
+
+See "Directives" in the Plutonium spec, section 20.3.
+
+E2570: InterruptDecl
+
+A //pu:interrupt function is entered by the processor, not called by Plutonium
+code. So it must be a plain function with a body: not a method, not generic, and
+not marked //pu:inline, since the processor needs one fixed address to jump to.
+
+See "Interrupts" in the Plutonium spec, section 20.10.
+
+E2571: InterruptSig
+
+An interrupt handler receives what the processor pushes on the stack: a pointer
+to the interrupt frame, and for some exceptions an error code. It returns
+nothing, since it returns with iretq to the interrupted code.
+
+Use one of these signatures:
+
+    //pu:interrupt
+    func timer(frame *x86.InterruptFrame)
+
+    //pu:interrupt
+    func pageFault(frame *x86.InterruptFrame, code uint64)
+
+See "Interrupts" in the Plutonium spec, section 20.10.
+
+E2572: GateArg
+
+x86.InterruptGate and x86.TrapGate build the entry of the interrupt table that
+enters a handler, and the compiler puts the handler's address in it. So the
+first argument must be the name of a handler, known when the program is
+compiled: a function marked //pu:interrupt for InterruptGate, and a function
+marked //pu:interrupt trap for TrapGate. A func value, a deferred or started
+call, a handler of the other form, a call through a variable and any other
+expression are errors.
+
+The form decides how the processor enters the handler. An interrupt gate clears
+the interrupt flag, and a handler of the plain form relies on that: its body is
+a region with interrupts disabled. A trap gate leaves the flag as it was, which
+is what a handler that can be entered again needs.
+
+Pass the name of a handler of the form the constructor takes:
+
+    //pu:interrupt
+    func timer(f *x86.InterruptFrame) { ... }
+
+    idt[32] = x86.InterruptGate(timer, 0x08, 0)
+
+See "pluto/arch/x86" in the Plutonium spec, section 20.8.
+
+E2573: InterruptHandlerV
+
+An interrupt handler saves every register and returns with iretq, so ordinary
+code cannot call it, and it is not an ordinary func value. Use x86.InterruptGate
+(or x86.TrapGate for a //pu:interrupt trap handler) to enter it in the interrupt
+table.
+
+Enter it in the table:
+
+    idt[32] = x86.InterruptGate(timer, 0x08, 0)
+
+See "Interrupts" in the Plutonium spec, section 20.10.
+
+E2580: NoPanicHandler
+
+A freestanding or kernel build has no operating system to report a crash to, so
+the program itself must say what happens when it panics (print to a serial port
+or screen, then halt). It does so with one function marked //pu:panic.
+
+A kernel has no operating system to fall back on when it panics, so Plutonium
+makes the program choose what happens at compile time, and checks the choice:
+the runtime calls the handler directly, with nothing to register, so it works
+from the first instruction.
+
+For example:
+
+    package main
+
+    func main() {}
+
+Written correctly:
+
+    package main
+
+    import (
+        "pluto/arch/x86"
+        "pluto/rt"
+    )
+
+    //pu:panic
+    func onPanic(p *rt.Panic) {
+        p.Print(rt.Console{})
+        for {
+            x86.Cli()
+            x86.Hlt()
+        }
+    }
+
+    func main() {}
+
+See "Panics in freestanding programs" in the Plutonium spec, section 17.4.
+
+E2581: DupPanicHandler
+
+A program has exactly one panic handler, and another function is already marked
+//pu:panic. Remove //pu:panic from all but one of them.
+
+A kernel has no operating system to fall back on when it panics, so Plutonium
+makes the program choose what happens at compile time, and checks the choice:
+the runtime calls the handler directly, with nothing to register, so it works
+from the first instruction.
+
+See "Panics in freestanding programs" in the Plutonium spec, section 17.4.
+
+E2582: PanicHandlerDecl
+
+The runtime calls the panic handler, the function marked //pu:panic, with a
+description of the panic, and never expects it to return. It is a plain function
+with a body, not a method, not generic and not also an interrupt handler, that
+takes a *rt.Panic and returns nothing.
+
+A kernel has no operating system to fall back on when it panics, so Plutonium
+makes the program choose what happens at compile time, and checks the choice:
+the runtime calls the handler directly, with nothing to register, so it works
+from the first instruction.
+
+Declare it:
+
+    //pu:panic
+    func onPanic(p *rt.Panic) { ... }
+
+See "Panics in freestanding programs" in the Plutonium spec, section 17.4.
+
+E2583: PanicHandlerRet
+
+A panic stops the program: it does not unwind, so there is nothing for the panic
+handler to return to. Every path through it must end in an endless loop or in a
+call of a function that never returns, such as os.Exit, or a function whose
+every path ends the same way. A call through a func value or an interface, and
+recursion, count as returning.
+
+A kernel has no operating system to fall back on when it panics, so Plutonium
+makes the program choose what happens at compile time, and checks the choice:
+the runtime calls the handler directly, with nothing to register, so it works
+from the first instruction.
+
+For example:
+
+    //pu:panic
+    func onPanic(p *rt.Panic) {
+        p.Print(rt.Console{})
+    }
+
+Written correctly:
+
+    //pu:panic
+    func onPanic(p *rt.Panic) {
+        p.Print(rt.Console{})
+        for {
+            x86.Cli()
+            x86.Hlt()
+        }
+    }
+
+See "Panics in freestanding programs" in the Plutonium spec, section 17.4.
+
+E2584: ContextWaits
+
+Interrupt handlers run on top of whatever code the CPU was executing, and the
+panic handler on top of whatever panicked. If either waits, for a lock or for
+room in a channel, the code it interrupted can never resume to release it, and
+the CPU stops. So nothing they can reach may call a function that may park (such
+as sync.Mutex.Lock or time.Sleep), send or receive on a channel outside a select
+with a default case, run a select without one, or allocate from an allocator
+that may wait.
+
+The check follows the calls the compiler adds as well as the ones written: the
+drops at the end of a scope, over an assigned owner and for temporaries, the
+release of a counted value whose count reaches zero, and the Free of an
+allocator. A Drop that waits, or an allocator whose Free waits, is reported
+where the value is dropped, even though no call is written there.
+
+Calls through interfaces and func values count as calling every method or
+function they could reach in the program.
+
+A function without a body (assembly or C) is not looked into: it counts as not
+waiting unless its declaration is marked //pu:blocking. A //pu:blocking mark on
+a function with a body states a wait the compiler cannot see, such as a spin
+until another processor sets a flag; it only adds this restriction.
+
+Writing to an os.File, such as os.Stderr, waits for the poller when the file is
+a full pipe or socket, and the check cannot tell which file a call writes to. In
+a panic or interrupt handler, write to rt.Console{} instead of os.Stderr: it
+writes to standard error with a system call that never waits.
+
+A kernel that waits in an interrupt handler hangs, often only under load and far
+from the cause, so Plutonium checks the whole program at compile time instead.
+
+To hand work to normal code, use a non-blocking send:
+
+    select { case work <- item: default: }
+
+See "Interrupts" in the Plutonium spec, section 20.10.
+
+E2585: ContextSpawns
+
+Interrupt handlers run on top of whatever code the CPU was executing, and the
+panic handler on top of whatever panicked. Starting a task allocates its stack
+and takes the scheduler's locks, which the interrupted code may hold, so nothing
+they can reach may use a task statement.
+
+A kernel that waits in an interrupt handler hangs, often only under load and far
+from the cause, so Plutonium checks the whole program at compile time instead.
+
+To hand work to a task, wake one that waits for it, or send without waiting:
+
+    select { case work <- item: default: }
+
+See "Interrupts" in the Plutonium spec, section 20.10.
+
+E2586: InitAllocates
+
+In a freestanding build, which every kernel is, a package-level initializer or
+an init function can reach an allocation: new, make, a map literal, an operation
+that makes a string at run time, or a call that reaches one. A freestanding
+program has no allocator while its packages are initialized; its entry function
+installs one with alloc.SetDefault, after initialization has run. Initializers
+that need no allocation, such as composite literals, &T{...}, slice literals,
+conversions to an interface and errors.New, are placed in static storage and are
+allowed.
+
+Declare the variable without an initializer, and set it in the entry function
+after alloc.SetDefault.
+
+Go's runtime sets up its heap before any package is initialized. A freestanding
+Plutonium program brings its own allocator, so there is none until its own code
+installs it, and no console to report the failure on if an initializer tried.
+
+For example:
+
+    var cache = make(map[string]int)
+
+Written correctly:
+
+    var cache map[string]int
+
+    func kernelMain(info *BootInfo) {
+        alloc.SetDefault(newSlab(info))
+        cache = make(map[string]int)
+    }
+
+See "Package initialization" in the Plutonium spec, section 15.2.
+
+E2587: InitSpawns
+
+Package initialization runs sequentially before main. Starting another task
+there could let it read package variables before initialization finishes. A
+package variable's initializer or an init function must not reach a task
+statement or a library call that starts a task. The check follows calls,
+including deferred calls, drops, interfaces and func values, through the
+complete program.
+
+Tasks may read package variables written only during initialization without a
+lock. Finishing initialization before starting another task preserves that data
+race rule.
+
+Start the task from main or a function main calls:
+
+    func main() {
+        task worker()
+    }
+
+See "Package initialization" in the Plutonium spec, section 15.2.
+
+E2590: GoCapturingLiteral
+
+A function literal that uses variables of the function around it reaches them in
+that function's stack frame. A task statement may start it after that function
+has returned, when the frame is gone.
+
+Start the literal with a sync.Scope instead: s.Task(func() {...}) waits for it
+before s's block ends, so it may use the function's variables, a Mutex or a
+WaitGroup among them. Or pass the values the literal needs as arguments: they
+are copied when the task statement runs. Do not pass a Mutex, a WaitGroup or
+another sync type this way, since the copy is a different one.
+
+Go moves captured variables to the heap. Plutonium never allocates behind the
+program's back, so captured variables stay in their frame (spec section 11.5).
+
+For example:
+
+    for i := 0; i < n; i++ {
+        task func() {
+            out <- i * i
+        }()
+    }
+
+Pass the values as arguments:
+
+    for i := 0; i < n; i++ {
+        task func(i int, out chan int) {
+            out <- i * i
+        }(i, out)
+    }
+
+See "Task statements" in the Plutonium spec, section 12.12.
+
+E2591: GoBuiltin
+
+A task statement cannot start a built-in function such as println or close
+directly. Wrap it in a function and start that.
+
+See "Task statements" in the Plutonium spec, section 12.12.
+
+E2592: BadScheduler
+
+A program binds its scheduler with one package-level variable marked
+//pu:scheduler, whose type, not an interface, implements rt.Scheduler: NewTask,
+FreeTask, Spawn, Park, Wake and Yield. The runtime calls its methods directly.
+This variable does not qualify, or the program marks more than one.
+
+The scheduler is chosen when the program is linked, like the panic handler, so
+the runtime calls it without an indirection and a program cannot run without
+one.
+
+See "The scheduler contract" in the Plutonium spec, section 19.5.
+
+E2593: NoScheduler
+
+This program starts tasks, uses channels or waits in pluto/sync, so it needs a
+scheduler, and none is bound. Hosted builds bind one by default; a freestanding
+program, such as a kernel, provides its own: a package-level variable marked
+//pu:scheduler whose type implements rt.Scheduler.
+
+Plutonium carries a scheduler only in programs that ask for one, and a kernel
+supplies its own, so a freestanding program must say which.
+
+Bind the kernel's scheduler:
+
+    //pu:scheduler
+    var scheduler kernelScheduler
+
+See "The scheduler contract" in the Plutonium spec, section 19.5.
+
+E2594: GoFrameClosure
+
+A function literal that captures variables, and a method value such as c.handle,
+keep their closure record (the code to call, with the captured variables or a
+copy of the receiver) in the frame of the function that makes them. A func value
+points to that record. A task statement copies its function and arguments, but
+copying a func value copies only the pointer, so the task may call through it
+after the frame is gone.
+
+The compiler reports this where it sees the literal or the method value itself:
+passed to a task statement, or held by a local variable assigned only once. A
+func value that reaches the task start any other way (through a parameter, a
+field, an element, or a variable assigned twice) is reported by the check of
+views of the frame (E3003, E3004), since it may be such a closure.
+
+Library functions that start a task with a func argument, such as
+sync.WaitGroup.Task and time.AfterFunc, follow the same rule and the compiler
+reports them the same way.
+
+To let the task use the function's variables, start a function literal with a
+sync.Scope declared in the function instead: s.Task(func() {...}) waits for it
+before s's block ends.
+
+Go moves captured variables and the receivers of method values to the heap.
+Plutonium never allocates behind the program's back, so the record stays in its
+frame (spec section 11.5).
+
+For example:
+
+    square := func() { out <- n * n }
+    task square()
+
+Pass the values the function needs, and start a function that takes them:
+
+    task func(n int, out chan int) {
+        out <- n * n
+    }(n, out)
+
+See "Task statements" in the Plutonium spec, section 12.12.
+
+E2595: SchedulerTimers
+
+Timers need two things from the scheduler: a clock, its Now method, which
+returns monotonic nanoseconds, and a way to be called back, its ArmTimer method,
+which asks for rt.RunTimers to be called once a deadline has passed. This
+program uses timers (time.Sleep, a time.Timer or Ticker, rt.ParkUntil or
+rt.Now), and the bound scheduler lacks one of them.
+
+The scheduler contract keeps timers optional, so a kernel that never sleeps
+needs no clock. A program that does sleep must get its clock from the kernel,
+because only the kernel knows which timer hardware it drives.
+
+Give the scheduler a clock, and run the timers from the timer interrupt:
+
+    func (kernelSched) Now() int64 { return int64(ticks) * 1000000 }
+
+    func (kernelSched) ArmTimer(deadline int64) { next = deadline }
+
+    // in the timer interrupt handler:
+    if kernelSched{}.Now() >= next {
+        rt.RunTimers()
+    }
+
+See "The scheduler contract" in the Plutonium spec, section 19.5.
+
+E2600: UnknownDirective
+
+A comment that starts with //pu: and no space is a directive: an instruction to
+the compiler. This one has a name the compiler does not know, so it would do
+nothing. A misspelt directive that was ignored could silently leave out an
+interrupt handler, a per-CPU variable or an inlining request, so the compiler
+reports it.
+
+The directives are: build, inline, noinline, nochecks, extern, export, section,
+interrupt (and its form interrupt trap), noreturn, noescape, resultholds, panic,
+blocking, scheduler, nosimd, fpu, percpu and stack.
+
+A comment that is only a note should start with // and a space.
+
+Go ignores unknown //go: comments, which makes a typo easy to miss. Plutonium
+directives change what the program means, so a typo must not go unnoticed.
+
+For example:
+
+    //pu:interupt
+    func timer(frame *x86.InterruptFrame) { ... }
+
+Written correctly:
+
+    //pu:interrupt
+    func timer(frame *x86.InterruptFrame) { ... }
+
+See "Directives" in the Plutonium spec, section 20.3.
+
+E2601: RetiredDirective
+
+This directive was removed, so the line is a compile error instead of something
+the compiler reads. Where the compiler now works the fact out, delete the line;
+the program means the same without it. Where another directive replaced it,
+change the name to the replacement.
+
+Removed directives and what replaced them:
+
+//pu:alloc: kernel code may allocate strings anywhere the allocator may be
+called.
+
+//pu:bytewise: the compiler proves that string slice bounds fall on rune
+boundaries.
+
+//pu:gofunc: the compiler finds which functions start tasks with their func
+arguments.
+
+//pu:schedhook and //pu:schedlate: the compiler knows the runtime's scheduler
+hooks by name.
+
+//pu:nobounds: replaced by //pu:nochecks, which removes the bounds checks and
+the generation checks from the function's body.
+
+//pu:noreturn on a function with a body: the compiler finds that a function
+never returns when its body ends in a terminating statement. The directive is
+still needed on a function without a body, written in assembly or C.
+
+//pu:noescape on a function with a body: the compiler finds which pointer
+arguments a function keeps by reading its body. The directive is still needed on
+a function without a body, written in assembly or C.
+
+Plutonium asks for a directive only for a fact the compiler cannot derive from
+the program, so that using the language does not need knowledge of how the
+compiler works.
+
+For example:
+
+    //pu:noreturn
+    func halt() {
+        for {
+        }
+    }
+
+Written correctly:
+
+    func halt() {
+        for {
+        }
+    }
+
+See "Directives" in the Plutonium spec, section 20.3.
+
+E2602: MisplacedDirective
+
+A directive belongs in the doc comment of the declaration it applies to: the
+lines of comment directly above it, with no blank line between. Each directive
+applies to one kind of declaration, such as functions or package-level
+variables, and //pu:build applies to a whole file and goes before the package
+clause. In any other place the compiler would not see it and it would do
+nothing.
+
+Go's //go: directives are ignored when misplaced. Plutonium directives change
+what the program means, so a directive that does nothing is an error.
+
+For example:
+
+    func f() {
+        //pu:noinline
+        g()
+    }
+
+Written correctly:
+
+    //pu:noinline
+    func g() { ... }
+
+    func f() {
+        g()
+    }
+
+See "Directives" in the Plutonium spec, section 20.3.
+
+E2603: DirectiveArgument
+
+Some directives take an argument, such as the symbol name in //pu:extern, and
+the rest take none. This directive was given text it does not take, or lacks the
+argument it needs, so the compiler would not understand it. To explain why a
+directive is there, write an ordinary comment on a line of its own.
+
+Go's //go: directives ignore text they do not expect. Plutonium directives
+change what the program means, so they are read exactly.
+
+For example:
+
+    //pu:noinline keeps the profile readable
+    func slow() { ... }
+
+Written correctly:
+
+    // Out of line to keep the profile readable.
+    //pu:noinline
+    func slow() { ... }
+
+See "Directives" in the Plutonium spec, section 20.3.
+
+E2604: GoDirective
+
+A line comment that starts with //go: and no space is a Go directive. Plutonium
+does not read //go: comments, so this one would sit in the file looking as if it
+had an effect. Plutonium's directives start with //pu:, and the ones Go also has
+are spelt the same after the prefix: //pu:build, //pu:noinline, and
+//pu:noescape on a function without a body. Go's others, such as //go:generate,
+//go:embed, //go:linkname and //go:nosplit, have no equivalent.
+
+Write the //pu: directive, or delete the line.
+
+Go ignores //go: comments it does not know, which makes a typo easy to miss.
+Plutonium directives change what the program means, so a comment that looks like
+one is never ignored.
+
+For example:
+
+    //go:noinline
+    func slow() { ... }
+
+Written correctly:
+
+    //pu:noinline
+    func slow() { ... }
+
+See "Directives" in the Plutonium spec, section 20.3.
+
+E3001: ReturnFrameView
+
+A function returns a view of its own frame: a pointer to one of its local
+variables, a slice of a local array, a function literal that uses local
+variables, or an interface holding a copy of a value in the frame. The frame is
+reclaimed when the function returns, so the caller would get a view of memory
+that no longer holds the value.
+
+Return the value itself, which copies it, or moves it if it is an owner. To keep
+it at a fixed address after the function returns, allocate it.
+
+Go would move this memory to the heap, and its garbage collector would free it
+later. Plutonium has no garbage collector and never moves memory to the heap
+behind the program's back, so that every allocation is visible in the code.
+
+For example:
+
+    func load() *Config {
+        var c Config
+        c.timeout = 30
+        return &c
+    }
+
+Written correctly:
+
+    func load() Config {
+        var c Config
+        c.timeout = 30
+        return c
+    }
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E3002: StoreFrameView
+
+A view of the frame, such as a pointer to a local variable, is stored in memory
+that lives longer than the frame: a package variable, memory reached through a
+pointer the function was given, or memory that may be on the heap. When the
+function returns, that memory would still point at the reclaimed frame.
+
+Store the value instead of a pointer to it, or allocate the value so that it
+lives as long as the place that keeps it.
+
+Go would move this memory to the heap, and its garbage collector would free it
+later. Plutonium has no garbage collector and never moves memory to the heap
+behind the program's back, so that every allocation is visible in the code.
+
+For example:
+
+    var last *Entry
+
+    func add(e Entry) {
+        last = &e
+    }
+
+Written correctly:
+
+    var last Entry
+
+    func add(e Entry) {
+        last = e
+    }
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E3003: PassFrameView
+
+A view of the frame is passed to a function that keeps it after returning: the
+function stores it in a package variable, in memory that outlives the call, or
+passes it on to something that does. The compiler knows this from the function's
+body, so no annotation is needed. Passing a view to a function that only uses it
+during the call is always allowed. A func value that may be a closure of the
+frame (a function literal that captures variables, or a method value) is a view
+of the frame too: passing it to a function that starts a task with it, such as
+sync.WaitGroup.Task, rt.Go or time.AfterFunc, is this error.
+
+Give the function something that owns its memory, such as a buffer or a value
+allocated for it.
+
+Go would move this memory to the heap, and its garbage collector would free it
+later. Plutonium has no garbage collector and never moves memory to the heap
+behind the program's back, so that every allocation is visible in the code.
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E3004: GoFrameView
+
+A task statement starts a task that runs on its own, and may still be running
+after the function that started it returns. A view of that function's frame
+passed to it could then point at reclaimed memory. A func value that may be a
+closure of the frame (a function literal that captures variables, or a method
+value), reaching the statement through a variable, a field, an element or a
+parameter, is such a view.
+
+Pass the value itself, which copies it, or moves it if it is an owner. To run a
+method of an owned or synced box on the new task, start it directly (task
+p.Serve()): the task then takes the box itself, so there is no view of the
+frame. To let the new task use the frame, start it with a sync.Scope declared in
+the function (s.Task(func() {...})), which waits for it before its block ends.
+
+Go would move this memory to the heap, and its garbage collector would free it
+later. Plutonium has no garbage collector and never moves memory to the heap
+behind the program's back, so that every allocation is visible in the code.
+
+For example:
+
+    task handle(&req)
+
+Written correctly:
+
+    task handle(req)
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E3005: SendFrameView
+
+A value sent on a channel may be received after the function that sent it
+returns. A view of that function's frame sent this way could then point at
+reclaimed memory.
+
+Send the value itself, which copies it, or moves it if it is an owner.
+
+Go would move this memory to the heap, and its garbage collector would free it
+later. Plutonium has no garbage collector and never moves memory to the heap
+behind the program's back, so that every allocation is visible in the code.
+
+For example:
+
+    ch <- &req
+
+Written correctly:
+
+    ch <- req
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E3006: LoopFrameView
+
+A pointer to a variable declared in a loop, or a function literal that uses one,
+is kept after the iteration that made it: stored in a variable declared outside
+the loop body, for example. Each iteration reuses the memory of the loop's
+variables, so what was kept would see the values of later iterations instead of
+its own.
+
+Use the pointer or call the function literal within the iteration, store values
+instead, or pass the value to the function literal as a parameter.
+
+Go gives each iteration of a loop its own variables, so a function literal made
+in one iteration keeps that iteration's values. Plutonium keeps variables in the
+function's frame, which has room for one copy of each; giving every iteration
+its own copy would need memory for each iteration, allocated behind the
+program's back.
+
+For example:
+
+    var first func() int
+    for i := 0; i < 3; i++ {
+        if i == 0 {
+            first = func() int { return i * 10 }
+        }
+    }
+
+Written correctly:
+
+    var first int
+    for i := 0; i < 3; i++ {
+        if i == 0 {
+            first = i * 10
+        }
+    }
+
+See "Loop iterations reuse their storage" in the Plutonium spec, section 18.4.
+
+E3007: BadResultHolds
+
+//pu:resultholds p says that a function keeps its parameter p only for as long
+as its result lives: the result, an owner, holds p and gives it back when it is
+dropped, as alloc.Use's Restore does. The compiler then treats the call as
+returning p instead of keeping it. The directive must name a parameter, and the
+function must store that parameter in its result.
+
+For example:
+
+    //pu:resultholds a
+    func Use(a Allocator) Restore {
+        SetDefault(a)
+        return Restore{}
+    }
+
+Written correctly:
+
+    //pu:resultholds a
+    func Use(a Allocator) Restore {
+        r := Restore{prev: Default(), cur: a}
+        SetDefault(a)
+        return r
+    }
+
+See "Directives" in the Plutonium spec, section 20.3.
+
+E3008: ResultHoldsOutsideStd
+
+//pu:resultholds is a promise the compiler cannot check: that a function's
+result gives a parameter back when it is dropped, as alloc.Use's Restore gives
+back the allocator it installed. The standard library uses it for the few
+functions that need it. A program's own code does not need it: the compiler
+works out by itself what a function keeps.
+
+Remove the directive. If the compiler then rejects a call because the function
+keeps an argument, pass memory that lives long enough, such as an allocated
+value or a package variable.
+
+For example:
+
+    //pu:resultholds a
+    func Install(a *Arena) Undo {
+        ...
+    }
+
+Written correctly:
+
+    func Install(a *Arena) Undo {
+        ...
+    }
+
+See "Directives" in the Plutonium spec, section 20.3.
+
+E3009: TempViewKept
+
+A view of a temporary owner or counted box is kept: stored in a variable, in
+memory or in an interface, or returned. The view may come from a field, an
+element, a pointer conversion or a method. The temporary is dropped at the end
+of the statement that makes it (or of the if or switch statement whose header
+makes it), so what was kept would look at a value that has been dropped.
+
+Pass the view to calls in the same statement, or keep the owner in a variable,
+which lives until the end of its scope, and take the view through that variable.
+
+The view does not own the memory it looks at. Nothing keeps the temporary after
+the statement, so a stored view would outlive the value that keeps its memory
+alive.
+
+For example:
+
+    data := readAll(f).Slice()
+    use(data)
+
+Written correctly:
+
+    buf := readAll(f)
+    data := buf.Slice()
+    use(data)
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E3010: EscapeLimit
+
+The escape analysis of a function reached its memory limit (256 MB) or its work
+limit (a billion steps) before it could finish: the function holds more distinct
+pointers than the analysis can follow. The analysis never guesses past its
+limits, since a guess could accept a program that keeps a pointer into a dead
+frame, so it stops with this error instead.
+
+Split the function into smaller functions.
+
+The compiler proves that no pointer into a frame outlives it, without a garbage
+collector to fall back on. It follows each function's pointers precisely
+(section 18.3), and that work is bounded so that a build cannot run out of
+memory.
+
+Split the function into smaller functions, each handling part of the work:
+
+    func handle(req *Request) {
+        parseHeaders(req)
+        route(req)
+    }
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E3100: ClosureReturned
+
+A function literal that uses variables of the function around it, and a method
+value such as c.handle, are closure records: the code to run, with where each
+captured variable is or a copy of the receiver. A function that returns one
+builds it, and the variables it captures, in a region of memory its caller
+provides, so the closure lives as long as the caller's frame. That works when
+the function itself makes the closure and returns it as a func, in an interface,
+or in a struct or array result.
+
+This function returns a closure record that cannot be built there: one made by a
+function literal nested in it or by the body of a range-over-func loop, which
+are functions of their own whose frames are gone when they return, or one its
+results hold only through a pointer, for which its callers provide no region.
+
+Go moves the captured variables and the closure to the heap. Plutonium never
+allocates behind the program's back, so the record lives in a frame: the
+maker's, or the region its caller provides.
+
+For example:
+
+    func newHandler() *Handler {
+        h := new(Handler)
+        count := 0
+        h.serve = func() { count++ }
+        return h
+    }
+
+Make the closure in the function that returns it, and return it by value:
+
+    func counter() func() int {
+        n := 0
+        return func() int {
+            n++
+            return n
+        }
+    }
+
+See "Closures and their regions" in the Plutonium spec, section 11.5.
+
+E3101: ClosureRegionLoop
+
+A function that returns a closure builds it in a region its caller provides. For
+a call in a loop that region is part of the caller's frame, and every
+iteration's call uses the same region, so the closure one iteration gets is
+overwritten by the next iteration's call. Keeping it past the iteration, in a
+variable declared outside the loop, in a variable of the for statement (which
+passes its value on to the next iteration) or in memory reached through a
+pointer, would leave it changing underneath. A goto back to a label before the
+call makes a loop too.
+
+Passing the closure back to the same call, as in it = Filter(it, f), would make
+each closure hold the one before it: a chain as long as the loop runs, which no
+region of fixed size can hold.
+
+Use the closure within the iteration, or declare the variable that holds it
+inside the loop. To compose closures, compose a fixed number of them, or keep
+what each step needs in a slice and return one closure that applies every step.
+
+Go allocates each closure on the heap. Plutonium builds it in the caller's
+frame, which has room for one closure per call site.
+
+For example:
+
+    all := vec.New[func() int]()
+    for _, n := range sizes {
+        all.Push(counterFrom(n))
+    }
+
+Use the closure within the iteration:
+
+    for _, n := range sizes {
+        next := counterFrom(n)
+        println(next(), next())
+    }
+
+See "Closures and their regions" in the Plutonium spec, section 11.5.
+
+E3102: ClosureRegionCycle
+
+A function that returns a closure builds it in a region its caller provides, and
+that region holds the regions of the calls whose closures the function returns
+in turn. When the function returns the closures of a call that can reach the
+same function again, directly or through other functions, or through a func
+value or an interface whose implementations do, its region would have to hold
+itself. No fixed size fits, so the caller could not reserve it.
+
+Build the closures in a loop instead of by recursion, or keep their state in a
+value the caller owns, such as a struct with a method.
+
+Go allocates each closure on the heap, however deep the recursion. Plutonium
+builds closures in frames, whose sizes are fixed when compiling.
+
+For example:
+
+    func chain(n int) func() int {
+        if n == 0 {
+            return func() int { return 0 }
+        }
+        next := chain(n - 1)
+        return func() int { return n + next() }
+    }
+
+See "Closures and their regions" in the Plutonium spec, section 11.5.
+
+E3201: DropNotOwner
+
+A method named Drop runs automatically when a value is destroyed. That only
+makes sense for a type whose values have exactly one owner: if the values were
+copied as ordinary values are, every copy would run Drop and release the same
+resource. A type with a Drop method must be declared owner, so that its values
+move instead of being copied.
+
+Drop also takes a pointer receiver, never a value receiver: a value receiver
+would move the owner into the method, which would drop it again when it returns.
+Write func (f *File) Drop().
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    type File struct{ fd int32 }
+
+    func (f *File) Drop() { syscall.Close(f.fd) }
+
+Written correctly:
+
+    type File owner struct{ fd int32 }
+
+    func (f *File) Drop() { syscall.Close(f.fd) }
+
+See "Owner types" in the Plutonium spec, section 7.18.
+
+E3202: MustBeOwner
+
+An owner owns memory or another resource and releases it when it is dropped, so
+it moves instead of being copied. A struct with an owner field, an array of
+owners, an interface that embeds an owning interface, or a type defined from an
+owner owns the same things, and copying it would leave two values that both
+release them. Plutonium never makes a type an owner silently: its declaration
+must say owner, written after the name, as in type Conn owner struct { ... }.
+The keyword is on the declaration so that a change to the type of a field in
+another package is reported at this one declaration, and not as a move error at
+every place that copies a value.
+
+If the type should only look at a value that something else owns, store a
+pointer to it instead.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    type Conn struct {
+        buf strings.Buf
+    }
+
+Written correctly:
+
+    type Conn owner struct {
+        buf strings.Buf
+    }
+
+See "Owner types" in the Plutonium spec, section 7.18.
+
+E3203: UnnamedOwnerStruct
+
+A struct that contains an owner owns what that owner owns, so it must be an
+owner too, and only a named type can be declared an owner. A struct type written
+without a name, as the type of a variable or a field, cannot have owner fields.
+
+Declare a named owner type for the struct.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    var conn struct {
+        buf strings.Buf
+    }
+
+Written correctly:
+
+    type Conn owner struct {
+        buf strings.Buf
+    }
+
+    var conn Conn
+
+See "Owner types" in the Plutonium spec, section 7.18.
+
+E3204: BadOwnerKind
+
+owner may mark a struct, an array, an integer, a pointer or unsafe.Pointer, or
+an interface type. Other kinds cannot own anything: a slice or an unsafe string
+is a view of memory something else owns; numbers, booleans, enums, packed types
+and strings are values that copy; owned, shared, synced and weak already have
+kinds of their own.
+
+To attach a resource to such a value, wrap both in a struct declared owner.
+
+For example:
+
+    type Bytes owner []byte
+
+Written correctly:
+
+    type Bytes owner struct {
+        b []byte
+    }
+
+See "Owner types" in the Plutonium spec, section 7.18.
+
+E3205: OwnerAlias
+
+owner can only appear in a type definition, type T owner .... An alias (type A =
+T) is another name for an existing type and has that type's kind; it cannot add
+a mark of its own.
+
+For example:
+
+    type A = owner Buf
+
+Written correctly:
+
+    type A = Buf // an owner if Buf is
+
+See "Owner types" in the Plutonium spec, section 7.18.
+
+E3206: BadDropSignature
+
+Drop runs automatically when an owner is destroyed. The compiler calls it with
+no arguments and ignores any result, so it must have no parameters and no
+results. If the method is not meant to run when a value is destroyed, give it
+another name.
+
+For example:
+
+    func (f *File) Drop() error
+
+Written correctly:
+
+    func (f *File) Drop()
+    func (f *File) Close() error
+
+See "Owner types" in the Plutonium spec, section 7.18.
+
+E3207: OwnerTypeArg
+
+Generic code copies the values of a type parameter freely unless its constraint
+is marked owner. Copying an owner would leave several values that all free the
+same memory, so an owner type can only be the type argument of a type parameter
+declared [T owner any] (or owner with another constraint). Inside such code,
+values of T move as owners do.
+
+If the generic code moves each value at most once, mark its type parameter
+owner. Otherwise pass pointers to the owners, or copies made with Clone.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    func Fill[T any](s []T, v T)
+
+    Fill(bufs, strings.Buf{})
+
+Written correctly:
+
+    func Fill[T owner any](s []T, v T)
+
+See "Owner types" in the Plutonium spec, section 7.18.
+
+E3208: BadTakeArg
+
+take(p) moves the value p points to out of its place and leaves the zero value
+there. It needs the place's address, so that it can write the zero value back: a
+pointer such as &x.field, &s[i] or a pointer variable.
+
+For example:
+
+    left := take(n.left)
+
+Written correctly:
+
+    left := take(&n.left)
+
+See "Moving out of a place" in the Plutonium spec, section 13.10.
+
+E3209: BadUnsafeDropArg
+
+unsafe.Drop(p) destroys the value p points to, as the end of its owner's life
+would: it runs the value's Drop method and then drops its fields. It needs a
+pointer to the value. It belongs to the unchecked layer that owner types are
+written with, such as alloc.Free: the compiler does not stop the value from
+being used or dropped again afterwards.
+
+For example:
+
+    unsafe.Drop(v)
+
+Written correctly:
+
+    unsafe.Drop(&v)
+
+See "Package unsafe" in the Plutonium spec, section 20.1.
+
+E3210: BoxOfInterface
+
+owned[T], shared[T] and synced[T] hold one object of type T on the heap. An
+interface already refers to the value it holds, so a box around an interface
+would be a second, slower way to own a value behind an interface, with two
+levels of pointers.
+
+To own whatever is converted into an interface, declare an owning interface. To
+box the value itself, use its own type.
+
+For example:
+
+    var r owned[io.Reader]
+
+Written correctly:
+
+    type Source owner interface {
+        Read(p []byte) (int, error)
+    }
+
+    var r Source
+
+See "owned, shared, synced and weak" in the Plutonium spec, section 7.19.
+
+E3211: BadWeakElem
+
+A weak reference refers to an object that counted references keep alive, without
+keeping it alive itself, so that structures with back pointers can be freed.
+Only shared[T] and synced[T] count their references, so weak takes one of them:
+weak[shared[Node]].
+
+For example:
+
+    parent weak[Node]
+
+Written correctly:
+
+    parent weak[shared[Node]]
+
+See "owned, shared, synced and weak" in the Plutonium spec, section 7.19.
+
+E3212: OwnerConversion
+
+Converting a plain value into an owner type makes a new owner of whatever the
+value refers to: a file descriptor, a page frame. If code outside the owner's
+package could do that, two owners of the same resource could exist, and both
+would release it. So only the package that declares the owner type may convert
+into it, as only that package can fill its unexported fields.
+
+Converting an owner into a plain value only reads it, and converting between two
+owner types moves the owner; both are allowed anywhere. A pointer view cannot
+become a box at all: make one with new or the alloc package.
+
+For example:
+
+    fd := sys.Fd(3) // sys declares type Fd owner int32
+
+Written correctly:
+
+    fd, err := sys.Open("/dev/null")
+
+See "Conversions" in the Plutonium spec, section 11.24.
+
+E3213: MapOfOwner
+
+A map copies its keys and elements as Go's map does: v := m[k] and range give
+copies of them. An owner cannot be copied, because two copies would both release
+what it owns, so neither the key type nor the element type of a map may be an
+owner.
+
+Store a counted reference to the value instead: a synced[T] or shared[T] copies
+by counting, and the last copy releases the value.
+
+Go's garbage collector frees what a map's values refer to. Plutonium frees
+memory when its owner is dropped, so a map, whose elements are copied freely,
+can hold values and counted references but not owners.
+
+For example:
+
+    files := map[string]os.File{}
+
+Written correctly:
+
+    files := map[string]synced[os.File]{}
+
+See "Map types" in the Plutonium spec, section 7.10.
+
+E3214: OwnerOperator
+
+An operator other than a comparison is applied to a value of an owner type. An
+owner may be compared, but no other operator applies to it, whatever its
+underlying type: f + 1 for type Fd owner int32 would be a new Fd made by
+arithmetic, a second owner of whatever the first refers to.
+
+Convert the owner to its underlying type, which reads its value and moves
+nothing, and apply the operator to the result.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    func next(f *Fd) int32 {
+        return *f + 1
+    }
+
+Written correctly:
+
+    func next(f *Fd) int32 {
+        return int32(*f) + 1
+    }
+
+See "Operators" in the Plutonium spec, section 11.18.
+
+E3301: UseAfterMove
+
+A value of an owner type owns memory or another resource. Assigning it, passing
+it by value, returning it, sending it or storing it moves it instead of copying
+it, so that what it owns has exactly one owner. The variable it left holds
+nothing until it is given a new value, and using it before then is an error.
+
+If both places need a value, copy it explicitly with Clone. If the later code
+only needs to look, give it a pointer (&m) instead of the value.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    n := m
+    m.Set("a", 1)
+
+Written correctly:
+
+    n := m.Clone()
+    m.Set("a", 1)
+
+See "Moves" in the Plutonium spec, section 18.5.
+
+E3302: UseMaybeMoved
+
+A variable of an owner type is moved on some paths to this point and not on
+others, for example in one branch of an if, or in an earlier iteration of a
+loop. On the paths where it moved it holds nothing, so it cannot be used here.
+
+Use it before the move, give it a new value on the path that moves it, or
+declare it inside the loop so that each iteration has its own.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    for _, line := range lines {
+        flush(buf)
+    }
+
+Written correctly:
+
+    for _, line := range lines {
+        flush(buf)
+        buf = strings.Buf{}
+    }
+
+See "Moves" in the Plutonium spec, section 18.5.
+
+E3303: MoveOutOfPlace
+
+An owner can be moved only out of a whole variable. A field, an element, a value
+reached through a pointer or a package variable would still believe it holds the
+owner, and the owner would be released twice.
+
+Use take(&place) to move the value out and leave the zero value behind, a
+pointer (&place) to look at it without moving it, or Clone to copy it.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    left := n.left
+
+Written correctly:
+
+    left := take(&n.left)
+
+See "Moves" in the Plutonium spec, section 18.5.
+
+E3304: RangeCopiesOwner
+
+A range loop with a value variable copies each element into it. Copying an owner
+would leave two values that both release what it owns, so the elements of a
+slice or array of owners cannot be ranged over by value.
+
+Range over the indexes and use a pointer to each element.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    for _, b := range bufs {
+        use(&b)
+    }
+
+Written correctly:
+
+    for i := range bufs {
+        b := &bufs[i]
+        use(b)
+    }
+
+See "Moves" in the Plutonium spec, section 18.5.
+
+E3305: MoveCaptured
+
+A function literal uses the variables of the function around it where they live.
+It may run several times, or never, so if it moved one of them away the function
+around it could not tell whether the variable still holds a value that it must
+drop.
+
+Pass the owner to the literal as an argument instead, or move it before or after
+the literal runs.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    do := func() { send(b) }
+
+Written correctly:
+
+    do := func(b strings.Buf) { send(b) }
+    do(b)
+
+See "Function literals" in the Plutonium spec, section 11.4.
+
+E3306: CopyOwners
+
+copy, and append of a whole slice (append(s, t...)), duplicate the elements they
+copy. Duplicating owners would leave two values that both release what each
+owns.
+
+Move the elements one at a time with take, or copy each one explicitly with
+Clone.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    copy(dst, src)
+
+Written correctly:
+
+    for i := range src {
+        dst[i] = take(&src[i])
+    }
+
+See "Moves" in the Plutonium spec, section 18.5.
+
+E3307: DropThroughView
+
+Drop releases what an owner holds, and runs by itself when the owner is dropped.
+Calling it explicitly ends an owner's life early, and is allowed only on a
+variable that holds the owner, whether or not its type declares a Drop method,
+which cannot be used afterwards. Through a pointer, a field, a method value or
+an ordinary interface, the value belongs to something else, which would drop it
+a second time.
+
+Call Drop on the owner itself, or leave the zero value behind with take.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    func closeIt(f *File) { f.Drop() }
+
+Written correctly:
+
+    func closeIt(f File) { f.Drop() } // takes the File and ends its life
+
+See "Drops" in the Plutonium spec, section 18.6.
+
+E3308: OwnerFromLender
+
+Converting an owner to an ordinary interface such as any lends it: the interface
+looks at the owner, which still belongs to the variable that was converted.
+Taking an owner type out of such an interface would make a second owner.
+
+Assert to an interface type and call the value's methods, or declare an owning
+interface (type R owner interface {...}) and move the owner into it.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    b := x.(strings.Buf)
+
+Written correctly:
+
+    if s, ok := x.(fmt.Stringer); ok {
+        use(s.String())
+    }
+
+See "Type assertions" in the Plutonium spec, section 11.13.
+
+E3309: IndexOwner
+
+x[k] on a library container calls its Index method, which returns a copy of the
+element. When the elements are owners, the copy would be a second owner of what
+the element owns.
+
+Use the container's methods instead: one that returns a pointer to the element
+to look at it (Ptr), or one that removes or replaces it to move it out.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    b := bufs[0]
+
+Written correctly:
+
+    b := bufs.Ptr(0)
+
+See "Indexing library containers" in the Plutonium spec, section 11.11.
+
+E3310: VariadicOwners
+
+Variadic arguments are passed in an array that the function sees as a slice. A
+slice is a view and never owns its elements, so owners passed that way would be
+released by nobody.
+
+Pass the owners one at a time, or in an owner of its own such as a vec.Vec.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+See "Passing arguments to ... parameters" in the Plutonium spec, section 11.15.
+
+E3311: DeferInnerOwner
+
+Deferred calls run when the function returns. An owner declared in an inner
+block is dropped when that block ends, before the deferred call would run, so
+the call would use what the owner had released.
+
+Declare the owner at the top level of the function, or do the work at the end of
+the block instead of deferring it.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+See "Defer statements" in the Plutonium spec, section 12.19.
+
+E3312: SliceLitOwners
+
+A slice literal keeps its elements in an array that the slice only looks at.
+Owners stored there would be released by nobody.
+
+Use an array literal, which is an owner of its elements, or a vec.Vec.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    bufs := []strings.Buf{a, b}
+
+Written correctly:
+
+    bufs := [2]strings.Buf{a, b}
+
+See "Composite literals" in the Plutonium spec, section 11.3.
+
+E3313: StaleView
+
+A view taken from an owner held in a local variable (&c, a slice of a local
+array of owners, a method value c.M, c.Slice()) looks at memory that the
+variable owns. It may be used only while the variable keeps the value the view
+was taken from. Once the variable is moved, dropped or given a new value, the
+view looks at memory that was released, or at a value that belongs to something
+else.
+
+The same holds for text in a local arena (a string made while the arena is the
+default allocator, or by a Builder started with the arena as its allocator):
+converting it to an interface in the function that owns the arena puts a copy in
+the function's frame, which holds a reference to the text until the function
+returns, after the arena was dropped. Write the text's bytes instead of
+converting the string.
+
+Use the view before the owner is moved, or move the owner only after the last
+use of the view. If both are needed, move a copy made with Clone.
+
+Go keeps memory alive for as long as any pointer refers to it. Plutonium has no
+garbage collector: an owner releases its memory when it is dropped, so a view
+must not be used after the value it looks at has gone.
+
+For example:
+
+    p := &c
+    consume(c)
+    p.Write(data)
+
+Written correctly:
+
+    p := &c
+    p.Write(data)
+    consume(c)
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E3314: LostView
+
+A view of an owner held in a local variable may be used only while the variable
+keeps the value the view was taken from. The compiler follows views through
+local variables, their fields, and the calls that store them into other
+arguments. A view stored anywhere else (through a pointer, in a variable that a
+function literal uses or whose address is kept, or by a call the compiler cannot
+see into) cannot be followed, so the owner may not be moved, dropped or given a
+new value while that view could still be used.
+
+Keep the view in a local variable or a field of one, or move the owner only
+where no such view of it exists.
+
+Go keeps memory alive for as long as any pointer refers to it. Plutonium has no
+garbage collector: an owner releases its memory when it is dropped, so a view
+must not be used after the value it looks at has gone.
+
+For example:
+
+    pp := &h
+    *pp = &c
+    consume(c)
+
+Written correctly:
+
+    h = &c
+    use(h)
+    consume(c)
+
+See "Views" in the Plutonium spec, section 18.3.
+
+E3401: ScopeOutlivesVar
+
+A task started by s.Task holds a pointer, slice or function literal that looks
+at a variable whose storage is reused before s waits for the task. A variable
+declared in a loop body is new in each iteration in Go, but in Plutonium every
+iteration reuses the same memory, so a later iteration would overwrite what the
+task is still looking at.
+
+The task takes its own copy of each such variable that it uses directly, so use
+the variable itself in the function literal rather than a view of it. Or wait
+for the task before the iteration ends, with s.Wait() at the end of the loop
+body.
+
+Go keeps the variables a goroutine uses alive with its garbage collector,
+however long the goroutine runs. Plutonium has none: a variable lives in its
+function's frame until its block ends. A sync.Scope waits for the tasks it
+started before its block ends, so they may use the function's variables, and the
+compiler checks that nothing they use ends or moves first.
+
+For example:
+
+    for _, line := range lines {
+        var buf [64]byte
+        v := buf[:copy(buf[:], line)]
+        s.Task(func() { send(v) })
+    }
+
+Written correctly:
+
+    for _, line := range lines {
+        var buf [64]byte
+        n := copy(buf[:], line)
+        s.Task(func() { send(buf[:n]) })
+    }
+
+See "Scoped tasks" in the Plutonium spec, section 19.4.
+
+E3402: ScopeRace
+
+A task started by s.Task uses a variable, or memory a variable points to, at the
+same time as another task or the function that started it, and one of them
+writes it. Two tasks writing one place at once can lose an update, and a value
+larger than a word can be read half written: a data race.
+
+Share such a place only under one lock that every use holds (the compiler infers
+which), use a type from pluto/sync/atomic, give each task its own part of a
+slice or array (x[i] with i the loop variable), or read the result after
+s.Wait(), which waits for the tasks.
+
+Two slices of one type may overlap. Tasks may use both at once only as out[i]
+and in[i], with the same loop variable, and the program then checks, as each
+task starts, that the slices start at the same element or do not overlap.
+
+Go leaves data races to a run-time detector that a program must be run under,
+and a racing Go program can see values half written. Plutonium tasks run in
+parallel with no such detector, so safe code must be free of data races, and the
+compiler checks it from the program itself, with no annotations.
+
+For example:
+
+    var total int
+    for _, n := range counts {
+        s.Task(func() { total += n })
+    }
+
+Written correctly:
+
+    var mu sync.Mutex
+    var total int
+    for _, n := range counts {
+        s.Task(func() {
+            mu.Lock()
+            total += n
+            mu.Unlock()
+        })
+    }
+
+See "Scoped tasks" in the Plutonium spec, section 19.4.
+
+E3403: ScopeNotPartitioned
+
+Several tasks started by s.Task write elements of one slice or array, and the
+compiler cannot see that no two of them write the same element. It can see that
+for x[i], where i is the variable of the loop that starts the tasks (each task
+takes its own i), for a window x[i*k:(i+1)*k] of such an i, and for x[:m] in one
+task and x[m:] in another.
+
+Index by the loop variable, give each task a window of the slice and index
+within it, or send the results on a channel and store them in the function that
+started the tasks.
+
+Go leaves data races to a run-time detector that a program must be run under,
+and a racing Go program can see values half written. Plutonium tasks run in
+parallel with no such detector, so safe code must be free of data races, and the
+compiler checks it from the program itself, with no annotations.
+
+For example:
+
+    for i := range in {
+        s.Task(func() { out[idx[i]] = f(in[i]) })
+    }
+
+Written correctly:
+
+    for i := range in {
+        s.Task(func() { out[i] = f(in[i]) })
+    }
+
+See "Scoped tasks" in the Plutonium spec, section 19.4.
+
+E3404: ScopeMoveInUse
+
+A variable is moved or dropped while tasks started by s.Task may still use it.
+Moving an owner leaves the variable empty, and dropping it frees what it owns,
+so the tasks would use freed memory.
+
+Wait for the tasks first, with s.Wait(), then move or drop the variable.
+
+Go keeps the variables a goroutine uses alive with its garbage collector,
+however long the goroutine runs. Plutonium has none: a variable lives in its
+function's frame until its block ends. A sync.Scope waits for the tasks it
+started before its block ends, so they may use the function's variables, and the
+compiler checks that nothing they use ends or moves first.
+
+For example:
+
+    s.Task(func() { fill(&buf) })
+    consume(buf)
+
+Written correctly:
+
+    s.Task(func() { fill(&buf) })
+    s.Wait()
+    consume(buf)
+
+See "Scoped tasks" in the Plutonium spec, section 19.4.
+
+E3405: ScopeMoved
+
+A sync.Scope that has started tasks is moved: assigned, passed or returned. The
+tasks it started find it at its address, to tell it when they return, so after a
+move nothing would wait for them in the right place.
+
+Keep the Scope in the variable that started the tasks. To wait for the tasks
+elsewhere, pass the work instead, or call s.Wait() before the Scope goes.
+
+Go keeps the variables a goroutine uses alive with its garbage collector,
+however long the goroutine runs. Plutonium has none: a variable lives in its
+function's frame until its block ends. A sync.Scope waits for the tasks it
+started before its block ends, so they may use the function's variables, and the
+compiler checks that nothing they use ends or moves first.
+
+For example:
+
+    var s sync.Scope
+    s.Task(work)
+    return s
+
+Written correctly:
+
+    var s sync.Scope
+    s.Task(work)
+    s.Wait()
+
+See "Scoped tasks" in the Plutonium spec, section 19.4.
+
+E3406: ScopeConcurrentCall
+
+A function literal is passed to a function that calls it from several tasks at
+once, and the literal writes a variable it captures. The calls would write that
+variable at the same time: a data race.
+
+Use an atomic type for the variable, or lock a mutex around the write in the
+literal.
+
+Go leaves data races to a run-time detector that a program must be run under,
+and a racing Go program can see values half written. Plutonium tasks run in
+parallel with no such detector, so safe code must be free of data races, and the
+compiler checks it from the program itself, with no annotations.
+
+For example:
+
+    count := 0
+    parallel.Map(names, lens, func(s string) int { count++; return len(s) })
+
+Written correctly:
+
+    var count atomic.Int64
+    parallel.Map(names, lens, func(s string) int { count.Add(1); return len(s) })
+
+See "Scoped tasks" in the Plutonium spec, section 19.4.
+
+E3407: ScopeTakenWrite
+
+A task started by s.Task changes a variable that it takes: the variable's block
+(a loop body, or the loop's own variables) may end before s waits for the task,
+so the task gets its own copy of the variable when s.Task runs, as each
+iteration of a Go loop gets its own variables. The function that started the
+task uses the variable afterwards, and would not see the change.
+
+Declare the variable inside the function literal if only the task needs it. If
+the function that started the task needs the result, declare the variable before
+the loop and give each task its own part of it (results[i] = ...), or wait for
+the task with s.Wait() in the same block, before the variable is used again.
+
+Go keeps the variables a goroutine uses alive with its garbage collector,
+however long the goroutine runs. Plutonium has none: a variable lives in its
+function's frame until its block ends. A sync.Scope waits for the tasks it
+started before its block ends, so they may use the function's variables, and the
+compiler checks that nothing they use ends or moves first.
+
+For example:
+
+    for _, it := range items {
+        n := 0
+        s.Task(func() { n = work(it) })
+        s.Wait()
+        if ok {
+            continue
+        }
+        println(n)
+    }
+
+Written correctly:
+
+    for i, it := range items {
+        s.Task(func() { results[i] = work(it) })
+    }
+    s.Wait()
+
+See "Scoped tasks" in the Plutonium spec, section 19.4.
+
+E3501: RaceSendView
+
+A pointer or slice is handed to another task, as an argument of a task statement
+or a value sent on a channel, but what it points to may change while both tasks
+can use it. One task could then read memory the other is writing, which is a
+data race.
+
+A view may cross to another task only if what it points to cannot change while
+both may use it: a package variable that is not written once tasks run, a struct
+type that no code changes through a pointer after making it, memory of a
+pluto/sync type, or the object of a synced[T]. Pass a copy of the value, move an
+owner such as a vec.Vec, or share the data through a synced[T] whose fields a
+lock guards.
+
+Go leaves data races to a run-time detector that a program must be run under,
+and a racing Go program can see values half written. Plutonium tasks run in
+parallel with no such detector, so safe code must be free of data races, and the
+compiler checks it from the program itself, with no annotations.
+
+For example:
+
+    func bump(c *Counter, done chan bool) {
+        c.n++
+        done <- true
+    }
+
+    c := new(Counter)
+    task bump(c, done)
+
+Written correctly:
+
+    func bump(n int, done chan int) {
+        done <- n + 1
+    }
+
+    task bump(c.n, done)
+    c.n = <-done
+
+See "Data race freedom" in the Plutonium spec, section 19.3.
+
+E3502: RaceNoLock
+
+Data that several tasks use is written without a lock that guards it: a package
+variable written by code more than one task runs, or a field of a synced[T]
+object. Two tasks could write it, or one write it while another reads it, at the
+same time. An interrupt handler is one of these parties: it may run at any point
+where interrupts are enabled, on any processor, and on several processors at
+once, so data it writes needs a guard even when no task uses it. The message
+names the handler.
+
+The compiler infers which lock guards the data from the locks held where it is
+written: a sync.Mutex (or the write lock of a sync.RWMutex) that every write
+holds, or an rt.Lock for data a handler uses. Hold the same lock at every write
+and every read, or use an atomic type from pluto/sync/atomic. A volatile[T] or a
+region with interrupts disabled excludes only code on the same processor, so it
+does not guard data a handler shares with other processors; it is enough only
+for a per-CPU variable (section 20.9).
+
+Go leaves data races to a run-time detector that a program must be run under,
+and a racing Go program can see values half written. Plutonium tasks run in
+parallel with no such detector, so safe code must be free of data races, and the
+compiler checks it from the program itself, with no annotations.
+
+For example:
+
+    var hits int
+
+    func handle() {
+        hits++
+    }
+
+    // started with task handle() from several places
+
+Written correctly:
+
+    var (
+        mu   sync.Mutex
+        hits int
+    )
+
+    func handle() {
+        mu.Lock()
+        hits++
+        mu.Unlock()
+    }
+
+See "Data race freedom" in the Plutonium spec, section 19.3.
+
+E3503: RaceUnguarded
+
+Data that several tasks use is read without the lock that guards it. Every write
+to it holds the same lock, so the compiler infers that the lock guards it, and
+every read must hold it too: a read without it may run while a write is half
+done. An interrupt handler counts as one of the tasks, and the message names it.
+
+Hold the lock (a sync.RWMutex's RLock is enough, or an rt.Lock for data a
+handler uses) around the read. If the writes use atomic operations, read it with
+an atomic operation too.
+
+Go leaves data races to a run-time detector that a program must be run under,
+and a racing Go program can see values half written. Plutonium tasks run in
+parallel with no such detector, so safe code must be free of data races, and the
+compiler checks it from the program itself, with no annotations.
+
+For example:
+
+    wg.Wait()
+    println(counter)
+
+Written correctly:
+
+    wg.Wait()
+    mu.Lock()
+    n := counter
+    mu.Unlock()
+    println(n)
+
+See "Data race freedom" in the Plutonium spec, section 19.3.
+
+E4001: NotMainPackage
+
+pluto build and pluto run build a program, and a program starts in package main,
+at func main. The directory given holds a different package, which can only be
+imported by a program or tested with pluto test.
+
+See "Package clause" in the Plutonium spec, section 14.2.
+
+E4002: NotPackageDir
+
+pluto test takes a directory holding a package, or the import path of a standard
+library package such as pluto/strings. This path is neither.
+
+E4003: TestDirName
+
+A package outside any module is imported by its tests under the name of its
+directory. That name is reserved here, since main and pluto/... already mean
+something else. Rename the directory, or add a pluto.mod file to make the
+package part of a module.
+
+Declare a module in the directory above:
+
+    module example.com/project
+
+E4004: TestMainPackage
+
+pluto test builds a program of its own that calls the tests, so it cannot test
+package main, which already is a program. Move the code under test into a
+package of its own, and import it from main.
+
+E4005: StdPackageMissing
+
+Import paths that start with pluto/ name packages of the standard library, and
+this one does not exist. Check the spelling. Go's packages have Plutonium
+versions under pluto/, such as pluto/fmt for fmt, but not every Go package has
+one.
+
+See "Import declarations" in the Plutonium spec, section 14.3.
+
+E4006: PackageNotFound
+
+The import path is inside this program's module, as declared by its pluto.mod
+file, but no directory exists at the matching place. An import path is the
+module path followed by the package's directory, relative to the directory
+holding pluto.mod.
+
+E4007: ImportNoModule
+
+Without a pluto.mod file, a program is a single package that can import only the
+standard library (paths under pluto/). To split a program into packages, add a
+pluto.mod file in its top directory that names the module, and import packages
+by the module path followed by their directory.
+
+Create pluto.mod in the top directory:
+
+    module example.com/project
+
+    // and import a package in ./util as:
+    import "example.com/project/util"
+
+E4008: ImportOutside
+
+A program can import the standard library (paths under pluto/) and packages of
+its own module (paths under the module path in pluto.mod). This import path is
+neither, and Plutonium has no package downloads.
+
+E4009: ImportCycle
+
+Packages import each other in a circle. A package must be compiled after every
+package it imports, so a circle has no order that works. Move the code both
+packages need into a third package that both import.
+
+See "Import declarations" in the Plutonium spec, section 14.3.
+
+E4010: NoSourceFiles
+
+The package's directory has no .p files for this build. Either it has none at
+all, or every file is left out by a //pu:build line or a file name suffix such
+as _linux.p for the target and mode being built.
+
+See "Source file organization" in the Plutonium spec, section 14.1.
+
+E4011: ExternalTestPkg
+
+Test files in Plutonium belong to the package they test. A _test.p file in a
+package named x_test, which Go allows, is not supported. Declare the test in the
+package itself.
+
+E4012: MixedPackages
+
+All the .p files in one directory must belong to the same package, so they must
+all start with the same package clause.
+
+See "Package clause" in the Plutonium spec, section 14.2.
+
+E4013: BadConstraint
+
+A //pu:build line is a boolean expression over build tags, using && (and), ||
+(or), ! (not) and parentheses, such as //pu:build amd64 && !kernel. This one
+does not parse.
+
+See "Build constraints" in the Plutonium spec, section 14.4.
+
+E4014: BadModFile
+
+The first line of a pluto.mod file must be the word module followed by the
+module path.
+
+Write the first line as:
+
+    module example.com/project
+
+E4015: ReservedModule
+
+Import paths under pluto/ belong to the standard library, so a module cannot use
+one as its path. Choose another, such as a domain you control followed by the
+project name.
+
+E4016: NoMainFunc
+
+A program starts by calling func main in package main, and this package does not
+declare one.
+
+Add a main function:
+
+    func main() {
+    }
+
+See "Program execution" in the Plutonium spec, section 15.4.
+
+E4017: ReadPackage
+
+The compiler could not read the package's directory. Check that the path exists
+and that you have permission to read it.
+
+E4018: BadTestSignature
+
+pluto test runs the functions in _test.p files whose names start with Test or
+Benchmark. Such a function must take exactly one parameter, a *testing.T for a
+test or a *testing.B for a benchmark, and return nothing.
+
+Declare it like this:
+
+    func TestParse(t *testing.T) {
+        ...
+    }
+
+E5001: UndefinedSymbol
+
+The linker joins the compiled program with its assembly, C and object files, and
+found a symbol that is used but defined nowhere. This happens when a function is
+declared without a body but no .s, .c or .o file in its package defines it, or
+when //pu:extern names a C function that is not linked in.
+
+See "Assembly and C" in the Plutonium spec, section 20.4.
+
+E5002: RelocOverflow
+
+The compiled code reaches every symbol with a 32-bit offset, so code and data
+must all lie within 2 GiB of each other. In hosted builds they are near address
+0; in kernel mode they are in the top 2 GiB of the address space. The linker
+placed a symbol outside that range, usually because a linker script puts a
+section somewhere else.
+
+In kernel mode, link the image at or above 0xFFFFFFFF80000000, as the default
+kernel linker script does, and keep the .percpu section at address 0.
+
+See "Kernel mode" in the Plutonium spec, section 20.6.
+
+E5003: MultipleDefs
+
+Two objects define the same symbol. This happens when a .s, .c or .o file
+defines a function that Plutonium code also defines, when a //pu:export name is
+also defined in C, or when two C files define the same global.
+
+See "Assembly and C" in the Plutonium spec, section 20.4.
+
+E5004: AssemblerError
+
+The GNU assembler rejected a .s file of the program. Its messages follow, with
+the file's own name and line. Assembly files use GNU assembler syntax; Plutonium
+functions are referred to by their import path and name, in quotes, such as
+"pluto/syscall.Syscall".
+
+See "Assembly and C" in the Plutonium spec, section 20.4.
+
+E5005: CCompilerError
+
+The C compiler rejected a .c file of the program. Its messages follow. C files
+are compiled freestanding: there is no C library, so headers such as stdio.h are
+not available.
+
+See "Assembly and C" in the Plutonium spec, section 20.4.
+
+E5006: LinkFailed
+
+The linker failed. Its messages follow. If a linker script was given with
+--ldscript, check that it exists and places every section the program has.
+
+See "Build modes and targets" in the Plutonium spec, section 20.5.
+
+E5007: PerCPUNotAtZero
+
+Per-CPU variables are reached at their offset from the GS base, which only works
+if the linker places the .percpu section at address 0, with the Plutonium object
+first. The linker script given puts it elsewhere.
+
+See "Per-CPU variables" in the Plutonium spec, section 20.9.
+
+E5008: ToolNotFound
+
+Plutonium uses the system's GNU assembler (as), linker (ld) and, for .c files, C
+compiler (cc, or $CC). This one is not installed or not on the PATH. On most
+Linux systems the binutils package provides as and ld.
+
+E9001: InternalError
+
+The compiler failed on a program that passed type checking. This is a bug in the
+compiler, not in your program. Please report it with the smallest program that
+shows it. Changing the code near the position shown may work around it.

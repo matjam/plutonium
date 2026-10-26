@@ -5,7 +5,7 @@ package main
 // the object and drops it when the method returns; a synced[T] is counted
 // for it, so the object lives until the last reference is gone, whichever
 // task holds it last. A shared[T] cannot cross tasks (see
-// cmd/pluto/testdata/diag/gobox_shared.p). Every Drop reports on a wait
+// tests/diag/gobox_shared.p). Every Drop reports on a wait
 // group, so main can wait for it; the program also runs under the debug
 // allocator, which fails on a leak, with one, two and many processors.
 

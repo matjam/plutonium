@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 	"testing"
 )
 
-var update = flag.Bool("update", false, "rewrite the expected output of the corpus cases that fail")
+var update = flag.Bool("update", false, "rewrite the expected output of the corpus cases and goldens that fail")
 
 // compiler returns the absolute path of the pluto binary under test,
 // skipping the test when there is none.
@@ -50,22 +51,71 @@ func libRoot(t *testing.T) string {
 // environment, and returns its combined output and exit status.
 func runPluto(t *testing.T, dir string, env []string, args ...string) (string, int) {
 	t.Helper()
+	var out bytes.Buffer
+	code := execPluto(t, dir, env, "", &out, &out, args...)
+	return out.String(), code
+}
+
+// runPlutoSplit is runPluto with stdin as the standard input, returning
+// the standard output and standard error apart.
+func runPlutoSplit(t *testing.T, dir string, env []string, stdin string, args ...string) (string, string, int) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := execPluto(t, dir, env, stdin, &stdout, &stderr, args...)
+	return stdout.String(), stderr.String(), code
+}
+
+// execPluto runs pluto with args in dir and returns its exit status. The
+// standard library is the repository's lib, and later entries of env
+// override earlier ones.
+func execPluto(t *testing.T, dir string, env []string, stdin string, stdout, stderr io.Writer, args ...string) int {
+	t.Helper()
 	cmd := exec.Command(compiler(t), args...)
 	cmd.Dir = dir
 	// PLUTO_BRIEF is cleared so that only --brief chooses the form.
 	cmd.Env = append(os.Environ(), "PLUTOROOT="+libRoot(t), "PLUTO_BRIEF=")
 	cmd.Env = append(cmd.Env, env...)
-	var out bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &out
+	cmd.Stdin = strings.NewReader(stdin)
+	cmd.Stdout, cmd.Stderr = stdout, stderr
 	err := cmd.Run()
 	var ee *exec.ExitError
 	switch {
-	case errors.As(err, &ee):
-		return out.String(), ee.ExitCode()
+	case errors.As(err, &ee) && ee.ExitCode() >= 0:
+		return ee.ExitCode()
 	case err != nil:
+		t.Fatalf("running %s: %v", compiler(t), err)
+	}
+	return 0
+}
+
+// writeProgram writes src as main.p of a new package directory and returns
+// the directory.
+func writeProgram(t *testing.T, src string) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "main.p"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return out.String(), 0
+	return dir
+}
+
+// checkGolden compares got with the contents of file, or with -update
+// writes got to file.
+func checkGolden(t *testing.T, file, got string) {
+	t.Helper()
+	if *update {
+		if err := os.WriteFile(file, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	want, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("%v (run with -update to create it)", err)
+	}
+	if got != string(want) {
+		t.Errorf("output differs from %s (run with -update to rewrite it)\ngot:\n%s\nwant:\n%s", file, got, want)
+	}
 }
 
 // copyTree copies the files of a case directory, and of its

@@ -130,8 +130,8 @@ func TestNames(t *testing.T) {
 
 // TestTree checks every Plutonium source file of the repository, so that a
 // retired or misspelt directive left in the library, an example or a
-// benchmark fails here. The programs that exist to show these errors are
-// left out.
+// benchmark fails here. The compiler's corpus under tests/, which holds the
+// programs that exist to show these errors, is left out.
 func TestTree(t *testing.T) {
 	root := filepath.Join("..", "..")
 	fset := token.NewFileSet()
@@ -140,9 +140,8 @@ func TestTree(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		slash := filepath.ToSlash(path)
 		if e.IsDir() {
-			if e.Name() == ".git" || e.Name() == ".claude" || strings.HasSuffix(slash, "cmd/pluto/testdata/diag") {
+			if e.Name() == ".git" || e.Name() == ".claude" || path == filepath.Join(root, "tests") {
 				return filepath.SkipDir
 			}
 			return nil

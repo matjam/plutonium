@@ -6,7 +6,7 @@ package main
 // map element, a slice element, a field of another box. Each call must
 // change the object, never a copy of it. A map element that is a struct
 // value is not addressable, and the checker rejects those calls
-// (cmd/pluto/testdata/diag/boxtemprecv.p).
+// (tests/diag/boxtemprecv.p).
 
 import (
 	"pluto/alloc"

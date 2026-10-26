@@ -9,14 +9,16 @@ import (
 	"testing"
 )
 
-// groups are the corpus directories under tests/. Each case is a
-// directory holding a program (its .p files, and subdirectories for the
-// other packages of a module) and files that say how to build it and
-// what the compiler must print:
+// groups are the corpus directories under tests/: diag holds a program
+// for every diagnostic, with its full output, and the others the programs
+// of the Go packages' unit tests. Each case is a directory holding a
+// program (its .p files, and subdirectories for the other packages of a
+// module) and files that say how to build it and what the compiler must
+// print:
 //
 //	default.out  the whole output of the build, sanitized (see sanitize)
 //	brief.out    the same with --brief; optional
-//	flags        extra arguments, one per line, before the package
+//	flags        extra arguments, separated by white space, before the package
 //	command      the subcommand and its arguments in place of "build -o OUT"
 //	env          KEY=VALUE lines added to the environment
 //	status       the expected exit status; 1 when absent
@@ -24,7 +26,7 @@ import (
 //
 // A case with a knownfail note is skipped when it fails and reported when
 // it passes, so that the note is removed once the compiler is fixed.
-var groups = []string{"race", "types2", "escape", "moves", "lower"}
+var groups = []string{"diag", "race", "types2", "escape", "moves", "lower"}
 
 func TestCorpus(t *testing.T) {
 	for _, g := range groups {
@@ -105,7 +107,7 @@ func buildCase(t *testing.T, dir string, brief bool) (string, int) {
 	if c := strings.Fields(readOpt(t, dir, "command")); len(c) > 0 {
 		args = c
 	}
-	args = append(args, lines(readOpt(t, dir, "flags"))...)
+	args = append(args, strings.Fields(readOpt(t, dir, "flags"))...)
 	if brief {
 		args = append(args, "--brief")
 	}

@@ -158,10 +158,10 @@ func TestCallFactsMoves(t *testing.T) {
 		"testdata/lib/chunked.p",
 		"testdata/lib/vec.p",
 		"testdata/lib/vecfixed.p",
-		"cmd/pluto/testdata/diag/container_views/main.p",
-		"cmd/pluto/testdata/diag/defer_view_moved/main.p",
-		"cmd/pluto/testdata/diag/moves/main.p",
-		"cmd/pluto/testdata/diag/moves_more/main.p",
+		"tests/diag/container_views/main.p",
+		"tests/diag/defer_view_moved/main.p",
+		"tests/diag/moves/main.p",
+		"tests/diag/moves_more/main.p",
 	} {
 		src, err := os.ReadFile(filepath.Join(root, f))
 		if err != nil {

@@ -1,15 +1,14 @@
-package main
+package tests
 
 import (
-	"bytes"
-	"errors"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 )
+
+// The tests in this file check pluto test on the packages under
+// testdata/testpkg and testdata/badtests.
 
 // times matches the durations in test output, and benchResult the
 // iteration count and time of a benchmark, which vary from run to run.
@@ -21,38 +20,15 @@ var (
 	stdlibLine  = regexp.MustCompile(`(\((?:\$PLUTOROOT/)?pluto/[^:]+):\d+\)`)
 )
 
-// runTestCommand runs "pluto test" with args and returns its standard
-// output, its standard error and its exit status. It runs runTests, or,
-// when $PLUTO_TEST_COMPILER names a compiler such as the self-hosted one,
-// that compiler's test command, with the standard library under lib/.
+// runTestCommand runs "pluto test" with args in this directory and
+// returns its standard output, its standard error and its exit status.
 func runTestCommand(t *testing.T, args ...string) (string, string, int) {
 	t.Helper()
-	var stdout, stderr bytes.Buffer
-	if os.Getenv("PLUTO_TEST_COMPILER") == "" {
-		t.Setenv("PLUTOROOT", "../../lib")
-		code := runTests(args, &stdout, &stderr)
-		return stdout.String(), stderr.String(), code
-	}
-	root, err := filepath.Abs(filepath.Join("..", "..", "lib"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	compiler := plutoBinary(t)
-	cmd := exec.Command(compiler, append([]string{"test"}, args...)...)
-	cmd.Env = append(os.Environ(), "PLUTOROOT="+root)
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	code := 0
-	var exitErr *exec.ExitError
-	if err := cmd.Run(); errors.As(err, &exitErr) && exitErr.ExitCode() >= 0 {
-		code = exitErr.ExitCode()
-	} else if err != nil {
-		t.Fatalf("running %s: %v\nstderr:\n%s", compiler, err, stderr.String())
-	}
-	return stdout.String(), stderr.String(), code
+	return runPlutoSplit(t, ".", nil, "", append([]string{"test"}, args...)...)
 }
 
-// pluto runs "pluto test" with args and returns its normalised standard
-// output and its exit status.
+// plutoTest runs "pluto test" with args and returns its normalised
+// standard output and its exit status.
 func plutoTest(t *testing.T, args ...string) (string, int) {
 	t.Helper()
 	stdout, stderr, code := runTestCommand(t, args...)
@@ -293,7 +269,7 @@ ok  	example.com/testpkg/crash	T
 // TestPlutoTestStdlib runs the standard library's own tests, both by
 // directory and by import path.
 func TestPlutoTestStdlib(t *testing.T) {
-	got, code := plutoTest(t, "../../lib/pluto/strings", "pluto/sort")
+	got, code := plutoTest(t, "../lib/pluto/strings", "pluto/sort")
 	want := "ok  \tpluto/strings\tT\nok  \tpluto/sort\tT\n"
 	if code != 0 || got != want {
 		t.Errorf("exit status %d, output:\n%s\nwant:\n%s", code, got, want)
@@ -318,7 +294,7 @@ func TestPlutoTestErrors(t *testing.T) {
 		{"bad regexp", []string{"-run", "(", calc}, 2, "", "invalid -run pattern"},
 		{"bad bench", []string{"-bench", "(", calc}, 2, "", "invalid -bench pattern"},
 		{"missing", []string{"testdata/nonexistent"}, 1, "FAIL\ttestdata/nonexistent [build failed]", "not a package directory"},
-		{"main package", []string{"../../examples/01-exit"}, 1, "[build failed]", "testing a main package is not supported"},
+		{"main package", []string{"../examples/01-exit"}, 1, "[build failed]", "testing a main package is not supported"},
 		{"external", []string{"testdata/badtests/external"}, 1, "FAIL\ttestdata/badtests/external [build failed]", "external test packages are not supported"},
 		{"test signature", []string{"testdata/badtests/badsig"}, 1, "FAIL\tbadsig [build failed]",
 			"badsig/y_test.p:5:6: wrong signature for TestTwo, must be: func TestTwo(t *testing.T)\n"},

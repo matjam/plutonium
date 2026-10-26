@@ -28,7 +28,7 @@ func TestParallelDeterministic(t *testing.T) {
 	if testing.Short() {
 		t.Skip("loads programs")
 	}
-	for _, dir := range []string{"../../../examples/15-interfaces", "../../../examples/24-errors", "../../../examples/22-maps", "../../../cmd/pluto/testdata/diag/iface_receiver_pointers"} {
+	for _, dir := range []string{"../../../examples/15-interfaces", "../../../examples/24-errors", "../../../examples/22-maps", "../../../tests/diag/iface_receiver_pointers"} {
 		for _, defer_ := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/defer=%v", filepath.Base(dir), defer_), func(t *testing.T) {
 				savedDefer := deferralOn
@@ -227,7 +227,7 @@ func TestReasonsNameRenamedEntries(t *testing.T) {
 	}
 	t.Setenv("PLUTO_ESCAPE2_JOBS", "24")
 	cfg := &load.Config{Tags: load.BuildTags(false, false, nil), Stdlib: plutonium.Stdlib(), Sizes: types2.SizesFor("gc", "amd64")}
-	prog, err := load.Load(cfg, "../../../cmd/pluto/testdata/diag/iface_receiver_pointers")
+	prog, err := load.Load(cfg, "../../../tests/diag/iface_receiver_pointers")
 	if err != nil {
 		t.Fatal(err)
 	}

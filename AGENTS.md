@@ -260,8 +260,9 @@ To add an error:
    lines); `diag.New` elsewhere. Type checker errors are specialised by
    code in `internal/diag/typecheck.go`.
 4. Test the full output, not a substring: add a program under
-   `cmd/pluto/testdata/diag/` and run
-   `go test ./cmd/pluto -run TestDiagnostics -update`, then read the diff of
+   `tests/diag/` and run
+   `PLUTO_TEST_COMPILER=/tmp/pluto go test ./tests -run TestCorpus/diag -update`
+   with the compiler that reports it, then read the diff of
    `default.out` and `brief.out`. Tests that match only the first line keep
    passing, and that line must not change without reason.
 

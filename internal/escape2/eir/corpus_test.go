@@ -16,7 +16,7 @@ import (
 
 // A corpusProgram is one program of the test corpus: the corpus of
 // tools/escapedigest (the examples, testdata/run, lib, plutonium and trace,
-// the kernel and C ABI programs, and cmd/pluto/testdata/diag) and the
+// the kernel and C ABI programs, and tests/diag) and the
 // review programs of internal/escape (testdata/review2, review3).
 type corpusProgram struct {
 	name                 string
@@ -57,7 +57,7 @@ func corpus(t *testing.T) []corpusProgram {
 			out = append(out, corpusProgram{name: d + "/" + strings.TrimSuffix(filepath.Base(f), ".p"), file: f})
 		}
 	}
-	diags, _ := filepath.Glob(filepath.Join(root, "cmd", "pluto", "testdata", "diag", "*", "main.p"))
+	diags, _ := filepath.Glob(filepath.Join(root, "tests", "diag", "*", "main.p"))
 	for _, f := range diags {
 		out = append(out, corpusProgram{name: "diag/" + filepath.Base(filepath.Dir(f)), dir: filepath.Dir(f), diag: true})
 	}

@@ -169,7 +169,7 @@ against the corrected specification. The immediate implementation order is:
      `//pu:blocking`; keep `//pu:blocking` on functions with a body as a restriction only. Tests: a drop that
      frees through a waiting allocator in a handler, a bodyless function with and without the directive.
 121. **E3202 explanation shows `owner` on the declaration** (done, `48c2c9ce`; decision D12; sections 7.18, 18).
-     Update the catalog text of E3202 and `cmd/pluto/testdata/diag` so the explanation shows the declaration
+     Update the catalog text of E3202 and `tests/diag` so the explanation shows the declaration
      with `owner` inserted and says why the keyword is written (a change to a field's type elsewhere is
      reported at the declaration). Update `pluto explain` and the hover text if they repeat the old wording.
 122. **Operating-system names: `Name()` returns an error, `NameLossy`, `*os.NameError`** (done, `04d4a1c8` library, `fdf508f1` compile error, `8821701e` go2pu, `0ea27d1e` skill; decision D36;
@@ -223,7 +223,7 @@ against the corrected specification. The immediate implementation order is:
      variable as a value and called the method on a copy, silently losing the effect; `isAddressable`
      (`internal/lower/expr.go`) now follows a box like a pointer, as the checker already did. A struct held
      directly by a map or returned by a call stays an E0125 error. Tests: `testdata/plutonium/boxtemprecv.p`,
-     `cmd/pluto/testdata/diag/temp_receiver_field`.
+     `tests/diag/temp_receiver_field`.
 
 129. **Arena text converted to an interface** (done, `8188dfb8`; sections 18.3, 18.8, 18.9, decision D7). A string
      made in a local arena is a view of the arena, but only strings made in an `alloc.Use` window were
@@ -234,13 +234,13 @@ against the corrected specification. The immediate implementation order is:
      string, or a value holding one, to an interface in the arena's function is E3313 with the rule and the
      fixes in its text (the holder is the interface's copy, the spec's "declaration of the holder"). Returning
      it is E3001. Other uses of memory from an explicit arena stay with the run-time checks of section 18.11.
-     Tests: `cmd/pluto/testdata/diag/arena_boxed`, `testdata/plutonium/arenatext.p`, `internal/escape` tables.
+     Tests: `tests/diag/arena_boxed`, `testdata/plutonium/arenatext.p`, `internal/escape` tables.
 
 130. **E0021 fix text in a return statement** (done, `c8672374`; sections 8.6, 13.9, 18.3). A value whose method has a
      pointer receiver, returned as an interface, got the fix `&T{...}`, which is E3001 in a constructor.
      Where the value is returned the fix is now `new(T{...})`, with the note that the interface must be
      declared `owner` to take the box (`explainImplements`, `internal/diag/typecheck.go`); other contexts
-     keep `&T{...}`. Tests: `cmd/pluto/testdata/diag/ptr_recv_return`, `testdata/plutonium/newiface.p`.
+     keep `&T{...}`. Tests: `tests/diag/ptr_recv_return`, `testdata/plutonium/newiface.p`.
 
 131. **Tests that join tasks without a `sync.Scope` no longer depend on the exit grace** (done, `40fc2eda`; decision D31,
      section 15.4). `TestBoxTasks`, `TestMapTasks` and every test that runs a program under the debug
@@ -295,7 +295,7 @@ against the corrected specification. The immediate implementation order is:
      or `range E` of a type that is not an enum), which the specification does not number; it moves to the end
      of the group (E2318). `import "reflect"` is E2005 whether or not a `pluto.mod` exists: the loader, which
      resolves paths first, asks `types2.ForbiddenImport` and reports the checker's code instead of E4007 or
-     E4008. Tests: `cmd/pluto/testdata/diag/enum_untyped` and `import_reflect` with their full output.
+     E4008. Tests: `tests/diag/enum_untyped` and `import_reflect` with their full output.
 136. **`pluto/arena` needs no scheduler** (done, `8a8246d5`; sections 19.5, 18.9; found with item 132).
      A freestanding or kernel program that imported `pluto/arena` failed with E2593, because the arenas'
      drop paths call `rt.ExitTask`, so `pluto.main` had to be ready for a main that ended with it, and
@@ -579,7 +579,7 @@ compiler (2026-10-11).
     server and the VS Code grammar implement it; go2pu writes plain propagations as `or return`, and the
     library uses it in `os`, `os/exec`, `path/filepath` and `flag`. Tests: `testdata/plutonium/or*.p` at `-O0`
     and `-O2` (`orowner.p` also under the debug allocator), `testdata/trace/orpanic.p`, a kernel-mode compile,
-    and `cmd/pluto/testdata/diag/or_rules` and `syntax_invalid_or`. A counted `err` is released when the
+    and `tests/diag/or_rules` and `syntax_invalid_or`. A counted `err` is released when the
     clause is left, including return and discard paths; the counted-error runtime tests verify this
     under the debug allocator at both optimization levels (items 11 and 69, gap 22).
 100. **Package initialization starts no task** (done, gap 32, decision D2; sections 15.2, 15.3,

@@ -262,6 +262,6 @@ Typical fixes:
 `cmd/pluto` (driver) · `internal/{syntax,types2,load,moves,escape,race,scoped,lower,ssa,opt,arch,build,diag}`
 (pipeline; see `AGENTS.md`) · `lib/pluto` (standard library, Plutonium) · `docs/spec/language/` (specification,
 sections cited as "section 18.3") · `docs/decisions.md` (design decisions D1 to D35) · `docs/roadmap.md` · `examples/`
-and `testdata/run` (programs) · `cmd/pluto/testdata/diag` (every diagnostic, full output) · `tools/go2pu` (compiler
+and `testdata/run` (programs) · `tests/diag` (every diagnostic, full output) · `tools/go2pu` (compiler
 port helper) · `tools/skillcheck` (checks this skill). Regenerate the generated references with
 `skill/plutonium/tools/regenerate.sh`.

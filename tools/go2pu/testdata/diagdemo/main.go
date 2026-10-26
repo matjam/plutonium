@@ -1,7 +1,7 @@
 // Command diagdemo exercises the diagnostics package (internal/diag): it
 // prints the long explanation of every code of the catalog, every code
 // rendered as an error in the full and the brief form, the diagnostics of
-// the programs under cmd/pluto/testdata/diag (records.go, written by
+// the programs under tests/diag (records.go, written by
 // TestDiagDemoRecords from the compiler's own output, so that the text
 // printed here is the text of the golden files), the diagnostics made from
 // syntax errors and from failed runs of the assembler and linker, and lists

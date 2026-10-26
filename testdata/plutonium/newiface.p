@@ -5,7 +5,7 @@ package main
 // E3001, so the value is built on the heap with new, and the interface is
 // declared owner so that it takes the box. This is the fix that the E0021
 // message gives for a return statement
-// (cmd/pluto/testdata/diag/ptr_recv_return).
+// (tests/diag/ptr_recv_return).
 
 import "pluto/fmt"
 

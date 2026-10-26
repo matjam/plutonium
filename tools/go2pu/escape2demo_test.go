@@ -20,9 +20,9 @@ import (
 // functions, closures, owners and boxes).
 var escape2DemoPrograms = []string{
 	"examples/24-errors",
-	"cmd/pluto/testdata/diag/boxes_views",
-	"cmd/pluto/testdata/diag/owning_iface",
-	"cmd/pluto/testdata/diag/box_temp_views",
+	"tests/diag/boxes_views",
+	"tests/diag/owning_iface",
+	"tests/diag/box_temp_views",
 	"testdata/lib/fmtappend.p",
 	"testdata/run/closureregions.p",
 	"testdata/run/rangefuncdefer.p",

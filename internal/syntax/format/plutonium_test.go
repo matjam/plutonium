@@ -21,22 +21,22 @@ import (
 	"github.com/matjam/plutonium/internal/syntax/token"
 )
 
-var update = flag.Bool("update", false, "rewrite testdata/*.golden from the formatter's output")
+var update = flag.Bool("update", false, "rewrite tests/testdata/fmt/format/*.golden from the formatter's output")
 
 // repoRoot is the repository root, relative to this package.
 const repoRoot = "../../.."
 
-// TestGolden formats each testdata/*.input file and compares the result
+// TestGolden formats each tests/testdata/fmt/format/*.input file and compares the result
 // with the .golden file next to it. The golden files cover every
 // Plutonium-specific construct; each must also be a fixed point of the
 // formatter and parse to the same AST as its input.
 func TestGolden(t *testing.T) {
-	inputs, err := filepath.Glob("testdata/*.input")
+	inputs, err := filepath.Glob(filepath.Join(repoRoot, "tests", "testdata", "fmt", "format", "*.input"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(inputs) == 0 {
-		t.Fatal("no testdata/*.input files")
+		t.Fatal("no tests/testdata/fmt/format/*.input files")
 	}
 	for _, input := range inputs {
 		t.Run(filepath.Base(input), func(t *testing.T) {

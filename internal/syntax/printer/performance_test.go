@@ -35,7 +35,7 @@ func testprint(out io.Writer, node ast.Node) {
 
 // cannot initialize in init because (printer) Fprint launches goroutines.
 func initialize() {
-	const filename = "testdata/parser.go"
+	const filename = "../../../tests/testdata/fmt/printer/parser.go"
 
 	src, err := os.ReadFile(filename)
 	if err != nil {

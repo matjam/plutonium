@@ -26,7 +26,7 @@ type program struct {
 // corpus lists the programs the stages are checked on: every example, every
 // program of testdata/run and trace, one in every libEvery of testdata/lib,
 // the kernel and C ABI programs, and the diagnostics programs of
-// cmd/pluto/testdata/diag (those that pluto build compiles).
+// tests/diag (those that pluto build compiles).
 func corpus(root string, libEvery int) ([]program, error) {
 	var out []program
 	examples, _ := filepath.Glob(filepath.Join(root, "examples", "*", "main.p"))
@@ -52,7 +52,7 @@ func corpus(root string, libEvery int) ([]program, error) {
 			out = append(out, program{name: d + "/" + strings.TrimSuffix(filepath.Base(f), ".p"), file: f})
 		}
 	}
-	diags, _ := filepath.Glob(filepath.Join(root, "cmd", "pluto", "testdata", "diag", "*"))
+	diags, _ := filepath.Glob(filepath.Join(root, "tests", "diag", "*"))
 	for _, d := range diags {
 		if _, err := os.Stat(filepath.Join(d, "command")); err == nil {
 			continue // another subcommand, such as pluto test

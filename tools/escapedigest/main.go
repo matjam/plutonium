@@ -12,7 +12,7 @@
 //
 // The corpus is the examples, every program of testdata/run, lib, plutonium
 // and trace, the kernel and C ABI programs, and every program of
-// cmd/pluto/testdata/diag (most of which are rejected, so their diagnostics
+// tests/diag (most of which are rejected, so their diagnostics
 // are digested). Each is built at -O0 and -O2.
 package main
 
@@ -61,7 +61,7 @@ func corpus(root string) []program {
 			out = append(out, program{name: d + "/" + strings.TrimSuffix(filepath.Base(f), ".p"), file: f})
 		}
 	}
-	diags, _ := filepath.Glob(filepath.Join(root, "cmd", "pluto", "testdata", "diag", "*", "main.p"))
+	diags, _ := filepath.Glob(filepath.Join(root, "tests", "diag", "*", "main.p"))
 	for _, f := range diags {
 		out = append(out, program{name: "diag/" + filepath.Base(filepath.Dir(f)), dir: filepath.Dir(f)})
 	}

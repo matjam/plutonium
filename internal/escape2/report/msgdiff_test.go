@@ -20,7 +20,7 @@ import (
 )
 
 // TestMessageDiff compares, over the programs of the diagnostics goldens
-// (cmd/pluto/testdata/diag), the escape messages of internal/escape with
+// (tests/diag), the escape messages of internal/escape with
 // those this package writes for internal/escape2, as both mode would: every
 // error one reports and the other does not, and every error both report at
 // one line with one code whose full text (message, explanation, fixes)
@@ -35,7 +35,7 @@ func TestMessageDiff(t *testing.T) {
 	if testing.Short() {
 		t.Skip("loads every diagnostics golden program")
 	}
-	dirs, err := filepath.Glob("../../../cmd/pluto/testdata/diag/*")
+	dirs, err := filepath.Glob("../../../tests/diag/*")
 	if err != nil || len(dirs) == 0 {
 		t.Fatalf("no golden programs: %v", err)
 	}

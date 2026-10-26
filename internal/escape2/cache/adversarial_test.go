@@ -57,7 +57,7 @@ func corpus(t *testing.T) []corpusProgram {
 			out = append(out, corpusProgram{name: d + "/" + strings.TrimSuffix(filepath.Base(f), ".p"), file: f})
 		}
 	}
-	diags, _ := filepath.Glob(filepath.Join(root, "cmd", "pluto", "testdata", "diag", "*", "main.p"))
+	diags, _ := filepath.Glob(filepath.Join(root, "tests", "diag", "*", "main.p"))
 	for _, f := range diags {
 		out = append(out, corpusProgram{name: "diag/" + filepath.Base(filepath.Dir(f)), dir: filepath.Dir(f)})
 	}
