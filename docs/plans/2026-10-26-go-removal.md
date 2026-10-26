@@ -55,3 +55,34 @@ centre of the repository.
    takes `-pluto0`; `tools/difftest` defaults to `pluto` on `$PATH`.
 4. Rename `selfhost/` to `compiler/`; update AGENTS.md, README, skill docs,
    .gitignore, .golangci.yml.
+
+## Phase 2 status (2026-10-26)
+
+Converted to `tests/<group>/` (each case checked against its original Go
+assertion by running the test with its helper building through the CLI, then
+run against both the Go-built and the self-hosted compiler; all pass on both):
+
+| Group  | Cases | Source |
+|--------|-------|--------|
+| race   | 272   | `internal/race` check, checkKernel (kernel cases add a `//pu:panic` loop) |
+| types2 | 338   | `internal/types2` checkSrc, checkWithRT, TestUnionErrors (`pluto vet`) |
+| escape | 601   | `internal/escape` check, review2/3 (78 set `PLUTO_ESCAPE=old`) |
+| moves  | 102   | `internal/moves` check |
+| lower  | 144   | `internal/lower` lowerError, lowerModeError |
+
+Left in Go, because the program fails an earlier pass through the CLI or the
+test asserts on Go values: race 20 tests (no scheduler bound, escape errors
+first) plus overlap and reach facts; lower 22 tests plus about 17 on SSA; escape
+14 tests plus 9 `//pu:resultholds` programs (no CLI form); types2 TestOrValid
+and TestOrErrors (error lists by code), the two-package tests (enum, union,
+box), TestNestingLimit (checker config) and info/predicate tests; moves
+TestEmptyFacts.
+
+Still to do in phase 2:
+- `cmd/pluto/testdata/diag` (156 cases) and the CLI tests in `cmd/pluto` move
+  to `tests/` (references: `internal/directive`, `internal/escape2` tests,
+  `tools/bootstrap/corpus.go`, `tools/escape2diff`, AGENTS.md, the skill).
+- `internal/build` corpus tests (they already honour `PLUTO_TEST_COMPILER`)
+  move out of the package that phase 3 deletes.
+- `internal/escape2` solve reviews (review2/3/4 with xfail maps), `internal/audit`,
+  `internal/directive`, `internal/syntax` parse errors, `tools/skillcheck`.
