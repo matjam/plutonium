@@ -411,7 +411,10 @@ func (fb *fnb) methodReceiver(x ast.Expr, fn *types2.Func, path []int) Reg {
 		r := fb.expr(x)
 		o := fb.lastTempObj()
 		if o == NoObj {
-			o = fb.newObj(Object{Kind: ObjTemp, Type: xt, Name: "recv"})
+			// An owner with nothing to drop is a temporary all the same:
+			// the receiver until the statement ends, and a view of it may
+			// not be kept (section 11.14, Calls).
+			o = fb.newObj(Object{Kind: ObjStmtTemp, Type: xt, Life: LifeStmt, Name: "temporary"})
 			fb.store(fb.addr(o), r, xt)
 		}
 		return fb.receiverAt(fb.addr(o), xt, path, wantPtr, fn)

@@ -52,9 +52,22 @@ func Diagnostics(prog *load.Program, p *eir.Program, res *sched.Result) []*diag.
 		}
 	}
 	out = compat.Append(out, countedAs...)
+	// A view of a statement temporary is reported where it is first kept
+	// (the findings are sorted by position): later stores of the place
+	// that keeps it are the same error.
+	tempKept := map[[2]int]bool{}
 	for i, fd := range res.Findings {
 		if r.explainedBy(fd, res.Findings, i) {
 			continue
+		}
+		if fd.Code == diag.TempViewKept && fd.Obj != eir.NoObj {
+			if fn := r.p.Funcs[fd.Func]; int(fd.Obj) < len(fn.Objects) && fn.Objects[fd.Obj].Life == eir.LifeStmt {
+				k := [2]int{int(fd.Func), int(fd.Obj)}
+				if tempKept[k] {
+					continue
+				}
+				tempKept[k] = true
+			}
 		}
 		if len(countedAs) > 0 && r.isCountedAsFinding(fd) {
 			continue // reported at the Unwrap methods (counted.go)

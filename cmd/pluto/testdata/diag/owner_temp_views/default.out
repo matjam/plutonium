@@ -21,8 +21,8 @@ $DIR/main.p:41:2: cannot store readAll(2).Slice() in package variable keep, whic
     it, so it is the receiver of the method only until the end of the statement.
     A view of it may be passed to calls in that statement but may not outlive
     it. At the end of the statement, the temporary is dropped, but package
-    variables live for the whole program, so package variable keep would be left
-    pointing at reclaimed memory.
+    variable keep lives longer, so it would be left pointing at a value that has
+    been dropped.
     The view does not own the memory it looks at. Nothing keeps the temporary
     after the statement, so a stored view would outlive the value that keeps its
     memory alive.

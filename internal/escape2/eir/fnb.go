@@ -63,6 +63,10 @@ type fnb struct {
 
 	lasting   bool           // building a range body's defer statement (keptObj)
 	stmtEnded map[ObjID]bool // statement temporaries whose OpDrop is made (endStmtTemps)
+	// written logs the register variables given a value holding pointers,
+	// in order: those a statement assigns are kept past its temporaries'
+	// drops when they outlive it (endStmtTemps).
+	written []*types2.Var
 	// The objects each closure record captures (noteRecordCaps).
 	recordCaps map[ObjID][]ObjID
 	// The variables each closure record captures by value, for its
@@ -342,6 +346,9 @@ func (fb *fnb) assignVar(v *types2.Var, r Reg) {
 	if fb.isLocal(v) {
 		if hasPointers(v.Type()) {
 			fb.writeVar(v, r)
+			if r != 0 {
+				fb.written = append(fb.written, v)
+			}
 		}
 		return
 	}

@@ -128,7 +128,14 @@ func (fb *fnb) addTemp(obj ObjID, T types2.Type) {
 // endStmtTemps ends the lifetime of the statement temporaries (LifeStmt
 // objects) made since object objStart, by the statement st just built and
 // not by a statement within it: an OpDrop of each at its end.
-func (fb *fnb) endStmtTemps(objStart int, st ast.Stmt) {
+//
+// A view of one may not be kept (section 11.14, Calls; section 18.3,
+// Views): a register variable that st assigned (since entry written of
+// fb.written) and whose scope goes on after st holds its value past the
+// drops, a use of it there that the OpDrop rule's liveness sees, whether
+// or not a later statement reads it.
+func (fb *fnb) endStmtTemps(objStart, written int, st ast.Stmt) {
+	dropped := false
 	for i := objStart; i < len(fb.f.Objects); i++ {
 		if fb.f.Objects[i].Life != LifeStmt || fb.stmtEnded[ObjID(i)] {
 			continue
@@ -139,6 +146,23 @@ func (fb *fnb) endStmtTemps(objStart int, st ast.Stmt) {
 		fb.stmtEnded[ObjID(i)] = true
 		if fb.cur != nil {
 			fb.emit(Instr{Op: OpDrop, Obj: ObjID(i), Pos: st.End()})
+			dropped = true
+		}
+	}
+	if !dropped || written > len(fb.written) {
+		return
+	}
+	seen := map[*types2.Var]bool{}
+	for _, v := range fb.written[written:] {
+		if seen[v] || !fb.locals[v] {
+			continue
+		}
+		seen[v] = true
+		if isScopeStmt(st) && st.Pos() <= v.Pos() && v.Pos() < st.End() {
+			continue // declared in st: its scope ends with st
+		}
+		if r := fb.readVar(v); r != 0 {
+			fb.emitDst(Instr{Op: OpCopy, X: r, Pos: st.End()})
 		}
 	}
 }
@@ -215,8 +239,8 @@ func (fb *fnb) stmt(st ast.Stmt) {
 		}()
 		// The statement's temporaries end with it, after its drops: a
 		// register still holding a view of one is E3009 (section 18.3).
-		objStart := len(fb.f.Objects)
-		defer fb.endStmtTemps(objStart, st)
+		objStart, written := len(fb.f.Objects), len(fb.written)
+		defer fb.endStmtTemps(objStart, written, st)
 		sc := fb.pushScope(st, isScopeStmt(st))
 		defer fb.popScope(sc)
 		savedStmt := fb.curStmt
@@ -1351,7 +1375,7 @@ func (fb *fnb) selectStmt(st *ast.SelectStmt, label *types2.Label) {
 	fb.startBlock(done)
 }
 
-// goClosure_orReturn_1 is the function literal at stmt.go:582, converted to a struct
+// goClosure_orReturn_1 is the function literal at stmt.go:606, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_orReturn_1 struct {
 	pos token.Pos

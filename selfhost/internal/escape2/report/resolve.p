@@ -575,7 +575,7 @@ func (r *reporter) storeAt(f *finding, path []ast.Node) (st store, ok bool) {
 				v := r.choose(f, n.Values, token.NoPos)
 				for k := range n.Values {
 					if n.Values[k] == v {
-						return store{lhs: n.Names[k], rhs: v, at: n.Names[k].Pos()}, true
+						return store{lhs: n.Names[k], rhs: v, at: v.Pos()}, true
 					}
 				}
 			}
