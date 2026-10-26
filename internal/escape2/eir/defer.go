@@ -299,11 +299,13 @@ func (fb *fnb) taskStmt(st *ast.TaskStmt) {
 // record carries (the address of a variable it shares, the value of one it
 // takes) is stored into the Scope variable, which keeps the task, so that
 // a view the task keeps past the iteration of a loop that made it is the
-// store check's E3006.
+// store check's finding (E3401 in the report). A task that an s.Wait()
+// inside a loop joins (scoped.Task.JoinLoops) is kept by a holder object
+// instead, which lives until that join (finish).
 func (fb *fnb) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 	lit := t.Lit
 	clo, id := fb.funcLit(lit)
-	if a := fb.varAddr(t.Scope.Var); a != 0 {
+	if a := fb.taskHolder(t); a != 0 {
 		if lf := fb.b.litFns[lit]; lf != nil {
 			ptr := types2.Typ[types2.UnsafePointer]
 			for _, k := range lf.caps {
@@ -317,4 +319,21 @@ func (fb *fnb) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 		}
 	}
 	fb.emitCall(&Call{Kind: CallStatic, Callee: id, Sig: fb.b.types[lit].Type.(*types2.Signature), Args: []Reg{clo}, Implicit: ImplTask}, e.Pos())
+}
+
+// taskHolder returns the address of what keeps what scoped task t
+// carries: the Scope variable, or when the task is joined inside the loops
+// around it and fb has the variable in its frame, a holder that lives
+// until the join (joinHolder). 0 when there is none.
+func (fb *fnb) taskHolder(t *scoped.Task) Reg {
+	so, ok := fb.objs[t.Scope.Var]
+	if !ok || t.JoinLoops < 0 || t.JoinLoops >= len(t.Loops) {
+		return fb.varAddr(t.Scope.Var)
+	}
+	obj := fb.newObj(Object{Kind: ObjTemp, Type: t.Scope.Var.Type(), Name: t.Scope.Var.Name(), Life: LifeFrame})
+	if fb.joinHolders == nil {
+		fb.joinHolders = map[ObjID]joinHolder{}
+	}
+	fb.joinHolders[obj] = joinHolder{up: t.JoinLoops, depth: len(t.Loops), scope: so}
+	return fb.addr(obj)
 }

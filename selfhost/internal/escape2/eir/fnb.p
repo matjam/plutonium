@@ -76,8 +76,11 @@ type fnb struct {
 	// The variables each closure record captures by value, for its
 	// lifetime (noteRecordCaps).
 	recordVars map[ObjID][]*types2.Var
-	boxViews   map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
-	varBlock   map[*types2.Var]*Block // the block that declares each local
+	// The objects that hold what scoped tasks joined inside a loop carry
+	// (scopedTask), for their lifetime (finish).
+	joinHolders map[ObjID]joinHolder
+	boxViews    map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
+	varBlock    map[*types2.Var]*Block // the block that declares each local
 
 	// The closures this function builds in its caller's region, and the
 	// variables they capture (regions.go).
@@ -438,6 +441,33 @@ func (fb *fnb) finish() {
 			o.Life = LifeIter
 		}
 	}
+	// What a scoped task carries lives until the Scope joins the task: the
+	// iteration of the loop the joining block is in, up out of the loops
+	// the task may outlive an iteration of. Where the CFG's loops are not
+	// the task's, it lives as the Scope variable does.
+	for obj, h := range fb.joinHolders {
+		o := &fb.f.Objects[obj]
+		s := fb.f.Objects[h.scope]
+		if o.Loop < 0 || loopDepth(fb.f, o.Loop) != h.depth {
+			o.Loop, o.Life = s.Loop, s.Life
+			continue
+		}
+		for i := 0; i < h.up; i++ {
+			o.Loop = fb.f.Loops[o.Loop].Parent
+		}
+		o.Life = LifeIter
+		if o.Loop < 0 {
+			o.Loop, o.Life = s.Loop, s.Life
+		}
+	}
+}
+
+// A joinHolder is an object that holds what a scoped task carries
+// (scopedTask): the task may outlive up iterations of the depth loops
+// around its call, and scope is the object of the Scope variable.
+type joinHolder struct {
+	up, depth int
+	scope     ObjID
 }
 
 // noteRecordCaps records the frame objects of fb whose addresses the

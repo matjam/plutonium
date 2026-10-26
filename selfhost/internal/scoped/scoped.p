@@ -90,6 +90,12 @@ type Task struct {
 	// Loops are the loops around the call inside the function that makes
 	// it (Func), innermost first.
 	Loops []Loop
+	// JoinLoops is the number of Loops, from the innermost, that the task
+	// may outlive an iteration of: an s.Wait() in a block inside the
+	// others joins it on every path before that block ends (joinedIn). It
+	// is -1 when only the end of the Scope's block joins it, or when the
+	// block that joins it is outside Func.
+	JoinLoops int
 }
 
 // IsScopeType reports whether T is pluto/sync.Scope.
@@ -288,6 +294,7 @@ func (a *analyzer) walk(fn ast.Node, n ast.Node, outer *Task, loops []ast.Stmt) 
 						t.Taken[c] = true
 					}
 				}
+				t.JoinLoops = a.joinLoops(t)
 				a.walk(fn, recv, outer, loops)
 				a.walk(fn, lit.Body, t, nil)
 				return false
@@ -373,6 +380,52 @@ func (a *analyzer) taken(v *types2.Var, t *Task) bool {
 		return false
 	}
 	return !a.joinedIn(V, t)
+}
+
+// joinLoops computes t.JoinLoops: the innermost block between t's call
+// and the Scope's block (that block left out) that joins t, and the number
+// of t's loops inside it.
+func (a *analyzer) joinLoops(t *Task) int {
+	B := t.Scope.Block
+	pos := t.Call.Pos()
+	// The blocks from B in to the innermost one holding the call.
+	var path []*types2.Scope
+	for s := B; ; {
+		var next *types2.Scope
+		for i := 0; i < s.NumChildren(); i++ {
+			c := s.Child(i)
+			if n := a.nodes[c]; n != nil && n.Pos() <= pos && pos < n.End() {
+				next = c
+				break
+			}
+		}
+		if next == nil {
+			break
+		}
+		path = compat.Append(path, next)
+		s = next
+	}
+	for i := len(path) - 1; i >= 0; i-- {
+		V := path[i]
+		node := a.nodes[V]
+		if node.Pos() < t.Func.Pos() || t.Func.End() <= node.Pos() {
+			return -1 // outside the function that makes the call
+		}
+		if _, ok := node.(*ast.FuncType); ok {
+			return -1
+		}
+		if !a.joinedIn(V, t) {
+			continue
+		}
+		n := 0
+		for _, L := range t.Loops {
+			if L.Stmt != node && node.Pos() <= L.Stmt.Pos() && L.Stmt.Pos() < node.End() {
+				n++
+			}
+		}
+		return n
+	}
+	return -1
 }
 
 // joinedIn reports whether a call s.Wait() in block V, after the statement

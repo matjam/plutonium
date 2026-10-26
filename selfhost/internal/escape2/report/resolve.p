@@ -69,6 +69,9 @@ func (r *reporter) diagnostic(fd solve.Finding) *diag.Diagnostic {
 			e.sink = sinkStore
 		}
 	case diag.LoopFrameView:
+		if d := r.scopeTaskDiag(f); d != nil {
+			return d
+		}
 		if call != nil {
 			r.passed(e, f, call)
 		} else if !r.loopStore(e, f) {

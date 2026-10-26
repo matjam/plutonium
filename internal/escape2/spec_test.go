@@ -311,3 +311,74 @@ func main() {
 `
 	checkSpec(t, "direct receiver", src, "32:10 E3003")
 }
+
+// A task started by a sync.Scope takes a variable whose block ends before
+// the Scope waits, but a view in it still looks at the storage it came
+// from: a slice of an array declared in the loop body, taken into a task
+// that runs past the iteration, is E3401 at the task (section 19.4,
+// "Views of storage that ends before the join"). Waiting inside the loop,
+// or taking the array itself, is fine; a Wait in an outer loop's body
+// joins the task before that loop's iteration ends, but not before the
+// inner loop's.
+func TestScopeTaskTakesLoopView(t *testing.T) {
+	src := `package main
+
+import "pluto/sync"
+
+func send(b []byte) { println(len(b)) }
+
+func lines(text []string) {
+	var s sync.Scope
+	for _, line := range text {
+		var buf [64]byte
+		v := buf[:copy(buf[:], line)]
+		s.Task(func() { send(v) })
+	}
+}
+
+func waits(text []string) {
+	var s sync.Scope
+	for _, line := range text {
+		var buf [64]byte
+		v := buf[:copy(buf[:], line)]
+		s.Task(func() { send(v) })
+		s.Wait()
+	}
+}
+
+func array(text []string) {
+	var s sync.Scope
+	for _, line := range text {
+		var buf [64]byte
+		copy(buf[:], line)
+		s.Task(func() { send(buf[:]) })
+	}
+}
+
+func nested(text [][]string) {
+	var s sync.Scope
+	for _, ls := range text {
+		var outer [8]byte
+		o := outer[:]
+		for _, line := range ls {
+			var buf [64]byte
+			v := buf[:copy(buf[:], line)]
+			s.Task(func() { send(v); send(o) })
+		}
+		s.Wait()
+	}
+}
+
+func main() {
+	lines(nil)
+	waits(nil)
+	array(nil)
+	nested(nil)
+}
+`
+	checkSpec(t, "scope task", src, "12:3 E3401", "43:4 E3401")
+	err := Check(loadSrc(t, src))
+	if want := "the task started here takes v, a view of buf, which the loop at main.p:9 reuses before s waits for the task"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("message: %v, want %q", err, want)
+	}
+}
