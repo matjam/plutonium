@@ -206,3 +206,99 @@ func firstLines(err error) []string {
 	slices.Sort(out)
 	return out
 }
+
+// A call of a function value the callee loads from its argument (f.Usage()
+// in a method of f) is left to the callers (decision D49), but the function
+// value is not given the argument: it reaches only what its own record
+// holds, which moves already takes as kept wherever it was made (a literal's
+// variables, a method value's receiver, an address passed to the call that
+// made it). So the facts do not say that the call keeps the argument, and
+// a view of a local owner given to such a method stays one that moves
+// follows (section 18.3, Views). An argument the function value is passed
+// (f.Hook(f.out)) may still go where moves cannot follow.
+func TestCallFactsLoadedFuncValue(t *testing.T) {
+	src := `package main
+
+import "pluto/strings"
+
+type Set owner struct {
+	Usage func()
+	Hook  func(*strings.Builder)
+	out   *strings.Builder
+	name  strings.Builder
+}
+
+func (f *Set) SetOutput(w *strings.Builder) { f.out = w }
+
+func (f *Set) Run() {
+	if f.Usage != nil {
+		f.Usage()
+	}
+}
+
+func (f *Set) Hand() {
+	if f.Hook != nil {
+		f.Hook(f.out)
+	}
+}
+
+func (f *Set) Drop() { f.name.Free() }
+
+func main() {
+	for i := 0; i < 2; i++ {
+		var out strings.Builder
+		var s Set
+		s.SetOutput(&out)
+		s.Run()
+		out.Free()
+		s.Drop()
+	}
+	var out strings.Builder
+	var s Set
+	s.SetOutput(&out)
+	called := false
+	s.Usage = func() { called = true }
+	s.Run()
+	println(called)
+	s.Drop()
+	out.Free()
+	other()
+}
+
+func other() {
+	var out strings.Builder
+	var s Set
+	s.SetOutput(&out)
+	var held *strings.Builder
+	s.Hook = func(b *strings.Builder) { held = b }
+	s.Hand()
+	_ = held
+	s.Drop()
+	out.Free()
+}
+`
+	prog := loadSrc(t, src)
+	calls, err := CheckCalls(prog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if af := argFactsAt(t, prog, calls, "s.Run", -1); af == nil || af.Self || len(af.Into) != 0 {
+		t.Errorf("s.Run() receiver: %+v, want neither kept nor stored", af)
+	}
+	// Hand passes f.out to the function value: the views s holds may go
+	// where moves cannot follow, though s itself is not kept. Moves then
+	// reports the owners of other, and nothing in main.
+	if af := argFactsAt(t, prog, calls, "s.Hand", -1); af == nil || af.Self || len(af.Into) == 0 {
+		t.Errorf("s.Hand() receiver: %+v, want stored somewhere, not kept", af)
+	}
+	_, err = moves.AnalyzeWith(prog, calls)
+	got := firstLines(err)
+	if len(got) == 0 {
+		t.Errorf("no move errors in other")
+	}
+	for _, l := range got {
+		if !strings.Contains(l, "stored by s.Hand") {
+			t.Errorf("move error %s, want only those of other", l)
+		}
+	}
+}

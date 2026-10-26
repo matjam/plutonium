@@ -281,17 +281,30 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *escape.ArgFacts {
 	}
 	// A call of a function value the callee was given, left to its
 	// callers (decision D49): what it does with its arguments is not in
-	// the summary. Anything it is passed of input i may be kept.
+	// the summary. Anything it is passed of input i may be kept, and kept
+	// where moves cannot follow. A function value loaded through input i
+	// is not given i: it reaches only what its own record holds, which
+	// moves takes as kept where the value was made (a literal's variables,
+	// a method value's receiver, an address given to the call that made
+	// it), so it keeps nothing of i that moves follows, though its results
+	// may hold what its record does.
 	for _, d := range sum.Deferred {
-		uses := d.Fn.Input() == i
+		fn := d.Fn.Input() == i
+		passed := fn && self(d.Fn)
+		af.Self = af.Self || passed
 		for _, a := range d.Args {
 			for _, k := range a.Keys {
-				uses = uses || k.Input() == i
+				if k.Input() == i {
+					passed = true
+					af.Self = af.Self || self(k)
+				}
 			}
 		}
-		if uses {
-			af.Self, af.Returned = true, true
+		if passed {
 			af.Into = compat.Append(af.Into, escape.Into{})
+		}
+		if fn || passed {
+			af.Returned = true
 		}
 	}
 	return af
