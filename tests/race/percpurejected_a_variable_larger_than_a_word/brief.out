@@ -1,0 +1,1 @@
+$DIR/main.p:8:7: stats uses the per-CPU variable stats outside a region where the task cannot move to another processor

@@ -1,0 +1,19 @@
+$DIR/main.p:9:19: the tasks started at main.p:9 may write the same element of out
+    Each task writes out[i] at main.p:9, and several of them run at the same
+    time. Tasks may write one array or slice at once only when each writes
+    elements no other can reach, and the compiler can see that only for x[i], or
+    a window such as x[i*k:(i+1)*k] or x[i:i+k], where i is the variable of the
+    loop that starts them (each task takes its own i), or for x[:m] and x[m:].
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Index by the loop variable:
+        s.Task(func() { out[i] = f(i) })
+    Or give each task a window and index within it:
+        row := out[i*w : (i+1)*w]
+    Or send the results on a channel and store them in the function that starts
+    the tasks.
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3403" for a longer explanation)

@@ -1,0 +1,2 @@
+$DIR/main.p:18:22: pp.a = ... uses the per-CPU variable pp outside a region where the task cannot move to another processor
+$DIR/main.p:24:2: the call of set uses the per-CPU variable pp outside a region where the task cannot move to another processor

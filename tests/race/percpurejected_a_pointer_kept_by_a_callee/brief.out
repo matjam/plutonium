@@ -1,0 +1,1 @@
+$DIR/main.p:13:2: a pointer to the per-CPU variable ticks is passed to remember, which may keep it, outside the region it was taken in

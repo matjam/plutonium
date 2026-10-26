@@ -1,0 +1,1 @@
+$DIR/main.p:8:10: pair.a uses the per-CPU variable pair outside a region where the task cannot move to another processor

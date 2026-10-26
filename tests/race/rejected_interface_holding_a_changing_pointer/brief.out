@@ -1,0 +1,1 @@
+$DIR/main.p:18:2: s (holding a *T) is a view of T that may change while another task uses it, so s cannot be passed to a new task

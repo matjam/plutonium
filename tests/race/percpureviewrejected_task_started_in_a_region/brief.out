@@ -1,0 +1,1 @@
+$DIR/main.p:38:7: the task started with set stores the per-CPU variable ticks in a task that runs later, from a value that depends on a load made here

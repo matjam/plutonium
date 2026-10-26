@@ -1,0 +1,1 @@
+$DIR/main.p:22:10: v.data[i] is read here while the task started at main.p:13 may write it

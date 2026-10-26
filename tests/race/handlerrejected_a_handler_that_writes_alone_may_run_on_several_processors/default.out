@@ -1,0 +1,26 @@
+$DIR/main.p:8:2: count is written here with no lock that guards it, while another task or an interrupt handler may use it
+    count is written at main.p:8 in timer by the interrupt handler timer
+    installed at main.p:12 with no lock held, and the same handler running on
+    another processor writes it at main.p:8 in timer. An interrupt handler may
+    run at any point where interrupts are enabled, on any processor and on
+    several at once, so these may run at the same time, one of them writing,
+    which is a data race: the other may see a value half written, or lose an
+    update. Volatile accesses and disabled interrupts exclude only the same
+    processor.
+    The compiler infers which lock guards shared data from the locks held where
+    it is written: a lock that every write holds. Here no one lock is held at
+    every write.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Hold one rt.Lock at every access, writes and reads (a handler cannot take a
+    sync.Mutex):
+        mu.Lock()
+        count = v
+        mu.Unlock()
+    Or, for a number, use an atomic type from pluto/sync/atomic, such as
+    atomic.Int64, and its methods at every access.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3502" for a longer explanation)

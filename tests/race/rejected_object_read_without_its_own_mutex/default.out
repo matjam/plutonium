@@ -1,0 +1,43 @@
+$DIR/main.p:15:39: c.n is read here without holding c.mu, which guards it
+    Every write to c.n that another task may run at the same time holds c.mu:
+    main.p:11 in (*Counter).Add (the task started by task work at main.p:26). So
+    the compiler infers that c.mu guards c.n, and every read must hold it too: a
+    read without it may run while a write is half done.
+    Here the main task reads it at main.p:15 in (*Counter).Peek with no lock
+    held.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Hold the lock while reading:
+        c.mu.Lock()
+        v := c.n
+        c.mu.Unlock()
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3503" for a longer explanation)
+
+$DIR/main.p:26:2: &c is a view of Counter that may change while another task uses it, so it cannot be passed to a new task
+    The argument &c of task work gives another task &c, a *Counter: after this,
+    both tasks can reach the same Counter. It points to the package variable c,
+    which is written at main.p:11 while tasks run. Counter is not safe to use
+    from two tasks at once. Its field n is changed at main.p:11 (in
+    (*Counter).Add) and read at main.p:15 (in (*Counter).Peek) without a lock
+    that every change holds.
+    A view may cross to another task only if what it points to cannot change
+    while both may use it, or every change is synchronized: a package variable
+    that is not written once tasks run, a struct whose fields are never changed
+    once it is shared or are used only under a lock of the same struct or
+    atomically, memory of a pluto/sync type, or the object of a synced[T].
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Pass a copy of the value instead of a pointer to it, or move an owner (such
+    as a vec.Vec) to the task so that only it has the memory.
+    To share changing data between tasks, put it in a synced[T] and hold a
+    sync.Mutex in it at every access, or use a package variable guarded by a
+    lock.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3501" for a longer explanation)

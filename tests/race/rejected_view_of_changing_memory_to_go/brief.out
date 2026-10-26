@@ -1,0 +1,3 @@
+$DIR/main.p:7:2: counter.n is written here with no lock that guards it, while another task may use it
+$DIR/main.p:13:2: &counter is a view of Counter that may change while another task uses it, so it cannot be passed to a new task
+$DIR/main.p:14:2: &counter is a view of Counter that may change while another task uses it, so it cannot be passed to a new task

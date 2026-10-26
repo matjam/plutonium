@@ -1,0 +1,1 @@
+$DIR/main.p:25:6: the field a of v (holding a *Bump) is a view of Bump that may change while another task uses it, so v cannot be sent on a channel

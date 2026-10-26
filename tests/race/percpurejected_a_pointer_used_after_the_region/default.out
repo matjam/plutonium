@@ -1,0 +1,14 @@
+$DIR/main.p:11:2: a pointer to the per-CPU variable ticks is used outside the region it was taken in
+    ticks has one copy for each processor, and &ticks points to the copy of the
+    processor that ran the code that took it. Here the pointer is used where the
+    region it was taken in (preemption or interrupts disabled, or an rt.Lock
+    held) is no longer held, so the task may have moved to another processor and
+    the pointer reaches that processor's copy while another task or an interrupt
+    handler uses it.
+    Go has no per-processor variables. A pointer to this processor's copy, used
+    after the task has moved, reaches the copy of another processor, which that
+    processor's code may be using at the same time.
+    Use the pointer only inside the region it was taken in, or take the address
+    again where it is needed
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2023" for a longer explanation)

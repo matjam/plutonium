@@ -1,0 +1,1 @@
+$DIR/main.p:6:25: total is read here while the task started at main.p:10 may write it

@@ -1,0 +1,20 @@
+$DIR/main.p:18:2: ticks++ uses the per-CPU variable ticks outside a region with interrupts disabled, which it needs because the interrupt handler timer also uses it
+    ticks has one copy for each processor. This is a compound assignment or
+    increment, which reads and writes it, so the task could move to another
+    processor in the middle of it and read one processor's copy and write
+    another's. The interrupt handler timer also uses ticks, so an interrupt on
+    this processor could run in the middle of it as well: it must be inside a
+    region with maskable interrupts disabled (x86.Cli to x86.Sti,
+    x86.SaveFlagsCli to x86.RestoreFlags, or an rt.Lock held), not just with
+    preemption disabled. A lone load or store of a whole variable of at most a
+    machine word is allowed anywhere.
+    Go has no per-processor variables. A Plutonium kernel keeps its processor's
+    state in them, and an ordinary variable would be shared by every processor
+    and need a lock. The compiler checks the uses instead, so that the most
+    common use (a pointer to the running thread) stays safe code.
+    Put the access inside a region with interrupts disabled:
+        f := x86.SaveFlagsCli()
+        ticks++
+        x86.RestoreFlags(f)
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2022" for a longer explanation)

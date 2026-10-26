@@ -1,0 +1,16 @@
+$DIR/main.p:7:18: x is written by the task started at main.p:7 while the task started at main.p:8 uses it
+    The task started at main.p:7 writes x at main.p:7, and the task started at
+    main.p:8 writes x at main.p:8. The two tasks may run at the same time, one
+    of them writing, which is a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Lock a mutex around every use of x:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    Or, for a number, use an atomic type such as atomic.Int64.
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)

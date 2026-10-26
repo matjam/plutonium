@@ -1,0 +1,1 @@
+$DIR/main.p:13:2: b.used is written here with no lock that guards it, while another task or an interrupt handler may use it

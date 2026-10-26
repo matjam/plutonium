@@ -1,0 +1,17 @@
+$DIR/main.p:11:2: a pointer to the per-CPU variable ticks is stored where it outlives the region, outside the region it was taken in
+    ticks has one copy for each processor, and &ticks points to the copy of the
+    processor that runs this code now. The pointer is good only while the task
+    cannot move to another processor, so it may be kept only in local variables
+    and used only inside the region it was taken in (preemption or interrupts
+    disabled, or an rt.Lock held). Here it is stored where it outlives the
+    region, where it can be used after the region ends or by another task.
+    Go has no per-processor variables. A pointer to this processor's copy, used
+    after the task has moved, reaches the copy of another processor, which that
+    processor's code may be using at the same time.
+    Use the variable by name inside the region, or copy the value out and keep
+    the copy:
+        rt.DisablePreemption()
+        total := ticks
+        rt.EnablePreemption()
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2023" for a longer explanation)

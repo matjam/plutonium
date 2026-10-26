@@ -1,0 +1,1 @@
+$DIR/main.p:21:2: the field c of newView(c) is a view of Counter that may change while another task uses it, so newView(c) cannot be passed to a new task

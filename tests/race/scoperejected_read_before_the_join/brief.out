@@ -1,0 +1,1 @@
+$DIR/main.p:10:9: results[0] is read here while the task started at main.p:8 may write it

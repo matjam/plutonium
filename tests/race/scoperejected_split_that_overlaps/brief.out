@@ -1,0 +1,1 @@
+$DIR/main.p:6:3: v[i] is written here while the task started at main.p:12 may use it

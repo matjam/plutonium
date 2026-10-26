@@ -1,0 +1,1 @@
+$DIR/main.p:23:2: pp.a = ... uses the per-CPU variable pp in a region that does not also hold the load it depends on

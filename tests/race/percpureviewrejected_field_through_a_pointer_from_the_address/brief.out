@@ -1,0 +1,2 @@
+$DIR/main.p:19:7: pp.a uses the per-CPU variable pp outside a region where the task cannot move to another processor
+$DIR/main.p:22:2: the access through a pointer to pp uses the per-CPU variable pp in a region that does not also hold the load it depends on

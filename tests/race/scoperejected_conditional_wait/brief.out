@@ -1,0 +1,1 @@
+$DIR/main.p:13:2: res[0] is written here while the task started at main.p:8 may use it

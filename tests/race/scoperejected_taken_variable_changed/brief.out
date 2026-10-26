@@ -1,0 +1,1 @@
+$DIR/main.p:8:19: the task started at main.p:8 changes n, but has its own copy of it, so the change is not seen at main.p:9

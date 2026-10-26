@@ -1,0 +1,1 @@
+$DIR/main.p:14:3: a pointer to the per-CPU variable ticks is kept in a variable that outlives the loop iteration, outside the region it was taken in

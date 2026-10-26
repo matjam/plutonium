@@ -1,0 +1,1 @@
+$DIR/main.p:13:3: the call of switchTo uses the per-CPU variable current outside a region where the task cannot move to another processor

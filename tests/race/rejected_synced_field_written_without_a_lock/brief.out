@@ -1,0 +1,1 @@
+$DIR/main.p:10:2: the field hits of a synced[Stats] is written here with no lock that guards it, while another task may use it

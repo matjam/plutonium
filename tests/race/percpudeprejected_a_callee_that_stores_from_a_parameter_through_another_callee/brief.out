@@ -1,0 +1,1 @@
+$DIR/main.p:11:2: the call of setTwice uses the per-CPU variable ticks outside a region where the task cannot move to another processor

@@ -1,0 +1,1 @@
+$DIR/main.p:8:20: the tasks started at main.p:8 may write the same element of out

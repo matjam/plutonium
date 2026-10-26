@@ -1,0 +1,1 @@
+$DIR/main.p:11:5: &job is a view of Job that may change while another task uses it, so it cannot be sent on a channel

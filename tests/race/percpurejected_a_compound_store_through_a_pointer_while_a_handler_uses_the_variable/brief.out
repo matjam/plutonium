@@ -1,0 +1,2 @@
+$DIR/main.p:21:2: the access through a pointer to ticks uses the per-CPU variable ticks outside a region with interrupts disabled, which it needs because the interrupt handler timer also uses it
+$DIR/main.p:21:7: the access through a pointer to ticks uses the per-CPU variable ticks outside a region with interrupts disabled, which it needs because the interrupt handler timer also uses it

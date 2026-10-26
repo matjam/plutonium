@@ -1,0 +1,1 @@
+$DIR/main.p:17:2: the access through a pointer to ticks uses the per-CPU variable ticks in a region that does not also hold the load it depends on

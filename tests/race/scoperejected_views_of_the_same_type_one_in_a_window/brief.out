@@ -1,0 +1,1 @@
+$DIR/main.p:9:4: out[i] is written by the tasks started at main.p:7 at the same time as each other

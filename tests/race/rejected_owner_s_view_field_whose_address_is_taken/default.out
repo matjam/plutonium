@@ -1,0 +1,23 @@
+$DIR/main.p:27:2: the field c of v is a view of Counter that may change while another task uses it, so v cannot be passed to a new task
+    The argument v of task read gives another task the field c of v, a *Counter:
+    after this, both tasks can reach the same Counter. A Counter is changed
+    through a pointer at main.p:6 (its field n, in bump) without a lock of the
+    same Counter held, so the compiler cannot tell that this one stays the same
+    while the other task uses it.
+    A view may cross to another task only if what it points to cannot change
+    while both may use it, or every change is synchronized: a package variable
+    that is not written once tasks run, a struct whose fields are never changed
+    once it is shared or are used only under a lock of the same struct or
+    atomically, memory of a pluto/sync type, or the object of a synced[T].
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Pass a copy of the value instead of a pointer to it, or move an owner (such
+    as a vec.Vec) to the task so that only it has the memory.
+    To share changing data between tasks, put it in a synced[T] and hold a
+    sync.Mutex in it at every access, or use a package variable guarded by a
+    lock.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3501" for a longer explanation)

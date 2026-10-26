@@ -1,0 +1,1 @@
+$DIR/main.p:18:2: ticks = ... uses the per-CPU variable ticks outside a region where the task cannot move to another processor

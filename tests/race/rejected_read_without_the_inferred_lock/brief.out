@@ -1,0 +1,1 @@
+$DIR/main.p:22:10: count is read here without holding mu, which guards it

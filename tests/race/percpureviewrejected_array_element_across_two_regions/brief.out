@@ -1,0 +1,1 @@
+$DIR/main.p:21:2: arr[0] = ... uses the per-CPU variable arr in a region that does not also hold the load it depends on

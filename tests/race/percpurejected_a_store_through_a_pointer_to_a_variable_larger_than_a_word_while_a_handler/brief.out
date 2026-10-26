@@ -1,0 +1,1 @@
+$DIR/main.p:25:2: the access through a pointer to stats uses the per-CPU variable stats outside a region with interrupts disabled, which it needs because the interrupt handler timer also uses it

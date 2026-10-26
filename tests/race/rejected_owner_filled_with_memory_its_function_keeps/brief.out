@@ -1,0 +1,1 @@
+$DIR/main.p:16:2: the field c of View{…} is a view of Counter that may change while another task uses it, so View{…} cannot be passed to a new task

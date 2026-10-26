@@ -1,0 +1,1 @@
+$DIR/main.p:17:10: the field hits of a synced[Stats] is read here without holding mu, which guards it

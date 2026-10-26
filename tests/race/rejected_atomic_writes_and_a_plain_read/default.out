@@ -1,0 +1,16 @@
+$DIR/main.p:17:10: hits is read here without an atomic operation, but other tasks change it with atomic operations
+    Every write to hits that another task may run at the same time holds atomic
+    operations: main.p:7 in handle (the task started by task handle at
+    main.p:13). So the compiler infers that atomic operations guards hits, and
+    every read must hold it too: a read without it may run while a write is half
+    done.
+    Here the main task reads it at main.p:17 in main with no lock held.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Read it with the atomic type's Load method, as the writes use atomic
+    operations
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3503" for a longer explanation)

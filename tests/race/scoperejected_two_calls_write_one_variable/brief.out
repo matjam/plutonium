@@ -1,0 +1,1 @@
+$DIR/main.p:7:18: x is written by the task started at main.p:7 while the task started at main.p:8 uses it

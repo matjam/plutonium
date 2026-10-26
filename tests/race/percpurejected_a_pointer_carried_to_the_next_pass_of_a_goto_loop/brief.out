@@ -1,0 +1,1 @@
+$DIR/main.p:13:3: a pointer to the per-CPU variable ticks is kept in a variable that outlives the pass of a loop made with goto, outside the region it was taken in

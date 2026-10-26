@@ -1,0 +1,15 @@
+$DIR/main.p:14:35: Map calls f from several tasks at once, and the function literal passed here writes count
+    Map starts tasks that call f, several at the same time. The function literal
+    passed here writes count at main.p:14 with no lock held, so the calls would
+    write it at the same time: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Use an atomic type for it, or lock a mutex around the write:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3406" for a longer explanation)

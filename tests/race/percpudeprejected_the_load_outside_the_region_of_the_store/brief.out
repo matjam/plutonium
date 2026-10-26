@@ -1,0 +1,1 @@
+$DIR/main.p:10:2: ticks = ... uses the per-CPU variable ticks in a region that does not also hold the load it depends on

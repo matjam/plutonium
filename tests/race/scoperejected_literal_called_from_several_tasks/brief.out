@@ -1,0 +1,1 @@
+$DIR/main.p:14:35: Map calls f from several tasks at once, and the function literal passed here writes count

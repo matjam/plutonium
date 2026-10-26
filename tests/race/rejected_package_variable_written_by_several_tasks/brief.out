@@ -1,0 +1,1 @@
+$DIR/main.p:5:2: hits is written here with no lock that guards it, while another task may use it

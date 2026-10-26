@@ -1,0 +1,18 @@
+$DIR/main.p:6:2: counts[1] = ... uses the per-CPU variable counts outside a region where the task cannot move to another processor
+    counts has one copy for each processor. This is an access to part of the
+    variable, so the task could move to another processor in the middle of it
+    and read one processor's copy and write another's. It must be inside a
+    region where the task cannot move: preemption disabled (rt.DisablePreemption
+    to rt.EnablePreemption), maskable interrupts disabled, or an rt.Lock held. A
+    lone load or store of a whole variable of at most a machine word is allowed
+    anywhere.
+    Go has no per-processor variables. A Plutonium kernel keeps its processor's
+    state in them, and an ordinary variable would be shared by every processor
+    and need a lock. The compiler checks the uses instead, so that the most
+    common use (a pointer to the running thread) stays safe code.
+    Put the access inside a region where the task cannot move:
+        rt.DisablePreemption()
+        defer rt.EnablePreemption()
+        // the access to counts
+    (see "Per-CPU variables" in the Plutonium spec, section 20.9)
+    (run "pluto explain E2022" for a longer explanation)

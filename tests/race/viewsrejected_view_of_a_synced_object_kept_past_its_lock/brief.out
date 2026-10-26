@@ -1,0 +1,1 @@
+$DIR/main.p:16:10: the field rows.data[i] of a synced[DB] is read here without holding mu, which guards it

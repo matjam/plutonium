@@ -1,0 +1,1 @@
+$DIR/main.p:12:2: cannot drop b here: the task started at main.p:11 may still be using it

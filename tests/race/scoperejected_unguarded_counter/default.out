@@ -1,0 +1,19 @@
+$DIR/main.p:8:19: total is written by the tasks started at main.p:8 at the same time as each other
+    Each call of s.Task at main.p:8 starts a task, and they run at the same
+    time. Each writes total (main.p:8), and another reads it (main.p:8). Two
+    tasks using one place at once, one of them writing, is a data race: an
+    update can be lost, and a value larger than a word can be read half written.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Lock a mutex around every use of total:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    Or, for a number, use an atomic type such as atomic.Int64.
+    Or give each task its own element: results[i] = ..., where i is the loop
+    variable.
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)

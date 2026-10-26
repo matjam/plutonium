@@ -1,0 +1,1 @@
+$DIR/main.p:10:2: stats.bump uses the per-CPU variable stats outside a region where the task cannot move to another processor

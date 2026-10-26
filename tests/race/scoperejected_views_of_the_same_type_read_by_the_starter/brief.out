@@ -1,0 +1,1 @@
+$DIR/main.p:8:7: out[0] is read here while the task started at main.p:7 may write it

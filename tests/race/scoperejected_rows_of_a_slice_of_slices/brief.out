@@ -1,0 +1,1 @@
+$DIR/main.p:7:19: the tasks started at main.p:7 may write the same element of grid[i]

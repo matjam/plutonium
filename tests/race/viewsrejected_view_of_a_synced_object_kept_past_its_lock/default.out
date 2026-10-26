@@ -1,0 +1,21 @@
+$DIR/main.p:16:10: the field rows.data[i] of a synced[DB] is read here without holding mu, which guards it
+    Every write to the field rows.data[i] of a synced[DB] that another task may
+    run at the same time holds mu: pluto/vec/vec.p:152 in (*Vec).Push (the task
+    started by task writer at main.p:34), pluto/vec/vec.p:434 in (*Vec).realloc
+    (the task started by task writer at main.p:34), pluto/vec/vec.p:446 in
+    (*Vec).free (the task started by task writer at main.p:34). So the compiler
+    infers that mu guards the field rows.data[i] of a synced[DB], and every read
+    must hold it too: a read without it may run while a write is half done.
+    Here the task started by task reader at main.p:33 reads it at main.p:16 in
+    reader with no lock held.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Hold the lock while reading:
+        mu.Lock()
+        v := the field rows.data[i] of a synced[DB]
+        mu.Unlock()
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3503" for a longer explanation)

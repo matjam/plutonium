@@ -1,0 +1,1 @@
+$DIR/main.p:8:19: total is written by the tasks started at main.p:8 at the same time as each other

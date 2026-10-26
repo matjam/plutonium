@@ -1,0 +1,1 @@
+$DIR/main.p:20:2: the call of f uses the per-CPU variable ticks outside a region where the task cannot move to another processor

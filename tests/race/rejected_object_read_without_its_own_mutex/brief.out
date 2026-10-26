@@ -1,0 +1,2 @@
+$DIR/main.p:15:39: c.n is read here without holding c.mu, which guards it
+$DIR/main.p:26:2: &c is a view of Counter that may change while another task uses it, so it cannot be passed to a new task

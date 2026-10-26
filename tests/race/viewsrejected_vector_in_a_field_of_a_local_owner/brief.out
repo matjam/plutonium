@@ -1,0 +1,1 @@
+$DIR/main.p:23:10: d.rows.data[i] is read here while the task started at main.p:18 may write it

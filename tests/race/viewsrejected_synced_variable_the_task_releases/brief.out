@@ -1,0 +1,1 @@
+$DIR/main.p:19:10: the memory allocated at main.p:11 is read here while the task started at main.p:14 may write it

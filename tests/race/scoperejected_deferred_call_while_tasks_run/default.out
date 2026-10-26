@@ -1,0 +1,18 @@
+$DIR/main.p:6:25: total is read here while the task started at main.p:10 may write it
+    The task started at main.p:10 writes total at main.p:12, and s waits for it
+    where its block ends, at main.p:16. Meanwhile total is read at main.p:6, in
+    the function literal called at main.p:6 in run, so the two may run at the
+    same time, one of them writing: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using total:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)

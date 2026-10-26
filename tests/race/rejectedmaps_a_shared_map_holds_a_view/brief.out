@@ -1,0 +1,1 @@
+$DIR/main.p:11:2: an element of m is a view of int that may change while another task uses it, so m cannot be passed to a new task

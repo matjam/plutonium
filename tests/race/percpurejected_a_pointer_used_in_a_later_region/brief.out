@@ -1,0 +1,1 @@
+$DIR/main.p:12:2: a pointer to the per-CPU variable ticks is used outside the region it was taken in
