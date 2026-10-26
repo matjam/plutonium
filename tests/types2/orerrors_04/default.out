@@ -1,0 +1,31 @@
+$DIR/test.p:3:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails
+    The clause of an or statement runs when the call failed, and the code after
+    the statement uses the values the call did not produce. So the clause must
+    leave: it must be a return, break, continue or goto statement, a call of
+    panic, or a block that ends in one of these. An if statement in the block
+    leaves only when it has an else branch and both branches leave. A call of a
+    function that never returns, such as os.Exit or log.Fatal, does not count,
+    since whether a function compiles must not depend on the body of another.
+    End the clause with a return, break, continue, goto or panic.
+    The or clause is the short form of an if statement that tests an error and
+    leaves. Requiring the exit on the line keeps the code after the statement
+    from running with values that were never set.
+    End the clause with a statement that leaves:
+        cfg := load(path) or {
+            log.Printf("loading: %v", err)
+            return err
+        }
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2463" for a longer explanation)
+
+$DIR/test.p:4:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails
+    (explained above; run "pluto explain E2463" for more)
+
+$DIR/test.p:7:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails
+    (explained above; run "pluto explain E2463" for more)
+
+$DIR/test.p:8:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails
+    (explained above; run "pluto explain E2463" for more)
+
+$DIR/test.p:13:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails
+    (explained above; run "pluto explain E2463" for more)

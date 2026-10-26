@@ -1,0 +1,15 @@
+$DIR/test.p:3:14: break not in for, switch, or select statement
+    break must be inside a for, switch or select statement.
+    (see "Break statements" in the Plutonium spec, section 12.15)
+    (run "pluto explain E0110" for a longer explanation)
+
+$DIR/test.p:4:14: continue not in for statement
+    continue must be inside a for statement.
+    (see "Continue statements" in the Plutonium spec, section 12.16)
+    (run "pluto explain E0111" for a longer explanation)
+
+$DIR/test.p:5:22: break not in for, switch, or select statement
+    (explained above; run "pluto explain E0110" for more)
+
+$DIR/test.p:7:23: continue not in for statement
+    (explained above; run "pluto explain E0111" for more)

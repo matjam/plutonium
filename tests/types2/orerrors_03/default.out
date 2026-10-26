@@ -1,0 +1,23 @@
+$DIR/test.p:3:7: the last result of one() has type int, not error; or tests a last result of type error
+    The call before or must return a result of type error last, and the type
+    must be error itself. A function that returns no error, or no result at all,
+    cannot fail in a way that or can see. A type that implements error, a
+    defined type based on error, or a type parameter is not accepted either.
+    Remove the or clause, or change the function so that its last result has
+    type error.
+    With the type exactly error, the test is always the nil test of one
+    interface type, and err in the clause is the result itself, not a conversion
+    of it.
+    Return the error as an error:
+        func parse(s string) (int, error)
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2462" for a longer explanation)
+
+$DIR/test.p:4:7: the last result of mine() has type myErr, not error; or tests a last result of type error
+    (explained above; run "pluto explain E2462" for more)
+
+$DIR/test.p:5:7: the last result of impl() has type E, not error; or tests a last result of type error
+    (explained above; run "pluto explain E2462" for more)
+
+$DIR/test.p:6:2: none() returns no result; or tests the error that a call returns as its last result
+    (explained above; run "pluto explain E2462" for more)

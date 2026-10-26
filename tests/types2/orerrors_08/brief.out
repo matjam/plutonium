@@ -1,0 +1,2 @@
+$DIR/test.p:4:7: undefined: cfg
+$DIR/test.p:7:11: undefined: err

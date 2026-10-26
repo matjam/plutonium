@@ -1,0 +1,4 @@
+$DIR/test.p:3:7: the last result of one() has type int, not error; or tests a last result of type error
+$DIR/test.p:4:7: the last result of mine() has type myErr, not error; or tests a last result of type error
+$DIR/test.p:5:7: the last result of impl() has type E, not error; or tests a last result of type error
+$DIR/test.p:6:2: none() returns no result; or tests the error that a call returns as its last result

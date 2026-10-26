@@ -1,0 +1,1 @@
+$DIR/test.p:3:7: int64(one()) is a conversion, not a call of a function; or tests the error that a function returns

@@ -1,0 +1,1 @@
+$DIR/main.p:6:2: missing case in switch on c (gfx.Color): hidden (add it or a default case)

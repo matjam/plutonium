@@ -1,0 +1,5 @@
+$DIR/test.p:3:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails
+$DIR/test.p:4:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails
+$DIR/test.p:7:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails
+$DIR/test.p:8:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails
+$DIR/test.p:13:14: the or clause can complete: it must leave with return, break, continue, goto or panic, so that the code after it does not run when load("") fails

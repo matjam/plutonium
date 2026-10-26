@@ -1,0 +1,1 @@
+$DIR/main.p:5:25: cannot convert 3 (untyped int constant) to owner type sys.Fd outside package sys

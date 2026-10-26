@@ -1,0 +1,13 @@
+$DIR/test.p:4:7: undefined: cfg
+    cfg is not declared in any scope that reaches line 4. Check the spelling
+    (names are case-sensitive), declare it before this point with var or :=, or
+    import the package it belongs to.
+    (see "Declarations and scope" in the Plutonium spec, section 10)
+    (run "pluto explain E0075" for a longer explanation)
+
+$DIR/test.p:7:11: undefined: err
+    err is not declared in any scope that reaches line 7. Check the spelling
+    (names are case-sensitive), declare it before this point with var or :=, or
+    import the package it belongs to.
+    (see "Declarations and scope" in the Plutonium spec, section 10)
+    (run "pluto explain E0075" for a longer explanation)

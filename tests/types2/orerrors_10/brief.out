@@ -1,0 +1,2 @@
+$DIR/test.p:5:13: result parameter n not in scope at return
+$DIR/test.p:4:3: 	inner declaration of var n int

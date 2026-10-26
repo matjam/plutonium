@@ -1,0 +1,10 @@
+$DIR/main.p:6:2: missing case in switch on c (gfx.Color): hidden (add it or a default case)
+    A switch on an enum value that has no default case must list every member.
+    That way, adding a member to the enum shows every switch that needs to
+    handle it.
+    Add a case for each missing member, or a default case if the remaining
+    members share one action.
+    Go does not check this. Plutonium does, because an enum is a closed set of
+    values, so the compiler can tell when one is forgotten.
+    (see "Switch statements" in the Plutonium spec, section 12.9)
+    (run "pluto explain E2312" for a longer explanation)

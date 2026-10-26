@@ -1,0 +1,2 @@
+$DIR/test.p:3:12: f has no results, so no error result to carry err: return with no operands would drop the error
+$DIR/test.p:7:12: g has no error result to carry err: its last result has type int, and return with no operands would drop the error

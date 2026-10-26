@@ -1,0 +1,1 @@
+$DIR/main.p:6:2: missing case in type switch on s (dev.State): hidden (add it or a default case)

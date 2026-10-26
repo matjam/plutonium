@@ -1,0 +1,9 @@
+$DIR/main.p:5:25: cannot convert 3 (untyped int constant) to owner type sys.Fd outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. Converting a plain untyped int into a
+    sys.Fd would make a second owner of whatever the value refers to (a
+    descriptor, a page frame), and both would release it. Only the package that
+    declares sys.Fd may do that, where its invariants are kept.
+    Use a constructor from the package that declares sys.Fd.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)

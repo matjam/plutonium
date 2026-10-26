@@ -1,0 +1,1 @@
+$DIR/main.p:7:7: dev.State.hidden undefined (cannot refer to unexported variant hidden of union dev.State)

@@ -1,0 +1,4 @@
+$DIR/test.p:4:29: invalid break label L
+$DIR/test.p:6:7: goto M jumps over variable declaration at line 7
+$DIR/test.p:7:24: goto M jumps over variable declaration at line 7
+$DIR/test.p:3:1: label L declared and not used

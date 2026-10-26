@@ -1,0 +1,1 @@
+$DIR/main.p:5:19: gfx.Color.hidden undefined (cannot refer to unexported member hidden of enum Color)

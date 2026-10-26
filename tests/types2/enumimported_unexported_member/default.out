@@ -1,0 +1,5 @@
+$DIR/main.p:5:19: gfx.Color.hidden undefined (cannot refer to unexported member hidden of enum Color)
+    Enum members follow Go's rule for names: a member whose name starts with a
+    lower-case letter is visible only inside its own package.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2311" for a longer explanation)

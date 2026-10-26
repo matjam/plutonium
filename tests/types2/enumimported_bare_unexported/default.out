@@ -1,0 +1,6 @@
+$DIR/main.p:7:7: undefined: hidden
+    hidden is not declared in any scope that reaches line 7. Check the spelling
+    (names are case-sensitive), declare it before this point with var or :=, or
+    import the package it belongs to.
+    (see "Declarations and scope" in the Plutonium spec, section 10)
+    (run "pluto explain E0075" for a longer explanation)

@@ -1,0 +1,18 @@
+$DIR/test.p:3:2: assignment mismatch: 2 variables but atoi(s) returns 1 value besides the error
+    In an or statement, the values of the call are its results other than the
+    last, which is the error that the clause tests. The left side needs one
+    operand for each value, and err, which the clause declares, is not one of
+    them.
+    (see "Assignment statements" in the Plutonium spec, section 12.7)
+    (run "pluto explain E0017" for a longer explanation)
+
+$DIR/test.p:4:2: assignment mismatch: 1 variable but fail() returns only an error; write it without a left side
+    In an or statement, the values of the call are its results other than the
+    last, which is the error that the clause tests. This call returns only an
+    error, so it has no values to assign: write the statement without a left
+    side.
+    (see "Assignment statements" in the Plutonium spec, section 12.7)
+    (run "pluto explain E0017" for a longer explanation)
+
+$DIR/test.p:5:2: assignment mismatch: 3 variables but two() returns 2 values besides the error
+    (explained above; run "pluto explain E0017" for more)

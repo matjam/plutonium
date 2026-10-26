@@ -1,0 +1,5 @@
+$DIR/main.p:17:6: invalid composite literal type string
+    This error occurs when a composite literal expression does not match its
+    type.
+    (see "Composite literals" in the Plutonium spec, section 11.3)
+    (run "pluto explain E0071" for a longer explanation)

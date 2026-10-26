@@ -1,0 +1,4 @@
+$DIR/test.p:3:14: break not in for, switch, or select statement
+$DIR/test.p:4:14: continue not in for statement
+$DIR/test.p:5:22: break not in for, switch, or select statement
+$DIR/test.p:7:23: continue not in for statement

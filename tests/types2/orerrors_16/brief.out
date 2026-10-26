@@ -1,0 +1,1 @@
+$DIR/test.p:3:19: cannot use "x" (constant of type string) as error value in return statement: string does not implement error (missing method Error)

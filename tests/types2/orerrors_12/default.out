@@ -1,0 +1,18 @@
+$DIR/test.p:4:29: invalid break label L
+    This error occurs when a break or continue label is not on a for, switch, or
+    select statement.
+    (see "Labeled statements" in the Plutonium spec, section 12.3)
+    (run "pluto explain E0121" for a longer explanation)
+
+$DIR/test.p:6:7: goto M jumps over variable declaration at line 7
+    This error occurs when a label jumps over a variable declaration.
+    (see "Goto statements" in the Plutonium spec, section 12.17)
+    (run "pluto explain E0123" for a longer explanation)
+
+$DIR/test.p:7:24: goto M jumps over variable declaration at line 7
+    (explained above; run "pluto explain E0123" for more)
+
+$DIR/test.p:3:1: label L declared and not used
+    A label is declared but no break, continue or goto uses it. Remove it.
+    (see "Labeled statements" in the Plutonium spec, section 12.3)
+    (run "pluto explain E0122" for a longer explanation)

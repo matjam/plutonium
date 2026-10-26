@@ -1,0 +1,8 @@
+$DIR/test.p:3:7: int64(one()) is a conversion, not a call of a function; or tests the error that a function returns
+    An or clause tests the error that a function returns as its last result. A
+    conversion, such as int64(x), and a call of a built-in function, such as
+    len(s), are written like calls, but they call no function and return no
+    error, so there is nothing for or to test.
+    Remove the or clause, or call a function that returns an error.
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2461" for a longer explanation)

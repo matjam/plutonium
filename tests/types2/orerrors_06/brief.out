@@ -1,0 +1,1 @@
+$DIR/test.p:3:32: an or statement cannot be the post statement of a for statement; test the error in the loop body

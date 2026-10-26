@@ -1,0 +1,17 @@
+$DIR/test.p:3:12: f has no results, so no error result to carry err: return with no operands would drop the error
+    An unbraced return with no operands in an or clause returns err as the
+    function's last result. This function has no result of type error last, so
+    there is nowhere to put err, and returning without it would drop the error.
+    Handle the error in a block clause, or return values that this function has.
+    The short form of return exists to pass an error up. In a function that
+    cannot return one, the program must say what to do with the error.
+    Handle the error in a block clause:
+        load(path) or {
+            log.Printf("loading: %v", err)
+            return
+        }
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2464" for a longer explanation)
+
+$DIR/test.p:7:12: g has no error result to carry err: its last result has type int, and return with no operands would drop the error
+    (explained above; run "pluto explain E2464" for more)

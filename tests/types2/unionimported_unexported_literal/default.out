@@ -1,0 +1,6 @@
+$DIR/main.p:5:9: dev.State.hidden undefined (cannot refer to unexported variant hidden of union dev.State)
+    Union variants follow Go's rule for names: a variant whose name starts with
+    a lower-case letter is visible only inside its own package. A switch in
+    another package that cannot name it needs a default case.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2411" for a longer explanation)
