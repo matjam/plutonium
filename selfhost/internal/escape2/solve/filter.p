@@ -33,7 +33,8 @@ func FilterAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, f domain.Filte
 // exact pointer to or into a typed object (a variable, a parameter's slot,
 // a temporary, a box, the array of a slice literal or of variadic
 // arguments) whose type mentions no type parameter is ever rejected, and
-// one into an object other than a box only by "is *V": anything else is
+// one into an object other than a box only by "is *V" (or "is T" for a
+// direct T whose word points at a V, wordElem): anything else is
 // admitted, as nothing is known of it. (Code that
 // reinterprets an object's memory with unsafe.Pointer may make a *V of a
 // pointer inside it, review2/m22; such a pointer is never exact, as the
@@ -53,8 +54,9 @@ func FilterAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, f domain.Filte
 //     eir/fmtwalk.go). A box's value has its own type, and its fields
 //     theirs; a variable may be viewed as a T of its underlying type (a
 //     conversion), so for one a value of T's underlying type is enough;
-//   - "is T" for a direct T admits it (a direct value of a type that is
-//     not a pointer may point at any object);
+//   - "is T" for a direct T whose one word is a pointer to a V (wordElem)
+//     admits it only as "is *V" does, a box's root and interior included;
+//     for another direct T (a scalar's bits) it admits it;
 //   - "implements I" admits the root of a box only of a type that
 //     implements I, and any other pointer (a direct value may point at any
 //     object).
@@ -72,17 +74,16 @@ func atomAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, a domain.Atom, v
 	if where == subUnknown {
 		return true
 	}
-	if !box {
-		// A pointer to or into a variable or another object of a frame:
-		// "is *V", or "is T" for a T whose data word is a pointer to a V,
-		// judge it by the type of the value it points at; nothing else
-		// judges a pointer into one.
-		if V := wordElem(a); V != nil && where == subValue {
-			return sameShape(V, U) && viewed(U, V)
-		}
-		if len(steps) > 0 {
-			return true
-		}
+	if V := wordElem(a); V != nil && where == subValue {
+		// "is *V", or "is T" for a T whose data word is a pointer to a
+		// V, judges a pointer to or into any of these objects, a box
+		// included, by the type of the value it points at.
+		return sameShape(V, U) && viewed(U, V)
+	}
+	if !box && len(steps) > 0 {
+		// Nothing else judges a pointer into a variable or another
+		// object of a frame.
+		return true
 	}
 	if where == subNone {
 		// A place in a box that is no value of its own (inside a string,

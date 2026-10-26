@@ -267,3 +267,47 @@ func main() {
 `
 	checkSpec(t, "package channel", src, "7:26 E3001", "9:37 E3001")
 }
+
+// The data word of a direct D, a struct of one *Inner, is that pointer
+// (section 7.9), so it points at an Inner: a frame box of another type,
+// here an N, a string or a struct holding no Inner, is never one, and a
+// method of D that keeps its receiver's pointer keeps none of them
+// (section 18.3, "How precise the frame check is"). A box holding an
+// Inner may be pointed into by one.
+func TestDirectReceiverNotABox(t *testing.T) {
+	src := `package main
+
+type Stringer interface{ String() string }
+
+type Inner struct{ n int }
+
+var keepInner *Inner
+
+type D struct{ P *Inner }
+
+func (d D) String() string {
+	keepInner = d.P
+	return "d"
+}
+
+type N struct{ a, b int }
+
+func (n N) String() string { return "n" }
+
+type Str string
+
+func (s Str) String() string { return string(s) }
+
+//pu:noinline
+func call(s Stringer) string { return s.String() }
+
+func main() {
+	println(call(N{1, 2}))
+	println(call(Str("x")))
+	println(call(D{nil}))
+	var in Inner
+	println(call(D{&in}))
+}
+`
+	checkSpec(t, "direct receiver", src, "32:10 E3003")
+}
