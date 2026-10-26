@@ -185,6 +185,9 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 	}
 	if p.why != nil {
 		p.notes = collectInlineNotes(prog, p.why, p.inlined)
+		if p.inlined {
+			detachFuncs(prog.Funcs)
+		}
 	}
 	return nil
 }

@@ -64,3 +64,34 @@ func (s *funcStep) ScratchKeep() {
 		s.cp = nil
 	}
 }
+
+// detachFuncs copies each function's code into fresh memory once the inline
+// notes have been collected. With the notes, the inliner and the passes
+// after it run in place (runFuncs with copyOut false), so a caller keeps
+// pointers into the memory of the functions inlined into it: their tuple
+// types, call descriptions and slot layouts. The backend frees each
+// function's memory once it is emitted (scratch.Drop), which would leave
+// a caller emitted later pointing into freed memory. No function's memory
+// is freed here, so the order of the copies does not matter.
+func detachFuncs(funcs []*ssa.Func) {
+	var s detachStep
+	for _, f := range funcs {
+		s.f = f
+		scratch.Do(&s)
+	}
+	scratch.Trim()
+}
+
+// detachStep copies one function out as a scratch step: the copier's
+// tables are made in scratch memory, the copy in the caller's.
+type detachStep struct {
+	f  *ssa.Func
+	cp *ssa.Copier
+}
+
+func (s *detachStep) ScratchWork() { s.cp = ssa.NewCopier(s.f) }
+
+func (s *detachStep) ScratchKeep() {
+	s.cp.Copy(s.f)
+	s.cp = nil
+}
