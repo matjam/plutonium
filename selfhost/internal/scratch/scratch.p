@@ -32,7 +32,7 @@ const maxDepth = 3
 // has its own arena, and in check mode its own pages, so that the end of
 // an inner step frees and seals only that step's memory.
 type level owner struct {
-	scr   bump
+	scr   mem
 	ready bool
 	outer alloc.Allocator // the allocator current when the Do began
 	pages checkPages
@@ -79,9 +79,9 @@ func do(s Step, keep alloc.Allocator) {
 	l := &levels[depth]
 	if !l.ready {
 		if check {
-			l.scr = bump{parent: &l.pages}
+			l.scr = newMem(&l.pages)
 		} else {
-			l.scr = bump{parent: heap}
+			l.scr = newMem(heap)
 		}
 		l.ready = true
 	}
@@ -355,9 +355,9 @@ func (l *Locked) Free(p unsafe.Pointer, size, align uintptr) {
 // scratch memory of its own. Its steps do not nest. Outer within a step
 // makes outer current, which the workers share.
 type Worker owner struct {
-	scr   bump
+	scr   mem
 	outer *Locked
-	base  bumpMark // the arena empty, for Reset
+	base  memMark // the arena empty, for Reset
 }
 
 // NewWorker returns a worker whose steps keep their results in outer. Its
@@ -368,7 +368,7 @@ func NewWorker(outer *Locked) Worker {
 		heap = alloc.Default()
 		inited = true
 	}
-	w := Worker{scr: bump{parent: heap}, outer: outer}
+	w := Worker{scr: newMem(heap), outer: outer}
 	w.base = w.scr.Mark()
 	return w
 }
@@ -385,9 +385,9 @@ func (w *Worker) Work(s Step) {
 // Mark, Release and Shared are Do in parts, for a task that calls its
 // step's methods directly rather than through Step: Mark notes the arena,
 // Release frees what was allocated since, and Shared is the outer memory.
-func (w *Worker) Mark() bumpMark { return w.scr.Mark() }
+func (w *Worker) Mark() memMark { return w.scr.Mark() }
 
-func (w *Worker) Release(m bumpMark) { w.scr.Release(m) }
+func (w *Worker) Release(m memMark) { w.scr.Release(m) }
 
 func (w *Worker) Shared() *Locked { return w.outer }
 
