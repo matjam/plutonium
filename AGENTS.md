@@ -75,9 +75,9 @@ plainly that it is historical.
 Since the `go-cutover` tag (2026-10-26, self-hosting plan section 6.4) the compiler's
 source is `selfhost/`, edited by hand. The Go compiler under `cmd/pluto` and `internal/`
 is frozen: do not change its compiler packages. It stays as stage 0, the bootstrap that
-builds the self-hosted compiler on a machine with a Go toolchain, and it still provides
-the commands the self-hosted driver lacks (`fmt`, `vet`, `test`, `doc`, `lsp`,
-`explain`) until they are ported. go2pu no longer runs over the compiler
+builds the self-hosted compiler on a machine with a Go toolchain, until it is deleted
+(docs/plans/2026-10-26-go-removal.md). The self-hosted driver has every command
+(`build`, `run`, `version`, `explain`, `vet`, `test`, `fmt`, `doc`, `lsp`). go2pu no longer runs over the compiler
 (`TestTranslationsUpToDate` is retired); the first line of each translated file names
 the Go file it came from.
 
