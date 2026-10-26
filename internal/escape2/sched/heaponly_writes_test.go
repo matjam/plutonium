@@ -167,3 +167,21 @@ func TestHeapOnlyClosureCapturesClosure(t *testing.T) {
 		}
 	}
 }
+
+// TestHeapOnlyCapturedScalarJoin checks that a closure capturing a join of
+// values that hold no pointers (a phi of register 0, as of a captured
+// uintptr in pluto/alloc/debug) does not make the analysis give up on
+// every class.
+func TestHeapOnlyCapturedScalarJoin(t *testing.T) {
+	x := newHoFixture(t)
+	m := x.main
+	m.store(m.field(m.addr(x.nodeObj), 1), m.heap(), x.intPtr)
+	phi := m.add(eir.Instr{Op: eir.OpPhi, Args: []eir.Reg{0, 0}}, true)
+	sig := types2.NewSignatureType(nil, nil, nil, nil, nil, false)
+	lit := x.pr.fn("lit", eir.FuncKey{}, sig)
+	rec := m.obj(eir.Object{Kind: eir.ObjClosure, Type: sig, Life: eir.LifeFrame, Loop: -1})
+	m.add(eir.Instr{Op: eir.OpClosure, Callee: lit.f.ID, Obj: rec, Args: []eir.Reg{phi}}, true)
+	if !x.heapOnly(x.node, 1) {
+		t.Errorf("Node.next: only heap is stored, but not heap-only")
+	}
+}

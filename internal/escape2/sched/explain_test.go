@@ -51,6 +51,7 @@ import (
 //	                              of its dynamic calls
 //	ESCAPE2_EXPLAIN_STEPS=1       the functions whose solves take the most
 //	                              steps
+//	ESCAPE2_EXPLAIN_ALLOCDEBUG=1  load as pluto build --alloc=debug does
 //	ESCAPE2_EXPLAIN_HEAPONLY=p.T.f  whether field f of type T of package p is
 //	                              heap-only (stage B), and if not, the chain of
 //	                              requirements to the write that withdrew it
@@ -70,6 +71,12 @@ func TestExplain(t *testing.T) {
 		dir = filepath.Join(root, dir)
 	}
 	cfg := &load.Config{Tags: map[string]bool{"amd64": true, "linux": true, "hosted": true}, Stdlib: plutonium.Stdlib(), Sizes: types2.SizesFor("gc", "amd64")}
+	if os.Getenv("ESCAPE2_EXPLAIN_ALLOCDEBUG") != "" {
+		// As pluto build --alloc=debug loads (internal/build loadConfig).
+		cfg.Tags["allocdebug"] = true
+		cfg.Tags["allocsites"] = true
+		cfg.Preload = append(cfg.Preload, "pluto/alloc/debug")
+	}
 	prog, err := load.Load(cfg, dir)
 	if err != nil {
 		t.Fatal(err)

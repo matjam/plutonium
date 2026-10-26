@@ -358,10 +358,19 @@ func (h *heapOnly) regType1(f *eir.Func, r eir.Reg, depth int) types2.Type {
 			return h.p.Funcs[in.Callee].Sig
 		}
 	case eir.OpPhi:
+		scalar := true
 		for _, a := range in.Args {
+			if a != 0 {
+				scalar = false
+			}
 			if t := h.regTypeRec(f, a, depth+1); t != nil {
 				return t
 			}
+		}
+		if scalar && len(in.Args) > 0 {
+			// A join of values that hold no pointers (register 0): any
+			// pointer-free type says what it may write.
+			return types2.Typ[types2.Uintptr]
 		}
 	}
 	return in.Type
