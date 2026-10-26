@@ -1,7 +1,10 @@
 // Command bootstrap runs the stages of the self-hosting plan (section 6.1)
 // and checks them:
 //
-//   - stage 0: go build of cmd/pluto, the Go-hosted compiler;
+//   - stage 0: a compiler to start from: -pluto0, or else the Go-hosted
+//     compiler of the go-cutover tag, checked out into a temporary worktree
+//     and built there with go build (the Go sources are gone from the
+//     current tree);
 //   - stage 1: stage 0 builds selfhost/cmd/pluto, the driver and compiler
 //     translated to Plutonium, into pluto1;
 //   - with -corpus, pluto1 and stage 0 build the programs of the test corpus
@@ -23,7 +26,7 @@
 //
 // Usage:
 //
-//	go run ./tools/bootstrap [-stages 3] [-corpus] [-work dir] [-limit-mb 24000] [-flags "-O2"] [-pluto1 file] [-lib-every 3] [-j 8]
+//	go run ./tools/bootstrap [-pluto0 file] [-stages 3] [-corpus] [-work dir] [-limit-mb 24000] [-flags "-O2"] [-pluto1 file] [-lib-every 3] [-j 8]
 //
 // Run it from the repository root. PLUTOROOT is set to ./lib for every
 // stage, so that all of them compile the same standard library.
@@ -48,11 +51,12 @@ func main() {
 	flags := flag.String("flags", "-O2", "flags of every stage's build of selfhost/cmd/pluto")
 	libEvery := flag.Int("lib-every", 3, "check one in every n programs of testdata/lib")
 	jobs := flag.Int("j", 8, "corpus builds to run at once")
+	zero := flag.String("pluto0", "", "start from this compiler instead of building the go-cutover tag's")
 	from := flag.String("pluto1", "", "start from this stage 1 compiler instead of building one (stage 2 onwards)")
 	only := flag.String("only", "", "check only the corpus programs whose names contain one of these comma-separated strings")
 	flag.Parse()
 	if err := run(&options{stages: *stages, corpus: *corpus, work: *work, limitMB: *limit,
-		flags: strings.Fields(*flags), libEvery: *libEvery, jobs: *jobs, only: *only, pluto1: *from}); err != nil {
+		flags: strings.Fields(*flags), libEvery: *libEvery, jobs: *jobs, only: *only, pluto0: *zero, pluto1: *from}); err != nil {
 		fmt.Fprintln(os.Stderr, "bootstrap:", err)
 		os.Exit(1)
 	}
@@ -67,6 +71,7 @@ type options struct {
 	libEvery int
 	jobs     int
 	only     string
+	pluto0   string // a stage 0 compiler to start from, or ""
 	pluto1   string // a stage 1 compiler to start from, or ""
 }
 
@@ -87,10 +92,14 @@ func run(o *options) error {
 		return err
 	}
 	lib := filepath.Join(root, "lib")
-	pluto0 := filepath.Join(o.work, "pluto0")
-	fmt.Printf("stage 0: go build ./cmd/pluto\n")
-	if out, err := exec.Command("go", "build", "-o", pluto0, "./cmd/pluto").CombinedOutput(); err != nil {
-		return fmt.Errorf("stage 0: %v\n%s", err, out)
+	pluto0 := o.pluto0
+	if pluto0 == "" {
+		pluto0 = filepath.Join(o.work, "pluto0")
+		if err := buildStage0(root, o.work, pluto0); err != nil {
+			return fmt.Errorf("stage 0: %w", err)
+		}
+	} else {
+		fmt.Printf("stage 0: %s\n", pluto0)
 	}
 	prev := pluto0
 	var built []string
@@ -128,6 +137,35 @@ func run(o *options) error {
 			return fmt.Errorf("pluto2 and pluto3 differ (%d and %d bytes)", len(a), len(b))
 		}
 		fmt.Printf("pluto2 and pluto3 are identical (%d bytes)\n", len(a))
+	}
+	return nil
+}
+
+// stage0Tag is the last commit with the Go-hosted compiler.
+const stage0Tag = "go-cutover"
+
+// buildStage0 builds the Go-hosted compiler of stage0Tag into out: it checks
+// the tag out into a worktree under work, runs go build there and removes
+// the worktree.
+func buildStage0(root, work, out string) error {
+	fmt.Printf("stage 0: go build ./cmd/pluto at %s\n", stage0Tag)
+	tree := filepath.Join(work, stage0Tag)
+	git := func(args ...string) error {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		if b, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git %s: %v\n%s", strings.Join(args, " "), err, b)
+		}
+		return nil
+	}
+	if err := git("worktree", "add", "--detach", tree, stage0Tag); err != nil {
+		return err
+	}
+	defer git("worktree", "remove", "--force", tree)
+	cmd := exec.Command("go", "build", "-o", out, "./cmd/pluto")
+	cmd.Dir = tree
+	if b, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("go build: %v\n%s", err, b)
 	}
 	return nil
 }
