@@ -47,5 +47,11 @@ centre of the repository.
    comparison tools, `internal/pu`, `selfhost/demo` (only go2pu tests use it).
    Rework `tools/bootstrap` (stage 0 from the tag), `tools/difftest`,
    `bench/run.go`, `skill/` generators and `editors/vscode` tests to exec a binary.
+   The tools in full: delete `tools/go2pu`, `tools/escapeoracle`,
+   `tools/escape2diff`, `tools/escapedigest`, `tools/escapescc` (they read the
+   Go compiler's escape analysis) and `tools/pkgcov` (coverage of `internal/`);
+   keep `tools/mkunicode` (pure Go, reads the Go toolchain's tables). Done
+   ahead of the deletion: `tools/bootstrap` builds stage 0 at `go-cutover` or
+   takes `-pluto0`; `tools/difftest` defaults to `pluto` on `$PATH`.
 4. Rename `selfhost/` to `compiler/`; update AGENTS.md, README, skill docs,
    .gitignore, .golangci.yml.
