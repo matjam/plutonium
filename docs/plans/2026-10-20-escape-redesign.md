@@ -563,13 +563,11 @@ Counted errors (sections 16.6 and 18.3, D52) are modelled in EIR (`eir/borrow.go
 a counted error is a view of its holder (OpBorrow; Borrowed keys), a counted error passed to a callee lends
 the holder to its Borrowed keys (OpLend), and a counted copy is its own reference (OpRecount; Counts keys).
 `diag/counted_error_unwrap` is rejected at the Unwrap method, as before. Of the old analysis's counted-error
-cases (`solve/counted_old_test.go`) nine are not decided as it decides them yet:
+cases (`solve/counted_old_test.go`) eight are not decided as it decides them yet:
 
 - a child reached through memory the analysis takes as heap (a fresh heap box's field, a map, a channel, a
   pointer or a slice of pointers to a fresh box, a bodyless function's result): what is loaded from heap
   memory is not known to be a counted reference made afresh (accepted; the old analysis rejects);
-- `errors.As` with a counted target (`As[synced[E]]`): its one generic body cannot show the counted copy
-  (rejected; the old analysis accepts);
 - returning `any(e)` of a local counted error: the conversion to an interface that does not count lends
   without the holder, since fmt's `%w` takes the error back through `vec.Fixed[error]` and its walk keeps
   every operand (D51) (accepted; the old analysis rejects).

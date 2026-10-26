@@ -115,6 +115,9 @@ func (p *Program) InstrString(in *Instr) string {
 	case OpBorrow:
 		return fmt.Sprintf("%sborrow r%d r%d", dst, in.X, in.Y)
 	case OpRecount:
+		if in.Type != nil {
+			return fmt.Sprintf("%srecount r%d %s", dst, in.X, in.Type)
+		}
 		return fmt.Sprintf("%srecount r%d", dst, in.X)
 	case OpLend:
 		return fmt.Sprintf("%slend r%d r%d", dst, in.X, in.Y)

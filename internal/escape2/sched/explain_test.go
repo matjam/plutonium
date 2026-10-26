@@ -212,6 +212,12 @@ func (x *explainer) keyString(k domain.Key) string {
 	if k.Deep() {
 		s += " deep"
 	}
+	if k.Borrowed() {
+		s += " borrowed"
+	}
+	if k.Counts() {
+		s += " counts"
+	}
 	if id, pos := k.Filter(); id != 0 {
 		f, _ := x.e.paths.Filters().Get(id)
 		var ts []string

@@ -116,6 +116,9 @@ func (p *Program) InstrString(in *Instr) string {
 	case OpBorrow:
 		return compat.Sprintfb("%sborrow r%d r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgU(uint64(in.Y)))
 	case OpRecount:
+		if in.Type != nil {
+			return compat.Sprintf("%srecount r%d %s", dst, in.X, in.Type)
+		}
 		return compat.Sprintfb("%srecount r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)))
 	case OpLend:
 		return compat.Sprintfb("%slend r%d r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgU(uint64(in.Y)))

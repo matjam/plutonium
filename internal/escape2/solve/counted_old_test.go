@@ -39,10 +39,6 @@ var countedGaps = map[string]string{
 	"fresh unwrap slice pointer field factory": "a child loaded through a slice of pointers to a fresh box",
 	"fresh unwrap temporary strong field":      "a child loaded from a fresh heap box",
 	"unknown unwrap counted result":            "a child a bodyless function returns",
-	// errors.As's one body for every instance: a counted target (E a box
-	// type) takes a reference of its own, which the generic store cannot
-	// show (strict, not unsound).
-	"fresh unwrap counted target": "As[synced[E]]: a counted target",
 	// A counted error converted to an interface that does not count is a
 	// view of its holder; the holder is not added (eir/borrow.go lendView).
 	"borrowed any return": "returning any(e) of a local e",
@@ -106,6 +102,11 @@ func (root) Error() string { return "root" }
 func (root) Unwrap() error { return makeError() }
 func f() synced[E] { var p synced[E]; errors.As(root(0), &p); return p }
 func main() { _ = f() }`, ""},
+		{"fresh unwrap mixed targets", `type root int
+func (root) Error() string { return "root" }
+func (root) Unwrap() error { return makeError() }
+func f() synced[E] { var p synced[E]; errors.As(root(0), &p); return p }
+func main() { _ = f(); var q *E; errors.As(root(0), &q) }`, "E3003"},
 		{"static unwrap borrowed target", `var sentinel = &E{n:42}
 type root int
 func (root) Error() string { return "root" }

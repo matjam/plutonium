@@ -420,13 +420,14 @@ func (fb *fnb) typeAssert(e *ast.TypeAssertExpr, commaOk bool) Reg {
 		// A union's payload.
 		return x
 	}
-	switch countsTo(fb.typeOf(e.X), T) { // borrow.go
+	from := fb.typeOf(e.X)
+	switch countsTo(from, T) { // borrow.go
 	case lendView:
-		return fb.borrowError(e.X, fb.assertTo(x, T, e.Pos()))
+		return fb.assertCounted(from, T, fb.borrowError(e.X, fb.assertTo(x, T, e.Pos())))
 	case lendCopy:
 		return fb.recount(fb.assertTo(x, T, e.Pos()), T)
 	}
-	return fb.assertTo(x, T, e.Pos())
+	return fb.assertCounted(from, T, fb.assertTo(x, T, e.Pos()))
 }
 
 // assertTo asserts the interface value x to T: the data word, and for a

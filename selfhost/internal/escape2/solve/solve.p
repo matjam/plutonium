@@ -1391,7 +1391,11 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 			s.addCons(uint32(in.X), cBorrow, uint64(in.Y), uint64(dst))
 		}
 	case eir.OpRecount:
-		s.edge(in.X, dst, xw(xRecount, 0, false))
+		if RecountsInst(s.env, in.Type) {
+			s.edge(in.X, dst, xw(xRecount, 0, false))
+		} else {
+			s.edge(in.X, dst, xw(xID, 0, false))
+		}
 	case eir.OpLend:
 		s.edge(in.X, dst, xw(xID, 0, false))
 		if in.Y != 0 {
@@ -1456,6 +1460,48 @@ func (s *solver) backEdges(b eir.BlockID, in *eir.Instr, why uint64) {
 			}
 		}
 	}
+}
+
+// RecountsInst reports whether an OpRecount of type T is a reference of
+// its own: always for T nil (the builder emits it only for a counted
+// error), and for T a type parameter only when every type the program
+// instantiates it with holds one, a counted error or a shared or synced
+// box (eir/borrow.go recount, the old analysis's countedErrorResult). One
+// body serves every
+// instance, so a type parameter instantiated with a view (errors.As with a
+// *T target) keeps the view for all of them.
+func RecountsInst(env Env, T types2.Type) bool {
+	if T == nil {
+		return true
+	}
+	tp, ok := types2.Unalias(T).(*types2.TypeParam)
+	if !ok {
+		return ownReference(T)
+	}
+	insts, known := env.Instantiated(tp)
+	if !known || len(insts) == 0 {
+		return false
+	}
+	for _, I := range insts {
+		if !ownReference(I) {
+			return false
+		}
+	}
+	return true
+}
+
+// ownReference reports whether a value of type T taken out of an error
+// holds a reference of its own: a counted error, or a shared or synced
+// box (section 16.6: a counted target of errors.As).
+func ownReference(T types2.Type) bool {
+	if T == nil || types2.IsOwner(T) {
+		return false
+	}
+	if types2.IsCountedError(T) {
+		return true
+	}
+	w, ok := types2.Unalias(T).Underlying().(*types2.Wrapper)
+	return ok && (w.Kind() == types2.WrapShared || w.Kind() == types2.WrapSynced)
 }
 
 // BoxNeeded reports whether the box object of a conversion is made: an

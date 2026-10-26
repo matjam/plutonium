@@ -928,11 +928,11 @@ func (fb *fnb) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 			case isInterface(T) && types2.Identical(T, I):
 				fb.assignVar(v, iv)
 			case lendsError(I, T):
-				fb.assignVar(v, fb.borrowError(x, fb.assertTo(iv, T, cc.Pos()))) // borrow.go
+				fb.assignVar(v, fb.assertCounted(I, T, fb.borrowError(x, fb.assertTo(iv, T, cc.Pos())))) // borrow.go
 			case countsTo(I, T) == lendCopy:
 				fb.assignVar(v, fb.recount(fb.assertTo(iv, T, cc.Pos()), T))
 			default:
-				fb.assignVar(v, fb.assertTo(iv, T, cc.Pos()))
+				fb.assignVar(v, fb.assertCounted(I, T, fb.assertTo(iv, T, cc.Pos())))
 			}
 		}
 		fb.stmtList(cc.Body)

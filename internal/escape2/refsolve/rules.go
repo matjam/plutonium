@@ -78,7 +78,12 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 	case eir.OpArenaView:
 		s.ruleArenaView(in)
 	case eir.OpRecount:
-		// Dst ⊇ X, In not lent, less ErrHolder objects (solve/rules.go).
+		// Dst ⊇ X, In not lent, less ErrHolder objects (solve/rules.go);
+		// the identity when the instance decides against it.
+		if !solve.RecountsInst(s.env, in.Type) {
+			s.def(in.Dst, s.val(in.X))
+			break
+		}
 		w := value{}
 		for x := range s.val(in.X) {
 			if x.t.kind == kObj && x.t.id < len(s.f.Objects) && s.f.Objects[x.t.id].ErrHolder {

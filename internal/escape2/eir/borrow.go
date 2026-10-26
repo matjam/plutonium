@@ -38,11 +38,34 @@ func (fb *fnb) borrowError(x ast.Expr, r Reg) Reg {
 // reference of its own, no view (OpRecount). A callee's counted copy is a
 // Counts key, which its caller applies without the holder: fmt's %w takes
 // the error back from an any its caller converted.
+//
+// For T a type parameter the instance decides: the OpRecount carries T, and
+// is a reference of its own only when every type the program instantiates
+// T with holds one, a counted error or a shared or synced box
+// (solve.RecountsInst), as one body serves them all
+// (errors.As storing a synced[E] target, section 16.6); otherwise it is the
+// identity, and a view stays a view.
 func (fb *fnb) recount(r Reg, T types2.Type) Reg {
-	if r == 0 || fb.cur == nil || T == nil || !types2.IsCountedError(T) || types2.IsOwner(T) {
+	if r == 0 || fb.cur == nil || T == nil {
+		return r
+	}
+	if isTypeParam(T) {
+		return fb.emitDst(Instr{Op: OpRecount, X: r, Type: T, Pos: fb.pos})
+	}
+	if !types2.IsCountedError(T) || types2.IsOwner(T) {
 		return r
 	}
 	return fb.emitDst(Instr{Op: OpRecount, X: r, Pos: fb.pos})
+}
+
+// assertCounted returns r, the value of an interface of type from asserted
+// to the type parameter T, as recount gives it: a counted copy when every
+// instance of T holds a reference of its own.
+func (fb *fnb) assertCounted(from, T types2.Type, r Reg) Reg {
+	if !isTypeParam(T) || !isInterface(from) {
+		return r
+	}
+	return fb.recount(r, T)
 }
 
 // lendView returns r, a value of a counted error converted to an
