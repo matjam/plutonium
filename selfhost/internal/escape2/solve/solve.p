@@ -730,16 +730,17 @@ func (s *solver) filterNode(n uint32, id domain.FilterID) uint32 {
 // filterTok is token t of an interface value's data word through filter f
 // (D51; rules.go, "Type filters"): false when f rejects it
 // (FilterAdmitsObj). A filter's place holds one pointer, the data word
-// (an interface value's other word is static), so an Obj token tagged Root
-// is that pointer, GE tag or not. An exact In token with no filter takes f
-// at its path's length. Every other token passes.
+// (an interface value's other word is static), so an Obj token is that
+// pointer, whatever its tag: one tagged by a field of a direct value (D{&x}
+// converted) is the one word of that value. An exact In token tagged Root
+// with no filter takes f at its path's length. Every other token passes.
 func (s *solver) filterTok(t tok, id domain.FilterID, f domain.Filter) (tok, bool) {
 	switch t.kind {
 	case tObj:
-		if t.tag != domain.Root || int(t.base) >= len(s.f.Objects) {
+		if int(t.base) >= len(s.f.Objects) {
 			return t, true
 		}
-		return t, FilterAdmitsObj(&s.f.Objects[t.base], s.ps.Steps(t.path), t.ge, f)
+		return t, FilterAdmitsObj(&s.f.Objects[t.base], s.ps.Steps(t.path), t.ge, f, s.env.Retyped)
 	case tIn:
 		if t.filt == 0 && !t.ge && !t.fge && !t.deep && t.tag == domain.Root && !t.tagGE {
 			if n := len(s.ps.Steps(t.path)); n <= 15 {

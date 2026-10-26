@@ -70,6 +70,11 @@ type Env interface {
 	// resolve a deferred call (D49): the scheduler orders f after id. Where
 	// it may not, the resolution keeps what it passes, reading nothing.
 	CanRead(f *eir.Func, id eir.FuncID) bool
+	// Retyped reports whether a pointer to a value of type u may be a
+	// pointer to a value of type v: they are identical, or the program's
+	// pointer conversions lead from u to v (section 7.9). A type filter
+	// "is *v" admits a pointer to a u only then (FilterAdmitsObj).
+	Retyped(u, v types2.Type) bool
 }
 
 // Workspace is the memory one solve works in: the SCC arena and its set

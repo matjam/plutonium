@@ -16,10 +16,12 @@ import (
 
 // FilterAdmitsObj reports whether filter f admits, as the data word of an
 // interface value, a pointer to object o at field path steps (ge: or
-// anywhere under it): some atom of f admits it (atomAdmitsObj).
-func FilterAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, f domain.Filter) bool {
+// anywhere under it): some atom of f admits it (atomAdmitsObj). viewed
+// reports whether the program may make a pointer to a u a pointer to a v
+// (Env.Retyped).
+func FilterAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, f domain.Filter, viewed func(u, v types2.Type) bool) bool {
 	for _, a := range f.Atoms {
-		if atomAdmitsObj(o, steps, ge, a) {
+		if atomAdmitsObj(o, steps, ge, a, viewed) {
 			return true
 		}
 	}
@@ -28,18 +30,22 @@ func FilterAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, f domain.Filte
 
 // atomAdmitsObj reports whether atom a admits a pointer to object o at
 // field path steps (ge: or anywhere under it) as a data word. Only an
-// exact pointer to the root of a typed object (a variable, a parameter's
-// slot, a temporary, a box, the array of a slice literal or of variadic
-// arguments), or into a box, whose type mentions no type parameter is ever
-// rejected: anything else is admitted, as nothing is known of it. (Code
-// that reinterprets an object's memory with unsafe.Pointer may make a *V of
-// a pointer inside it, review2/m22; a box's memory is only its value's.)
-// The pointer points at a value of type U, the type at steps of the
-// object's type (subType):
-//   - "is *V" admits it only for V of U's underlying type (a *U converts to
-//     a *V then; a pointer into a box is one to a V there), and "pointer to
-//     an instance of G" only for U whose underlying type may be that of an
-//     instance of G (mayInstance);
+// exact pointer to or into a typed object (a variable, a parameter's slot,
+// a temporary, a box, the array of a slice literal or of variadic
+// arguments) whose type mentions no type parameter is ever rejected, and
+// one into an object other than a box only by "is *V": anything else is
+// admitted, as nothing is known of it. (Code that
+// reinterprets an object's memory with unsafe.Pointer may make a *V of a
+// pointer inside it, review2/m22; such a pointer is never exact, as the
+// conversion from unsafe.Pointer is a field at an unknown offset,
+// eir.AnyStep.) The pointer points at a value of type U, the type at steps
+// of the object's type (subType):
+//   - "is *V" admits it only for V of U's underlying type that the
+//     program's pointer conversions may make a *U into (viewed; section
+//     7.9: the dynamic type of a pointer converted to an interface is the
+//     type it was converted with, section 18.3 "How precise the frame check
+//     is"), and "pointer to an instance of G" only for U whose underlying
+//     type may be that of an instance of G (mayInstance);
 //   - "is T", for T a type that is not direct, admits it only for U that
 //     is or holds a T (contains): the data word of a T points at a T,
 //     which may be a field of the value, as pluto/fmt's walk makes one of
@@ -52,7 +58,7 @@ func FilterAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, f domain.Filte
 //   - "implements I" admits the root of a box only of a type that
 //     implements I, and any other pointer (a direct value may point at any
 //     object).
-func atomAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, a domain.Atom) bool {
+func atomAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, a domain.Atom, viewed func(u, v types2.Type) bool) bool {
 	if ge || o.Type == nil || mentionsTypeParam(o.Type, nil) {
 		return true
 	}
@@ -62,12 +68,21 @@ func atomAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, a domain.Atom) b
 		return true
 	}
 	box := o.Kind == eir.ObjBox
-	if len(steps) > 0 && !box {
-		return true
-	}
 	U, where := subType(o.Type, steps)
 	if where == subUnknown {
 		return true
+	}
+	if !box {
+		// A pointer to or into a variable or another object of a frame:
+		// "is *V", or "is T" for a T whose data word is a pointer to a V,
+		// judge it by the type of the value it points at; nothing else
+		// judges a pointer into one.
+		if V := wordElem(a); V != nil && where == subValue {
+			return sameShape(V, U) && viewed(U, V)
+		}
+		if len(steps) > 0 {
+			return true
+		}
 	}
 	if where == subNone {
 		// A place in a box that is no value of its own (inside a string,
@@ -94,7 +109,7 @@ func atomAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, a domain.Atom) b
 		return !ok || domain.SameOrigin(U, a.T) || mayInstance(U.Underlying(), n.Origin().Underlying(), 0)
 	case domain.AtomIs:
 		if p, ok := types2.Unalias(a.T).(*types2.Pointer); ok {
-			return mentionsTypeParam(p.Elem(), nil) || sameShape(p.Elem(), U)
+			return mentionsTypeParam(p.Elem(), nil) || sameShape(p.Elem(), U) && viewed(U, p.Elem())
 		}
 		if mentionsTypeParam(a.T, nil) || directValue(a.T) {
 			return true
@@ -102,6 +117,37 @@ func atomAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, a domain.Atom) b
 		return contains(U, a.T, box, 0)
 	}
 	return true
+}
+
+// wordElem is V when atom a is "is T" for a T whose data word is a pointer
+// to a V: *V itself, or a direct type whose one word is a pointer to a V (a
+// named pointer type, a struct of one field or an array of one element
+// holding one, at any depth); nil otherwise, and when V mentions a type
+// parameter.
+func wordElem(a domain.Atom) types2.Type {
+	if a.Kind != domain.AtomIs || a.T == nil || mentionsTypeParam(a.T, nil) {
+		return nil
+	}
+	T := a.T
+	for depth := 0; depth < 16; depth++ {
+		switch u := T.Underlying().(type) {
+		case *types2.Pointer:
+			return u.Elem()
+		case *types2.Struct:
+			if u.NumFields() != 1 {
+				return nil
+			}
+			T = u.Field(0).Type()
+		case *types2.Array:
+			if u.Len() != 1 {
+				return nil
+			}
+			T = u.Elem()
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 // Where a field path of a value leads (subType).

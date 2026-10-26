@@ -270,11 +270,14 @@ package solve
 // CallIface, of which a set has its own virtual function); "through a
 // filter F" below is filterTok:
 //
-//   - an Obj token tagged Root (the place holds one pointer, the data word)
-//     is left out when F admits no pointer to its object at its path
+//   - an Obj token, of any tag (the place holds one pointer, the data word,
+//     and a token tagged by a field of a direct value is that word) is left out when F admits no pointer to its object at its path
 //     (FilterAdmitsObj): only an exact token at the root of a typed
 //     variable, parameter slot, temporary, slice literal or variadic array,
-//     or an exact one into a box, is ever left out;
+//     an exact one into a box, or for "is *V" an exact one into another of
+//     those objects, is ever left out; "is *V" admits a pointer to a U only
+//     for U and V of one underlying type that the program's pointer
+//     conversions lead from U to V (Env.Retyped);
 //   - an exact In token tagged Root with no filter takes F at its path's
 //     length; any other In token, Heap and CHeap stay as they are.
 //

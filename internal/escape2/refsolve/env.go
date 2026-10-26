@@ -143,6 +143,9 @@ type MapEnv struct {
 	InstantiatedFn func(tp *types2.TypeParam) ([]types2.Type, bool)
 	// DeferredFn answers Deferred; nil defers no call.
 	DeferredFn func(f *eir.Func, c *eir.Call) bool
+	// RetypedFn answers Retyped; nil takes every pointer conversion of
+	// one underlying type as made.
+	RetypedFn func(u, v types2.Type) bool
 }
 
 // Program implements solve.Env.
@@ -182,6 +185,11 @@ func (e *MapEnv) CanRead(f *eir.Func, id eir.FuncID) bool { return true }
 // Deferred implements solve.Env: DeferredFn, or no call deferred.
 func (e *MapEnv) Deferred(f *eir.Func, c *eir.Call) bool {
 	return e.DeferredFn != nil && e.DeferredFn(f, c)
+}
+
+// Retyped implements solve.Env: RetypedFn, or true.
+func (e *MapEnv) Retyped(u, v types2.Type) bool {
+	return e.RetypedFn == nil || e.RetypedFn(u, v)
 }
 
 var _ solve.Env = (*MapEnv)(nil)

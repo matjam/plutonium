@@ -162,3 +162,78 @@ func main() {
 `
 	checkSpec(t, "region box", src, "19:2 E3001")
 }
+
+// A call through an interface is narrowed by the dynamic type where the
+// caller knows it (section 18.3, "How precise the frame check is"): a
+// pointer to a variable of type Plain converted to an interface has the
+// dynamic type *Plain, so a method of *S that keeps its receiver is not
+// called on it, though S and Plain have the same underlying type. A
+// pointer the program converts to *S (section 7.9), here or in a callee,
+// is a receiver of (*S).String, and so is an element of an array of S.
+// Likewise a pointer to a Plain is no data word of a D, whose one word
+// points at an Inner.
+func TestDynamicTypeAtConversion(t *testing.T) {
+	src := `package main
+
+type S struct{ n int }
+
+var keepS *S
+
+type Stringer interface{ String() string }
+
+func (s *S) String() string {
+	keepS = s
+	return "s"
+}
+
+type Plain struct{ n int }
+
+func (p *Plain) String() string { return "plain" }
+
+type B struct{ n int }
+
+//pu:noinline
+func call(s Stringer) string { return s.String() }
+
+//pu:noinline
+func conv(p *B) *S { return (*S)(p) }
+
+//pu:noinline
+func plainElem(p *[2]Plain) string { return call(&p[1]) }
+
+func main() {
+	var p Plain
+	println(call(&p))
+	var arr [2]Plain
+	println(plainElem(&arr))
+	var b B
+	println(call((*S)(&b)))
+	var c B
+	println(call(conv(&c)))
+	var e [2]S
+	println(call(&e[1]))
+}
+
+type Inner struct{ n int }
+
+var keepInner *Inner
+
+type D struct{ P *Inner }
+
+func (d D) String() string {
+	keepInner = d.P
+	return "d"
+}
+
+func direct() {
+	var in Inner
+	println(call(D{&in}))
+}
+`
+	checkSpec(t, "dynamic type", src, "35:10 E3003", "37:10 E3003", "39:10 E3003", "55:10 E3003")
+
+	// Once the program converts a *Plain to a *S anywhere, a pointer to
+	// a Plain may be a receiver of (*S).String.
+	retyped := strings.Replace(src, "func main() {", "//pu:noinline\nfunc other(q *Plain) string { return call((*S)(q)) }\n\nfunc main() {\n\tvar o Plain\n\tprintln(other(&o))", 1)
+	checkSpec(t, "retyped", retyped, "34:10 E3003", "36:10 E3003", "38:10 E3003", "40:10 E3003", "42:10 E3003", "44:10 E3003", "60:10 E3003")
+}

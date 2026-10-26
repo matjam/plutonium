@@ -656,6 +656,12 @@ func (fb *fnb) conversion(e *ast.CallExpr) Reg {
 	if isInterface(to) {
 		return fb.exprAs(arg, to)
 	}
+	if fe, te := pointerElem(from), pointerElem(to); fe != nil && te != nil && !types2.Identical(fe, te) {
+		// A pointer viewed as one to another type of the same underlying
+		// type (section 7.9): what it points to may be the receiver of a
+		// method of the new type (solve.FilterAdmitsObj).
+		fb.f.Facts.Retypes = append(fb.f.Facts.Retypes, Retype{From: fe, To: te})
+	}
 	if isBox(from) && pointerElem(to) != nil && !isBox(to) {
 		// (*T)(b) of an owned, shared or synced b: a view of its object.
 		return fb.pointee(arg)

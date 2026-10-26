@@ -53,6 +53,7 @@ type Recorder interface {
 	Instantiated(tp *types2.TypeParam, types []types2.Type, known bool)
 	Methods(t types2.Type, m *types2.Func, ids []eir.FuncID)
 	PointerWrappers(u types2.Type, types []types2.Type, known bool)
+	Retyped(u, v types2.Type, ok bool)
 }
 
 // CacheView is what the cache reads of the run.
@@ -119,6 +120,12 @@ func (e recordingEnv) PointerWrappers(u types2.Type) ([]types2.Type, bool) {
 	types, known := e.env.PointerWrappers(u)
 	e.rec.PointerWrappers(u, types, known)
 	return types, known
+}
+
+func (e recordingEnv) Retyped(u, v types2.Type) bool {
+	ok := e.env.Retyped(u, v)
+	e.rec.Retyped(u, v, ok)
+	return ok
 }
 
 // Deferred is decided from the EIR, which the cache's digest covers.

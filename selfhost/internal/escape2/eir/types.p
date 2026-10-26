@@ -497,6 +497,15 @@ type Facts struct {
 	// FieldWrites are the struct values written into places that hold them
 	// by value, for heap-only fields (plan invariant I6).
 	FieldWrites []FieldWrite
+	// Retypes are the pointer conversions (*From)(p) to a *To whose
+	// element types are not identical, as written (a type parameter stays
+	// one).
+	Retypes []Retype
+}
+
+// Retype is a conversion of a pointer to a From into a pointer to a To.
+type Retype struct {
+	From, To types2.Type
 }
 
 // Instance is one instantiation.

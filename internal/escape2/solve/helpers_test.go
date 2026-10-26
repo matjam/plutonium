@@ -52,6 +52,7 @@ func (e *testEnv) Contract(name string) (*summary.Summary, bool) {
 func (e *testEnv) Instantiated(*types2.TypeParam) ([]types2.Type, bool) { return nil, false }
 func (e *testEnv) Deferred(f *eir.Func, c *eir.Call) bool               { return e.deferred[c] }
 func (e *testEnv) CanRead(f *eir.Func, id eir.FuncID) bool              { return !e.unread[id] }
+func (e *testEnv) Retyped(u, v types2.Type) bool                       { return true }
 func (e *testEnv) HeapOnly(T types2.Type, field int) bool {
 	return e.heapOnly[fmt.Sprintf("%s.%d", T, field)]
 }

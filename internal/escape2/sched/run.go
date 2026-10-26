@@ -32,6 +32,7 @@ type facts struct {
 	ho   *heapOnly
 	rule dispatchRule
 	def  *deferral // D49's deferred calls; nil while the solver defers none
+	rt   *retypes
 }
 
 // deferralOn turns D49's deferred calls on: Env.Deferred names them to the
@@ -69,6 +70,7 @@ func stageB(p *eir.Program) *facts {
 	c.flow = fl
 	f := &facts{p: p, tt: tt, inst: inst, c: c, rule: unionRule{c}}
 	f.ho = newHeapOnly(p, tt, inst, c)
+	f.rt = newRetypes(p, tt)
 	if deferralOn {
 		f.def = newDeferral(p, c, fl)
 	}
@@ -553,6 +555,9 @@ func (e *env) Deferred(f *eir.Func, c *eir.Call) bool {
 }
 
 func (e *env) HeapOnly(T types2.Type, field int) bool { return e.facts.HeapOnly(T, field) }
+
+// Retyped implements solve.Env: stage B's pointer conversions.
+func (e *env) Retyped(u, v types2.Type) bool { return e.facts.rt.viewedAs(u, v) }
 
 // Instantiated implements solve.Env: stage B's instantiation sets.
 func (e *env) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {

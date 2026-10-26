@@ -240,6 +240,7 @@ type recorder struct {
 	inst     map[*types2.TypeParam]instA
 	methods  map[methQ][]eir.FuncID
 	wrappers map[types2.Type]instA // PointerWrappers answers, as Instantiated's
+	retyped  map[[2]types2.Type]bool
 }
 
 // methQ is a question to Methods: a dynamic type and a method.
@@ -261,7 +262,7 @@ type heapQ struct {
 }
 
 func (c *Cache) newRecorder() *recorder {
-	return &recorder{c: c, heap: map[heapQ]bool{}, contract: map[string]*summary.Summary{}, inst: map[*types2.TypeParam]instA{}, methods: map[methQ][]eir.FuncID{}, wrappers: map[types2.Type]instA{}}
+	return &recorder{c: c, heap: map[heapQ]bool{}, contract: map[string]*summary.Summary{}, inst: map[*types2.TypeParam]instA{}, methods: map[methQ][]eir.FuncID{}, wrappers: map[types2.Type]instA{}, retyped: map[[2]types2.Type]bool{}}
 }
 
 func (r *recorder) HeapOnly(T types2.Type, field int, heap bool) {
@@ -291,6 +292,10 @@ func (r *recorder) PointerWrappers(u types2.Type, types []types2.Type, known boo
 	}
 	slices.Sort(a.types)
 	r.wrappers[u] = a
+}
+
+func (r *recorder) Retyped(u, v types2.Type, ok bool) {
+	r.retyped[[2]types2.Type{u, v}] = ok
 }
 
 func (r *recorder) Contract(name string, s *summary.Summary, ok bool) {
@@ -406,6 +411,31 @@ func (r *recorder) sum() digest {
 		for _, t := range w.a.types {
 			h.str(t)
 		}
+	}
+	// The answers of Retyped, by the types written.
+	type retypeW struct {
+		u, v string
+		ok   bool
+	}
+	var rts []retypeW
+	for q, ok := range r.retyped {
+		rts = append(rts, retypeW{r.c.typeKey(q[0]), r.c.typeKey(q[1]), ok})
+	}
+	slices.SortFunc(rts, func(a, b retypeW) int {
+		if c := strings.Compare(a.u, b.u); c != 0 {
+			return c
+		}
+		if c := strings.Compare(a.v, b.v); c != 0 {
+			return c
+		}
+		return boolInt(a.ok) - boolInt(b.ok)
+	})
+	rts = slices.Compact(rts)
+	h.int(int64(len(rts)))
+	for _, w := range rts {
+		h.str(w.u)
+		h.str(w.v)
+		h.bool(w.ok)
 	}
 	names := make([]string, 0, len(r.contract))
 	for n := range r.contract {

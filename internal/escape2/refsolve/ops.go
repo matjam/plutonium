@@ -373,8 +373,8 @@ func (s *solver) filter(v value, id domain.FilterID) value {
 	for x := range v {
 		switch x.t.kind {
 		case kObj:
-			if x.tag == domain.Root && x.t.id < len(s.f.Objects) &&
-				!solve.FilterAdmitsObj(&s.f.Objects[x.t.id], s.ps.Steps(x.t.path), x.t.ge, f) {
+			if x.t.id < len(s.f.Objects) &&
+				!solve.FilterAdmitsObj(&s.f.Objects[x.t.id], s.ps.Steps(x.t.path), x.t.ge, f, s.env.Retyped) {
 				continue
 			}
 		case kIn:

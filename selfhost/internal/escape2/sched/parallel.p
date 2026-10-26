@@ -227,6 +227,13 @@ func (w *worker) PointerWrappers(u types2.Type) ([]types2.Type, bool) {
 	return w.pf.e.PointerWrappers(u)
 }
 
+func (w *worker) Retyped(u, v types2.Type) bool {
+	w.pf.mu.Lock()
+	defer w.pf.mu.Unlock()
+	defer scratch.Outer().Restore()
+	return w.pf.e.Retyped(u, v)
+}
+
 func (w *worker) Deferred(f *eir.Func, c *eir.Call) bool {
 	if v, ok := w.pf.defer_[c]; ok {
 		return v
