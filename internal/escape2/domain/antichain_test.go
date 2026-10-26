@@ -24,6 +24,15 @@ func randKeys(r *rand.Rand, ps Paths, n int) []Key {
 		if r.IntN(4) == 0 {
 			k = k.WithPath(k.Path(), true)
 		}
+		if r.IntN(5) == 0 {
+			k |= keyArena
+			if r.IntN(2) == 0 {
+				k = k.WithFieldsGE()
+			}
+		}
+		if r.IntN(3) == 0 {
+			k = k.WithStrict()
+		}
 		keys = append(keys, k)
 	}
 	return keys

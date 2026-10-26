@@ -12,14 +12,27 @@ import (
 // GE (bit 3), an In token's FieldsGE (bit 4) and Deep (bit 5), base (bits
 // 8-39: object or input), an In token's type filter (bits 40-53: a
 // domain.FilterID) and its position (bits 54-57: the path steps before the
-// filtered pointer; D51). Word 1: path (bits 0-31), tag (bits 32-63).
+// filtered pointer; D51), arn (bit 58). Word 1: path (bits 0-31), tag (bits
+// 32-63).
 //
 // An In token stands for the pointers of its key (key, domain.Key): exact,
 // GE (ge), FieldsGE (fge: the path's pointers at any offset, what an
 // offset anywhere in an object gives, anyOffset) or Deep (deep: what those
 // point at, transitively, what a load through an fge token gives). At most
 // one of ge, fge and deep is set.
-
+//
+// An arn token is memory allocated from the allocator the token without
+// the flag points at (an arena view, OpArenaView, in a callee or through a
+// summary's Arena key; domain.KeyFlags.Arena). An In arn token's path names
+// the allocator: an offset into the memory makes it FieldsGE on that path,
+// a load from it is Deep on that path. It is exact or FieldsGE, never GE or
+// Deep, and has no filter: only an exact pointer names one allocator, and
+// what the memory reaches is among what the pointer reaches (setGE), so
+// GE subsumption stays monotone (an In GE token covers the arn tokens of
+// its extensions as it covers them without the flag). What the flag changes is a store into heap memory
+// or a callee that keeps the value (fire, cSink with cHeap): a view of an
+// arena's memory kept there keeps its arena lifetime, which a checked build
+// checks at run time (section 18.9), so only what it reaches is checked.
 type tokKind uint8
 
 const (
@@ -37,6 +50,7 @@ type tok struct {
 	deep  bool // In: the key is Deep
 	lent  bool // In: taken out of a counted error the caller holds (OpBorrow): its key is Borrowed
 	cnt   bool // In: a counted copy (OpRecount): its key is Counts; never with lent
+	arn   bool // the memory of the allocator the token points at (above)
 	base  uint32
 	path  domain.PathID
 	tag   domain.PathID
@@ -65,6 +79,9 @@ func (t tok) words() (uint64, uint64) {
 		w0 |= 128
 	}
 	w0 |= uint64(t.filt)<<40 | uint64(t.fpos&0xf)<<54
+	if t.arn {
+		w0 |= 1 << 58
+	}
 	return w0, uint64(t.path) | uint64(t.tag)<<32
 }
 
@@ -82,6 +99,7 @@ func tokOf(w0, w1 uint64) tok {
 		tag:   domain.PathID(uint32(w1 >> 32)),
 		filt:  domain.FilterID((w0 >> 40) & 0x3fff),
 		fpos:  uint8((w0 >> 54) & 0xf),
+		arn:   w0&(1<<58) != 0,
 	}
 }
 
@@ -100,9 +118,13 @@ func (s *solver) trimFilter(t tok) tok {
 func (t tok) wide() bool { return t.ge || t.deep }
 
 // setGE makes t's own path GE (an In token's FieldsGE or Deep dropped,
-// which GE covers).
+// which GE covers, and arn: what the allocator's memory reaches is among
+// what its pointer reaches).
 func setGE(t tok) tok {
 	t.ge, t.fge, t.deep = true, false, false
+	if t.kind == tIn {
+		t.arn = false
+	}
 	return t
 }
 
@@ -113,7 +135,7 @@ var heapTok = tok{kind: tHeap}
 func (s *solver) intern(t tok) uint64 {
 	if t.kind == tHeap || t.kind == tCHeap {
 		t.base, t.path, t.ge, t.fge, t.deep = 0, domain.Root, false, false, false // heap tokens keep their tag only
-		t.filt, t.fpos = 0, 0
+		t.filt, t.fpos, t.arn = 0, 0, false
 	}
 	w0, w1 := t.words()
 	if id, ok := s.tokIdx.get(w0, w1); ok {
@@ -132,7 +154,7 @@ func (s *solver) tokAt(id uint64) tok {
 
 // key is the summary key of an In token.
 func key(t tok) domain.Key {
-	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt}).WithFilterRaw(t.filt, int(t.fpos))
+	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt, Arena: t.arn}).WithFilterRaw(t.filt, int(t.fpos))
 }
 
 // extend appends one step to p; ge reports that the step went past the
@@ -207,6 +229,10 @@ func (s *solver) off(t tok, steps []domain.Step) tok {
 		if t.wide() || t.fge || len(steps) == 0 {
 			return t // (an fge token's offsets are among those it stands for)
 		}
+		if t.kind == tIn && t.arn {
+			t.fge = true // somewhere in the allocator's memory
+			return t
+		}
 		p, cut := s.extendAll(t.path, steps)
 		t.path = p
 		t.ge = t.ge || cut
@@ -227,6 +253,11 @@ func (s *solver) anyOffset(t tok) tok {
 		t.path, t.ge = domain.Root, true
 	case tIn:
 		if t.deep {
+			return t
+		}
+		if t.arn {
+			// Its path names the allocator, not a place in the memory.
+			t.fge = !t.ge
 			return t
 		}
 		steps := s.ps.Steps(t.path)
@@ -253,7 +284,12 @@ func (s *solver) loadIn(t tok) tok {
 	case t.wide():
 		// It covers the load: the token itself, lent or not.
 	case t.fge:
-		t.fge, t.deep, t.lent, t.cnt = false, true, false, false
+		t.fge, t.deep, t.lent, t.cnt, t.arn = false, true, false, false, false
+	case t.arn:
+		// What the allocator's memory holds is what its pointer leads to
+		// (KeyFlags.Arena): Deep on the allocator's path, which covers the
+		// pointers loaded at any offset.
+		t.deep, t.lent, t.cnt, t.arn = true, false, false, false
 	default:
 		// What a view holds is not a view of the box (OpBorrow), nor
 		// what a counted copy holds a copy.

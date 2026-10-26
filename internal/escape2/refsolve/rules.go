@@ -24,6 +24,12 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 	case eir.OpLoad:
 		s.ruleLoad(in)
 	case eir.OpStore:
+		if s.staticAddr(in.X) {
+			// Into a package variable: no arena view may be kept there
+			// (section 18.9), so the strict sink (solve's staticAddr).
+			s.sink(s.val(in.Y), diag.StoreFrameView, 0, in.Pos, own)
+			break
+		}
 		s.store(s.val(in.X), s.val(in.Y), in.Pos, own)
 	case eir.OpField:
 		s.ruleField(in)
@@ -126,7 +132,8 @@ func (s *solver) apply(b *eir.Block, in *eir.Instr) {
 }
 
 // OpArenaView: Dst ⊇ X, each pointer to a frame object o taken as one to
-// Func.ArenaMem[o], or to Obj for an o with none (solve/rules.go).
+// Func.ArenaMem[o], or to Obj for an o with none, and an exact In token
+// made arn (solve/rules.go).
 func (s *solver) ruleArenaView(in *eir.Instr) {
 	w := value{}
 	for x := range s.val(in.X) {
@@ -140,6 +147,9 @@ func (s *solver) ruleArenaView(in *eir.Instr) {
 				t = tok{kind: kHeap}
 			}
 			x = tv{t: t, tag: x.tag, g: x.g}
+		} else if x.t.kind == kIn && !x.t.ge && !x.t.fge && !x.t.deep {
+			// A caller's allocator: its memory (solve's arenaTok).
+			x.t.arn, x.t.filt, x.t.fpos = true, 0, 0
 		}
 		w.add(x)
 	}
@@ -488,4 +498,22 @@ func (s *solver) ruleDrop(b *eir.Block, in *eir.Instr) {
 			s.finding(diag.TempViewKept, in.Pos, int(in.Obj), 0, own)
 		}
 	}
+}
+
+// staticAddr reports whether x is the address of a package variable the
+// function takes itself: OpHeap of HeapStatic, offset by OpField and OpElem
+// (solve's staticAddr).
+func (s *solver) staticAddr(x eir.Reg) bool {
+	for x != 0 && s.defs[x] != nil {
+		d := s.defs[x]
+		switch d.Op {
+		case eir.OpHeap:
+			return d.Heap == eir.HeapStatic
+		case eir.OpField, eir.OpElem:
+			x = d.X
+		default:
+			return false
+		}
+	}
+	return false
 }

@@ -263,6 +263,14 @@ func ExtendKey(ps Paths, k Key, s Step) Key {
 	if k.GE() || k.Deep() {
 		return k
 	}
+	if k.Arena() {
+		// An offset stays in the allocator's memory; a load from it is
+		// among what the value's pointers reach (KeyFlags.Arena).
+		if s != StepLoad {
+			return k.WithFieldsGE()
+		}
+		return k.WithoutArena().WithDeep()
+	}
 	if k.FieldsGE() {
 		if s != StepLoad {
 			return k

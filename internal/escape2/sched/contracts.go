@@ -52,7 +52,9 @@ func (c *contractSummaries) summarize(eff contract.Effect) *summary.Summary {
 	}
 	for _, r := range eff.Escapes {
 		note(r)
-		s.Esc = append(s.Esc, c.key(r))
+		// Kept by a task or the runtime, where no lifetime check
+		// follows it (domain.KeyFlags.Strict).
+		s.Esc = append(s.Esc, c.key(r).WithStrict())
 	}
 	for _, st := range eff.Stores {
 		note(st.Src)

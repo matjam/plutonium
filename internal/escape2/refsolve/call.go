@@ -100,7 +100,7 @@ func bodylessSummary(cf *eir.Func) *summary.Summary {
 	sm := &summary.Summary{Inputs: len(cf.Inputs), Res: make([]summary.Result, cf.Results)}
 	for i := range cf.Inputs {
 		k := domain.MakeKey(i, domain.Root, domain.KeyFlags{GE: true})
-		sm.Esc = append(sm.Esc, k)
+		sm.Esc = append(sm.Esc, k.WithStrict()) // kept where no runtime check follows it
 		for r := range sm.Res {
 			sm.Res[r].From = append(sm.Res[r].From, summary.ResultKey{Key: k, Field: domain.Root})
 		}
@@ -240,7 +240,14 @@ func (s *solver) applySummarySkip(in *eir.Instr, sm *summary.Summary, bind func(
 			s.sink(wg, diag.GoFrameView, 0, in.Pos, ctx(entry))
 			v = other
 		}
-		s.sink(v, diag.PassFrameView, 0, in.Pos, ctx(entry))
+		task := entry < len(sm.Reasons) && len(sm.Reasons) == len(sm.Esc)+len(sm.Store) && sm.Reasons[entry].Sink == uint8(eir.SinkTask)
+		if k.Strict() || c.Implicit == eir.ImplTask || task {
+			s.sink(v, diag.PassFrameView, 0, in.Pos, ctx(entry))
+		} else {
+			// Kept in heap memory or by a callee: section 18.9's runtime
+			// checks follow an arena view there (solve's cHeap).
+			s.heapSink(v, diag.PassFrameView, in.Pos, ctx(entry))
+		}
 		entry++
 	}
 	for _, p := range sm.Store { // Store (a, b): store(val(b, β), val(a, β), call)

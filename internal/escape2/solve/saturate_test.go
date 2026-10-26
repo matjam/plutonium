@@ -69,7 +69,7 @@ func TestSaturatedInput(t *testing.T) {
 		t.Fatal("the solve that follows every path made no key of input 0 at a path: the test tests nothing")
 	}
 	for _, k := range sat.Summary.Esc {
-		if k.Input() == 0 && k != root0 {
+		if k.Input() == 0 && k != root0 && k != root0.WithStrict() {
 			t.Errorf("saturated input 0 made the key %v", k)
 		}
 	}

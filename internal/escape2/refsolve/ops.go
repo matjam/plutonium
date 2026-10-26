@@ -82,7 +82,18 @@ func (s *solver) off(t tok, q domain.PathID, qcut bool) tok {
 		}
 		if t.kind == kObj {
 			p, c := s.concat(t.path, q)
-			return tok{kind: kObj, id: t.id, path: p, ge: c || qcut}
+			return tok{kind: kObj, id: t.id, path: p, ge: c || qcut, arn: t.arn}
+		}
+		if t.arn {
+			// Its path names the allocator: an offset is somewhere in the
+			// allocator's memory (solve's off).
+			switch {
+			case qcut:
+				t.ge, t.arn = true, false // anywhere under it (solve's setGE)
+			case q != domain.Root:
+				t.fge = true
+			}
+			return t
 		}
 		p, c := s.concat(t.path, q)
 		u := tok{kind: kIn, id: t.id, path: p, ge: c || qcut, lent: t.lent, cnt: t.cnt, filt: t.filt, fpos: t.fpos} // a field of a view is one, of a copy one
@@ -162,6 +173,12 @@ func (s *solver) load(v value) value {
 				out.add(ptr(tok{kind: kIn, id: x.t.id, path: x.t.path, deep: true, filt: x.t.filt, fpos: x.t.fpos}))
 				continue
 			}
+			if x.t.arn {
+				// What the allocator's memory holds is what its pointer
+				// leads to: Deep on the allocator's path.
+				out.add(ptr(tok{kind: kIn, id: x.t.id, path: x.t.path, deep: true}))
+				continue
+			}
 			// Past the limits: Deep on the path through its last load
 			// (rules.go, "Paths past the limits").
 			p, c := s.extend(x.t.path, domain.StepLoad)
@@ -208,7 +225,7 @@ func (s *solver) loadObj(out value, t tok) {
 func normal(x tv) tv {
 	x.tag, x.g = domain.Root, true
 	if x.t.kind == kIn && !x.t.deep { // (Deep is closed under reach already)
-		x.t.ge, x.t.fge = true, false
+		x.t.ge, x.t.fge, x.t.arn = true, false, false // (what an allocator's memory reaches is among what its pointer does)
 	}
 	return x
 }
@@ -258,6 +275,21 @@ func (s *solver) valueOfKey(k domain.Key, bind func(int) value) value {
 		v = w
 	}
 
+	if k.Arena() {
+		// The memory of the allocator its path's value is (KeyFlags.Arena;
+		// solve's keyNodeOf), then what it reaches or any offset in it.
+		for _, st := range s.ps.Steps(k.Path()) {
+			v = s.step(v, st)
+		}
+		v = s.arenaOf(v)
+		switch {
+		case k.GE():
+			v = s.reach(v)
+		case k.FieldsGE():
+			v = s.anyOffset(v)
+		}
+		return s.lendKey(k, v)
+	}
 	id, pos := k.Filter()
 	steps := s.ps.Steps(k.Path())
 	if id != 0 && pos > len(steps) {
@@ -280,6 +312,28 @@ func (s *solver) valueOfKey(k domain.Key, bind func(int) value) value {
 	case k.Deep():
 		v = s.reach(s.load(s.anyOffset(v)))
 	}
+	return s.lendKey(k, v)
+}
+
+// arenaOf is v's pointers as the memory of the allocators they point at
+// (solve's xArenaKey): an Obj token arn, an exact In token arn (its filter
+// dropped), others as they are.
+func (s *solver) arenaOf(v value) value {
+	w := value{}
+	for x := range v {
+		switch {
+		case x.t.kind == kObj:
+			x.t.arn = true
+		case x.t.kind == kIn && !x.t.ge && !x.t.fge && !x.t.deep:
+			x.t.arn, x.t.filt, x.t.fpos = true, 0, 0
+		}
+		w.add(x)
+	}
+	return w
+}
+
+// lendKey is v as key k's Borrowed and Counts flags make it.
+func (s *solver) lendKey(k domain.Key, v value) value {
 	if k.Borrowed() {
 		w := value{}
 		for x := range v {
@@ -331,6 +385,11 @@ func (s *solver) anyOffset(v value) value {
 			if t.deep {
 				break
 			}
+			if t.arn {
+				// Its path names the allocator, not a place in the memory.
+				t.fge = !t.ge
+				break
+			}
 			steps := s.ps.Steps(t.path)
 			i := len(steps)
 			for i > 0 && steps[i-1] != domain.StepLoad {
@@ -379,7 +438,7 @@ func (s *solver) filter(v value, id domain.FilterID) value {
 			}
 		case kIn:
 			t := x.t
-			if t.filt == 0 && !t.ge && !t.fge && !t.deep && x.tag == domain.Root && !x.g {
+			if t.filt == 0 && !t.ge && !t.fge && !t.deep && !t.arn && x.tag == domain.Root && !x.g {
 				if n := len(s.ps.Steps(t.path)); n <= 15 {
 					x.t.filt, x.t.fpos = id, uint8(n)
 				}

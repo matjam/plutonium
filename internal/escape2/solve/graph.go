@@ -56,6 +56,7 @@ const (
 	xNoHolder        // identity, without pointers to the view objects of counted errors' holders (a key not Borrowed)
 	xRecount         // identity, In tokens not lent and no pointers to ErrHolder objects (OpRecount)
 	xFilter          // through the type filter whose ID is path (D51; filterTok)
+	xArenaKey        // a summary's Arena key: pointers made arn (tokens.go), Heap unchanged
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -188,6 +189,8 @@ func (s *solver) coveredBy(n uint32, t tok, id uint64) bool {
 	for i := 0; ; i++ {
 		// Candidate coverers at path p: the same tag (GE, or exact when
 		// t's is exact), and every prefix of the tag with GE.
+		// (An arn token, never GE or Deep, is covered as it is without the
+		// flag: domain.Covers.)
 		c := tok{kind: tIn, base: t.base, path: p, ge: true, lent: t.lent, cnt: t.cnt}
 		for {
 			q := domain.Root
@@ -421,7 +424,12 @@ func (s *solver) transform(x uint64, t tok) {
 				t = tok{kind: tObj, base: o, path: domain.Root, tag: t.tag, tagGE: t.tagGE}
 			}
 		}
-		s.buf.push(s.a, s.intern(t))
+		s.buf.push(s.a, s.intern(arenaTok(t)))
+	case xArenaKey:
+		if t.kind == tObj {
+			t.arn = true
+		}
+		s.buf.push(s.a, s.intern(arenaTok(t)))
 	case xFilter:
 		id := domain.FilterID(path)
 		f, ok := s.filterOf(id)
@@ -450,6 +458,17 @@ func (s *solver) transform(x uint64, t tok) {
 			s.buf.push(s.a, s.intern(geify(u)))
 		}
 	}
+}
+
+// arenaTok is an exact In token as the memory of the allocator it points
+// at (tokens.go, arn), the filter gone. A GE, FieldsGE or Deep token names
+// many pointers, so no one allocator: it stays, covering their memory
+// (domain.Key.WithoutArena). Other tokens are unchanged.
+func arenaTok(t tok) tok {
+	if t.kind == tIn && !t.ge && !t.fge && !t.deep {
+		t.arn, t.filt, t.fpos = true, 0, 0
+	}
+	return t
 }
 
 // run propagates until nothing changes.

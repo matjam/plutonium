@@ -23,8 +23,16 @@ func CoveredBy(ps Paths, keys []Key, k Key) bool {
 
 // coveredByOther reports whether keys holds a key other than k that covers
 // k: one with k's flags, or for a key that is not Borrowed, a Borrowed one
-// (Covers), its Borrowed twin included.
+// (Covers), its Borrowed twin included, and for a key that is not Strict, a
+// Strict one.
 func coveredByOther(ps Paths, keys []Key, k Key) bool {
+	if !k.Strict() {
+		// Its Strict twin, and what covers that, cover it too (Covers).
+		s := k.WithStrict()
+		if hasKey(keys, s) || coveredByOther(ps, keys, s) {
+			return true
+		}
+	}
 	if k.HasFilter() {
 		// Its unfiltered forms cover it as well (Covers).
 		u := k.NoFilter()
@@ -53,6 +61,22 @@ func coveredByOther(ps Paths, keys []Key, k Key) bool {
 // coveredByFlags reports whether keys holds a key other than self that
 // covers k with k's flags.
 func coveredByFlags(ps Paths, keys []Key, k, self Key) bool {
+	if k.Arena() {
+		// The GE and FieldsGE Arena keys of its own path, and what covers
+		// it without the flag (Covers).
+		if g := k&^keyFieldsGE | keyGE; g != self && hasKey(keys, g) {
+			return true
+		}
+		if !k.GE() {
+			if g := k | keyFieldsGE; g != self && hasKey(keys, g) {
+				return true
+			}
+		}
+		if g := k.WithoutArena(); hasKey(keys, g) {
+			return true
+		}
+		k = k.WithoutArena()
+	}
 	loads := ps.Loads(k.Path())
 	steps := ps.Steps(k.Path())
 	// Walk the prefixes from Root; Extend within the limits only re-finds

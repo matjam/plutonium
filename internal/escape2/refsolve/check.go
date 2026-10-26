@@ -96,14 +96,7 @@ func (s *solver) store(d, v value, pos token.Pos, c callCtx) {
 				s.storeInto(dk, x.t, pos, c)
 			}
 		case kHeap, kCHeap:
-			for x := range v {
-				switch {
-				case s.isFrame(x.t):
-					s.finding(s.frameCode(c), pos, x.t.id, 0, c)
-				case x.t.kind == kIn:
-					s.addEsc(keyOf(x.t))
-				}
-			}
+			s.heapSink(v, s.frameCode(c), pos, c)
 		}
 	}
 }
@@ -131,16 +124,61 @@ func (s *solver) frameCode(c callCtx) diag.Code {
 	return diag.StoreFrameView
 }
 
-// sink is sink(v, code): v is kept where it outlives the call.
+// sink is sink(v, code): v is kept where it outlives the call and no
+// runtime lifetime check follows it (a package variable, a channel, a task,
+// code outside Plutonium): an In token's key is Strict, without arn.
 func (s *solver) sink(v value, code diag.Code, kind eir.SinkKind, pos token.Pos, c callCtx) {
 	for x := range v {
 		switch {
 		case s.isFrame(x.t):
 			s.finding(code, pos, x.t.id, kind, c)
 		case x.t.kind == kIn:
+			t := x.t
+			t.arn = false
+			s.addEsc(keyOf(t).WithStrict())
+		}
+	}
+}
+
+// heapSink is sink(v, code) for heap memory or a callee that keeps v
+// (solve's cHeap): a view of an arena's memory kept there keeps its arena
+// lifetime, which a checked build checks at run time (section 18.9), so
+// what it reaches is checked in its place; an In token's key is as it is.
+func (s *solver) heapSink(v value, code diag.Code, pos token.Pos, c callCtx) {
+	all, mem := value{}, value{}
+	for x := range v {
+		all.add(x)
+		if s.arenaMemTok(x.t) {
+			mem.add(normal(x)) // reach ignores the tag
+		}
+	}
+	if len(mem) > 0 {
+		all.addAll(s.reach(mem))
+	}
+	for x := range all {
+		switch {
+		case s.arenaMemTok(x.t):
+		case s.isFrame(x.t):
+			s.finding(code, pos, x.t.id, 0, c)
+		case x.t.kind == kIn:
 			s.addEsc(keyOf(x.t))
 		}
 	}
+}
+
+// arenaMemTok reports whether t points into an arena's memory: an arn Obj
+// token or one of an object eir.Func.ArenaMemoryObjects marks.
+func (s *solver) arenaMemTok(t tok) bool {
+	if t.kind != kObj {
+		return false
+	}
+	if t.arn {
+		return true
+	}
+	if s.arenaMem == nil {
+		s.arenaMem = s.f.ArenaMemoryObjects()
+	}
+	return t.id < len(s.arenaMem) && s.arenaMem[t.id]
 }
 
 func (s *solver) addEsc(k domain.Key) {

@@ -28,7 +28,7 @@ import (
 //	deferred := string(origin stable ID) uvarint(site) key(fn) uvarint(n) (byte(heap) keys)*
 //	keys     := uvarint(n) key*            (sorted by bytes)
 //	pairs    := uvarint(n) (key key)*      (sorted by bytes)
-//	key      := uvarint(input) byte(flags: 1 GE, 2 Borrowed, 4 Counts, 8 DirectCount, 16 FieldsGE, 32 Deep, 64 Filter) path [filter]
+//	key      := uvarint(input<<1 | Strict) byte(flags: 1 GE, 2 Borrowed, 4 Counts, 8 DirectCount, 16 FieldsGE, 32 Deep, 64 Filter, 128 Arena) path [filter]
 //	filter   := uvarint(position) uvarint(n) string(atom text)*  (domain.Atom.Text, in the filter's order)
 //	path     := uvarint(n) varint(step)*   (StepLoad -2, StepElem -1, field >= 0)
 //	result   := uvarint(n) (key path byte(fieldGE))* paths(heap) paths(counted)
@@ -42,6 +42,7 @@ const (
 	flagFieldsGE    = 16
 	flagDeep        = 32
 	flagFilter      = 64
+	flagArena       = 128
 )
 
 func appendPath(b []byte, ps domain.Paths, p domain.PathID) []byte {
@@ -54,7 +55,11 @@ func appendPath(b []byte, ps domain.Paths, p domain.PathID) []byte {
 }
 
 func appendKey(b []byte, ps domain.Paths, k domain.Key) []byte {
-	b = binary.AppendUvarint(b, uint64(k.Input()))
+	in := uint64(k.Input()) << 1
+	if k.Strict() {
+		in |= 1
+	}
+	b = binary.AppendUvarint(b, in)
 	f := k.Flags()
 	var fl byte
 	if f.GE {
@@ -74,6 +79,9 @@ func appendKey(b []byte, ps domain.Paths, k domain.Key) []byte {
 	}
 	if f.Deep {
 		fl |= flagDeep
+	}
+	if f.Arena {
+		fl |= flagArena
 	}
 	id, pos := k.Filter()
 	filt, hasFilter := ps.Filters().Get(id)
@@ -316,17 +324,20 @@ func (r *reader) path(ps domain.Paths) domain.PathID {
 
 func (r *reader) key(ps domain.Paths, inputs int) domain.Key {
 	in := r.uvarint()
+	strict := in&1 != 0
+	in >>= 1
 	fl := r.byte1()
 	p := r.path(ps)
 	if r.err != nil {
 		return 0
 	}
-	if in >= uint64(inputs) || in >= domain.MaxInputs || fl&^0x7f != 0 {
+	if in >= uint64(inputs) || in >= domain.MaxInputs {
 		r.fail()
 		return 0
 	}
 	k := domain.MakeKey(int(in), p, domain.KeyFlags{
 		GE: fl&flagGE != 0, Borrowed: fl&flagBorrowed != 0, Counts: fl&flagCounts != 0, DirectCount: fl&flagDirectCount != 0, FieldsGE: fl&flagFieldsGE != 0, Deep: fl&flagDeep != 0,
+		Arena: fl&flagArena != 0, Strict: strict,
 	})
 	if fl&flagFilter != 0 {
 		pos := r.uvarint()

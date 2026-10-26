@@ -286,7 +286,12 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 		if v, ok := val(k); ok {
 			// A key kept by starting a task, here or in the callee (its
 			// reason says so): a local sync.WaitGroup is E3004 (12.12).
-			code, w := uint64(cE3003), why(e)
+			// A Strict key is kept where no runtime check follows it,
+			// which a view of a local arena's memory may not be (18.9).
+			code, w := uint64(cE3003|cHeap), why(e)
+			if k.Strict() {
+				code = cE3003
+			}
 			if c.Implicit == eir.ImplTask || (e < len(sum.Reasons) && len(sum.Reasons) == len(sum.Esc)+len(sum.Store) && sum.Reasons[e].Sink == uint8(eir.SinkTask)) {
 				code, w = cTask, s.why(in.Pos, whyCall, eir.SinkTask, c.Site, cand, e)
 			}

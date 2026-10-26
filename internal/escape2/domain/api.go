@@ -88,8 +88,10 @@ type Paths interface {
 //	bit  43    DirectCount (a definite strong-box conversion)
 //	bit  44    FieldsGE ("GE within the object")
 //	bit  45    Deep ("anywhere in the object, then load")
-//	bits 46-59 filter (FilterID; filter.go), 0 for none
-//	bits 60-63 the filter's position: the path steps before the filtered pointer
+//	bits 46-58 filter (FilterID; filter.go), 0 for none
+//	bit  59    Arena (the memory of the allocator the value at the path is)
+//	bits 60-62 the filter's position: the path steps before the filtered pointer
+//	bit  63    Strict (kept where no runtime lifetime check follows it)
 type Key uint64
 
 const (
@@ -99,6 +101,8 @@ const (
 	keyDirectCount Key = 1 << 43
 	keyFieldsGE    Key = 1 << 44
 	keyDeep        Key = 1 << 45
+	keyArena       Key = 1 << 59
+	keyStrict      Key = 1 << 63
 )
 
 // MaxInputs is the number of inputs a key can name.
@@ -113,6 +117,19 @@ type KeyFlags struct {
 	// Deep: the path, any offset steps, a load, then anything. With GE it
 	// is ignored; with FieldsGE the key is GE (their union).
 	Deep bool
+	// Arena: not the value at the path but the memory of the allocator it
+	// is (an arena view, eir.OpArenaView), then GE (what that memory
+	// reaches) or FieldsGE (any offset in it), the path itself exact. With
+	// Deep it is ignored: what the allocator's memory reaches is no more
+	// than what the value reaches. An Arena key has no filter.
+	Arena bool
+	// Strict, on an Esc key: the pointers are kept where no runtime
+	// lifetime check follows them (a package variable, a channel, a task,
+	// code outside Plutonium), so a view of a local arena's memory among
+	// them is a frame-view error (section 18.9), not a retention the
+	// checked build follows in heap memory. A Strict key covers the key
+	// without the flag, never the reverse.
+	Strict bool
 }
 
 // MakeKey packs a key. input must be in [0, MaxInputs): a larger one would
@@ -140,6 +157,12 @@ func MakeKey(input int, path PathID, f KeyFlags) Key {
 	if f.DirectCount {
 		k |= keyDirectCount
 	}
+	if f.Arena && k&keyDeep == 0 {
+		k |= keyArena
+	}
+	if f.Strict {
+		k |= keyStrict
+	}
 	return k
 }
 
@@ -151,7 +174,7 @@ func (k Key) Path() PathID { return PathID(uint32(k)) }
 
 // Flags returns the key's flags.
 func (k Key) Flags() KeyFlags {
-	return KeyFlags{GE: k&keyGE != 0, Borrowed: k&keyBorrowed != 0, Counts: k&keyCounts != 0, DirectCount: k&keyDirectCount != 0, FieldsGE: k&keyFieldsGE != 0, Deep: k&keyDeep != 0}
+	return KeyFlags{GE: k&keyGE != 0, Borrowed: k&keyBorrowed != 0, Counts: k&keyCounts != 0, DirectCount: k&keyDirectCount != 0, FieldsGE: k&keyFieldsGE != 0, Deep: k&keyDeep != 0, Arena: k&keyArena != 0, Strict: k&keyStrict != 0}
 }
 
 // FieldsGE reports whether the key stands for its path and every extension of
@@ -206,16 +229,33 @@ func (k Key) WithDeep() Key {
 	if k.GE() || k.Deep() {
 		return k
 	}
-	return k&^keyFieldsGE | keyDeep
+	return k&^(keyFieldsGE|keyArena) | keyDeep
 }
+
+// Arena reports whether the key stands for the memory of the allocator its
+// path's value is, rather than for the value (KeyFlags.Arena).
+func (k Key) Arena() bool { return k&keyArena != 0 }
+
+// WithoutArena returns k for the value at its path itself: what an arena
+// view of it is among (an allocator's memory is what its pointer points
+// at, or memory the analysis treats as no less bound), so a key that drops
+// the flag stands for no fewer pointers.
+func (k Key) WithoutArena() Key { return k &^ keyArena }
+
+// Strict reports whether the key is kept where no runtime lifetime check
+// follows it (KeyFlags.Strict).
+func (k Key) Strict() bool { return k&keyStrict != 0 }
+
+// WithStrict returns k with the Strict flag.
+func (k Key) WithStrict() Key { return k | keyStrict }
 
 // GE reports whether the key stands for its path and every extension.
 func (k Key) GE() bool { return k&keyGE != 0 }
 
-// WithPath returns k with another path and GE bit, FieldsGE and Deep clear,
-// its input and other flags unchanged.
+// WithPath returns k with another path and GE bit, FieldsGE, Deep and
+// Arena clear, its input and other flags unchanged.
 func (k Key) WithPath(p PathID, ge bool) Key {
-	k = k&^(keyGE|keyFieldsGE|keyDeep|0xffffffff) | Key(p)
+	k = k&^(keyGE|keyFieldsGE|keyDeep|keyArena|0xffffffff) | Key(p)
 	if ge {
 		k |= keyGE
 	}
@@ -238,7 +278,12 @@ func (k Key) WithPath(p PathID, ge bool) Key {
 //   - none is GE, FieldsGE or Deep and the paths are equal;
 //
 // and a has no filter, or b has a filter at a's position whose atoms are
-// among a's (filterCovers).
+// among a's (filterCovers). An Arena key covers only Arena keys of its own
+// path: a GE one the FieldsGE and exact ones, a FieldsGE one the exact one.
+// A key that is not Arena covers an Arena key b as it covers b without the
+// flag: an allocator's memory is among what the allocator's pointer
+// stands for (WithoutArena). A key that is not Strict covers no Strict key;
+// a Strict key covers what it covers without the flag.
 //
 // (An exact key whose last segment is full stands for the same pointers as
 // its FieldsGE twin; Covers says only that the twin covers it, so that Covers
@@ -246,9 +291,25 @@ func (k Key) WithPath(p PathID, ge bool) Key {
 // their sets small.
 func Covers(ps Paths, a, b Key) bool {
 	const flags = keyDirectCount
-	if a.Input() != b.Input() || a&flags != b&flags || lendRank(a) < lendRank(b) {
+	if a.Input() != b.Input() || a&flags != b&flags || lendRank(a) < lendRank(b) || b.Strict() && !a.Strict() {
 		return false
 	}
+	if a.Arena() {
+		if !b.Arena() {
+			return false
+		}
+		switch {
+		case a.Path() != b.Path():
+			return false
+		case a.GE():
+			return true
+		case a.FieldsGE():
+			return !b.GE()
+		default:
+			return !b.GE() && !b.FieldsGE()
+		}
+	}
+	b = b.WithoutArena()
 	// A filtered key covers only keys of its filter at its position; a key
 	// without one covers b's filtered forms too (filter.go).
 	if a.HasFilter() && a&(keyFilterMask|keyPosMask) != b&(keyFilterMask|keyPosMask) && !filterCovers(ps.Filters(), a, b) {

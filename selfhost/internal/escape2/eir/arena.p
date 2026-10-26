@@ -402,3 +402,25 @@ func hidesAllocator(T types2.Type) bool {
 	}
 	return false
 }
+
+// ArenaMemoryObjects reports, by object, which of f's objects are memory
+// allocated from an allocator in the frame: the memory of a local arena
+// (Func.ArenaMem) and the objects OpArenaView makes pointers to a frame
+// allocator into. A window's own object, which holds the allocator's
+// pointer, is none of them: it is a slot of the frame.
+func (f *Func) ArenaMemoryObjects() []bool {
+	mem := compat.Make[bool](len(f.Objects))
+	for _, m := range f.ArenaMem {
+		if int(m) < len(mem) {
+			mem[m] = true
+		}
+	}
+	for _, b := range f.Blocks {
+		for i := range b.Instrs {
+			if in := &b.Instrs[i]; in.Op == OpArenaView && int(in.Obj) < len(mem) {
+				mem[in.Obj] = true
+			}
+		}
+	}
+	return mem
+}

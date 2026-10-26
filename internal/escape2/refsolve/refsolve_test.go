@@ -161,7 +161,7 @@ func TestSinks(t *testing.T) {
 	e, _ := env(b.F)
 	got, r := run(t, b.F, e)
 	wantCodes(t, r, diag.StoreFrameView, diag.SendFrameView, diag.GoFrameView, diag.PassFrameView)
-	has(t, got, "esc in0.\n")
+	has(t, got, "esc in0.s\n") // kept in a package variable: Strict (section 18.9)
 }
 
 func TestThroughFrameObject(t *testing.T) {

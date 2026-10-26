@@ -134,6 +134,12 @@ func CanonKey(ps domain.Paths, k domain.Key) string {
 	if f.DirectCount {
 		s += "d"
 	}
+	if f.Arena {
+		s += "a"
+	}
+	if f.Strict {
+		s += "s"
+	}
 	if id, pos := k.Filter(); id != 0 {
 		// A type filter (D51), by its atoms' texts: each solver numbers
 		// its own.

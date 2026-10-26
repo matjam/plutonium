@@ -101,7 +101,7 @@ type FilterID uint16
 
 // MaxFilters is the number of filters interned; past it, Intern gives none
 // (0), which only widens the keys it would have filtered.
-const MaxFilters = 1<<14 - 1
+const MaxFilters = 1<<13 - 1
 
 // MaxAtoms bounds the atoms of a union; a larger union is no filter.
 const MaxAtoms = 1024
@@ -288,11 +288,15 @@ func (fs *Filters) coversID(a, b FilterID) bool {
 	return c
 }
 
+// maxFilterPos is the last position a filter may have (three bits of the
+// key); a filter past it is dropped, which only widens the key.
+const maxFilterPos = 7
+
 const (
 	keyFilterShift = 46
 	keyFilterMask  = Key(MaxFilters) << keyFilterShift
 	keyPosShift    = 60
-	keyPosMask     = Key(0xf) << keyPosShift
+	keyPosMask     = Key(7) << keyPosShift
 )
 
 // Filter returns the key's filter and its position, or 0.
@@ -302,10 +306,10 @@ func (k Key) Filter() (FilterID, int) {
 
 // WithFilter returns k with filter id at position pos (the number of path
 // steps before the filtered pointer); id 0, or a position past the key's
-// path or past 15, gives k without a filter.
+// path or past maxFilterPos, gives k without a filter.
 func (k Key) WithFilter(ps Paths, id FilterID, pos int) Key {
 	k = k.NoFilter()
-	if id == 0 || pos < 0 || pos > 15 || pos > len(ps.Steps(k.Path())) {
+	if id == 0 || k.Arena() || pos < 0 || pos > maxFilterPos || pos > len(ps.Steps(k.Path())) {
 		return k
 	}
 	return k | Key(id)<<keyFilterShift | Key(pos)<<keyPosShift
@@ -315,7 +319,7 @@ func (k Key) WithFilter(ps Paths, id FilterID, pos int) Key {
 // path (a solver's token keeps it so).
 func (k Key) WithFilterRaw(id FilterID, pos int) Key {
 	k = k.NoFilter()
-	if id == 0 || pos < 0 || pos > 15 {
+	if id == 0 || k.Arena() || pos < 0 || pos > maxFilterPos {
 		return k
 	}
 	return k | Key(id)<<keyFilterShift | Key(pos)<<keyPosShift

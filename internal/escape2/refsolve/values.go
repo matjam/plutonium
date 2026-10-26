@@ -19,7 +19,10 @@ const (
 // Deep (domain.Key): its path's pointers at any offset, or what those point
 // at, transitively. At most one of ge, fge and deep is set. An In token's
 // filt and fpos are its key's type filter and the filter's position (D51;
-// solve/rules.go, "Type filters").
+// solve/rules.go, "Type filters"). arn makes it the memory of the allocator
+// the token without the flag points at (an arena view; an In token's key is
+// then Arena, domain.KeyFlags.Arena): an In arn token is exact or FieldsGE
+// and has no filter (solve/tokens.go).
 type tok struct {
 	kind tokKind
 	id   int
@@ -29,6 +32,7 @@ type tok struct {
 	deep bool
 	lent bool // In: taken out of a counted error the caller holds (solve/rules.go, OpBorrow)
 	cnt  bool // In: a counted copy (OpRecount); never with lent
+	arn  bool // the memory of the allocator the token points at (solve/tokens.go, arn)
 	filt domain.FilterID
 	fpos uint8
 }

@@ -59,7 +59,7 @@ func saturatedInputs(f *eir.Func, prev *summary.Summary) []bool {
 	var out []bool
 	for i := 0; i < n && i < domain.MaxInputs; i++ {
 		k := root(i)
-		ok := has(prev.Esc, k) && has(prev.HeapStore, k)
+		ok := (has(prev.Esc, k) || has(prev.Esc, k.WithStrict())) && has(prev.HeapStore, k)
 		for j := 0; ok && j < n && j < domain.MaxInputs; j++ {
 			ok = pair(k, root(j)) && pair(root(j), k)
 		}

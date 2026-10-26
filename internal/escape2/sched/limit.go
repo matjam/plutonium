@@ -62,7 +62,8 @@ func topSummary(ps domain.Paths, f *eir.Func) *summary.Summary {
 	all := domain.KeyFlags{GE: true}
 	for i := 0; i < n; i++ {
 		k := domain.MakeKey(i, domain.Root, all)
-		s.Esc = append(s.Esc, k)
+		// Kept anywhere, a package variable or a task included (Strict).
+		s.Esc = append(s.Esc, k.WithStrict())
 		s.HeapStore = append(s.HeapStore, k)
 		for j := 0; j < n; j++ {
 			s.Store = append(s.Store, summary.StorePair{Src: k, Dst: domain.MakeKey(j, domain.Root, all)})

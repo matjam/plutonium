@@ -175,9 +175,7 @@ package solve
 //	                    u = Obj (frame)     finding E3002 (E3003 when why is a call)
 //	                    u = In(j,Q,kq)      summary Store pair (u's key, D''s key)
 //	                    u = Heap, CHeap     summary HeapStore D''s key
-//	d = Heap, CHeap   for each token u in v:
-//	                    u frame             finding E3002 (E3003 when why is a call)
-//	                    u = In              summary Esc u's key
+//	d = Heap, CHeap   heapsink(v, E3002, or E3003 when why is a call)
 //
 // outlives(o2, o): o2 is o; or Life(o2) > Life(o) in the order LifeStmt <
 // LifeIter < LifeFrame < LifeCaller < LifeHeap, LifeBlock counting as
@@ -193,9 +191,25 @@ package solve
 // object o whose Life is not LifeHeap (LifeCaller objects and regions
 // included).
 //
-// sink(v, code) keeps v where it outlives the call: for each token u in v, a
-// frame token is a finding with code; u = In is summary Esc of u's key; Heap
-// is nothing.
+// sink(v, code) keeps v where it outlives the call and no runtime lifetime
+// check follows it (a package variable, a channel, a task, code outside
+// Plutonium): for each token u in v, a frame token is a finding with code;
+// u = In is summary Esc of u's key, without arn, made Strict; Heap is
+// nothing.
+//
+// heapsink(v, code) keeps v in heap memory or in a callee that keeps it
+// there: as sink, except that a view of an arena's memory (an Obj token
+// with arn, or of an object eir.Func.ArenaMemoryObjects marks) is no
+// finding, and what it reaches is heapsink'd in its place (section 18.9: a
+// view stored in heap memory keeps its arena lifetime, which a checked
+// build checks at run time); u = In is summary Esc of u's key as it is.
+//
+// An arn token (tokens.go) is the memory of the allocator the token without
+// the flag points at: OpArenaView makes an exact In token arn, and a
+// summary's Arena key gives its value's pointers arn. An In arn token's
+// path names the allocator; it is exact or FieldsGE (an offset into the
+// memory), a load from it is Deep on its path, reach drops the flag, and it
+// is covered as the token without the flag is.
 //
 // # Deferred calls (decision D49)
 //
@@ -323,7 +337,9 @@ package solve
 //	             field, Dst ⊇ <Heap, Root, false> whatever X holds (the field class comes from X's definition:
 //	             OpAddr by Objects[o].Type along Path, OpField by its Type,
 //	             the type of what its X points to, along Path)
-//	OpStore      store(X, Y, own)
+//	OpStore      store(X, Y, own); when X is the address of a package
+//	             variable the function takes itself (OpHeap of HeapStatic,
+//	             offset by OpField and OpElem), sink(Y, E3002) instead
 //	OpField      Dst ⊇ <off(t, Path), Root, false> for each token t of X
 //	             (whatever t's tag: the result is a pointer)
 //	             A Path holding eir.AnyStep (an offset that is not known:
@@ -414,8 +430,9 @@ package solve
 //	OpArenaView  Dst ⊇ X, each <Obj(o, ...), T, g> taken as
 //	             <Obj(m, Root, false), T, g>, m = Func.ArenaMem[o], or Obj
 //	             for an o with none (or a region): what memory allocated
-//	             from the allocator X is a view of (eir/arena.go); In,
-//	             Heap and CHeap tokens stay
+//	             from the allocator X is a view of (eir/arena.go); an
+//	             exact In token made arn, other In tokens, Heap and CHeap
+//	             stay
 //	OpCall       for each candidate c (CallStatic: Callee; CallIface,
 //	             CallTypeParam, CallFunc: Env.Candidates, all of them, by
 //	             union; CallContract: Env.Contract), with s its summary.
@@ -432,15 +449,17 @@ package solve
 //	             D47, plugs in this way): its inputs are s.Inputs
 //	             (Env.Summary; nil is the bottom summary, except for a
 //	             bodyless function, whose default keeps every input:
-//	             Esc (i, Root, GE) and Res (i, Root, GE) for every input i,
-//	             and Heap in every result) and β its input binding:
-//	               Esc k              sink(val(k, β), E3003); at a call
+//	             Esc (i, Root, GE, Strict) and Res (i, Root, GE) for every
+//	             input i, and Heap in every result) and β its input binding:
+//	               Esc k              heapsink(val(k, β), E3003), or
+//	                                  sink when k is Strict; at a call
 //	                                  that starts a task (Implicit ImplTask),
 //	                                  or whose entry's reason has Sink
 //	                                  SinkTask (a callee that starts one),
 //	                                  a frame token of a sync.WaitGroup
-//	                                  object is E3004 (section 12.12), and
-//	                                  the entry it makes keeps SinkTask
+//	                                  object is E3004 (section 12.12), the
+//	                                  sink is sink, and the entry it makes
+//	                                  keeps SinkTask
 //	               Store (a, b)       store(val(b, β), val(a, β), call);
 //	                                  b FieldsGE: val(b, β) as for b exact,
 //	                                  and the stored value's tags made

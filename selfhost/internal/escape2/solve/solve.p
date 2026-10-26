@@ -103,12 +103,13 @@ func (st *State) Bytes() int {
 
 // solver is the state of one solve.
 type solver struct {
-	f    *eir.Func
-	env  Env
-	ps   domain.Paths
-	sets domain.Sets
-	a    domain.Arena
-	prog *eir.Program
+	f           *eir.Func
+	arenaMemory []bool // by object, isArenaMemory; nil until first asked
+	env         Env
+	ps          domain.Paths
+	sets        domain.Sets
+	a           domain.Arena
+	prog        *eir.Program
 
 	nobj   int // objects of f, then one region per call site
 	base   int // the arena's Allocated bytes when the solve began
@@ -313,7 +314,23 @@ const (
 	cE3101
 	cE3313
 	cTask // at a task starter (ImplTask): E3004 for a local sync.WaitGroup, else E3003
+
+	// cHeap, or'ed into a cSink code, says the sink is heap memory or a
+	// callee that keeps the value: a view of an arena's memory kept there
+	// keeps its arena lifetime, which a checked build checks at run time
+	// (section 18.9, "A view stored in heap memory does not lose its arena
+	// lifetime"), so the sink checks what it reaches instead (fire).
+	cHeap = 1 << 8
 )
+
+// isArenaMemory reports whether frame object o is memory allocated from an
+// allocator in the frame (eir.Func.ArenaMemoryObjects).
+func (s *solver) isArenaMemory(o uint32) bool {
+	if s.arenaMemory == nil {
+		s.arenaMemory = s.f.ArenaMemoryObjects()
+	}
+	return int(o) < len(s.arenaMemory) && s.arenaMemory[o]
+}
 
 // isArenaMem reports whether frame object o is the memory of a local
 // arena (eir.Func.ArenaMem).
@@ -614,7 +631,7 @@ func (s *solver) storeInto(o uint32, steps []domain.Step, val uint32, why uint64
 		return
 	}
 	if l, _ := s.life(o); l == eir.LifeHeap {
-		s.addCons(val, cSink, cE3002, why)
+		s.addCons(val, cSink, cE3002|cHeap, why)
 		return
 	}
 	p, cut := s.pathOf(steps)
@@ -643,6 +660,7 @@ const (
 	dVal        = 0
 	dReach      = 1
 	dTok        = 2
+	dArena      = 3       // the low bits of n<<2: a node's pointers made arn (arenaNode)
 	dShared     = 1 << 62 // in the first word: a shared subscription node
 	dJoin       = 1 << 61 // in the first word: a node joining two receivers
 	dRetag      = 1 << 60 // in the first word: a node with its tags made (Root, GE)
@@ -711,6 +729,18 @@ func (s *solver) keyNodeOf(base uint32, k domain.Key) uint32 {
 			k = k.NoFilter()
 		}
 	}
+	if k.Arena() {
+		// The memory of the allocator its path's value is (KeyFlags.Arena),
+		// then any offset in it or what it reaches.
+		n := s.arenaNode(s.valNode(base, k.Path(), false))
+		switch {
+		case k.GE():
+			return s.reachNode(n)
+		case k.FieldsGE():
+			return s.anyNode(n)
+		}
+		return n
+	}
 	switch {
 	case k.Deep():
 		return s.deepNode(s.valNode(base, k.Path(), false))
@@ -718,6 +748,18 @@ func (s *solver) keyNodeOf(base uint32, k domain.Key) uint32 {
 		return s.anyNode(s.valNode(base, k.Path(), false))
 	}
 	return s.valNode(base, k.Path(), k.GE())
+}
+
+// arenaNode returns the node of n's pointers as the memory of the
+// allocators they point at (xArenaKey).
+func (s *solver) arenaNode(n uint32) uint32 {
+	if m, ok := s.derived.get(uint64(n)<<2|dArena, 0); ok {
+		return uint32(m)
+	}
+	m := s.newNode(nkPinned)
+	s.derived.put(s.a, uint64(n)<<2|dArena, 0, uint64(m))
+	s.addEdge(n, m, xw(xArenaKey, 0, false), 0)
+	return m
 }
 
 // filterNode returns the node of n's tokens through filter id (xFilter).
@@ -746,7 +788,7 @@ func (s *solver) filterTok(t tok, id domain.FilterID, f domain.Filter) (tok, boo
 		}
 		return t, FilterAdmitsObj(&s.f.Objects[t.base], s.ps.Steps(t.path), t.ge, f, s.env.Retyped)
 	case tIn:
-		if t.filt == 0 && !t.ge && !t.fge && !t.deep && t.tag == domain.Root && !t.tagGE {
+		if t.filt == 0 && !t.ge && !t.fge && !t.deep && !t.arn && t.tag == domain.Root && !t.tagGE {
 			if n := len(s.ps.Steps(t.path)); n <= 15 {
 				t.filt, t.fpos = id, uint8(n)
 			}
@@ -874,7 +916,7 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		case tObj:
 			if l, _ := s.life(t.base); l == eir.LifeHeap || s.isBoxView(t.base) {
 				// Heap memory as a store destination (a box view too).
-				s.addCons(val, cSink, uint64(s.storeCode(b)), b)
+				s.addCons(val, cSink, uint64(s.storeCode(b)|cHeap), b)
 				return
 			}
 			pn := s.place(t.base, t.path, t.ge)
@@ -882,7 +924,7 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		case tIn:
 			s.addCons(val, cStoreIn, s.intern(asPointer(t)), b)
 		default:
-			s.addCons(val, cSink, uint64(s.storeCode(b)), b)
+			s.addCons(val, cSink, uint64(s.storeCode(b)|cHeap), b)
 		}
 	case cStoreIn:
 		d := s.tokAt(a)
@@ -903,9 +945,16 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			s.report(cE3313, t.base, b)
 		}
 	case cSink:
+		code := int(a) &^ cHeap
+		heap := int(a)&cHeap != 0
 		switch t.kind {
 		case tObj:
-			code := int(a)
+			if heap && (t.arn || s.isArenaMemory(t.base)) {
+				// A view of an arena's memory kept in heap memory or by
+				// a callee (cHeap): what it reaches is checked.
+				s.addCons(s.reachNode(s.tokNode(asPointer(t))), cSink, a, b)
+				return
+			}
 			if code == cTask {
 				code = cE3003
 				if s.isWaitGroup(t.base) {
@@ -914,7 +963,15 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			}
 			s.report(code, t.base, b)
 		case tIn:
-			s.addEsc(key(asPointer(t)), b)
+			if heap {
+				s.addEsc(key(asPointer(t)), b)
+				return
+			}
+			// Kept where an arena view may not be (a package variable,
+			// a task): the caller checks the allocator's pointer itself,
+			// and reports a view of a local arena's memory (Strict).
+			t.arn = false
+			s.addEsc(key(asPointer(t)).WithStrict(), b)
 		}
 	case cReturn:
 		r := int(a)
@@ -1289,6 +1346,13 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		s.addCons(uint32(in.X), cLoad, uint64(dst), 0)
 	case eir.OpStore:
 		if in.X == 0 || in.Y == 0 {
+			return
+		}
+		if s.staticAddr(in.X) {
+			// A package variable's memory: static memory is heap memory
+			// for every check but an arena's views, which may not be
+			// kept there (section 18.9), so no cHeap.
+			s.addCons(uint32(in.Y), cSink, cE3002, own(0))
 			return
 		}
 		s.addCons(uint32(in.X), cStore, uint64(in.Y), own(0))
@@ -1667,6 +1731,27 @@ func mentionsTypeParam(T types2.Type, seen map[*types2.Named]bool) bool {
 		return false
 	}
 	return true // a type this does not know: as if it did
+}
+
+// staticAddr reports whether x is the address of static memory (a package
+// variable) the function takes itself: OpHeap of HeapStatic, offset by
+// OpField and OpElem.
+func (s *solver) staticAddr(x eir.Reg) bool {
+	for {
+		d := s.defs.s[x]
+		if d == 0 {
+			return false
+		}
+		in := &s.f.Blocks[d>>32].Instrs[uint32(d)-1]
+		switch in.Op {
+		case eir.OpHeap:
+			return in.Heap == eir.HeapStatic
+		case eir.OpField, eir.OpElem:
+			x = in.X
+		default:
+			return false
+		}
+	}
 }
 
 // heapOnlyLoad reports whether a load through x reads a heap-only field

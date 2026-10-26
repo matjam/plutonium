@@ -414,3 +414,119 @@ func main() {
 `
 	checkSpec(t, "temporary box", src, "10:9 E3009", "18:2 E3009")
 }
+
+// A value allocated from a local arena may be stored in heap memory: "A
+// view stored in heap memory does not lose its arena lifetime", and a
+// checked build guards it with the runtime lifetime checks of section 18.11
+// (section 18.9, Allocations from a local arena; Checked allocator
+// contract). That holds for a string, a box and an error a callee makes
+// in an arena the caller passes, and for a string made in the caller's own
+// window, and for a callee that keeps the string in a heap container.
+// Returning such a value, storing it in a package variable (here or in a
+// callee), and keeping a pointer to the arena itself stay frame-view errors
+// (sections 18.3, 18.8, 18.9).
+func TestArenaViewInHeap(t *testing.T) {
+	src := `package main
+
+import (
+	"pluto/alloc"
+	"pluto/arena"
+	"pluto/fmt"
+	"pluto/strconv"
+	"pluto/vec"
+)
+
+type node struct {
+	next *node
+	val  int
+}
+
+var keep string
+
+func label(a *arena.Chunked, n int) string {
+	defer alloc.Use(a).Restore()
+	return "item " + strconv.Itoa(n)
+}
+
+func box(a *arena.Chunked, n int) shared[node] {
+	defer alloc.Use(a).Restore()
+	b := alloc.Shared[node]()
+	b.val = n
+	return b
+}
+
+func fail(a *arena.Chunked, n int) error {
+	defer alloc.Use(a).Restore()
+	return fmt.Errorf("parse failed at %d", n)
+}
+
+func id(a *arena.Chunked) *arena.Chunked { return a }
+
+func heap() {
+	a := arena.NewChunked()
+	names := vec.New[string](alloc.Default())
+	names.Push(label(&a, 1))
+	boxes := vec.New[shared[node]](alloc.Default())
+	boxes.Push(box(&a, 2))
+	errs := vec.New[error](alloc.Default())
+	errs.Push(fail(&a, 3))
+	println(names.Len(), boxes.Len(), errs.Len())
+}
+
+func window() {
+	a := arena.NewChunked()
+	names := vec.New[string](alloc.Default())
+	defer alloc.Use(&a).Restore()
+	s := "item " + strconv.Itoa(4)
+	names.Push(s)
+	println(names.Len())
+}
+
+func pointer() {
+	a := arena.NewChunked()
+	as := vec.New[*arena.Chunked](alloc.Default())
+	as.Push(id(&a))
+	println(as.Len())
+}
+
+func leak() string {
+	a := arena.NewChunked()
+	return label(&a, 5)
+}
+
+func global() {
+	a := arena.NewChunked()
+	defer alloc.Use(&a).Restore()
+	keep = "item " + strconv.Itoa(6)
+}
+
+func stash(s string) { keep = s }
+
+func stashed() {
+	a := arena.NewChunked()
+	defer alloc.Use(&a).Restore()
+	stash("item " + strconv.Itoa(7))
+}
+
+func put(v *vec.Vec[string], s string) { v.Push(s) }
+
+func handed() {
+	a := arena.NewChunked()
+	names := vec.New[string](alloc.Default())
+	defer alloc.Use(&a).Restore()
+	put(&names, "item "+strconv.Itoa(8))
+	println(names.Len())
+}
+
+func main() {
+	heap()
+	window()
+	pointer()
+	println(leak())
+	global()
+	stashed()
+	handed()
+}
+`
+	checkSpec(t, "arena view in heap", src, "60:2 E3003", "66:9 E3001", "72:2 E3002", "80:2 E3003")
+}
