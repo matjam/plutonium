@@ -283,7 +283,51 @@ func (r *reporter) intro(l *loc, q types2.Qualifier) string {
 		if e, ok := l.node.(ast.Expr); ok {
 			what = exprText(e)
 		}
+		if l.v != nil {
+			// The arena variable: the alloc.Use that makes it the default,
+			// else the call it is given to as an allocator.
+			use, given := r.arenaUse(l.v)
+			if use == nil {
+				to := ""
+				if given != nil {
+					to = compat.Sprintfb(" to %s (at %s)", compat.ArgS(exprText(given)), compat.ArgS(r.basePos(given.Pos())))
+				}
+				return compat.Sprintfb("%s (a local arena of %s, declared at %s) is given as an allocator%s, so what is allocated from it lives in the arena, and is gone when the arena is.", compat.ArgS(l.v.Name()), compat.ArgS(l.fn), compat.ArgS(at), compat.ArgS(to))
+			}
+			what, at = exprText(use), r.basePos(use.Pos())
+		}
 		return compat.Sprintfb("%s (at %s) makes %s the default allocator, so what is allocated through the default allocator from there on (by new, a string operation, or a call that allocates and leaves out its allocator) lives in the arena, and is gone when the arena is.", compat.ArgS(what), compat.ArgS(at), compat.ArgS(name))
 	}
 	return ""
+}
+
+// arenaUse returns, in the function that declares the local arena v, the
+// first call alloc.Use that is given v, or else nil and the first other
+// call that is given it.
+func (r *reporter) arenaUse(v *types2.Var) (use, given *ast.CallExpr) {
+	fn := r.funcScope(v.Pos())
+	info := r.info(v.Pos())
+	if fn == nil || info == nil {
+		return nil, nil
+	}
+	ast.Inspect(fn, func(n ast.Node) bool {
+		ce, ok := n.(*ast.CallExpr)
+		if !ok || use != nil {
+			return use == nil
+		}
+		for _, a := range ce.Args {
+			if !mentions(a, v, info) {
+				continue
+			}
+			if f := r.calledFunc(ce); f != nil && f.Name() == "Use" && f.Pkg() != nil && f.Pkg().Path() == "pluto/alloc" {
+				use = ce
+				return false
+			}
+			if given == nil {
+				given = ce
+			}
+		}
+		return true
+	})
+	return use, given
 }
