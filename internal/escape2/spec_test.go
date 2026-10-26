@@ -3,6 +3,7 @@ package escape2
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/matjam/plutonium/internal/diag"
@@ -81,5 +82,44 @@ func main() {
 			name = "Drop"
 		}
 		checkSpec(t, name, src, "23:2 E3009", "25:2 E3009", "27:6 E3009")
+	}
+}
+
+// The address of a local sync.WaitGroup must not reach wg.Task, whose task
+// keeps it until Done, which may come after the frame is gone (section
+// 12.12, Task statements: "Passing the address of a local sync.WaitGroup
+// is this error"; section 19.1 applies those rules to wg.Task), whether or
+// not the function waits. A package-level WaitGroup is fine.
+func TestLocalWaitGroupTask(t *testing.T) {
+	src := `package main
+
+import "pluto/sync"
+
+func work() {}
+
+var g sync.WaitGroup
+
+func local(wait bool) {
+	var wg sync.WaitGroup
+	wg.Task(work)
+	if wait {
+		wg.Wait()
+	}
+}
+
+func global() {
+	g.Task(work)
+	g.Wait()
+}
+
+func main() {
+	local(true)
+	global()
+}
+`
+	checkSpec(t, "wait group", src, "11:2 E3004")
+	err := Check(loadSrc(t, src))
+	if want := "cannot pass &wg to sync.(*WaitGroup).Task, which starts a task with it"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("message: %v, want %q", err, want)
 	}
 }

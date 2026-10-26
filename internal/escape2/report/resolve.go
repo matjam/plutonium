@@ -42,6 +42,15 @@ func (r *reporter) diagnostic(fd solve.Finding) *diag.Diagnostic {
 			e.pos = st.Pos()
 			e.call = st.Call
 			e.expr = r.choose(f, append(callOperands(st.Call, f.info), st.Call.Fun), st.Call.Pos())
+		} else if call != nil {
+			// A call of a function that starts a task with the view, such
+			// as wg.Task on a local WaitGroup (section 12.12).
+			ce := r.callExprFor(call)
+			callee, entry := r.through(f.fd.Callee, f.fd.Entry)
+			e.callee = r.calleeLabel(f.fn, call, ce, callee, entry)
+			if ce != nil {
+				e.expr = r.choose(f, callOperands(ce, f.info), call.Pos)
+			}
 		}
 	case diag.SendFrameView:
 		e.sink = sinkSend

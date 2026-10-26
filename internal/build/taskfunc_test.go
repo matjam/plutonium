@@ -19,7 +19,9 @@ import (
 // literals without captures and func values loaded from heap or package
 // memory build, and the rest are rejected, whatever route the closure takes
 // (a variable assigned twice, a field, an element, a helper function, a
-// callback). No run-time check remains.
+// callback). The address of a local sync.WaitGroup must not reach a task
+// start either, wg.Task included, since the task keeps it until Done
+// (section 12.12). No run-time check remains.
 func TestTaskStartFuncValues(t *testing.T) {
 	testguard.Parallel(t)
 	const decls = `package main
@@ -80,10 +82,13 @@ func spawnGo(f func()) {
 	rt.Go(f, rt.MinStackSize)
 }
 
+// groupWG is at package level: the address of a local WaitGroup may not
+// reach wg.Task, whose task keeps it (section 12.12).
+var groupWG sync.WaitGroup
+
 func group(f func()) {
-	var wg sync.WaitGroup
-	wg.Task(f)
-	wg.Wait()
+	groupWG.Task(f)
+	groupWG.Wait()
 }
 
 func startAny(fs ...func()) {
@@ -106,6 +111,8 @@ func make1() func() {
 	n := 1
 	return func() { n++ }
 }
+
+func startWG(wg *sync.WaitGroup) { wg.Task(work) }
 
 var global func() = work
 
@@ -144,6 +151,8 @@ var _ = time.Second
 		{"after func", "n := 1\nf := func() {}\nf = func() { n++ }\ntime.AfterFunc(time.Second, f)", "E3003"},
 		{"after func helper", "n := 1\nf := func() {}\nf = func() { n++ }\nlater(f)", "E3003"},
 		{"literal to wait group", "n := 1\nvar wg sync.WaitGroup\nwg.Task(func() { n++ })\nwg.Wait()", "E2594"},
+		{"local wait group", "var wg sync.WaitGroup\nwg.Task(work)\nwg.Wait()", "E3004"},
+		{"local wait group to helper", "var wg sync.WaitGroup\nstartWG(&wg)\nwg.Wait()", "E3004"},
 		{"literal to helper", "n := 1\nstart(func() { n++ })", "E2594"},
 		{"literal to task", "n := 1\ntask func() { n++ }()", "E2590"},
 	}
@@ -160,7 +169,7 @@ var _ = time.Second
 		{"callback", "each(3, func(i int) {})"},
 		{"package variable", "task global()\nstart(global)"},
 		{"loaded from heap", "h := new(Heap)\nh.f = work\ntask h.f()\nstart(h.f)"},
-		{"wait group", "var wg sync.WaitGroup\nwg.Task(work)\nwg.Task(global)\nwg.Wait()\ngroup(work)"},
+		{"wait group", "groupWG.Task(work)\ngroupWG.Task(global)\ngroupWG.Wait()\ngroup(work)\nstartWG(&groupWG)"},
 		{"rt go", "rt.Go(work, rt.MinStackSize)\nrt.Go(global, rt.MinStackSize)\nspawnGo(work)"},
 		{"after func", "time.AfterFunc(time.Second, work)\nlater(global)"},
 		{"closure called, not started", "n := 1\nf := func() { n++ }\nf()\nmake1()()"},

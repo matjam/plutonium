@@ -1,6 +1,8 @@
-$DIR/main.p:32:2: cannot pass f to a task statement: the new task may outlive n
-$DIR/main.p:38:2: cannot pass j.run to a task statement: the new task may outlive n
-$DIR/main.p:45:2: cannot pass f to viaHelper, which keeps it after returning
-$DIR/main.p:53:2: cannot pass f to sync.(*WaitGroup).Task, which keeps it after returning
-$DIR/main.p:61:2: cannot pass f to rt.Go, which keeps it after returning
-$DIR/main.p:68:2: cannot pass f to time.AfterFunc, which keeps it after returning
+$DIR/main.p:34:2: cannot pass f to a task statement: the new task may outlive n
+$DIR/main.p:40:2: cannot pass j.run to a task statement: the new task may outlive n
+$DIR/main.p:47:2: cannot pass f to viaHelper, which keeps it after returning
+$DIR/main.p:55:2: cannot pass f to sync.(*WaitGroup).Task, which keeps it after returning
+$DIR/main.p:55:2: cannot pass &wg to sync.(*WaitGroup).Task, which starts a task with it: the new task may outlive wg
+$DIR/main.p:63:2: cannot pass f to rt.Go, which keeps it after returning
+$DIR/main.p:70:2: cannot pass f to time.AfterFunc, which keeps it after returning
+$DIR/main.p:75:2: cannot pass &wg to sync.(*WaitGroup).Task, which starts a task with it: the new task may outlive wg

@@ -9,7 +9,9 @@ import (
 // A func value that may be a closure of a frame must not reach a task start
 // (spec sections 12.12 and 18.3): a variable assigned twice, a field, a
 // parameter passed on, wg.Task, rt.Go and time.AfterFunc. Func values that
-// are named functions or are loaded from package memory are fine.
+// are named functions or are loaded from package memory are fine. The
+// address of a local WaitGroup must not reach wg.Task, whose task keeps it
+// until Done (section 12.12); a package-level one is fine.
 
 type Job struct{ run func() }
 
@@ -68,8 +70,15 @@ func afterFunc() {
 	time.AfterFunc(time.Second, f)
 }
 
-func fine() {
+func localWaitGroup() {
 	var wg sync.WaitGroup
+	wg.Task(work)
+	wg.Wait()
+}
+
+var wg sync.WaitGroup
+
+func fine() {
 	wg.Task(work)
 	wg.Task(global)
 	wg.Wait()
@@ -86,5 +95,6 @@ func main() {
 	waitGroup()
 	runtimeGo()
 	afterFunc()
+	localWaitGroup()
 	fine()
 }

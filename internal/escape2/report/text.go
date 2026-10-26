@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/matjam/plutonium/internal/diag"
+	"github.com/matjam/plutonium/internal/escape2/solve"
 	"github.com/matjam/plutonium/internal/syntax/ast"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/types2"
@@ -359,8 +360,20 @@ func (r *reporter) viewDiag(e *viewErr) *diag.Diagnostic {
 		r.passFixes(d, e, l, q)
 	case sinkGo:
 		d.Code = diag.GoFrameView
-		d.Msg = fmt.Sprintf("cannot pass %s to a task statement: the new task may outlive %s", x, l.name())
+		if e.callee != "" {
+			d.Msg = fmt.Sprintf("cannot pass %s to %s, which starts a task with it: the new task may outlive %s", x, e.callee, l.name())
+		} else {
+			d.Msg = fmt.Sprintf("cannot pass %s to a task statement: the new task may outlive %s", x, l.name())
+		}
 		add(sentence(about, fmt.Sprintf("The task started here runs on its own, and may still be running after %s returns and %s memory is reclaimed.", e.fn, possessive(l.name()))))
+		if addrOfVar(e.expr, l) && solve.IsWaitGroupType(l.v.Type()) {
+			// A WaitGroup cannot be copied; section 12.12 names the fixes.
+			d.Fix = &diag.Fix{Intro: fmt.Sprintf("Declare %s at package level, so that it outlives every task", l.v.Name()),
+				Code: fmt.Sprintf("var %s sync.WaitGroup // at package level", l.v.Name())}
+			d.More = append(d.More, &diag.Fix{Intro: "Or start the tasks with a sync.Scope, which waits for them before its block ends, so that they may use the function's variables",
+				Code: "var s sync.Scope\ns.Task(func() { ... })"})
+			break
+		}
 		handOffFixes(d, e, l, "task")
 		if e.call != nil {
 			d.More = append(d.More, &diag.Fix{Intro: fmt.Sprintf("Or start it with a sync.Scope, which waits for its tasks before its block ends, so that they may use %s variables", possessive(e.fn)),

@@ -7,6 +7,7 @@ import (
 	"pluto/unicode/utf8"
 	"selfhost/compat"
 	"selfhost/internal/diag"
+	"selfhost/internal/escape2/solve"
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/syntax/token"
 	"selfhost/internal/types2"
@@ -361,8 +362,20 @@ func (r *reporter) viewDiag(e *viewErr) *diag.Diagnostic {
 		r.passFixes(d, e, l, q)
 	case sinkGo:
 		d.Code = diag.GoFrameView
-		d.Msg = compat.Sprintfb("cannot pass %s to a task statement: the new task may outlive %s", compat.ArgS(x), compat.ArgS(l.name()))
+		if e.callee != "" {
+			d.Msg = compat.Sprintfb("cannot pass %s to %s, which starts a task with it: the new task may outlive %s", compat.ArgS(x), compat.ArgS(e.callee), compat.ArgS(l.name()))
+		} else {
+			d.Msg = compat.Sprintfb("cannot pass %s to a task statement: the new task may outlive %s", compat.ArgS(x), compat.ArgS(l.name()))
+		}
 		add(sentence(about, compat.Sprintfb("The task started here runs on its own, and may still be running after %s returns and %s memory is reclaimed.", compat.ArgS(e.fn), compat.ArgS(possessive(l.name())))))
+		if addrOfVar(e.expr, l) && solve.IsWaitGroupType(l.v.Type()) {
+			// A WaitGroup cannot be copied; section 12.12 names the fixes.
+			d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Declare %s at package level, so that it outlives every task", compat.ArgS(l.v.Name())),
+				Code: compat.Sprintfb("var %s sync.WaitGroup // at package level", compat.ArgS(l.v.Name()))})
+			d.More = compat.Append(d.More, pu.New(diag.Fix{Intro: "Or start the tasks with a sync.Scope, which waits for them before its block ends, so that they may use the function's variables",
+				Code: "var s sync.Scope\ns.Task(func() { ... })"}))
+			break
+		}
 		handOffFixes(d, e, l, "task")
 		if e.call != nil {
 			d.More = compat.Append(d.More, pu.New(diag.Fix{Intro: compat.Sprintfb("Or start it with a sync.Scope, which waits for its tasks before its block ends, so that they may use %s variables", compat.ArgS(possessive(e.fn))),

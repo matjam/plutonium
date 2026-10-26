@@ -1,7 +1,7 @@
-$DIR/main.p:32:2: cannot pass f to a task statement: the new task may outlive n
+$DIR/main.p:34:2: cannot pass f to a task statement: the new task may outlive n
     f is a function literal that uses n. A function literal that uses variables
     of the function around it refers to those variables where they live, in
-    twice's frame (n is declared at main.p:29). The task started here runs on
+    twice's frame (n is declared at main.p:31). The task started here runs on
     its own, and may still be running after twice returns and n's memory is
     reclaimed.
     Go would move this memory to the heap, and its garbage collector would free
@@ -17,10 +17,10 @@ $DIR/main.p:32:2: cannot pass f to a task statement: the new task may outlive n
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3004" for a longer explanation)
 
-$DIR/main.p:38:2: cannot pass j.run to a task statement: the new task may outlive n
+$DIR/main.p:40:2: cannot pass j.run to a task statement: the new task may outlive n
     j.run is a function literal that uses n. A function literal that uses
     variables of the function around it refers to those variables where they
-    live, in field's frame (n is declared at main.p:36). The task started here
+    live, in field's frame (n is declared at main.p:38). The task started here
     runs on its own, and may still be running after field returns and n's memory
     is reclaimed.
     Go would move this memory to the heap, and its garbage collector would free
@@ -36,11 +36,11 @@ $DIR/main.p:38:2: cannot pass j.run to a task statement: the new task may outliv
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3004" for a longer explanation)
 
-$DIR/main.p:45:2: cannot pass f to viaHelper, which keeps it after returning
+$DIR/main.p:47:2: cannot pass f to viaHelper, which keeps it after returning
     f is a function literal that uses n. A function literal that uses variables
     of the function around it refers to those variables where they live, in
-    helper's frame (n is declared at main.p:42). viaHelper passes f to start
-    (main.p:25), which passes f to a task statement (main.p:21), so f would
+    helper's frame (n is declared at main.p:44). viaHelper passes f to start
+    (main.p:27), which passes f to a task statement (main.p:23), so f would
     outlive n.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
@@ -51,10 +51,10 @@ $DIR/main.p:45:2: cannot pass f to viaHelper, which keeps it after returning
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3003" for a longer explanation)
 
-$DIR/main.p:53:2: cannot pass f to sync.(*WaitGroup).Task, which keeps it after returning
+$DIR/main.p:55:2: cannot pass f to sync.(*WaitGroup).Task, which keeps it after returning
     f is a function literal that uses n. A function literal that uses variables
     of the function around it refers to those variables where they live, in
-    waitGroup's frame (n is declared at main.p:49). sync.(*WaitGroup).Task
+    waitGroup's frame (n is declared at main.p:51). sync.(*WaitGroup).Task
     passes f to a task statement (waitgroup.p:52), so f would outlive n.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
@@ -66,10 +66,27 @@ $DIR/main.p:53:2: cannot pass f to sync.(*WaitGroup).Task, which keeps it after 
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3003" for a longer explanation)
 
-$DIR/main.p:61:2: cannot pass f to rt.Go, which keeps it after returning
+$DIR/main.p:55:2: cannot pass &wg to sync.(*WaitGroup).Task, which starts a task with it: the new task may outlive wg
+    &wg is a pointer to wg. wg is a local variable of waitGroup (declared at
+    main.p:54). The task started here runs on its own, and may still be running
+    after waitGroup returns and wg's memory is reclaimed.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Declare wg at package level, so that it outlives every task:
+        var wg sync.WaitGroup // at package level
+    Or start the tasks with a sync.Scope, which waits for them before its block
+    ends, so that they may use the function's variables:
+        var s sync.Scope
+        s.Task(func() { ... })
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3004" for a longer explanation)
+
+$DIR/main.p:63:2: cannot pass f to rt.Go, which keeps it after returning
     f is a function literal that uses n. A function literal that uses variables
     of the function around it refers to those variables where they live, in
-    runtimeGo's frame (n is declared at main.p:58). rt.Go passes f to spawn
+    runtimeGo's frame (n is declared at main.p:60). rt.Go passes f to spawn
     (sched.p:658), which passes fn to spawnFor (sched.p:697), which stores fn in
     t.fn (sched.p:733), so f would outlive n.
     Go would move this memory to the heap, and its garbage collector would free
@@ -81,10 +98,10 @@ $DIR/main.p:61:2: cannot pass f to rt.Go, which keeps it after returning
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3003" for a longer explanation)
 
-$DIR/main.p:68:2: cannot pass f to time.AfterFunc, which keeps it after returning
+$DIR/main.p:70:2: cannot pass f to time.AfterFunc, which keeps it after returning
     f is a function literal that uses n. A function literal that uses variables
     of the function around it refers to those variables where they live, in
-    afterFunc's frame (n is declared at main.p:65). time.AfterFunc stores f in
+    afterFunc's frame (n is declared at main.p:67). time.AfterFunc stores f in
     t.f (sleep.p:213), so f would outlive n.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
@@ -94,3 +111,20 @@ $DIR/main.p:68:2: cannot pass f to time.AfterFunc, which keeps it after returnin
     owned[T] from new, a shared[T], or a library owner such as a vec.Vec.
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:75:2: cannot pass &wg to sync.(*WaitGroup).Task, which starts a task with it: the new task may outlive wg
+    &wg is a pointer to wg. wg is a local variable of localWaitGroup (declared
+    at main.p:74). The task started here runs on its own, and may still be
+    running after localWaitGroup returns and wg's memory is reclaimed.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Declare wg at package level, so that it outlives every task:
+        var wg sync.WaitGroup // at package level
+    Or start the tasks with a sync.Scope, which waits for them before its block
+    ends, so that they may use the function's variables:
+        var s sync.Scope
+        s.Task(func() { ... })
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3004" for a longer explanation)
