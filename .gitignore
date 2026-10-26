@@ -11,6 +11,7 @@
 !testdata/plutonium/*.out
 !testdata/trace/*.out
 !cmd/pluto/testdata/diag/*/*.out
+!tests/*/*/*.out
 
 # Agent worktrees
 /.claude/worktrees/

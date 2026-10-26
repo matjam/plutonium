@@ -90,6 +90,10 @@ the Go file it came from.
   the new compiler builds itself byte for byte the same (`go run ./tools/bootstrap`,
   stages 2 and 3, `-pluto1` to start from a compiler built before).
 - Run the end-to-end corpus with it: `PLUTO_TEST_COMPILER=$PWD/pluto go test -count=1 -timeout 60m ./internal/build`.
+- `tests/` holds the diagnostic corpus that only execs a compiler: each case is a
+  directory with a program and the output it must produce (format in
+  `tests/corpus_test.go`). `go test ./tests` uses `./pluto`, or `PLUTO_TEST_COMPILER`;
+  `-update` rewrites the expected output of failing cases.
 - The differential tests of `tools/go2pu` and `tools/bootstrap -corpus` compare the
   self-hosted compiler with the frozen Go one. They hold until a change to `selfhost/`
   deliberately changes the compiler's output; then that comparison is retired, and the
