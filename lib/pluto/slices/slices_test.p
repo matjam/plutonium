@@ -370,9 +370,18 @@ func TestDeleteClearTail(t *testing.T) {
 	}
 }
 
+// The ints of TestDeleteFuncClearTail are package variables, not locals.
+// DeleteFunc passes each element to del, a func(E) bool, and a call through
+// a func value is checked against every function of that type whose value the
+// program takes (spec 18.3, "How precise the frame check is"), checked once
+// for all instantiations. One of them is the loop body of vec's AppendSeq
+// (a yield closure, spec 12.11), which keeps its argument by pushing it onto
+// a Vec, so DeleteFunc keeps what the elements point to. Pointers to frame
+// variables would be E3003; pointers to static memory may be kept anywhere.
+var dfA, dfB, dfC, dfD, dfE, dfF int
+
 func TestDeleteFuncClearTail(t *testing.T) {
-	var a, b, c, d, e, f int
-	mem := [...]*int{&a, &b, &c, &d, &e, &f}
+	mem := [...]*int{&dfA, &dfB, &dfC, &dfD, &dfE, &dfF}
 	*mem[2], *mem[3] = 42, 42
 	s := mem[0:5] // there is 1 element beyond len(s), within cap(s)
 

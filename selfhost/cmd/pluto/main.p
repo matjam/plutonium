@@ -116,9 +116,12 @@ const rootUsage = `Usage:
 
 Available Commands:
   build       Compile and link a Plutonium program
+  explain     Explain a compile error code
   help        Help about any command
   run         Build a hosted program and run it
+  test        Run the tests of Plutonium packages
   version     Print the pluto compiler version
+  vet         List unsafe operations and their safe callers
 
 Flags:
   -h, --help   help for pluto
