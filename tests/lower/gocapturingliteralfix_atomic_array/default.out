@@ -1,0 +1,29 @@
+$DIR/main.p:7:7: a function literal that captures variables cannot be started with a task statement: a lives in the starting frame, which may be gone before the task runs (spec section 12.12); a has type [2]atomic.Int32, which holds a value of type atomic.Int32 and must not be copied, so start the literal with a sync.Scope, which waits for it and lets it use a: var s sync.Scope; s.Task(func() {...})
+    A function literal that uses variables of the function around it reaches
+    them in that function's stack frame. A task statement may start it after
+    that function has returned, when the frame is gone.
+    Start the literal with a sync.Scope instead: s.Task(func() {...}) waits for
+    it before s's block ends, so it may use the function's variables, a Mutex or
+    a WaitGroup among them. Or pass the values the literal needs as arguments:
+    they are copied when the task statement runs. Do not pass a Mutex, a
+    WaitGroup or another sync type this way, since the copy is a different one.
+    a holds a value of type atomic.Int32. Passing it as an argument would copy
+    it, and a copy is a separate value: calling Done or Unlock on the copy never
+    reaches the original, so a Wait or Lock on the original may never return. A
+    sync.Scope declared in this function waits for the tasks it starts before
+    its block ends, so they may use a where it is.
+    Go moves captured variables to the heap. Plutonium never allocates behind
+    the program's back, so captured variables stay in their frame (spec section
+    11.5).
+    Start the literal with a sync.Scope:
+        var s sync.Scope
+        s.Task(func() {
+            ...
+        })
+    Or declare it at package level and pass a pointer:
+        var a [2]atomic.Int32 // at package level
+        task func(a *[2]atomic.Int32) {
+            ...
+        }(&a)
+    (see "Task statements" in the Plutonium spec, section 12.12)
+    (run "pluto explain E2590" for a longer explanation)

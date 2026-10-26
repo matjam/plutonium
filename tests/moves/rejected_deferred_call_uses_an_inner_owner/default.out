@@ -1,0 +1,12 @@
+$DIR/main.p:27:3: the deferred call uses f, which is dropped at the end of its block (line 28)
+    Deferred calls run when the function returns. f is declared in the block
+    that ends at line 28 and is dropped there, before this call would run, so
+    the call would use what f had released.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Declare f at the top level of the function, or do the work at the end of the
+    block instead of deferring it.
+    (see "Defer statements" in the Plutonium spec, section 12.19)
+    (run "pluto explain E3311" for a longer explanation)

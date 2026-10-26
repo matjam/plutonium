@@ -1,0 +1,11 @@
+$DIR/main.p:26:7: a slice literal cannot hold owners: Buf is an owner type, and nothing would drop the elements
+    A slice literal keeps its elements in an array that the slice only looks at.
+    Owners stored there would be released by nobody.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use an array literal, which owns its elements:
+        [...]Buf{...}
+    (see "Composite literals" in the Plutonium spec, section 11.3)
+    (run "pluto explain E3312" for a longer explanation)

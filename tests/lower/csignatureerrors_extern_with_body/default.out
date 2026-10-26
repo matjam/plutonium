@@ -1,0 +1,6 @@
+$DIR/main.p:10:1: //pu:extern function f must not have a body
+    //pu:extern says that the function is written in C or assembly and linked in
+    under the given symbol. A function with that directive must be declared
+    without a body.
+    (see "Assembly and C" in the Plutonium spec, section 20.4)
+    (run "pluto explain E2510" for a longer explanation)

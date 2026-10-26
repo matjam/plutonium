@@ -1,0 +1,1 @@
+$DIR/main.p:25:11: cannot pass the method value c.add to a task: its closure record lives in the starting frame (spec section 12.12)

@@ -1,0 +1,2 @@
+$DIR/main.p:8:27: onPanic is the panic handler, so it must not wait
+$PLUTOROOT/pluto/rt/sched_linux.p:431:37: rt.(*hostedSched).Wake is the scheduler's Wake, which interrupt handlers reach through rt.Ready, so it must not wait

@@ -1,0 +1,1 @@
+$DIR/main.p:14:7: cannot move s: it starts tasks at main.p:13, which find it at its address

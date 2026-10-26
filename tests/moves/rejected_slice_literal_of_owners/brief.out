@@ -1,0 +1,1 @@
+$DIR/main.p:26:7: a slice literal cannot hold owners: Buf is an owner type, and nothing would drop the elements

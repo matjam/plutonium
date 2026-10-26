@@ -1,0 +1,15 @@
+$DIR/main.p:27:2: cannot call p.Drop(): p is a *File, which only points at a File that something else owns
+    Drop releases what an owner holds. The File p points to belongs to another
+    variable or place, which will drop it when its life ends, so dropping it
+    here would release it twice.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To end an owner's life early, call Drop on the variable that holds it; it
+    cannot be used afterwards:
+        v.Drop() // v is the File variable itself
+    To leave an empty value behind instead:
+        old := take(p)
+    (see "Drops" in the Plutonium spec, section 18.6)
+    (run "pluto explain E3307" for a longer explanation)

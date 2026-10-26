@@ -1,0 +1,17 @@
+$DIR/main.p:26:2: cannot copy elements of type Buf: each element is an owner
+    copy duplicates elements, and duplicating an owner would leave two values
+    that both release what it owns.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Move the elements one at a time:
+        for i := range c {
+            dst[i] = take(&c[i])
+        }
+    or copy each one explicitly:
+        for i := range c {
+            dst[i] = c[i].Clone()
+        }
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3306" for a longer explanation)

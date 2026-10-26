@@ -1,0 +1,1 @@
+$DIR/main.p:31:2: b is dropped at the end of its block here, but a view of it (&b, line 30) was stored in *pp at line 30, where the compiler cannot check its uses

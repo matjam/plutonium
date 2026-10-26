@@ -1,0 +1,1 @@
+$DIR/main.p:13:1: //pu:export g: main.g1 and main.g2 are both exported under one symbol

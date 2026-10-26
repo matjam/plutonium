@@ -1,0 +1,1 @@
+$DIR/main.p:31:7: y holds a view of b (&b, line 27), which was moved into take2 (its parameter takes a Buf by value) at line 30, so y can no longer be used here

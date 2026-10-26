@@ -1,0 +1,1 @@
+$DIR/main.p:10:1: //pu:extern function f: variadic functions cannot cross to C (C varargs are not supported)

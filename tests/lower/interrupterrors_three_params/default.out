@@ -1,0 +1,12 @@
+$DIR/main.p:12:1: interrupt handler h must take (frame *x86.InterruptFrame) or (frame *x86.InterruptFrame, code uint64)
+    An interrupt handler receives what the processor pushes on the stack: a
+    pointer to the interrupt frame, and for some exceptions an error code. It
+    returns nothing, since it returns with iretq to the interrupted code.
+    Use one of these signatures:
+        //pu:interrupt
+        func timer(frame *x86.InterruptFrame)
+
+        //pu:interrupt
+        func pageFault(frame *x86.InterruptFrame, code uint64)
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2571" for a longer explanation)

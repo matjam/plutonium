@@ -1,0 +1,14 @@
+$DIR/main.p:14:7: cannot move s: it starts tasks at main.p:13, which find it at its address
+    s is a sync.Scope, and s.Task at main.p:13 starts tasks that tell s when
+    they return, at the address s has in this function. Moving s (assigning,
+    passing or returning it) would leave them telling the old place, so nothing
+    would wait for them where s ends up.
+    Go keeps the variables a goroutine uses alive with its garbage collector,
+    however long the goroutine runs. Plutonium has none: a variable lives in its
+    function's frame until its block ends. A sync.Scope waits for the tasks it
+    started before its block ends, so they may use the function's variables, and
+    the compiler checks that nothing they use ends or moves first.
+    Keep s where it is and wait for its tasks before it goes:
+        s.Wait()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3405" for a longer explanation)

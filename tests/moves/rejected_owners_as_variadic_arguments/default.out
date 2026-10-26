@@ -1,0 +1,12 @@
+$DIR/main.p:27:6: cannot pass b to all as a variadic argument: Buf is an owner type
+    Variadic arguments are passed in an array that all sees as a slice. A slice
+    is a view and never owns its elements, so b would be released by nobody.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Pass the owners one at a time to a parameter that takes them by value, or
+    collect them in an owner such as a vec.Vec.
+    (see "Passing arguments to ... parameters" in the Plutonium spec, section
+    11.15)
+    (run "pluto explain E3310" for a longer explanation)

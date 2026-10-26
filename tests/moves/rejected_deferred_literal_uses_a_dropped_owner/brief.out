@@ -1,0 +1,1 @@
+$DIR/main.p:26:21: f was dropped by f.Drop() at line 27, but the deferred function (line 26) uses it when the function returns

@@ -1,0 +1,1 @@
+$DIR/main.p:14:19: x86.TrapGate: h is a //pu:interrupt function, not a trap handler; install it with x86.InterruptGate

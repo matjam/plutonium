@@ -1,0 +1,2 @@
+$DIR/main.p:12:6: onPanic cannot be the panic handler: its signature is func(p int)
+kernel: no panic handler is defined

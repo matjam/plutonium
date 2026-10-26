@@ -1,0 +1,17 @@
+$DIR/main.p:26:13: b was moved into take2 (its parameter takes a Buf by value) at line 27, but the deferred call (line 26) uses it when the function returns
+    Buf is an owner type: its values own what they hold and release it when they
+    are dropped. Passing an owner by value moves it instead of copying it, so
+    that what it owns has exactly one owner. Since line 27, b holds nothing. The
+    call deferred at line 26 keeps a view of b in its receiver or arguments and
+    runs when the function returns, after line 27, so it would look at what b no
+    longer holds.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Give b a new value after line 27, so that the deferred call finds one:
+        b = Buf{}
+    Or do the work of the deferred call at the end of the function, before line
+    27, instead of deferring it
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3301" for a longer explanation)

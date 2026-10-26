@@ -1,0 +1,1 @@
+$DIR/main.p:12:1: interrupt handler h: first parameter must be a pointer to the interrupt frame, not int

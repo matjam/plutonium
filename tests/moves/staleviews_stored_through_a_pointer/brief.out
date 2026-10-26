@@ -1,0 +1,1 @@
+$DIR/main.p:30:8: b is moved into take2 (its parameter takes a Buf by value) here, but a view of it (&b, line 29) was stored in *pp at line 29, where the compiler cannot check its uses

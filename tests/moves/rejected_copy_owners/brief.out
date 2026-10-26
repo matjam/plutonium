@@ -1,0 +1,1 @@
+$DIR/main.p:26:2: cannot copy elements of type Buf: each element is an owner

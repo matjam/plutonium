@@ -1,0 +1,1 @@
+$DIR/main.p:25:11: cannot pass a function literal that captures c (main.p:25) to a task: its closure record lives in the starting frame (spec section 12.12)

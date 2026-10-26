@@ -1,0 +1,19 @@
+$DIR/main.p:14:20: x86.InterruptGate cannot be started by a task statement: it must be called with the name of a handler, and its result used
+    x86.InterruptGate and x86.TrapGate build the entry of the interrupt table
+    that enters a handler, and the compiler puts the handler's address in it. So
+    the first argument must be the name of a handler, known when the program is
+    compiled: a function marked //pu:interrupt for InterruptGate, and a function
+    marked //pu:interrupt trap for TrapGate. A func value, a deferred or started
+    call, a handler of the other form, a call through a variable and any other
+    expression are errors.
+    The form decides how the processor enters the handler. An interrupt gate
+    clears the interrupt flag, and a handler of the plain form relies on that:
+    its body is a region with interrupts disabled. A trap gate leaves the flag
+    as it was, which is what a handler that can be entered again needs.
+    Pass the name of a handler of the form the constructor takes:
+        //pu:interrupt
+        func timer(f *x86.InterruptFrame) { ... }
+
+        idt[32] = x86.InterruptGate(timer, 0x08, 0)
+    (see "pluto/arch/x86" in the Plutonium spec, section 20.8)
+    (run "pluto explain E2572" for a longer explanation)

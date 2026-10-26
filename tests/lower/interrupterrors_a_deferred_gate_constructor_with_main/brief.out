@@ -1,0 +1,1 @@
+$DIR/main.p:11:21: x86.InterruptGate cannot be deferred: it must be called with the name of a handler, and its result used

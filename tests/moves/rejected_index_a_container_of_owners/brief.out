@@ -1,0 +1,1 @@
+$DIR/main.p:28:7: cannot read v[0]: the elements of v are owners, and v[0] would be a copy

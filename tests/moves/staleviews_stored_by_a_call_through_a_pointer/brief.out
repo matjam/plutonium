@@ -1,0 +1,1 @@
+$DIR/main.p:30:2: b is given a new value here, but a view of it (&b, line 29) was stored by store in what pp points to at line 29, where the compiler cannot check its uses

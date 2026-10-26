@@ -1,0 +1,2 @@
+$DIR/main.p:14:10: onPanic cannot be the panic handler: it is a method
+kernel: no panic handler is defined

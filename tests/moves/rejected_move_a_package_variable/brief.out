@@ -1,0 +1,1 @@
+$DIR/main.p:25:7: cannot move package variable global: only a local variable can be moved out of

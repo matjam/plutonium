@@ -1,0 +1,6 @@
+$DIR/main.p:15:1: //pu:export g: main.g1 and main.g2 are both exported under one symbol
+    Two functions are exported under the same symbol name with //pu:export, or
+    the name is already used by another symbol. The linker needs each symbol
+    name to be unique.
+    (see "Assembly and C" in the Plutonium spec, section 20.4)
+    (run "pluto explain E2512" for a longer explanation)

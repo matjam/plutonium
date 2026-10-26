@@ -1,0 +1,1 @@
+$DIR/main.p:27:3: the deferred call uses f, which is dropped at the end of its block (line 28)

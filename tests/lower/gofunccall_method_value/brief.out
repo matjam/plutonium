@@ -1,0 +1,1 @@
+$DIR/main.p:41:10: cannot pass the method value c.add to wg.Task, which starts a task with it: its closure record lives in the starting frame (spec section 12.12)

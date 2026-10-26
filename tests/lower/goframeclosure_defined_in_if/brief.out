@@ -1,0 +1,1 @@
+$DIR/main.p:26:12: cannot pass f to a task: it holds a function literal that captures n (main.p:25), whose closure record lives in the starting frame (spec section 12.12)

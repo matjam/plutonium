@@ -1,0 +1,14 @@
+$DIR/main.p:29:4: p holds a view of b (&b, line 27), which was moved into take2 (its parameter takes a Buf by value) at line 28, so p can no longer be used here
+    p looks at memory that b owns, without owning it: the view was made by &b at
+    line 27. A view of an owner held in a local variable may be used only while
+    the variable keeps the value the view was made from. At line 28 b was moved
+    into take2 (its parameter takes a Buf by value), so the view may look at
+    memory that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use p before line 28, or move b only after the last use of p
+    Or move a copy at line 28, so that b keeps its value:
+        b.Clone()
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

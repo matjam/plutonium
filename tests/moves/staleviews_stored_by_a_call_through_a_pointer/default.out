@@ -1,0 +1,14 @@
+$DIR/main.p:30:2: b is given a new value here, but a view of it (&b, line 29) was stored by store in what pp points to at line 29, where the compiler cannot check its uses
+    A view of an owner held in a local variable may be used only while the
+    variable keeps the value the view was made from. The compiler follows views
+    through local variables and their fields, and into the arguments of the
+    calls that store them there, but the view of b made by &b at line 29 went
+    into memory it does not follow, so it cannot check that the view is not used
+    after line 30.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not give it a new value while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)

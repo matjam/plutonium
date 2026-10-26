@@ -1,0 +1,1 @@
+$DIR/main.p:27:15: b was moved into take2 (its parameter takes a Buf by value) at line 29, but the deferred call (line 27) uses it when the function returns

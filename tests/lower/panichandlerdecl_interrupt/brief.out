@@ -1,0 +1,2 @@
+$DIR/main.p:13:6: onPanic cannot be the panic handler: it is also an interrupt handler
+kernel: no panic handler is defined

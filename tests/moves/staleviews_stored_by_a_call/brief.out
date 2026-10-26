@@ -1,0 +1,1 @@
+$DIR/main.p:30:6: h.p holds a view of b (&b, line 28), which was moved into take2 (its parameter takes a Buf by value) at line 29, so h.p can no longer be used here

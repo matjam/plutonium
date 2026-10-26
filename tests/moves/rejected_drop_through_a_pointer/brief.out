@@ -1,0 +1,1 @@
+$DIR/main.p:27:2: cannot call p.Drop(): p is a *File, which only points at a File that something else owns

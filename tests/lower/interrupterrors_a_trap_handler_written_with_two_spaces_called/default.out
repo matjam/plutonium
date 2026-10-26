@@ -1,0 +1,9 @@
+$DIR/main.p:14:15: interrupt handler main.h cannot be called; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table
+    An interrupt handler saves every register and returns with iretq, so
+    ordinary code cannot call it, and it is not an ordinary func value. Use
+    x86.InterruptGate (or x86.TrapGate for a //pu:interrupt trap handler) to
+    enter it in the interrupt table.
+    Enter it in the table:
+        idt[32] = x86.InterruptGate(timer, 0x08, 0)
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2573" for a longer explanation)

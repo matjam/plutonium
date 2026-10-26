@@ -1,0 +1,1 @@
+$DIR/main.p:12:1: interrupt handler h must take (frame *x86.InterruptFrame) or (frame *x86.InterruptFrame, code uint64)

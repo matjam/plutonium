@@ -1,0 +1,1 @@
+$DIR/main.p:7:7: a function literal that captures variables cannot be started with a task statement: mu lives in the starting frame, which may be gone before the task runs (spec section 12.12); mu has type stdsync.Mutex, which must not be copied, so start the literal with a stdsync.Scope, which waits for it and lets it use mu: var s stdsync.Scope; s.Task(func() {...})

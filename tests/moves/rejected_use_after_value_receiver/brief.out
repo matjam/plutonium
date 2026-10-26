@@ -1,0 +1,1 @@
+$DIR/main.p:27:6: m was moved by the call m.Consume() (Consume has a value receiver) at line 26, so it can no longer be used here

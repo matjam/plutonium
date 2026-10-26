@@ -1,0 +1,1 @@
+$DIR/main.p:40:8: cannot pass a function literal that captures n (main.p:40) to rt.Go, which starts a task with it: its closure record lives in the starting frame (spec section 12.12)

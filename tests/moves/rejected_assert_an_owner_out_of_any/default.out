@@ -1,0 +1,16 @@
+$DIR/main.p:26:7: cannot assert x to Buf: x is an any, which only lends the value it holds
+    Converting an owner to an ordinary interface such as any lends it: the
+    interface looks at the owner, which still belongs to the variable that was
+    converted. Taking a Buf out of x would create a second owner.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Call the value's methods through an interface type instead:
+        if s, ok := x.(fmt.Stringer); ok {
+            use(s.String())
+        }
+    or move it into an owning interface in the first place:
+        type Text owner interface{ String() string }
+    (see "Type assertions" in the Plutonium spec, section 11.13)
+    (run "pluto explain E3308" for a longer explanation)

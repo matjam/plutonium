@@ -1,0 +1,16 @@
+$DIR/main.p:29:9: cannot return h: it holds the method value p.ident (main.p:27), whose closure record is in build's frame
+    A method value such as p.ident is a closure record, holding the method to
+    call and a copy of the receiver, in the frame of the function that makes it:
+    here build. That frame is reclaimed when build returns, and the record with
+    it.
+    build's results can hold the closure only through a pointer, so its callers
+    provide no region to build it in (spec section 11.5). Return the closure
+    itself, an interface holding it, or a struct or array holding it, instead.
+    Go moves the captured variables and the closure to the heap. Plutonium never
+    allocates behind the program's back, so the record lives in a frame: the
+    maker's, or the region its caller provides.
+    Return the receiver and let the caller call the method, or return a method
+    expression, which takes the receiver as its first argument:
+        m := (*P).ident // m(x, ...) calls x.ident(...)
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
+    (run "pluto explain E3100" for a longer explanation)

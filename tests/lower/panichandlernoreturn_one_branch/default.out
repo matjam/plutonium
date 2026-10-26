@@ -1,0 +1,18 @@
+$DIR/main.p:17:1: onPanic is the panic handler, so it must never return
+    A panic stops the program: it does not unwind, so there is nothing for the
+    handler to return to. Every path through it must end in an endless loop, or
+    in a call of a function that never returns, such as os.Exit, or a function
+    whose every path ends the same way. A call through a func value or an
+    interface, and recursion, count as returning.
+    onPanic can return here (main.p:17).
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    End it by halting:
+        for {
+            x86.Cli()
+            x86.Hlt()
+        }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2583" for a longer explanation)

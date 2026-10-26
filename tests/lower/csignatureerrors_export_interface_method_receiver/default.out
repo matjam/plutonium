@@ -1,0 +1,14 @@
+$DIR/main.p:12:1: //pu:export function g: parameter 1: field s: string has no C equivalent; pass unsafe.StringData(s) and len(s)
+    Functions marked //pu:extern or //pu:export are called with the C calling
+    convention. Their parameters and results must be types C has: integers,
+    floats, bools, pointers, and structs and arrays of those. Strings, slices,
+    interfaces and func values have no C equivalent, and variadic functions are
+    not supported.
+    Pass a pointer and a length instead of a string or slice.
+    Pass a pointer and a length:
+        //pu:extern write
+        func write(fd int32, buf *byte, n uint64) int64
+
+        write(1, unsafe.SliceData(b), uint64(len(b)))
+    (see "Assembly and C" in the Plutonium spec, section 20.4)
+    (run "pluto explain E2511" for a longer explanation)

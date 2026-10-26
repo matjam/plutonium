@@ -1,0 +1,1 @@
+$DIR/main.p:53:6: keyboard is an interrupt handler, so it must not wait

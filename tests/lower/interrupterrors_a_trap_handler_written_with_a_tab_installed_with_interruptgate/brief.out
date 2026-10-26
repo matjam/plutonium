@@ -1,0 +1,1 @@
+$DIR/main.p:14:19: x86.InterruptGate: h is a //pu:interrupt trap function; install it with x86.TrapGate

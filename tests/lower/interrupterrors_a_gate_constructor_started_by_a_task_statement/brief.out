@@ -1,0 +1,1 @@
+$DIR/main.p:14:20: x86.InterruptGate cannot be started by a task statement: it must be called with the name of a handler, and its result used

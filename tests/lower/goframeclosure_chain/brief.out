@@ -1,0 +1,1 @@
+$DIR/main.p:27:7: cannot start g with a task statement: it holds the method value c.add, whose closure record lives in the starting frame (spec section 12.12)

@@ -1,0 +1,1 @@
+$DIR/main.p:12:1: //pu:export function g: parameter 1: field s: string has no C equivalent; pass unsafe.StringData(s) and len(s)

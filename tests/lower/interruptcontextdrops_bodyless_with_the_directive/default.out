@@ -1,0 +1,12 @@
+$DIR/main.p:82:2: keyboard is an interrupt handler, so it must not wait
+    Interrupt handlers run on top of whatever code the CPU was executing. If a
+    handler waits, for a lock or for room in a channel, the interrupted code can
+    never resume to release it, and the CPU stops.
+    keyboard calls wait (main.p:82), which may wait.
+    A kernel that waits in an interrupt handler hangs, often only under load and
+    far from the cause, so Plutonium checks the whole program at compile time
+    instead.
+    To hand work to normal code, use a non-blocking send:
+        select { case work <- item: default: }
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2584" for a longer explanation)

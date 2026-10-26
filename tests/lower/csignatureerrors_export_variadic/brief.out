@@ -1,0 +1,1 @@
+$DIR/main.p:10:1: //pu:export function g: variadic functions cannot cross to C (C varargs are not supported)

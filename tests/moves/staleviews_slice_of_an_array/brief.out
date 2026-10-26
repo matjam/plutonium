@@ -1,0 +1,1 @@
+$DIR/main.p:29:10: s holds a view of a (a[:], line 27), which was given a new value at line 28, so s can no longer be used here

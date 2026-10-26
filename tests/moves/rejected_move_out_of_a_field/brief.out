@@ -1,0 +1,1 @@
+$DIR/main.p:26:7: cannot move c.buf out of c: c.buf is a field, not a variable

@@ -1,0 +1,12 @@
+$DIR/main.p:28:2: keyboard is an interrupt handler, so it must not start a task
+    Interrupt handlers run on top of whatever code the CPU was executing.
+    Starting a task allocates its stack and takes the scheduler's locks, which
+    the interrupted code may hold, and then the CPU stops.
+    keyboard calls wg.Task (main.p:28), which starts a task.
+    A kernel that waits in an interrupt handler hangs, often only under load and
+    far from the cause, so Plutonium checks the whole program at compile time
+    instead.
+    To hand work to normal code, use a non-blocking send:
+        select { case work <- item: default: }
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2585" for a longer explanation)

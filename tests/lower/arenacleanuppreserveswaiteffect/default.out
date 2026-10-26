@@ -1,0 +1,38 @@
+$DIR/main.p:8:27: onPanic is the panic handler, so it must not wait
+    A panic can happen anywhere: in an interrupt handler, or while the code that
+    panicked holds a lock. The panic handler runs on top of that code, so if it
+    waits for a lock or a channel, it may wait for code that can never run
+    again, and the program hangs instead of reporting the panic.
+    onPanic calls rt.CatchAllocFree (main.p:8), which calls a.Free
+    (goexit.p:68), which may be (*waiting).Free, which calls rt.Park (main.p:5),
+    which may wait.
+    a.Free calls through an interface, so it counts as calling the Free method
+    of every type the program converts to rt.Allocator.
+    Report the panic with code that does not wait: write to the console or a
+    device directly, then halt.
+    A kernel that waits in an interrupt handler hangs, often only under load and
+    far from the cause, so Plutonium checks the whole program at compile time
+    instead.
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2584" for a longer explanation)
+
+$PLUTOROOT/pluto/rt/sched_linux.p:431:37: rt.(*hostedSched).Wake is the scheduler's Wake, which interrupt handlers reach through rt.Ready, so it must not wait
+    rt.Ready calls the scheduler's Wake, and interrupt handlers may call
+    rt.Ready (or make a channel operation that does), so Wake runs under the
+    same rule as a handler: it runs on top of whatever code the CPU was
+    executing, and must not wait for anything that code may hold.
+    rt.(*hostedSched).Wake calls hostedReady (sched_linux.p:431), which calls
+    runqput (sched_linux.p:452), which calls rt.panicIndex (sched_linux.p:737),
+    which calls fatal (rt.p:283), which calls raise (panic.p:169), which calls
+    rt.strRelease (panic.p:190), which calls strFree (str.p:93), which calls
+    a.Free (str.p:123), which may be (*waiting).Free, which calls rt.Park
+    (main.p:5), which may wait.
+    a.Free calls through an interface, so it counts as calling the Free method
+    of every type the program converts to rt.Allocator.
+    A kernel that waits in an interrupt handler hangs, often only under load and
+    far from the cause, so Plutonium checks the whole program at compile time
+    instead.
+    To hand work to normal code, use a non-blocking send:
+        select { case work <- item: default: }
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2584" for a longer explanation)

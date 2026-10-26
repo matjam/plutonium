@@ -1,0 +1,1 @@
+$DIR/main.p:42:10: cannot pass f to wg.Task, which starts a task with it: it holds a function literal that captures n (main.p:41), whose closure record lives in the starting frame (spec section 12.12)

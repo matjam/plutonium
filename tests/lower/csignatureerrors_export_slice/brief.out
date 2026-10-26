@@ -1,0 +1,1 @@
+$DIR/main.p:10:1: //pu:export function g: parameter 1: slice []byte has no C equivalent; pass unsafe.SliceData(s) and len(s)

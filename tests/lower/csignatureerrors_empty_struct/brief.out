@@ -1,0 +1,1 @@
+$DIR/main.p:10:1: //pu:extern function f: parameter 1: zero-size type struct{} has no C equivalent

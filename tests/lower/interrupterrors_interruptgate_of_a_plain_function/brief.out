@@ -1,0 +1,1 @@
+$DIR/main.p:13:19: x86.InterruptGate: the first argument must name a //pu:interrupt function

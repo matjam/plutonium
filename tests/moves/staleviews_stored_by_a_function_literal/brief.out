@@ -1,0 +1,1 @@
+$DIR/main.p:30:2: b is moved by the call b.Consume() (Consume has a value receiver) here, but a view of it (&b, line 28) was kept by the function literal at line 28 at line 28, where the compiler cannot check its uses

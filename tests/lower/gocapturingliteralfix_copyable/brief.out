@@ -1,0 +1,1 @@
+$DIR/main.p:8:7: a function literal that captures variables cannot be started with a task statement: n lives in the starting frame, which may be gone before the task runs (spec section 12.12); pass them as arguments instead: task func(n int, l sync.Locker) {...}(n, l)

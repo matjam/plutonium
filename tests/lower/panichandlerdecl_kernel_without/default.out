@@ -1,0 +1,13 @@
+kernel: no panic handler is defined
+    A kernel build has no operating system to report a crash to, so the program
+    itself must say what happens when it panics (print to a serial port or
+    screen, then halt).
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Mark one function with //pu:panic:
+        //pu:panic
+        func onPanic(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2580" for a longer explanation)

@@ -1,0 +1,1 @@
+$DIR/main.p:10:1: //pu:extern function f: parameter 1: aligned[int64, 16] is aligned to more than 8 bytes, which C calls do not support

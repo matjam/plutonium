@@ -1,0 +1,1 @@
+$DIR/main.p:12:1: interrupt handler h: error code must be uint64, not uint32

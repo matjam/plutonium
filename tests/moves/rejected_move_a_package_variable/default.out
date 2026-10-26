@@ -1,0 +1,16 @@
+$DIR/main.p:25:7: cannot move package variable global: only a local variable can be moved out of
+    Buf is an owner type, so using global here would move it. But a package
+    variable lives for the whole program and would still believe it holds the
+    value.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To move it out and leave an empty value in its place:
+        v := take(&global)
+    To look at it without moving it:
+        v := &global
+    To copy it:
+        v := global.Clone()
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3303" for a longer explanation)

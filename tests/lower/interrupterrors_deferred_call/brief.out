@@ -1,0 +1,2 @@
+$DIR/main.p:14:21: interrupt handler main.h cannot be called; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table
+$DIR/main.p:14:21: interrupt handler main.h cannot be called; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table

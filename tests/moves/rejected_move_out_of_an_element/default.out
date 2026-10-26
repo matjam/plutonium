@@ -1,0 +1,15 @@
+$DIR/main.p:26:7: cannot move a[0] out of a: a[0] is an element, not a variable
+    Buf is an owner type, so taking a[0] would move it. But a would still
+    believe it owns a[0] and would free it again when a is dropped.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To move it out and leave an empty value in its place:
+        v := take(&a[0])
+    To look at it without moving it:
+        v := &a[0]
+    To copy it:
+        v := a[0].Clone()
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3303" for a longer explanation)

@@ -1,0 +1,2 @@
+$DIR/main.p:32:20: ps holds a view of b (&b, line 27), which was moved into take2 (its parameter takes a Buf by value) at line 31, so ps can no longer be used here
+$DIR/main.p:33:7: p holds a view of b (&b, line 27), which was moved into take2 (its parameter takes a Buf by value) at line 31, so p can no longer be used here

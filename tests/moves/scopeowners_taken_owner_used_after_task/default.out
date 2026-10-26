@@ -1,0 +1,12 @@
+$DIR/main.p:16:11: b was taken by the task started by s.Task at line 15, so it can no longer be used here
+    Buf is an owner type: its values own what they hold and release it when they
+    are dropped. Assigning an owner moves it instead of copying it, so that what
+    it owns has exactly one owner. Since line 15, b holds nothing.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    If this is the last use of b, move it before line 15, where b still holds
+    its value.
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3301" for a longer explanation)

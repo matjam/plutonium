@@ -1,0 +1,28 @@
+$DIR/main.p:40:8: cannot pass a function literal that captures n (main.p:40) to rt.Go, which starts a task with it: its closure record lives in the starting frame (spec section 12.12)
+    A function literal that captures variables, and a method value such as
+    c.handle, keep their closure record (the code to call, with the captured
+    variables or a copy of the receiver) in the frame of the function that makes
+    them. A func value points to that record. A task statement copies its
+    function and arguments, but copying a func value copies only the pointer, so
+    the task may call through it after the frame is gone.
+    The compiler reports this where it sees the literal or the method value
+    itself: passed to a task statement, or held by a local variable assigned
+    only once. A func value that reaches the task start any other way (through a
+    parameter, a field, an element, or a variable assigned twice) is reported by
+    the check of views of the frame (E3003, E3004), since it may be such a
+    closure.
+    Library functions that start a task with a func argument, such as
+    sync.WaitGroup.Task and time.AfterFunc, follow the same rule and the
+    compiler reports them the same way.
+    To let the task use the function's variables, start a function literal with
+    a sync.Scope declared in the function instead: s.Task(func() {...}) waits
+    for it before s's block ends.
+    Go moves captured variables and the receivers of method values to the heap.
+    Plutonium never allocates behind the program's back, so the record stays in
+    its frame (spec section 11.5).
+    Pass the values the function needs, and start a function that takes them:
+        task func(n int, out chan int) {
+            out <- n * n
+        }(n, out)
+    (see "Task statements" in the Plutonium spec, section 12.12)
+    (run "pluto explain E2594" for a longer explanation)

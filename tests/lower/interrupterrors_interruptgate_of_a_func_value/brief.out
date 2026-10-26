@@ -1,0 +1,2 @@
+$DIR/main.p:14:20: interrupt handler main.h cannot be used as a func value; use x86.InterruptGate or x86.TrapGate to enter it in the interrupt table
+$DIR/main.p:14:27: x86.InterruptGate: the first argument must name a //pu:interrupt function

@@ -1,0 +1,14 @@
+$DIR/main.p:29:10: s holds a view of a (a[:], line 27), which was given a new value at line 28, so s can no longer be used here
+    s looks at memory that a owns, without owning it: the view was made by a[:]
+    at line 27. A view of an owner held in a local variable may be used only
+    while the variable keeps the value the view was made from. At line 28 a was
+    given a new value, so the view may look at memory that was released, or at a
+    value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use s before line 28, or give a its new value only after the last use of s
+    Or make the view again after line 28:
+        s = a[:]
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

@@ -1,0 +1,7 @@
+$DIR/main.p:12:1: generic function h cannot be an interrupt handler
+    A //pu:interrupt function is entered by the processor, not called by
+    Plutonium code. So it must be a plain function with a body: not a method,
+    not generic, and not marked //pu:inline, since the processor needs one fixed
+    address to jump to.
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2570" for a longer explanation)

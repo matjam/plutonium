@@ -1,0 +1,15 @@
+$DIR/main.p:26:9: cannot copy the elements of a in a range loop: Buf is an owner type
+    A range loop copies each element into b. Copying an owner would leave two
+    values that both release what it owns, and the element in a would still
+    believe it owns it.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Range over the indexes and use a pointer to each element:
+        for i := range a {
+            b := &a[i]
+            ...
+        }
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3304" for a longer explanation)

@@ -1,0 +1,14 @@
+$DIR/main.p:26:26: cannot move b inside a function literal: the literal may run more than once, or never
+    b is a variable of the function around the literal (declared at main.p:25),
+    which the literal uses where it lives. Moving it here would leave b empty
+    after the first call, and the function could not tell whether b still needs
+    to be dropped.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Pass the value to the literal as an argument:
+        do := func(b Buf) { ... }
+        do(b)
+    (see "Function literals" in the Plutonium spec, section 11.4)
+    (run "pluto explain E3305" for a longer explanation)

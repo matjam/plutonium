@@ -1,0 +1,1 @@
+$DIR/main.p:26:7: cannot move a[0] out of a: a[0] is an element, not a variable

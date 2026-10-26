@@ -1,0 +1,28 @@
+$DIR/main.p:12:6: onPanic cannot be the panic handler: it is generic
+    The runtime calls the panic handler, the function marked //pu:panic, with a
+    description of the panic, and never expects it to return. It is a plain
+    function with a body, not a method, not generic and not also an interrupt
+    handler, that takes a *rt.Panic and returns nothing.
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Declare it:
+        //pu:panic
+        func onPanic(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2582" for a longer explanation)
+
+kernel: no panic handler is defined
+    A kernel build has no operating system to report a crash to, so the program
+    itself must say what happens when it panics (print to a serial port or
+    screen, then halt).
+    A kernel has no operating system to fall back on when it panics, so
+    Plutonium makes the program choose what happens at compile time, and checks
+    the choice: the runtime calls the handler directly, with nothing to
+    register, so it works from the first instruction.
+    Mark one function with //pu:panic:
+        //pu:panic
+        func onPanic(p *rt.Panic) { ... }
+    (see "Panics in freestanding programs" in the Plutonium spec, section 17.4)
+    (run "pluto explain E2580" for a longer explanation)

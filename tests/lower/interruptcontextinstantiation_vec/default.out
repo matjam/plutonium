@@ -1,0 +1,17 @@
+$DIR/main.p:64:2: keyboard is an interrupt handler, so it must not wait
+    Interrupt handlers run on top of whatever code the CPU was executing. If a
+    handler waits, for a lock or for room in a channel, the interrupted code can
+    never resume to release it, and the CPU stops.
+    keyboard calls strconv.AppendInt (main.p:64), which calls dst.Append
+    (itoa.p:33), which calls v.grow (vec.p:161), which calls v.realloc
+    (vec.p:411), which calls v.a.Alloc (vec.p:423), which may be
+    slowAlloc.Alloc, which calls wait (main.p:42), which may wait.
+    v.a.Alloc calls through an interface, so it counts as calling the Alloc
+    method of every type the program converts to alloc.Allocator.
+    A kernel that waits in an interrupt handler hangs, often only under load and
+    far from the cause, so Plutonium checks the whole program at compile time
+    instead.
+    To hand work to normal code, use a non-blocking send:
+        select { case work <- item: default: }
+    (see "Interrupts" in the Plutonium spec, section 20.10)
+    (run "pluto explain E2584" for a longer explanation)

@@ -1,0 +1,1 @@
+$DIR/main.p:26:7: cannot assert x to Buf: x is an any, which only lends the value it holds

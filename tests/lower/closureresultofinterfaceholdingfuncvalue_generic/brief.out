@@ -1,0 +1,1 @@
+$DIR/main.p:22:9: cannot return h: it holds the method value p.ident (main.p:20), whose closure record is in build's frame

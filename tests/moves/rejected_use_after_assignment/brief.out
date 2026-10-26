@@ -1,0 +1,1 @@
+$DIR/main.p:27:12: m was moved to n at line 26, so it can no longer be used here

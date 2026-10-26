@@ -1,0 +1,1 @@
+$DIR/main.p:25:9: cannot return h: it holds the method value p.any (main.p:23), whose closure record is in build's frame

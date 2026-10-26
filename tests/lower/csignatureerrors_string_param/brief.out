@@ -1,0 +1,1 @@
+$DIR/main.p:10:1: //pu:extern function f: parameter 1: string has no C equivalent; pass unsafe.StringData(s) and len(s)
