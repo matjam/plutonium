@@ -48,8 +48,13 @@ func (r *reporter) calleeLabel(fn *eir.Func, in *eir.Instr, ce *ast.CallExpr, ca
 	// A dynamic call: the value called, and the function the reason goes
 	// through.
 	what := "the function value"
-	if ce != nil {
+	switch {
+	case ce != nil:
 		what = shortText(ce.Fun)
+	case eir.IsFmtWalk(fn.Key.Obj):
+		// The walk of pluto/fmt, whose body is its contract: it calls the
+		// formatting methods of everything it reaches (eir/fmtwalk.go).
+		what = "a formatting method of what it walks"
 	}
 	withPkg := c.Kind != eir.CallFunc
 	if m := r.member(callee, entry); m != nil {
@@ -215,6 +220,9 @@ func (r *reporter) why(callee eir.FuncID, entry int, from *types2.Package, depth
 		}
 		if next == eir.NoFunc && in.Call.Kind == eir.CallContract {
 			rest = r.contractWhy(in, nextEntry)
+		}
+		if d, ok := r.deferredWhy(in, next, nextEntry, depth+1); ok {
+			rest = d
 		}
 		return "passes " + desc + " to " + label + at + ", which " + rest
 	}
@@ -497,4 +505,102 @@ func elemType(T types2.Type) types2.Type {
 		return u.Elem()
 	}
 	return nil
+}
+
+// deferredWhy says what a static callee does with what is passed to it
+// when the reason goes on not into the callee's own code but into a
+// function its caller gave it: the callee calls a function value, and the
+// caller resolved that call (section 18.3) to next. It names that call,
+// "passes a pointer loaded from *f to f (which may call (*S).visit)
+// (main.p:33), which stores s in package variable keepS (main.p:16)", and
+// reports false for a reason that goes into the callee's code.
+func (r *reporter) deferredWhy(in *eir.Instr, next eir.FuncID, nextEntry int, depth int) (string, bool) {
+	c := in.Call
+	if c == nil || c.Kind != eir.CallStatic || int(c.Callee) >= len(r.p.Funcs) || next == eir.NoFunc || next == c.Callee || nextEntry < 0 {
+		return "", false
+	}
+	g := r.p.Funcs[c.Callee]
+	if g.Key.Synth != nil {
+		return "", false // calleeLabel names the function the wrapper calls
+	}
+	// A virtual function of the dynamic-call rule: the candidate that made
+	// the entry has the key.
+	cand, candEntry := next, nextEntry
+	if int(cand) >= len(r.p.Funcs) {
+		vs := r.summaryOf(cand)
+		if vs == nil || candEntry >= len(vs.Reasons) {
+			return "", false
+		}
+		rs := vs.Reasons[candEntry]
+		if rs.Callee == noReason || int(rs.Callee) >= len(r.p.Funcs) {
+			return "", false
+		}
+		cand, candEntry = r.through(eir.FuncID(rs.Callee), int(int32(rs.Entry)))
+		if int(cand) >= len(r.p.Funcs) || candEntry < 0 {
+			return "", false
+		}
+	}
+	sum, nsum := r.summaryOf(c.Callee), r.summaryOf(cand)
+	if sum == nil || nsum == nil || candEntry >= len(nsum.Esc)+len(nsum.Store) {
+		return "", false
+	}
+	var key domain.Key
+	if candEntry >= len(nsum.Esc) {
+		key = nsum.Store[candEntry-len(nsum.Esc)].Src
+	} else {
+		key = nsum.Esc[candEntry]
+	}
+	h := r.p.Funcs[cand]
+	for _, d := range sum.Deferred {
+		if d.Origin != c.Callee {
+			continue // a call deeper down: its names are not g's
+		}
+		inner := callAt(g, d.Site)
+		if inner == nil {
+			continue
+		}
+		// The argument the entry's input is: a literal's or a method
+		// value's function takes its record last; a method the reason
+		// reaches through its method value's wrapper takes the record's
+		// receiver first.
+		i, rec := key.Input(), len(d.Args)
+		if isMethod(h) && len(h.Inputs) == len(d.Args)+1 {
+			i, rec = i-1, -1
+		}
+		var desc string
+		switch {
+		case i >= 0 && i < len(d.Args):
+			if len(d.Args[i].Keys) == 0 {
+				continue
+			}
+			desc = r.keyDesc(g, d.Args[i].Keys[0])
+		case (i == rec || i == -1) && len(h.Inputs) == len(d.Args)+1 && d.Fn.Path() == domain.Root && !d.Fn.GE() && !d.Fn.Deep():
+			// The function's record (a method value's receiver), which
+			// the function value points to.
+			desc = "a pointer loaded from *" + inputName(g, d.Fn.Input())
+		default:
+			continue
+		}
+		at := ""
+		if inner.Pos.IsValid() {
+			at = " (" + r.basePos(inner.Pos) + ")"
+		}
+		label := r.calleeLabel(g, inner, r.callExprFor(inner), next, nextEntry)
+		rest := "keeps it"
+		if depth < maxChain {
+			rest = r.why(next, nextEntry, g.Pkg, depth+1)
+		}
+		return "passes " + desc + " to " + label + at + ", which " + rest, true
+	}
+	return "", false
+}
+
+// isMethod reports whether g is a declared method, whose receiver is its
+// first input.
+func isMethod(g *eir.Func) bool {
+	if g.Key.Obj == nil {
+		return false
+	}
+	sig, ok := g.Key.Obj.Type().(*types2.Signature)
+	return ok && sig.Recv() != nil
 }

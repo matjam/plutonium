@@ -431,6 +431,9 @@ func (r *reporter) passed(e *viewErr, f *finding, in *eir.Instr) {
 	if c.Kind == eir.CallContract && callee == eir.NoFunc {
 		e.calleeWhy = r.contractWhy(in, entry)
 	}
+	if d, ok := r.deferredWhy(in, callee, entry, 0); ok {
+		e.calleeWhy = d
+	}
 }
 
 // dropPassed fills in a view kept by the drop of an owner, at the end of
