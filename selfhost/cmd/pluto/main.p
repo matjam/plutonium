@@ -117,6 +117,7 @@ const rootUsage = `Usage:
 Available Commands:
   build       Compile and link a Plutonium program
   explain     Explain a compile error code
+  fmt         Format Plutonium source files
   help        Help about any command
   run         Build a hosted program and run it
   test        Run the tests of Plutonium packages
@@ -341,6 +342,8 @@ func execute(args []string, stdout, stderr io.Writer) int {
 		return vetCommand(args[1:], stdout, stderr)
 	case "test":
 		return testCommand(args[1:], stdout, stderr)
+	case "fmt":
+		return fmtMain(args[1:], stdout, stderr)
 	case "build", "run":
 	default:
 		say(stderr, "pluto: unknown command %q for \"pluto\"\n%s", pu.Box(args[0]), rootUsage)

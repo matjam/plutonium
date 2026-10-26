@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -37,9 +39,42 @@ func fmtTree(t *testing.T) string {
 	return dir
 }
 
+// runFmtArgs runs pluto fmt with opts on paths and returns its standard
+// output, standard error and exit status. With PLUTO_TEST_COMPILER set, it
+// runs that binary, such as the self-hosted compiler, instead of runFmt.
 func runFmtArgs(opts fmtOptions, stdin string, paths ...string) (string, string, int) {
+	if compiler := os.Getenv("PLUTO_TEST_COMPILER"); compiler != "" {
+		return execFmtArgs(compiler, opts, stdin, paths...)
+	}
 	var stdout, stderr bytes.Buffer
 	code := runFmt(opts, paths, strings.NewReader(stdin), &stdout, &stderr)
+	return stdout.String(), stderr.String(), code
+}
+
+// execFmtArgs is runFmtArgs for the pluto binary compiler.
+func execFmtArgs(compiler string, opts fmtOptions, stdin string, paths ...string) (string, string, int) {
+	var args []string
+	if opts.list {
+		args = append(args, "-l")
+	}
+	if opts.write {
+		args = append(args, "-w")
+	}
+	if opts.diff {
+		args = append(args, "-d")
+	}
+	cmd := exec.Command(compiler, append(append([]string{"fmt"}, args...), paths...)...)
+	cmd.Stdin = strings.NewReader(stdin)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	code := 0
+	if err := cmd.Run(); err != nil {
+		var ee *exec.ExitError
+		if !errors.As(err, &ee) || ee.ExitCode() < 0 {
+			return stdout.String(), stderr.String() + err.Error(), -1
+		}
+		code = ee.ExitCode()
+	}
 	return stdout.String(), stderr.String(), code
 }
 

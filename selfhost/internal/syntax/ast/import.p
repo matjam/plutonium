@@ -7,9 +7,12 @@
 package ast
 
 import (
+	"pluto/bytes"
 	"pluto/cmp"
 	"pluto/slices"
 	"pluto/strconv"
+	"pluto/strings"
+	"pluto/unicode/utf8"
 	"selfhost/compat"
 	"selfhost/internal/syntax/token"
 )
@@ -70,12 +73,35 @@ func lineAt(fset *token.FileSet, pos token.Pos) int {
 	return fset.PositionFor(pos, false).Line
 }
 
-func importPath(s Spec) string {
-	t, err := strconv.Unquote(s.(*ImportSpec).Path.Value)
-	if err == nil {
-		return t
+// importPath returns the bytes of s's path, as Go's strconv.Unquote gives
+// them, or nil. They are bytes, not a string: a path such as "a\xffb"
+// holds bytes that are not UTF-8, which Go sorts by and Plutonium's
+// Unquote rejects.
+func importPath(s Spec) []byte {
+	lit := s.(*ImportSpec).Path.Value
+	if t, err := strconv.Unquote(lit); err == nil {
+		return compat.Bytes(t)
 	}
-	return ""
+	if len(lit) < 2 || lit[0] != '"' || lit[len(lit)-1] != '"' {
+		return nil
+	}
+	body := strings.Slice(lit, 1, len(lit)-1)
+	var out []byte
+	for body != "" {
+		r, multibyte, tail, err := strconv.UnquoteChar(body, '"')
+		if err != nil {
+			return nil
+		}
+		body = tail
+		if !multibyte || r < utf8.RuneSelf {
+			out = compat.AppendPlain(out, byte(r)) // ASCII, or the byte of a \x escape
+			continue
+		}
+		var buf [utf8.UTFMax]byte
+		n := utf8.EncodeRune(buf[:], r)
+		out = compat.AppendPlain(out, buf[:n]...)
+	}
+	return out
 }
 
 func importName(s Spec) string {
@@ -96,7 +122,7 @@ func importComment(s Spec) string {
 
 // collapse indicates whether prev may be removed, leaving only next.
 func collapse(prev, next Spec) bool {
-	if importPath(next) != importPath(prev) || importName(next) != importName(prev) {
+	if !bytes.Equal(importPath(next), importPath(prev)) || importName(next) != importName(prev) {
 		return false
 	}
 	return prev.(*ImportSpec).Comment == nil
@@ -189,7 +215,7 @@ func sortSpecs(fset *token.FileSet, f *File, d *GenDecl, specs []Spec) []Spec {
 	slices.SortFunc(specs, func(a, b Spec) int {
 		ipath := importPath(a)
 		jpath := importPath(b)
-		r := cmp.Compare(ipath, jpath)
+		r := bytes.Compare(ipath, jpath)
 		if r != 0 {
 			return r
 		}
