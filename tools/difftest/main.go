@@ -37,7 +37,7 @@ func main() {
 	outDir := flag.String("o", "", "directory to keep failing programs in (default: do not keep them)")
 	jobs := flag.Int("j", max(runtime.NumCPU()/2, 1), "programs to test in parallel")
 	doReduce := flag.Bool("reduce", false, "reduce failing programs to small reproducers")
-	pu := flag.String("pu", "", "Plutonium compiler binary (default: build ./cmd/pluto)")
+	pu := flag.String("pu", "", "Plutonium compiler binary (default: pluto on $PATH)")
 	work := flag.String("work", "", "scratch directory (default: a new temporary directory)")
 	show := flag.Bool("print", false, "print the program for -seed and exit")
 	rangeWrites := flag.Bool("rangewrites", true, "let loops write to the array they range over (false for compilers that range over arrays in place)")
@@ -76,12 +76,11 @@ func main() {
 		log.Fatal(err)
 	}
 	if *pu == "" {
-		*pu = filepath.Join(*work, "pu")
-		cmd := exec.Command("go", "build", "-o", *pu, "./cmd/pluto")
-		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
-		if err := cmd.Run(); err != nil {
-			log.Fatalf("building the compiler: %v", err)
+		path, err := exec.LookPath("pluto")
+		if err != nil {
+			log.Fatal("no pluto on $PATH: pass -pu")
 		}
+		*pu = path
 	}
 	r := &runner{pu: *pu, plutoDir: filepath.Join(root, "lib"), work: *work, runLimit: runTimeout}
 	if *allocator != "" {
