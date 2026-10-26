@@ -12,7 +12,6 @@ package scratch
 
 import (
 	"pluto/alloc"
-	"pluto/arena"
 	"pluto/os"
 	"pluto/rt"
 	"selfhost/compat"
@@ -33,7 +32,7 @@ const maxDepth = 3
 // has its own arena, and in check mode its own pages, so that the end of
 // an inner step frees and seals only that step's memory.
 type level owner struct {
-	scr   arena.Chunked
+	scr   bump
 	ready bool
 	outer alloc.Allocator // the allocator current when the Do began
 	pages checkPages
@@ -80,9 +79,9 @@ func do(s Step, keep alloc.Allocator) {
 	l := &levels[depth]
 	if !l.ready {
 		if check {
-			l.scr = arena.NewChunked(chunkSize, &l.pages)
+			l.scr = bump{parent: &l.pages}
 		} else {
-			l.scr = arena.NewChunked(chunkSize, heap)
+			l.scr = bump{parent: heap}
 		}
 		l.ready = true
 	}
@@ -309,9 +308,9 @@ func (l *Locked) Free(p unsafe.Pointer, size, align uintptr) {
 // scratch memory of its own. Its steps do not nest. Outer within a step
 // makes outer current, which the workers share.
 type Worker owner struct {
-	scr   arena.Chunked
+	scr   bump
 	outer *Locked
-	base  arena.ChunkMark // the arena empty, for Reset
+	base  bumpMark // the arena empty, for Reset
 }
 
 // NewWorker returns a worker whose steps keep their results in outer. Its
@@ -322,7 +321,7 @@ func NewWorker(outer *Locked) Worker {
 		heap = alloc.Default()
 		inited = true
 	}
-	w := Worker{scr: arena.NewChunked(chunkSize, heap), outer: outer}
+	w := Worker{scr: bump{parent: heap}, outer: outer}
 	w.base = w.scr.Mark()
 	return w
 }
@@ -339,14 +338,20 @@ func (w *Worker) Work(s Step) {
 // Mark, Release and Shared are Do in parts, for a task that calls its
 // step's methods directly rather than through Step: Mark notes the arena,
 // Release frees what was allocated since, and Shared is the outer memory.
-func (w *Worker) Mark() arena.ChunkMark { return w.scr.Mark() }
+func (w *Worker) Mark() bumpMark { return w.scr.Mark() }
 
-func (w *Worker) Release(m arena.ChunkMark) { w.scr.Release(m) }
+func (w *Worker) Release(m bumpMark) { w.scr.Release(m) }
 
 func (w *Worker) Shared() *Locked { return w.outer }
 
 // Reset frees everything w's steps allocated.
 func (w *Worker) Reset() { w.scr.Release(w.base) }
+
+// Drop frees w's memory.
+func (w *Worker) Drop() {
+	w.scr.Release(w.base)
+	w.scr.Trim()
+}
 
 func (w *Worker) Alloc(size, align uintptr) unsafe.Pointer { return w.scr.Alloc(size, align) }
 
@@ -464,3 +469,124 @@ func (c *checkPages) seal() {
 	}
 	c.n = 0
 }
+
+// A bump is the scratch memory of one level of Do, or of a Worker: chunks
+// taken from parent and filled in order, each beginning with a link to
+// the chunk before it and its own size. Release goes back to a mark;
+// standard chunks it frees are kept for reuse until Trim, larger ones go
+// back to parent. Unlike pluto/arena's Chunked it keeps no record of each
+// allocation (language spec section 18, Arenas, asks one of a library
+// arena): scratch memory is raw allocation whose lifetimes the compiler
+// manages itself, and a record per allocation doubled its memory.
+type bump struct {
+	parent alloc.Allocator
+	cur    unsafe.Pointer // the chunk being filled, linking to older ones
+	off    uintptr        // bytes of cur in use, its header included
+	size   uintptr        // cur's size
+	spare  unsafe.Pointer // standard chunks kept for reuse
+	used   uintptr        // bytes handed out, padding included
+}
+
+// A bumpMark is how full a bump was; see bump.Release.
+type bumpMark struct {
+	cur  unsafe.Pointer
+	off  uintptr
+	size uintptr
+	used uintptr
+}
+
+const bumpHeader = 16
+
+func (b *bump) Alloc(size, align uintptr) unsafe.Pointer {
+	if size == 0 {
+		size = 1
+	}
+	if align < 8 {
+		align = 8
+	}
+	base := uintptr(b.cur)
+	off := (base+b.off+align-1)&^(align-1) - base
+	if b.cur == nil || off+size > b.size {
+		if !b.grow(size + align) {
+			return nil
+		}
+		base = uintptr(b.cur)
+		off = (base+b.off+align-1)&^(align-1) - base
+	}
+	p := unsafe.Add(b.cur, off)
+	b.used += off + size - b.off
+	b.off = off + size
+	// A chunk may hold data from before a Release.
+	clear(unsafe.Slice((*byte)(p), size))
+	return p
+}
+
+// grow makes a chunk with room for need bytes the current one.
+func (b *bump) grow(need uintptr) bool {
+	n := uintptr(chunkSize)
+	if need+bumpHeader > n {
+		n = (need + bumpHeader + 15) &^ 15
+	}
+	var c unsafe.Pointer
+	if n == chunkSize && b.spare != nil {
+		c = b.spare
+		b.spare = *(*unsafe.Pointer)(c)
+	} else {
+		c = b.parent.Alloc(n, 16)
+		if c == nil {
+			return false
+		}
+	}
+	*(*unsafe.Pointer)(c) = b.cur
+	*(*uintptr)(unsafe.Add(c, 8)) = n
+	b.cur, b.off, b.size = c, bumpHeader, n
+	return true
+}
+
+// Free gives back the space of the latest allocation, which makes a
+// growing slice cheaper; any other Free does nothing, as memory is freed
+// by Release.
+func (b *bump) Free(p unsafe.Pointer, size, align uintptr) {
+	if size == 0 {
+		size = 1
+	}
+	base := uintptr(b.cur)
+	if b.cur == nil || uintptr(p) < base+bumpHeader || uintptr(p)+size != base+b.off {
+		return
+	}
+	b.used -= size
+	b.off -= size
+}
+
+func (b *bump) Mark() bumpMark { return bumpMark{b.cur, b.off, b.size, b.used} }
+
+// Release frees everything allocated since m was taken.
+func (b *bump) Release(m bumpMark) {
+	for b.cur != m.cur {
+		c := b.cur
+		if c == nil {
+			panic("scratch: Release of a stale mark")
+		}
+		b.cur = *(*unsafe.Pointer)(c)
+		n := *(*uintptr)(unsafe.Add(c, 8))
+		if n == chunkSize {
+			*(*unsafe.Pointer)(c) = b.spare
+			b.spare = c
+		} else {
+			b.parent.Free(c, n, 16)
+		}
+	}
+	b.off, b.size, b.used = m.off, m.size, m.used
+}
+
+// Trim returns the spare chunks to parent.
+func (b *bump) Trim() {
+	for b.spare != nil {
+		c := b.spare
+		b.spare = *(*unsafe.Pointer)(c)
+		b.parent.Free(c, chunkSize, 16)
+	}
+}
+
+// Used returns the bytes handed out since b was empty, padding included.
+func (b *bump) Used() int { return int(b.used) }
