@@ -120,6 +120,7 @@ Available Commands:
   explain     Explain a compile error code
   fmt         Format Plutonium source files
   help        Help about any command
+  lsp         Run the language server on standard input and output
   run         Build a hosted program and run it
   test        Run the tests of Plutonium packages
   version     Print the pluto compiler version
@@ -347,6 +348,8 @@ func execute(args []string, stdout, stderr io.Writer) int {
 		return testCommand(args[1:], stdout, stderr)
 	case "fmt":
 		return fmtMain(args[1:], stdout, stderr)
+	case "lsp":
+		return lspMain(args[1:], stdout, stderr)
 	case "build", "run":
 	default:
 		say(stderr, "pluto: unknown command %q for \"pluto\"\n%s", pu.Box(args[0]), rootUsage)

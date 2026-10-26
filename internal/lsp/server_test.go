@@ -2,11 +2,14 @@ package lsp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -46,21 +49,31 @@ func startServer(t *testing.T, opts Options) *client {
 	if opts.Debounce == 0 {
 		opts.Debounce = 5 * time.Millisecond
 	}
-	toServer, fromClient := io.Pipe()
-	fromServer, toClient := io.Pipe()
 	c := &client{
 		t:      t,
-		w:      &writer{w: fromClient},
 		waits:  map[string]chan *message{},
 		notes:  make(chan *message, 1000),
 		served: make(chan error, 1),
 		stdlib: opts.StdlibDir,
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		c.served <- Serve(ctx, toServer, toClient, opts)
-		_ = toClient.Close()
-	}()
+	var fromServer io.ReadCloser
+	if compiler := os.Getenv("PLUTO_TEST_COMPILER"); compiler != "" {
+		fromServer = c.exec(compiler, opts)
+	} else {
+		toServer, fromClient := io.Pipe()
+		pr, toClient := io.Pipe()
+		fromServer = pr
+		c.w = &writer{w: fromClient}
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			c.served <- Serve(ctx, toServer, toClient, opts)
+			_ = toClient.Close()
+		}()
+		t.Cleanup(func() {
+			cancel()
+			_ = fromClient.Close()
+		})
+	}
 	go func() {
 		r := bufio.NewReader(fromServer)
 		for {
@@ -81,12 +94,73 @@ func startServer(t *testing.T, opts Options) *client {
 			}
 		}
 	}()
-	t.Cleanup(func() {
-		cancel()
-		_ = fromClient.Close()
-		_ = fromServer.Close()
-	})
+	t.Cleanup(func() { _ = fromServer.Close() })
 	return c
+}
+
+// exec starts the server as the pluto lsp of compiler, such as the
+// self-hosted compiler, with the library of opts as $PLUTOROOT, and
+// returns its standard output. Serve's result is the process's: nil for
+// status 0, and ErrExitWithoutShutdown for status 1 with that error on
+// standard error.
+func (c *client) exec(compiler string, opts Options) io.ReadCloser {
+	t := c.t
+	t.Helper()
+	if opts.StdlibDir == "" {
+		t.Skip("the pluto binary has no embedded library to extract")
+	}
+	args := []string{"lsp", fmt.Sprintf("--debounce=%dms", max(opts.Debounce.Milliseconds(), 1))}
+	if opts.Log != nil {
+		args = append(args, "-v")
+	}
+	cmd := exec.Command(compiler, args...)
+	cmd.Env = append(os.Environ(), "PLUTOROOT="+opts.StdlibDir)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A pipe of our own rather than StdoutPipe, which Wait closes: the
+	// reader sees all the output and then the end of it.
+	stdout, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Stdout = w
+	err = cmd.Start()
+	_ = w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.w = &writer{w: stdin}
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		err := cmd.Wait()
+		var exit *exec.ExitError
+		switch {
+		case err == nil:
+		case errors.As(err, &exit) && exit.ExitCode() == 1 && strings.Contains(stderr.String(), ErrExitWithoutShutdown.Error()):
+			err = ErrExitWithoutShutdown
+		default:
+			err = fmt.Errorf("%s lsp: %v\n%s", compiler, err, stderr.String())
+		}
+		c.served <- err
+	}()
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		select {
+		case <-exited:
+		case <-time.After(10 * time.Second):
+			_ = cmd.Process.Kill()
+			<-exited
+		}
+		if opts.Log == nil && stderr.Len() > 0 {
+			t.Logf("%s lsp stderr:\n%s", compiler, stderr.String())
+		}
+	})
+	return stdout
 }
 
 // call sends a request and returns its response.
@@ -331,6 +405,15 @@ func TestExitWithoutShutdown(t *testing.T) {
 func TestServeEOF(t *testing.T) {
 	// A disconnected client ends the server cleanly without requiring
 	// an exit notification. No cancellation races with the input EOF.
+	if compiler := os.Getenv("PLUTO_TEST_COMPILER"); compiler != "" {
+		cmd := exec.Command(compiler, "lsp")
+		cmd.Env = append(os.Environ(), "PLUTOROOT="+libDir(t))
+		cmd.Stdin = strings.NewReader("")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s lsp after client EOF = %v\n%s", compiler, err, out)
+		}
+		return
+	}
 	if err := Serve(context.Background(), strings.NewReader(""), io.Discard, Options{StdlibDir: libDir(t)}); err != nil {
 		t.Fatalf("Serve after client EOF = %v", err)
 	}
