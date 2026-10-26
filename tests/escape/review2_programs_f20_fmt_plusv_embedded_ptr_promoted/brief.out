@@ -1,0 +1,3 @@
+$DIR/main.p:35:2: cannot pass Top{...} to fmt.Printf, which keeps it after returning
+$DIR/main.p:35:2: cannot pass &m to fmt.Printf, which keeps it after returning
+$DIR/main.p:35:2: cannot pass &in to fmt.Printf, which keeps it after returning

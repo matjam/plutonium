@@ -1,0 +1,1 @@
+$DIR/main.p:12:9: cannot return W{...} as an interface: the interface would hold a copy of it in mk's frame

@@ -1,0 +1,1 @@
+$DIR/main.p:13:5: cannot send a on ch: the receiver may outlive x

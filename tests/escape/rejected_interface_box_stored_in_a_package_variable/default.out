@@ -1,0 +1,14 @@
+$DIR/main.p:7:2: cannot store E{...} in package variable Err, which outlives main's frame
+    Converting a value larger than one word to an interface puts a copy of the
+    value in the frame of the function that converts it (here main, at
+    main.p:7), and the interface points at that copy. When main returns, its
+    frame is reclaimed, but package variables live for the whole program, so
+    package variable Err would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of main's frame, or allocate it so
+    that it lives as long as package variable Err.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

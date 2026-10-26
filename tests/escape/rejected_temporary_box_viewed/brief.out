@@ -1,0 +1,1 @@
+$DIR/main.p:4:22: cannot return (*N)(new(N)), which points into the temporary owned[N] that new(N) returns

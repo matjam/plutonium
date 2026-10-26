@@ -1,0 +1,1 @@
+$DIR/main.p:10:1: cannot pass &r to (*Conn).Drop (called when r is dropped), which keeps it after returning

@@ -1,0 +1,1 @@
+$DIR/main.p:17:2: cannot pass &x to hook (which may call (*K).Keep), which keeps it after returning

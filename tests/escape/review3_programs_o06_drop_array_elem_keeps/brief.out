@@ -1,0 +1,1 @@
+$DIR/main.p:22:1: cannot pass &arr to (*O).Drop (called when arr is dropped), which keeps it after returning

@@ -1,0 +1,1 @@
+$DIR/main.p:8:2: cannot pass &x to link, which keeps it after returning

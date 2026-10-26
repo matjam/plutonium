@@ -1,0 +1,2 @@
+$DIR/main.p:19:2: cannot pass &x to hook (which may call (K).Keep), which keeps it after returning
+$DIR/main.p:26:2: cannot store k.Keep in package variable hook, which outlives init's frame

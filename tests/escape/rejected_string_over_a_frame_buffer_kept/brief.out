@@ -1,0 +1,1 @@
+$DIR/main.p:7:2: cannot store unsafe.String(&buf[0], 4) in package variable name, which outlives buf

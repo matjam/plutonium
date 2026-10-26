@@ -1,0 +1,1 @@
+$DIR/main.p:6:2: cannot store &x in package variable G, which outlives x

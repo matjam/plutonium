@@ -1,0 +1,1 @@
+$DIR/main.p:16:3: cannot pass &v to (*Holder).set, which keeps it after this iteration: the loop at line 14 reuses v in every iteration

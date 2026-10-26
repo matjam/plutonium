@@ -1,0 +1,1 @@
+$DIR/main.p:15:2: cannot pass &x to send, which keeps it after returning

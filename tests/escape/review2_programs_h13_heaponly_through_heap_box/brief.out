@@ -1,0 +1,1 @@
+$DIR/main.p:23:2: cannot pass &in to (*Box).Set, which keeps it after returning

@@ -1,0 +1,13 @@
+$DIR/main.p:8:2: cannot pass &x to relay, which keeps it after returning
+    &x is a pointer to x. x is a local variable of main (declared at main.p:7).
+    relay passes q to keep (main.p:5), which stores p in package variable saved
+    (main.p:4), so &x would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If relay should keep its own copy of x, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[int] from new, a shared[int], or
+    a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

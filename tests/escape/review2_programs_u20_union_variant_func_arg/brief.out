@@ -1,0 +1,1 @@
+$DIR/main.p:30:2: cannot pass apply(U.P, &in) to store, which keeps it after returning

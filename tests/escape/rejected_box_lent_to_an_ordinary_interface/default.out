@@ -1,0 +1,21 @@
+$DIR/main.p:8:9: cannot return n as an interface: an ordinary interface only borrows the box, which is dropped when f returns
+    n points into the object n refers to, which n keeps alive in f. n (declared
+    at main.p:7) is an owned[N]: the object it refers to lives only while n
+    holds it, and is dropped when n is dropped at the end of its scope in f, or
+    released when it is the last reference. A pointer into the object, or an
+    interface that lends it, is a view that may not outlive n. Converting n to
+    an ordinary interface lends it: the interface points at the object, and n
+    still owns it.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return the box itself, changing the result type to owned[N]:
+        return n
+    Or declare the interface as an owning interface, which takes ownership of
+    what is converted into it (language spec section 18.5):
+        type I owner interface {
+            ...
+        }
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

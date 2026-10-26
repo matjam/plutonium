@@ -1,0 +1,1 @@
+$DIR/main.p:36:10: cannot pass A{...} to call, which keeps it after returning

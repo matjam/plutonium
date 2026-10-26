@@ -1,0 +1,14 @@
+$DIR/main.p:7:2: cannot store unsafe.String(&buf[0], 4) in package variable name, which outlives buf
+    unsafe.String(&buf[0], 4) points into buf. buf is a local array of main
+    (declared at main.p:6). When main returns, buf's memory is reclaimed, but
+    package variables live for the whole program, so package variable name would
+    be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store values instead of views of buf, or allocate buf and store its owner,
+    an owned[[4]byte], which moves there:
+        name = new([4]byte)
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

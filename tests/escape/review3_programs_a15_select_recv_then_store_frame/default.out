@@ -1,0 +1,16 @@
+$DIR/main.p:16:3: cannot store &x in package variable keep, which outlives x
+    &x is a pointer to x. x is a local variable of f (declared at main.p:12).
+    When f returns, x's memory is reclaimed, but package variables live for the
+    whole program, so package variable keep would be left pointing at reclaimed
+    memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value instead of a pointer to it, changing the type of keep to
+    match. This copies x, or moves it if it is an owner:
+        keep = x
+    Or allocate x and store its owner, an owned[int], which moves into keep:
+        keep = new(int)
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

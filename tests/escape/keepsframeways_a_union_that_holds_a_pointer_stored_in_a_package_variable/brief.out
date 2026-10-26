@@ -1,0 +1,1 @@
+$DIR/main.p:11:2: cannot store U.P(&in) in package variable keep, which outlives in

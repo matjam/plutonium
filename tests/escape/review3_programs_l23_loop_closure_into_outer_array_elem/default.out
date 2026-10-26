@@ -1,0 +1,23 @@
+$DIR/main.p:11:3: cannot keep the function literal in fs[i] after this iteration: it uses i, which the loop at line 10 reuses in every iteration
+    A function literal refers to the variables it uses where they live, and i
+    lives in f's frame, where every iteration of the loop at line 10 reuses the
+    same memory for it. When the next iteration starts, the literal kept in
+    fs[i] would see that iteration's i, not this one's.
+    Go gives each iteration of a loop its own variables, so a function literal
+    made in one iteration keeps that iteration's values. Plutonium keeps
+    variables in the function's frame, which has room for one copy of each;
+    giving every iteration its own copy would need memory for each iteration,
+    allocated behind the program's back.
+    If the function literal is needed only in this iteration, call it before the
+    iteration ends. To use i later, keep its value instead of the function
+    literal:
+        var saved int // declared before the loop
+        ...
+        saved = i
+    Or pass i to the function literal as a parameter when it is called:
+        fs[i] = func(i int) { ... }
+        ...
+        fs[i](i)
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
+    (run "pluto explain E3006" for a longer explanation)

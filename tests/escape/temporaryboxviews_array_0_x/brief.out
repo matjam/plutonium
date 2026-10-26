@@ -1,0 +1,1 @@
+$DIR/main.p:44:15: cannot store &array()[0].x in p, which outlives the temporary

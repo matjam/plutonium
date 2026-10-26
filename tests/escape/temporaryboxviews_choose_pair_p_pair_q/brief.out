@@ -1,0 +1,1 @@
+$DIR/main.p:44:15: cannot store choose(pair().p, pair().q) in p, which outlives the temporary

@@ -1,0 +1,1 @@
+$DIR/main.p:10:40: cannot return borrow(e), which points into the object e refers to, which e keeps alive in f

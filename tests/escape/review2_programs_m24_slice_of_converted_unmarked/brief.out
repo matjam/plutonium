@@ -1,0 +1,1 @@
+$DIR/main.p:33:10: cannot pass &sl[1] to call, which keeps it after returning

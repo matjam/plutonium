@@ -1,0 +1,1 @@
+$DIR/main.p:27:2: cannot pass U.P(&in) to store, which keeps it after returning

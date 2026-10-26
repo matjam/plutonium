@@ -1,0 +1,3 @@
+$DIR/main.p:29:2: cannot pass Outer{...} to fmt.Println, which keeps it after returning
+$DIR/main.p:29:2: cannot pass the function literal to fmt.Println, which keeps it after returning
+$DIR/main.p:29:2: cannot pass &in to fmt.Println, which keeps it after returning

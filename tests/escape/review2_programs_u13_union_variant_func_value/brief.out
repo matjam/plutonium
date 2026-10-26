@@ -1,0 +1,1 @@
+$DIR/main.p:28:2: cannot pass mk(&in) to store, which keeps it after returning

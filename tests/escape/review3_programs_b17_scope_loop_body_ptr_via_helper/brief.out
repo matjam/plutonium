@@ -1,0 +1,1 @@
+$DIR/main.p:19:3: the task started here takes p, a view of y, which the loop at main.p:16 reuses before s waits for the task

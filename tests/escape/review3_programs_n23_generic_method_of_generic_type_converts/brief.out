@@ -1,0 +1,1 @@
+$DIR/main.p:27:10: cannot pass &b to (*Box).Show, which keeps it after returning

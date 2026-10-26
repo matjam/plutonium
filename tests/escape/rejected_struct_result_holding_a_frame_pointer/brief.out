@@ -1,0 +1,1 @@
+$DIR/main.p:9:9: cannot return R{...}, which points into x, a local variable of f

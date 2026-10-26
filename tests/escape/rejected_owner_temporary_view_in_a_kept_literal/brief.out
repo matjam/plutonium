@@ -1,0 +1,1 @@
+$DIR/main.p:23:2: cannot store &H{...} in h, which outlives the temporary

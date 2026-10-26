@@ -1,0 +1,1 @@
+$DIR/main.p:17:12: cannot return P{...}, which points into arr, a local array of mk

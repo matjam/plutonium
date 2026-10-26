@@ -1,0 +1,1 @@
+$DIR/main.p:16:2: cannot pass o to fmt.Println, which keeps it after returning

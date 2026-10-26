@@ -1,0 +1,1 @@
+$DIR/main.p:11:2: cannot store Out{...} in package variable g, which outlives x

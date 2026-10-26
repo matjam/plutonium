@@ -1,0 +1,31 @@
+$DIR/main.p:15:9: cannot return ap.Load(), which points into ap, a local variable of g
+    ap.Load() points into ap. ap is a local variable of g (declared at
+    main.p:13). Its memory is reclaimed when g returns, so ap.Load() would point
+    at memory that no longer holds ap.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of ap, or allocate ap and return its owner,
+    an owned[pluto/sync/atomic.Pointer[int]]:
+        ap := new(pluto/sync/atomic.Pointer[int])
+        ...
+        return ap
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:15:9: cannot return ap.Load(), which points into x, a local variable of g
+    ap.Load() points into x. x is a local variable of g (declared at main.p:12).
+    Its memory is reclaimed when g returns, so ap.Load() would point at memory
+    that no longer holds x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of x, or allocate x and return its owner, an
+    owned[int]:
+        x := new(int)
+        ...
+        return x
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

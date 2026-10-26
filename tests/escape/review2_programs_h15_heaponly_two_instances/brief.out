@@ -1,0 +1,1 @@
+$DIR/main.p:27:9: cannot return wrap(&in), which points into in, a local variable of g

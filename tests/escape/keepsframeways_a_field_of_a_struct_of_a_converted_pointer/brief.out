@@ -1,0 +1,1 @@
+$DIR/main.p:15:10: cannot pass &q.b to call, which keeps it after returning

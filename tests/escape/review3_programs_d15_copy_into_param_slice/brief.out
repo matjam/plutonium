@@ -1,0 +1,1 @@
+$DIR/main.p:13:2: cannot store &x in the backing array of dst, which outlives x

@@ -1,0 +1,1 @@
+$DIR/main.p:8:48: cannot return f().p, which points into the closure inner(name) returns, built in the function literal's frame

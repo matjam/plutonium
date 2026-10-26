@@ -1,0 +1,1 @@
+$DIR/main.p:11:2: cannot store the function literal in package variable gf, which outlives x

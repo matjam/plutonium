@@ -1,0 +1,14 @@
+$DIR/main.p:16:17: cannot pass the loop body to seq, which keeps it after returning
+    A range loop over a function (at main.p:16) calls the function with a yield
+    function whose body is the loop body, a closure built in f's frame (section
+    12.11); yield may be called only while the loop runs. seq passes yield to
+    remember (main.p:11), which stores y in package variable keepY (main.p:9),
+    so the loop body would outlive f's frame.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change seq to call yield only while it runs, without keeping it (language
+    spec section 12.11).
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

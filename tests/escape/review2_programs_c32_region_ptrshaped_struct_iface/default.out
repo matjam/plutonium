@@ -1,0 +1,15 @@
+$DIR/main.p:17:12: cannot return P{...}, which points into arr, a local array of mk
+    P{...} points into arr. arr is a local array of mk (declared at main.p:14).
+    Its memory is reclaimed when mk returns, so P{...} would point at memory
+    that no longer holds arr.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of arr, or allocate arr and return its owner,
+    an owned[[1]func() int]:
+        arr := new([1]func() int)
+        ...
+        return arr
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

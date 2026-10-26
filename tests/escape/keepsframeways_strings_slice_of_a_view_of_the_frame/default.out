@@ -1,0 +1,16 @@
+$DIR/main.p:9:9: cannot return strings.Slice(unsafe.String(&b[0], 2), 0, 1), which points into b, a local array of f
+    strings.Slice(unsafe.String(&b[0], 2), 0, 1) points into b. b is a local
+    array of f (declared at main.p:8). Its memory is reclaimed when f returns,
+    so strings.Slice(unsafe.String(&b[0], 2), 0, 1) would point at memory that
+    no longer holds b.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of b, or allocate b and return its owner, an
+    owned[[2]byte]:
+        b := new([2]byte)
+        ...
+        return b
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

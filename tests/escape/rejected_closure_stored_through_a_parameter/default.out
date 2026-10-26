@@ -1,0 +1,15 @@
+$DIR/main.p:6:2: cannot store the function literal in h.f, which outlives n
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in set's frame (n is declared at main.p:5).
+    When set returns, n's memory is reclaimed, but h.f is reached through h,
+    which points to memory that set's caller owns and that lives longer. It
+    would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store a value that carries its own state instead of the function literal,
+    such as a struct with a method, or make n a package variable if it must
+    outlive set.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

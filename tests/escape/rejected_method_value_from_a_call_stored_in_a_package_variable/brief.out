@@ -1,0 +1,1 @@
+$DIR/main.p:7:15: cannot store f(C{}) in package variable saved, which outlives main's frame

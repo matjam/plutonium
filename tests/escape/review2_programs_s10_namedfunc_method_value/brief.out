@@ -1,0 +1,1 @@
+$DIR/main.p:40:10: cannot pass h.String to callf, which keeps it after returning

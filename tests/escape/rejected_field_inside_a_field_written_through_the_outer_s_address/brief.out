@@ -1,0 +1,1 @@
+$DIR/main.p:11:2: cannot store o.in.p in package variable G, which outlives x

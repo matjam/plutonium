@@ -1,0 +1,14 @@
+$DIR/main.p:44:27: cannot pass sharedHolder().p to set, which keeps it after returning
+    sharedHolder().p points into the temporary SharedHolder that sharedHolder()
+    returns. The SharedHolder made at main.p:44 is a temporary: nothing keeps
+    it, so its object is dropped at the end of the statement. A view of the
+    object may be passed to calls in that statement but may not outlive it. set
+    stores it in *dst (main.p:17), so sharedHolder().p would outlive the
+    temporary.
+    The view does not own the memory it looks at. Nothing keeps the temporary
+    after the statement, so a stored view would outlive the value that keeps its
+    memory alive.
+    Change set to take a value or an owner, which it can keep: an owned[T] from
+    new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3009" for a longer explanation)

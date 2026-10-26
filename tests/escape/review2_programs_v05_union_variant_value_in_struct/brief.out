@@ -1,0 +1,1 @@
+$DIR/main.p:21:9: cannot return h.mk(&in), which points into in, a local variable of g

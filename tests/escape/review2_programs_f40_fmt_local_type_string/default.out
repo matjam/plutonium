@@ -1,0 +1,18 @@
+$DIR/main.p:25:2: cannot pass &in to fmt.Println, which keeps it after returning
+    &in points into in. in is a local variable of f (declared at main.p:15).
+    fmt.Println passes a pointer reachable from args to Fprintln
+    (print_linux.p:17), which passes a pointer reachable from args to
+    (*printer).doPrint (fmt.p:948), which passes a pointer reachable from args
+    to (*printer).printArg (fmt.p:915), which passes a pointer reachable from
+    arg to a formatting method of what it walks (which may call main.(W).String)
+    (fmt.p:671), which stores w in package variable keep (main.p:34), so &in
+    would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If fmt.Println should keep its own copy of in, change it to take the value,
+    not a pointer, or an owner it can keep: an owned[Inner] from new, a
+    shared[Inner], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

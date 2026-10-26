@@ -1,0 +1,14 @@
+$DIR/main.p:13:2: cannot store &x in the backing array of dst, which outlives x
+    &x points into x. x is a local variable of g (declared at main.p:11). When g
+    returns, x's memory is reclaimed, but the backing array of dst is reached
+    through dst, which points to memory that g's caller owns and that lives
+    longer. It would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store values instead of views of x, or allocate x and store its owner, an
+    owned[int], which moves there:
+        the backing array of dst = new(int)
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

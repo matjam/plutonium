@@ -1,0 +1,1 @@
+$DIR/main.p:25:2: cannot pass &x to ping, which keeps it after returning

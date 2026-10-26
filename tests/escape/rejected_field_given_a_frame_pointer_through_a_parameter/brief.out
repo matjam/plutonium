@@ -1,0 +1,1 @@
+$DIR/main.p:10:2: cannot pass &x to keep, which keeps it after returning

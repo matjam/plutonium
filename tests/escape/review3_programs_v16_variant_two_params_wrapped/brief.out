@@ -1,0 +1,1 @@
+$DIR/main.p:21:9: cannot return hook(U.P, &x), which points into x, a local variable of g

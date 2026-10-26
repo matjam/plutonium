@@ -1,0 +1,1 @@
+$DIR/main.p:8:2: cannot store &x in the backing array of s, which outlives x

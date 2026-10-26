@@ -1,0 +1,1 @@
+$DIR/main.p:32:10: cannot pass &t to g, which keeps it after returning

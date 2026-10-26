@@ -1,0 +1,1 @@
+$DIR/main.p:7:2: cannot store r.All() in package variable g, which outlives r

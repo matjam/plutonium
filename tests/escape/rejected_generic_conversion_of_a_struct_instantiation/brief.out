@@ -1,0 +1,1 @@
+$DIR/main.p:4:35: cannot return x as an interface: the interface would hold a copy of it in box's frame

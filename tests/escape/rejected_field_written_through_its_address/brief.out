@@ -1,0 +1,1 @@
+$DIR/main.p:10:2: cannot store n.p in package variable G, which outlives x

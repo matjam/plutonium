@@ -1,0 +1,1 @@
+$DIR/main.p:22:6: cannot store readAll(2).Slice() in v, which outlives the temporary

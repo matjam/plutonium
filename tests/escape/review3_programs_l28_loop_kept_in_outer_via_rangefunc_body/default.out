@@ -1,0 +1,17 @@
+$DIR/main.p:20:3: cannot keep &w in keepP after this iteration: the loop at line 18 reuses w in every iteration
+    &w is a pointer to w. w lives in f's frame, where every iteration of the
+    loop at line 18 reuses the same memory for it. When the next iteration
+    starts, keepP would see that iteration's w, not this one's.
+    Go gives each iteration of a loop its own variables, so a function literal
+    made in one iteration keeps that iteration's values. Plutonium keeps
+    variables in the function's frame, which has room for one copy of each;
+    giving every iteration its own copy would need memory for each iteration,
+    allocated behind the program's back.
+    If keepP is needed only in this iteration, use it before the iteration ends.
+    To use the value later, keep the value instead of a view of it:
+        var saved int // declared before the loop
+        ...
+        saved = w
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
+    (run "pluto explain E3006" for a longer explanation)

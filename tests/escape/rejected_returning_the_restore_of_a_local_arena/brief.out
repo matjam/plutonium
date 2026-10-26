@@ -1,0 +1,1 @@
+$DIR/main.p:9:9: cannot return alloc.Use(&a), which points into a, a local variable of install

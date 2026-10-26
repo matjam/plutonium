@@ -1,0 +1,1 @@
+$DIR/main.p:7:2: cannot store E{...} in package variable Err, which outlives main's frame

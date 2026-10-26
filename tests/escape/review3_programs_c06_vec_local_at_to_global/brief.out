@@ -1,0 +1,1 @@
+$DIR/main.p:14:2: cannot pass &x to vec.(*Vec).Push, which keeps it after returning

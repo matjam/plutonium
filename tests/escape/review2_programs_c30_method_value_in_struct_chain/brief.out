@@ -1,0 +1,1 @@
+$DIR/main.p:16:9: cannot return V{...}, which points into c, a local variable of mk

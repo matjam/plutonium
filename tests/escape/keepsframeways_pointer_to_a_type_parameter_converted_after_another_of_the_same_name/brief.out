@@ -1,0 +1,1 @@
+$DIR/main.p:18:10: cannot pass &s to show, which keeps it after returning

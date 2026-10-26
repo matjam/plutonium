@@ -1,0 +1,2 @@
+$DIR/main.p:15:9: cannot return ap.Load(), which points into ap, a local variable of g
+$DIR/main.p:15:9: cannot return ap.Load(), which points into x, a local variable of g

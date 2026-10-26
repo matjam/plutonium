@@ -1,0 +1,1 @@
+$DIR/main.p:13:3: cannot store (*int)(p) in package variable G, which outlives p

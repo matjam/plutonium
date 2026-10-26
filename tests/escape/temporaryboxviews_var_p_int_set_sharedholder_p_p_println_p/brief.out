@@ -1,0 +1,1 @@
+$DIR/main.p:44:27: cannot pass sharedHolder().p to set, which keeps it after returning

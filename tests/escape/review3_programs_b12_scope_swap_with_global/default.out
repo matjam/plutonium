@@ -1,0 +1,12 @@
+$DIR/main.p:18:7: cannot send unsafe.Pointer(&x) on got: the receiver may outlive x
+    unsafe.Pointer(&x) points into x. x is a local variable of f (declared at
+    main.p:15). The value sent here may be received after the function literal
+    returns and x's memory is reclaimed.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Pass a value, which is copied, or an owner, which moves, instead of a view
+    of the frame.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3005" for a longer explanation)

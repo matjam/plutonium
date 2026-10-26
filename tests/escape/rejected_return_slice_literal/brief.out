@@ -1,0 +1,1 @@
+$DIR/main.p:3:25: cannot return []int{...}, a slice literal whose elements are in f's frame

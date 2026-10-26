@@ -1,0 +1,1 @@
+$DIR/main.p:17:20: cannot pass &mk() to (*O).Drop (called when mk() is dropped), which keeps it after returning

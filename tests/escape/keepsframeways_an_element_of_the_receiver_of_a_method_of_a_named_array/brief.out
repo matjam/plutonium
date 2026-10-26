@@ -1,0 +1,1 @@
+$DIR/main.p:14:10: cannot pass &arr to (*Arr).first, which keeps it after returning

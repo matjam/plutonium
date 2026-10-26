@@ -1,0 +1,14 @@
+$DIR/main.p:7:2: cannot pass the variadic arguments of keep to keep, which keeps it after returning
+    the variadic arguments of keep points into the variadic arguments of a call,
+    in main's frame. A call with variadic arguments (at main.p:7) passes them in
+    an array in main's frame, and the function gets a slice of that array. keep
+    stores ps in package variable all (main.p:4), so the variadic arguments of
+    keep would outlive main's frame.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change keep to take a value or an owner, which it can keep: an owned[T] from
+    new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

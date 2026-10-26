@@ -1,0 +1,1 @@
+$DIR/main.p:9:3: cannot store v in package variable G, which outlives x

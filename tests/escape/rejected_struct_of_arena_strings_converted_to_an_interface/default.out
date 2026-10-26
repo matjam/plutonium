@@ -1,0 +1,18 @@
+$DIR/main.p:14:14: cannot convert pair{...} to an interface: it points into memory allocated from ar, a local arena of f, which is gone before the interface's copy is released
+    pair{...} points into memory allocated from ar, a local arena of f. ar (a
+    local arena of f, declared at main.p:10) is given as an allocator to
+    b.Init(&ar) (at main.p:12), so what is allocated from it lives in the arena,
+    and is gone when the arena is. Converting pair{...} to an interface puts a
+    copy of it in f's frame, and the copy holds a reference to the text until f
+    returns. That is after the arena ar is dropped, and releasing the reference
+    would write into the arena's memory.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use the text without converting it to an interface, for example by writing
+    its bytes:
+        os.Stdout.Write(b.Bytes())
+    Or convert a string made from an allocator that outlives the arena, passed
+    explicitly, or from the default allocator before the arena is installed
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

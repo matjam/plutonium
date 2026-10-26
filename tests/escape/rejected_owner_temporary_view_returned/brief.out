@@ -1,0 +1,1 @@
+$DIR/main.p:21:27: cannot return readAll(2).Slice(), which points into the temporary Buf that readAll(2) returns

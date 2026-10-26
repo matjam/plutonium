@@ -1,0 +1,1 @@
+$DIR/main.p:14:2: cannot store rt.CopyValue(&p) in package variable g, which outlives x

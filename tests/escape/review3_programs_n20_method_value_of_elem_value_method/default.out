@@ -1,0 +1,14 @@
+$DIR/main.p:27:10: cannot pass &arr to g, which keeps it after returning
+    &arr points into x. x is a local variable of f (declared at main.p:24). g
+    passes a pointer loaded from &p[i].p to callf (main.p:20), which passes a
+    pointer loaded from *f to f (which may call (T).Get) (main.p:17), which
+    stores t in package variable keep (main.p:14), so &arr would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If g should keep its own copy of x, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[int] from new, a shared[int], or
+    a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

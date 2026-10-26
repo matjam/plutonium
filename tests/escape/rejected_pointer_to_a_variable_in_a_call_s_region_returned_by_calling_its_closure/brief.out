@@ -1,0 +1,1 @@
+$DIR/main.p:12:12: cannot store mk()() in package variable saved, which outlives h's frame

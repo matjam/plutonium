@@ -1,0 +1,1 @@
+$DIR/main.p:6:2: cannot store the function literal in h.f, which outlives n

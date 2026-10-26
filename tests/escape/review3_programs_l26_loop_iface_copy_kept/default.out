@@ -1,0 +1,16 @@
+$DIR/main.p:13:3: cannot keep Big{...} in keepI after this iteration: the loop at line 12 makes it in the same memory in every iteration
+    Converting a value larger than one word to an interface puts a copy of the
+    value in the frame of the function that converts it (here f, at main.p:13),
+    and the interface points at that copy.
+    Every iteration of the loop at line 12 reuses that memory. When the next
+    iteration starts, keepI would see that iteration's value, not this one's.
+    Go gives each iteration of a loop its own variables, so a function literal
+    made in one iteration keeps that iteration's values. Plutonium keeps
+    variables in the function's frame, which has room for one copy of each;
+    giving every iteration its own copy would need memory for each iteration,
+    allocated behind the program's back.
+    Use Big{...} before the iteration ends, or keep a copy of the value instead
+    of a view of it.
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
+    (run "pluto explain E3006" for a longer explanation)

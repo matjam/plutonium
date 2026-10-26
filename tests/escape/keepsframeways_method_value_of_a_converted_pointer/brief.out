@@ -1,0 +1,1 @@
+$DIR/main.p:10:6: cannot pass (*S)(&b).visit to call, which keeps it after returning

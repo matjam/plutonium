@@ -1,0 +1,1 @@
+$DIR/main.p:14:14: cannot convert pair{...} to an interface: it points into memory allocated from ar, a local arena of f, which is gone before the interface's copy is released

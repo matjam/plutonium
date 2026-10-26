@@ -1,0 +1,1 @@
+$DIR/main.p:13:2: cannot pass H{...} to yield (which may call the loop body at main.p:19), which keeps it after returning

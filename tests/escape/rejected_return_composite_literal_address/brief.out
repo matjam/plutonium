@@ -1,0 +1,1 @@
+$DIR/main.p:4:22: cannot return &T{...}, a pointer to a composite literal in f's frame

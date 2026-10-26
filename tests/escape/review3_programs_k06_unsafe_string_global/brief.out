@@ -1,0 +1,1 @@
+$DIR/main.p:12:2: cannot store unsafe.String(&buf[0], 8) in package variable gstr, which outlives buf

@@ -1,0 +1,1 @@
+$DIR/main.p:16:9: cannot return h(&in), which points into in, a local variable of g

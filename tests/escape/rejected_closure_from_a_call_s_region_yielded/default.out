@@ -1,0 +1,15 @@
+$DIR/main.p:7:45: cannot pass inner to yield (which may call the loop body at main.p:10), which keeps it after returning
+    inner points into the closure inc(n) returns, built in gen's frame. inc(n)
+    returns a closure, which it builds in a region of its caller's frame, gen's
+    (at main.p:6); the closure lives as long as that frame (section 4.5). yield
+    (which may call the loop body at main.p:10) stores f in package variable
+    saved (main.p:11), so inner would outlive gen's frame.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change yield (which may call the loop body at main.p:10) to take a value or
+    an owner, which it can keep: an owned[T] from new, a shared[T], or a library
+    owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

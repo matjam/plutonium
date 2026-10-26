@@ -1,0 +1,1 @@
+$DIR/main.p:13:3: cannot pass &x to yield (which may call the loop body at main.p:20), which keeps it after returning

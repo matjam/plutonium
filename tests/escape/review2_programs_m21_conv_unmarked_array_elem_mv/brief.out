@@ -1,0 +1,1 @@
+$DIR/main.p:32:10: cannot pass q[1].visit to callf, which keeps it after returning

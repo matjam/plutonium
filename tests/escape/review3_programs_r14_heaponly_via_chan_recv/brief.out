@@ -1,0 +1,1 @@
+$DIR/main.p:21:4: cannot send Node{...} on c: the receiver may outlive a

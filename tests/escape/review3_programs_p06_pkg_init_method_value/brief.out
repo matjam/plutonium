@@ -1,0 +1,1 @@
+$DIR/main.p:15:9: cannot return s.Get, which points into s, a local variable of the function literal

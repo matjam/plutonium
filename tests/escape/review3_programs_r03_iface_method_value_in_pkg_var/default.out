@@ -1,0 +1,28 @@
+$DIR/main.p:19:2: cannot pass &x to hook (which may call (K).Keep), which keeps it after returning
+    &x is a pointer to x. x is a local variable of f (declared at main.p:18).
+    hook (which may call (K).Keep) stores p in package variable keep
+    (main.p:12), so &x would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If hook (which may call (K).Keep) should keep its own copy of x, change it
+    to take the value, not a pointer, or an owner it can keep: an owned[int]
+    from new, a shared[int], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:26:2: cannot store k.Keep in package variable hook, which outlives init's frame
+    A method value (at main.p:26) is a record in init's frame that holds its
+    receiver, and calling it calls the method on that receiver. When init
+    returns, its frame is reclaimed, but package variables live for the whole
+    program, so package variable hook would be left pointing at reclaimed
+    memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of init's frame, or allocate it so
+    that it lives as long as package variable hook.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

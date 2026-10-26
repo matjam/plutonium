@@ -1,0 +1,1 @@
+$DIR/main.p:15:4: cannot keep r in outer after this iteration: the loop at line 10 reuses v in every iteration

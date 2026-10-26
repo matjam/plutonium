@@ -1,0 +1,1 @@
+$DIR/main.p:34:2: cannot pass U.O(Opt[*Inner].Some(&in)) to store, which keeps it after returning

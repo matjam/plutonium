@@ -1,0 +1,1 @@
+$DIR/main.p:8:3: cannot pass &local to yield (which may call the loop body at main.p:14), which keeps it after returning

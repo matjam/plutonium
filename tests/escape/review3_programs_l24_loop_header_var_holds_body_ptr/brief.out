@@ -1,0 +1,1 @@
+$DIR/main.p:14:3: cannot keep &v in p after this iteration: the loop at line 9 reuses v in every iteration

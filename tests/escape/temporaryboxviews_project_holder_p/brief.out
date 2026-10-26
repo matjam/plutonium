@@ -1,0 +1,1 @@
+$DIR/main.p:44:15: cannot store project(holder().p) in p, which outlives the temporary

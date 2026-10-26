@@ -1,0 +1,1 @@
+$DIR/main.p:27:20: cannot store {...} in an element of the map literal, which outlives in

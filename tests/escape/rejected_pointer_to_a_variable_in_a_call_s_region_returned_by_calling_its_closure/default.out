@@ -1,0 +1,15 @@
+$DIR/main.p:12:12: cannot store mk()() in package variable saved, which outlives h's frame
+    mk()() points into the closure mk() returns, built in h's frame. mk()
+    returns a closure, which it builds in a region of its caller's frame, h's
+    (at main.p:12); the closure lives as long as that frame (section 4.5). When
+    h returns, its frame is reclaimed, but package variables live for the whole
+    program, so package variable saved would be left pointing at reclaimed
+    memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of h's frame, or allocate it so
+    that it lives as long as package variable saved.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

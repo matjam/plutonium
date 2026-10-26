@@ -1,0 +1,1 @@
+$DIR/main.p:12:34: cannot return any(v), an interface holding a copy of a T in (C).To's frame

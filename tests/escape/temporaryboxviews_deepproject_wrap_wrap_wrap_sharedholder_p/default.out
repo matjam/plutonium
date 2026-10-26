@@ -1,0 +1,17 @@
+$DIR/main.p:44:15: cannot store deepProject(wrap(wrap(wrap(sharedHolder().p)))) in p, which outlives the temporary
+    deepProject(wrap(wrap(wrap(sharedHolder().p)))) points into the temporary
+    Wrap[synced[Item]] that wrap(sharedHolder().p) returns. The
+    Wrap[synced[Item]] made at main.p:44 is a temporary: nothing keeps it, so
+    its object is dropped at the end of the statement. A view of the object may
+    be passed to calls in that statement but may not outlive it. At the end of
+    the statement, the temporary is dropped, but p lives longer, so it would be
+    left pointing at a value that has been dropped.
+    The view does not own the memory it looks at. Nothing keeps the temporary
+    after the statement, so a stored view would outlive the value that keeps its
+    memory alive.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and take the view through that variable:
+        v := wrap(sharedHolder().p)
+        ... v ...
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3009" for a longer explanation)

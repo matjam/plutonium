@@ -1,0 +1,2 @@
+$DIR/main.p:14:23: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
+$DIR/main.p:21:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning

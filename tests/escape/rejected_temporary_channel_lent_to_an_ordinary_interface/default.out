@@ -1,0 +1,15 @@
+$DIR/main.p:3:23: cannot return make(chan int) as an interface: an ordinary interface only borrows the channel, whose reference f drops when it returns
+    The chan int made at main.p:3 is a temporary: nothing keeps a reference to
+    it after the statement, and an ordinary interface that lends it counts no
+    reference of its own, so the interface may not outlive that statement.
+    Converting make(chan int) to an ordinary interface lends it: the interface
+    points at the channel without a reference of its own.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return the channel itself, changing the result type to chan int: the caller
+    gets a reference of its own:
+        return make(chan int)
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

@@ -1,0 +1,16 @@
+$DIR/main.p:9:68: cannot return p, which points into the object e refers to, which e keeps alive in f
+    p points into the object e refers to, which e keeps alive in f. e (declared
+    at main.p:9) is an error: the object it refers to lives only while e holds
+    it, and is dropped when e is dropped at the end of its scope in f, or
+    released when it is the last reference. A pointer into the object, or an
+    interface that lends it, is a view that may not outlive e. When f returns, e
+    is dropped and the object freed, so p would point at freed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return e itself: an owned box moves to the caller, and a shared or synced
+    one gives the caller its own reference:
+        return e
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

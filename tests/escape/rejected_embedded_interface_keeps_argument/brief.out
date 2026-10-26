@@ -1,0 +1,1 @@
+$DIR/main.p:11:2: cannot pass &x to w.Keep (which may call main.(k).Keep), which keeps it after returning

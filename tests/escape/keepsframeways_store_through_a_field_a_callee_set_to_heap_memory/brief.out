@@ -1,0 +1,1 @@
+$DIR/main.p:10:2: cannot store &x in b.p[0], which outlives x

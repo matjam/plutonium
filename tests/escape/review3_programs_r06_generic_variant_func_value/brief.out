@@ -1,0 +1,1 @@
+$DIR/main.p:18:9: cannot return mk(&x), which points into x, a local variable of g

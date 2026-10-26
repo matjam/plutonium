@@ -1,0 +1,1 @@
+$DIR/main.p:44:15: cannot store deepProject(wrap(wrap(wrap(sharedHolder().p)))) in p, which outlives the temporary

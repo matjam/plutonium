@@ -1,0 +1,2 @@
+$DIR/main.p:9:2: cannot pass []*Inner{...} to fmt.Println, which keeps it after returning
+$DIR/main.p:9:2: cannot pass &in to fmt.Println, which keeps it after returning

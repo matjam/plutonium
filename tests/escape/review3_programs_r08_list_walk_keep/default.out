@@ -1,0 +1,12 @@
+$DIR/main.p:28:2: cannot pass &a to find, which keeps it after returning
+    &a is a pointer to a. a is a local variable of f (declared at main.p:27).
+    find stores n in package variable keep (main.p:18), so &a would outlive a.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If find should keep its own copy of a, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[Node] from new, a shared[Node],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

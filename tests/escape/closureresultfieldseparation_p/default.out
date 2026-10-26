@@ -1,0 +1,15 @@
+$DIR/main.p:8:48: cannot return f().p, which points into the closure inner(name) returns, built in the function literal's frame
+    f().p points into the closure inner(name) returns, built in the function
+    literal's frame. inner(name) returns a closure, which it builds in a region
+    of its caller's frame, the function literal's (at main.p:8); the closure
+    lives as long as that frame (section 4.5). That frame is reclaimed when the
+    function literal returns, so f().p would point at memory that no longer
+    holds the value.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return the value itself, which copies it, or allocate it so that it outlives
+    the function.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

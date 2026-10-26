@@ -1,0 +1,1 @@
+$DIR/main.p:18:12: cannot store g(M{}) in package variable keepF, which outlives f's frame

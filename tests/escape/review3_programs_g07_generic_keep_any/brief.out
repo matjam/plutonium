@@ -1,0 +1,1 @@
+$DIR/main.p:14:2: cannot pass &x to keepIt, which keeps it after returning

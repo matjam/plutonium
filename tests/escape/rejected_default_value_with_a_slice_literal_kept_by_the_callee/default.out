@@ -1,0 +1,13 @@
+$DIR/main.p:6:12: cannot pass []int{...} to keep, which keeps it after returning
+    []int{...} points into the elements of a slice literal, in f's frame. A
+    slice literal (at main.p:5) keeps its elements in an array in f's frame, and
+    the slice looks at that array. keep stores s in package variable kept
+    (main.p:5), so []int{...} would outlive f's frame.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change keep to take a value or an owner, which it can keep: an owned[T] from
+    new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

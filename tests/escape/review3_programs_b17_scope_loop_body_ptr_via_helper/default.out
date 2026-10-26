@@ -1,0 +1,16 @@
+$DIR/main.p:19:3: the task started here takes p, a view of y, which the loop at main.p:16 reuses before s waits for the task
+    p's block ends with each iteration, so the task takes its own copy of p when
+    s.Task runs. But p holds a view of y, and a copy of a view still looks at
+    the same memory. y is declared in the loop at main.p:16, which reuses y's
+    memory in every iteration, and s does not wait for the task until after the
+    loop, so a later iteration could change the memory while the task uses it.
+    Go keeps the variables a goroutine uses alive with its garbage collector,
+    however long the goroutine runs. Plutonium has none: a variable lives in its
+    function's frame until its block ends. A sync.Scope waits for the tasks it
+    started before its block ends, so they may use the function's variables, and
+    the compiler checks that nothing they use ends or moves first.
+    Use y itself in the function literal, so that the task gets its own copy of
+    it, or wait for the task inside the loop:
+        s.Wait() // at the end of the loop body
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3401" for a longer explanation)

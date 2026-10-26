@@ -1,0 +1,22 @@
+$DIR/main.p:10:9: cannot return a + b, which points into memory allocated from ar, a local arena of f
+    a + b points into memory allocated from ar, a local arena of f.
+    alloc.Use(&ar) (at main.p:9) makes ar (a local arena of f) the default
+    allocator, so what is allocated through the default allocator from there on
+    (by new, a string operation, or a call that allocates and leaves out its
+    allocator) lives in the arena, and is gone when the arena is. When f
+    returns, the arena ar is gone, so a + b would point at memory that is no
+    longer allocated.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Allocate what must outlive the arena from an allocator that does, passed
+    explicitly:
+        heap := alloc.Default() // before alloc.Use
+        ...
+        v := vec.New[T](heap)
+    Or install an arena that outlives the result, such as one the caller passes
+    in, or make the copy that must outlive the arena after the Restore is
+    dropped.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

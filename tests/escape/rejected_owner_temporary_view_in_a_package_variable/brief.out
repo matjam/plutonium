@@ -1,0 +1,1 @@
+$DIR/main.p:22:15: cannot store readAll(1).Ptr() in package variable keep, which outlives the temporary

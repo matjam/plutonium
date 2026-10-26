@@ -1,0 +1,1 @@
+$DIR/main.p:29:2: cannot pass U[*Inner].P(&in) to store, which keeps it after returning

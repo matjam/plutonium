@@ -1,0 +1,16 @@
+$DIR/main.p:23:2: cannot store &H{...} in h, which outlives the temporary
+    &H{...} points into the temporary Buf that readAll(1) returns. The Buf that
+    readAll(1) returns (at main.p:23) is a temporary: nothing keeps it, so it is
+    the receiver of the method only until the end of the statement. A view of it
+    may be passed to calls in that statement but may not outlive it. At the end
+    of the statement, the temporary is dropped, but h lives longer, so it would
+    be left pointing at a value that has been dropped.
+    The view does not own the memory it looks at. Nothing keeps the temporary
+    after the statement, so a stored view would outlive the value that keeps its
+    memory alive.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and call the method on the variable:
+        v := readAll(1)
+        ... v.Slice() ...
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3009" for a longer explanation)

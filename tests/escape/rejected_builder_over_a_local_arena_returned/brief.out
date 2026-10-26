@@ -1,0 +1,1 @@
+$DIR/main.p:12:9: cannot return b.String(), which points into memory allocated from ar, a local arena of f

@@ -1,0 +1,1 @@
+$DIR/main.p:9:2: cannot pass &x to extStore, which keeps it after returning

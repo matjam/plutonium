@@ -1,0 +1,1 @@
+$DIR/main.p:10:12: cannot store get(own(3)) in package variable saved, which outlives h's frame

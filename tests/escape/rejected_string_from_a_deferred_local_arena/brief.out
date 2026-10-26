@@ -1,0 +1,1 @@
+$DIR/main.p:10:9: cannot return a + b, which points into memory allocated from ar, a local arena of f

@@ -1,0 +1,14 @@
+$DIR/main.p:38:10: cannot pass []S{...} to each, which keeps it after returning
+    A slice literal (at main.p:38) keeps its elements in an array in f's frame,
+    and the slice looks at that array. each passes items to call (main.p:31),
+    which passes s to s.String (which may call main.(*S).String) (main.p:23),
+    which stores s in package variable keepS (main.p:13), so []S{...} would
+    outlive f's frame.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change each to take a value or an owner, which it can keep: an owned[T] from
+    new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

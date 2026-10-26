@@ -1,0 +1,2 @@
+$DIR/main.p:20:10: cannot pass &n to call, which keeps it after returning
+$DIR/main.p:20:20: cannot pass Wide{...} to call, which keeps it after returning

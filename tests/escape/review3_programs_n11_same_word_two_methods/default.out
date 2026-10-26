@@ -1,0 +1,13 @@
+$DIR/main.p:29:2: cannot pass &t to g, which keeps it after returning
+    &t is a pointer to t. t is a local variable of f (declared at main.p:28). g
+    passes a to s.(Keeper).Keep (which may call main.(*T).Keep) (main.p:23),
+    which stores t in package variable keep (main.p:17), so &t would outlive t.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If g should keep its own copy of t, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[T] from new, a shared[T], or a
+    library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

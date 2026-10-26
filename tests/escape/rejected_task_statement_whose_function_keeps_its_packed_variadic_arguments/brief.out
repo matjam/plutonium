@@ -1,0 +1,1 @@
+$DIR/main.p:5:15: cannot pass the variadic arguments of keep to a task statement: the new task may outlive main's frame

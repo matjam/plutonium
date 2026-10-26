@@ -1,0 +1,1 @@
+$DIR/main.p:11:2: cannot store U.S{...} in package variable keep, which outlives in

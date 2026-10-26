@@ -1,0 +1,19 @@
+$DIR/main.p:9:35: cannot return any(v), an interface holding a copy of a T in box's frame
+    any(v) is an interface that points at a copy of its value in box's frame.
+    Converting a value of type parameter T to an interface puts the value in the
+    interface itself when the type argument fits in one word, such as a pointer,
+    and otherwise puts a copy of the value in the frame of the function that
+    converts it (here box, at main.p:9), and the interface points at that copy.
+    The program uses box with T = T, which is larger than one word. That frame
+    is reclaimed when box returns, so the interface would point at memory that
+    no longer holds the value.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return the value as a T, changing the result type to T, and let the caller
+    convert it to an interface where it is used:
+        return any(v)
+    Or call box only with type arguments that fit in one word, such as pointers.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

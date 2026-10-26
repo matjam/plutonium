@@ -1,0 +1,1 @@
+$DIR/main.p:47:9: cannot return aggregateProject(h.b), which points into the object h refers to, which h keeps alive in siblingLeak

@@ -1,0 +1,1 @@
+$DIR/main.p:11:3: cannot keep the function literal in fs[i] after this iteration: it uses i, which the loop at line 10 reuses in every iteration

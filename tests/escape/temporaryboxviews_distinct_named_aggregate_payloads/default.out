@@ -1,0 +1,17 @@
+$DIR/main.p:47:9: cannot return aggregateProject(h.b), which points into the object h refers to, which h keeps alive in siblingLeak
+    aggregateProject(h.b) points into the object h refers to, which h keeps
+    alive in siblingLeak. h (declared at main.p:45) is a Mixed: the object it
+    refers to lives only while h holds it, and is dropped when h is dropped at
+    the end of its scope in siblingLeak, or released when it is the last
+    reference. A pointer into the object, or an interface that lends it, is a
+    view that may not outlive h. When siblingLeak returns, h is dropped and the
+    object freed, so aggregateProject(h.b) would point at freed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return h itself: an owned box moves to the caller, and a shared or synced
+    one gives the caller its own reference:
+        return h
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

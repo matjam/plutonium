@@ -1,0 +1,1 @@
+$DIR/main.p:13:2: cannot pass &x to vec.(*Vec).Insert, which keeps it after returning

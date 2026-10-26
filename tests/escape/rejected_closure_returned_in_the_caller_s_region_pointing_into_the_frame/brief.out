@@ -1,0 +1,1 @@
+$DIR/main.p:6:9: cannot return the function literal, which points into x, a local variable of mk

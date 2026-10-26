@@ -1,0 +1,14 @@
+$DIR/main.p:10:6: cannot pass (*S)(&b).visit to call, which keeps it after returning
+    (*S)(&b).visit points into b. b is a local variable of f (declared at
+    main.p:9). call passes a pointer loaded from *f to f (which may call
+    (*S).visit) (main.p:7), which stores s in package variable keepS (main.p:6),
+    so (*S)(&b).visit would outlive b.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If call should keep its own copy of b, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[B] from new, a shared[B], or a
+    library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

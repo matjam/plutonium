@@ -1,0 +1,11 @@
+$DIR/main.p:6:1: //pu:resultholds is for the standard library; hold cannot use it
+    //pu:resultholds is a promise the compiler cannot check: that a function's
+    result gives a parameter back when it is dropped, as alloc.Use's Restore
+    gives back the allocator it installed. The standard library uses it for the
+    few functions that need it. A program's own code does not need it: the
+    compiler works out by itself what a function keeps.
+    Remove the directive. If the compiler then rejects a call because the
+    function keeps an argument, pass memory that lives long enough, such as an
+    allocated value or a package variable.
+    (see "Directives" in the Plutonium spec, section 20.3)
+    (run "pluto explain E3008" for a longer explanation)

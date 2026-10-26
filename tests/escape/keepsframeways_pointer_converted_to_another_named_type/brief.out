@@ -1,0 +1,1 @@
+$DIR/main.p:11:10: cannot pass (*S)(&b) to call, which keeps it after returning

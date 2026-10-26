@@ -1,0 +1,1 @@
+$DIR/main.p:6:9: cannot return id(&x), which points into x, a local variable of f

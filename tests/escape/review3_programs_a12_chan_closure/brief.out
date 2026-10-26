@@ -1,0 +1,1 @@
+$DIR/main.p:12:5: cannot send the function literal on ch: the receiver may outlive x

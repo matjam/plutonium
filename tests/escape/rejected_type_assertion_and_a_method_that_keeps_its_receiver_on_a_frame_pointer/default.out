@@ -1,0 +1,28 @@
+$DIR/main.p:20:10: cannot pass &n to call, which keeps it after returning
+    &n is a pointer to n. n is a local variable of main (declared at main.p:19).
+    call passes v to s.String (which may call main.(*Named).String) (main.p:14),
+    which stores n in package variable last (main.p:7), so &n would outlive n.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If call should keep its own copy of n, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[Named] from new, a shared[Named],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:20:20: cannot pass Wide{...} to call, which keeps it after returning
+    Converting a value larger than one word to an interface puts a copy of the
+    value in the frame of the function that converts it (here main, at
+    main.p:20), and the interface points at that copy. call passes v to s.String
+    (which may call main.(*Named).String) (main.p:14), which stores n in package
+    variable last (main.p:7), so the interface would outlive main's frame.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change call to take a value or an owner, which it can keep: an owned[T] from
+    new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

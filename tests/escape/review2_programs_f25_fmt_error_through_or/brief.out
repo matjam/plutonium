@@ -1,0 +1,1 @@
+$DIR/main.p:24:45: cannot return E{...} as an interface: the interface would hold a copy of it in get's frame

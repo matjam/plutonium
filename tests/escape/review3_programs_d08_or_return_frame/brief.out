@@ -1,0 +1,1 @@
+$DIR/main.p:21:9: cannot return err, which points into e, a local variable of g

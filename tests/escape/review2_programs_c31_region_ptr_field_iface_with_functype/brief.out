@@ -1,0 +1,1 @@
+$DIR/main.p:24:12: cannot return &v, a pointer to a local variable

@@ -1,0 +1,1 @@
+$DIR/main.p:14:1: cannot return p, which points into x, a local variable of g

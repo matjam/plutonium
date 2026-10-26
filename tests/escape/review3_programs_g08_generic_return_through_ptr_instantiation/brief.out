@@ -1,0 +1,1 @@
+$DIR/main.p:19:9: cannot return first(Pair[*int, int]{...}), which points into x, a local variable of g

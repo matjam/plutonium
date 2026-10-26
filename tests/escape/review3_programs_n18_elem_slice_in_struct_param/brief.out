@@ -1,0 +1,1 @@
+$DIR/main.p:25:10: cannot pass Box{...} to g, which keeps it after returning

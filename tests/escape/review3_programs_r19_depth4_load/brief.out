@@ -1,0 +1,1 @@
+$DIR/main.p:18:2: cannot pass &p3 to g, which keeps it after returning

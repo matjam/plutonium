@@ -1,0 +1,1 @@
+$DIR/main.p:8:3: cannot pass &T{...} to put, which keeps it after this iteration: the loop at line 7 makes it in the same memory in every iteration

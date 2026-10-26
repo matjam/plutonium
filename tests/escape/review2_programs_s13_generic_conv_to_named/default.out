@@ -1,0 +1,14 @@
+$DIR/main.p:37:10: cannot pass the function literal to conv, which keeps it after returning
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in f's frame (x is declared at main.p:36).
+    conv passes g to call (main.p:32), which passes s to s.String (which may
+    call main.(HF).String) (main.p:11), which stores h in package variable keepF
+    (main.p:27), so the function literal would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change conv to take a value or an owner, which it can keep: an owned[T] from
+    new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

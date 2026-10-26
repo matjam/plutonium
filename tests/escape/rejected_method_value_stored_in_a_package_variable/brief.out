@@ -1,0 +1,1 @@
+$DIR/main.p:8:2: cannot store c.Get in package variable F, which outlives main's frame

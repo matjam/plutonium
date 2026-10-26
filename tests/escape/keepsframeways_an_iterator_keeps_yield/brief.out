@@ -1,0 +1,1 @@
+$DIR/main.p:7:17: cannot pass the loop body to seq, which keeps it after returning

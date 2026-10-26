@@ -1,0 +1,1 @@
+$DIR/main.p:13:14: cannot convert b.String() to an interface: it points into memory allocated from ar, a local arena of f, which is gone before the interface's copy is released

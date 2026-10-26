@@ -1,0 +1,1 @@
+$DIR/main.p:20:2: cannot store g[0] in package variable keep, which outlives x

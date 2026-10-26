@@ -1,0 +1,1 @@
+$DIR/main.p:6:9: cannot return &n.v, which points into the object n refers to, which n keeps alive in f

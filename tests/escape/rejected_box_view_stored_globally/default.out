@@ -1,0 +1,18 @@
+$DIR/main.p:7:2: cannot store (*N)(n) in package variable G, which outlives n
+    (*N)(n) points into the object n refers to, which n keeps alive in f. n
+    (declared at main.p:6) is an owned[N]: the object it refers to lives only
+    while n holds it, and is dropped when n is dropped at the end of its scope
+    in f, or released when it is the last reference. A pointer into the object,
+    or an interface that lends it, is a view that may not outlive n. When f
+    returns, n is dropped and the object freed, but package variables live for
+    the whole program, so package variable G would be left pointing at reclaimed
+    memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store n itself, changing the type of G to match: an owned box moves there,
+    and a shared or synced one is counted:
+        G = n
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

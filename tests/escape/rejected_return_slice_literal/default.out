@@ -1,0 +1,19 @@
+$DIR/main.p:3:25: cannot return []int{...}, a slice literal whose elements are in f's frame
+    A slice literal (at main.p:3) keeps its elements in an array in f's frame,
+    and the slice looks at that array. That frame is reclaimed when f returns,
+    so []int{...} would point at memory that no longer holds the value.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    To give the caller the elements, return an owner of them, such as a vec.Vec:
+        v := vec.New[T]()
+        v.Push(...)
+        return v
+    or copy them into memory the caller passes in:
+        func fill(dst []T) int {
+            ...
+            return copy(dst, buf[:n])
+        }
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

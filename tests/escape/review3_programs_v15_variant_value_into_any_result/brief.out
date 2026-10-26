@@ -1,0 +1,1 @@
+$DIR/main.p:18:9: cannot return any(mk(&x)), an interface holding a copy of an U in g's frame

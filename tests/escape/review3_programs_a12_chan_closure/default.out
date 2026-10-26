@@ -1,0 +1,13 @@
+$DIR/main.p:12:5: cannot send the function literal on ch: the receiver may outlive x
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in f's frame (x is declared at main.p:11).
+    The value sent here may be received after f returns and x's memory is
+    reclaimed.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Pass a value, which is copied, or an owner, which moves, instead of a view
+    of the frame.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3005" for a longer explanation)

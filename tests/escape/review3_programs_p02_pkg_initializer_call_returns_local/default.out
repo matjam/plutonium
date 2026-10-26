@@ -1,0 +1,18 @@
+$DIR/main.p:9:9: cannot return &x, a pointer to a local variable
+    &x is a pointer to x. x is a local variable of mk (declared at main.p:8).
+    Its memory is reclaimed when mk returns, so &x would point at memory that no
+    longer holds x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    To give the value to the caller, return it instead. This copies it, or moves
+    it if it is an owner:
+        return x
+    To keep it at a fixed address after mk returns, allocate it and return its
+    owner, an owned[int]:
+        x := new(int)
+        ...
+        return x
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

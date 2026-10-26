@@ -1,0 +1,1 @@
+$DIR/main.p:32:9: cannot pass st to st.String (which may call main.(*S).String), which keeps it after returning

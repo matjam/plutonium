@@ -1,0 +1,1 @@
+$DIR/main.p:7:4: cannot keep the function literal in g after this iteration: it uses v, which the loop at line 5 reuses in every iteration

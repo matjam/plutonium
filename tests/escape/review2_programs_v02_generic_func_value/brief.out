@@ -1,0 +1,1 @@
+$DIR/main.p:18:2: cannot pass &in to k (which may call keepIt), which keeps it after returning

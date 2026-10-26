@@ -1,0 +1,1 @@
+$DIR/main.p:31:2: cannot pass U.P(&in) to call, which keeps it after returning

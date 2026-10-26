@@ -1,0 +1,12 @@
+$DIR/main.p:23:2: cannot pass &in to (*Box).Set, which keeps it after returning
+    &in is a pointer to in. in is a local variable of f (declared at main.p:22).
+    (*Box).Set stores it in b.p (main.p:18), so &in would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If (*Box).Set should keep its own copy of in, change it to take the value,
+    not a pointer, or an owner it can keep: an owned[Inner] from new, a
+    shared[Inner], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

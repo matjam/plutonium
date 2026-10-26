@@ -1,0 +1,1 @@
+$DIR/main.p:8:20: cannot pass an element of r to the loop body, which keeps it after returning

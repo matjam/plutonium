@@ -1,0 +1,1 @@
+$DIR/main.p:43:10: cannot pass &u to show2, which keeps it after returning

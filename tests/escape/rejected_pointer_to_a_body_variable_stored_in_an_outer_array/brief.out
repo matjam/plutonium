@@ -1,0 +1,1 @@
+$DIR/main.p:7:3: cannot keep &x in ps[i] after this iteration: the loop at line 5 reuses x in every iteration

@@ -1,0 +1,1 @@
+$DIR/main.p:5:12: cannot store cell(3)() in package variable saved, which outlives h's frame

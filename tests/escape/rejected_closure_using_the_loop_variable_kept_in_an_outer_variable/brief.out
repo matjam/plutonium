@@ -1,0 +1,1 @@
+$DIR/main.p:8:4: cannot keep f in f0 after this iteration: it uses i, which the loop at line 5 reuses in every iteration

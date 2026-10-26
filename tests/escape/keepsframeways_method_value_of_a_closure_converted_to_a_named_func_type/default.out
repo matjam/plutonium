@@ -1,0 +1,14 @@
+$DIR/main.p:12:10: cannot pass HF(c.get) to call, which keeps it after returning
+    HF(c.get) points into a method value whose receiver is in f's frame. A
+    method value (at main.p:12) is a record in f's frame that holds its
+    receiver, and calling it calls the method on that receiver. call passes s to
+    s.String (which may call main.(HF).String) (main.p:9), which stores h in
+    package variable keepF (main.p:8), so HF(c.get) would outlive f's frame.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change call to take a value or an owner, which it can keep: an owned[T] from
+    new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

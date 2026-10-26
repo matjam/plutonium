@@ -1,0 +1,16 @@
+$DIR/main.p:4:22: cannot store c in package variable kept, which outlives c
+    c (declared at main.p:4) is a chan int, a counted reference to a channel: an
+    ordinary interface that lends the channel does not count a reference of its
+    own, so it may not outlive c, whose reference is dropped at the end of its
+    scope in f. When f returns, c drops its reference, and the channel is freed
+    if that was the last one, but package variables live for the whole program,
+    so package variable kept would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store c itself, changing the type of kept to chan int: it then counts a
+    reference of its own:
+        kept = c
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

@@ -1,0 +1,1 @@
+$DIR/main.p:34:2: cannot pass &v to g, which keeps it after returning

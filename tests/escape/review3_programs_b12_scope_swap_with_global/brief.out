@@ -1,0 +1,1 @@
+$DIR/main.p:18:7: cannot send unsafe.Pointer(&x) on got: the receiver may outlive x

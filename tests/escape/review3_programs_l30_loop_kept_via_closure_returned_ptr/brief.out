@@ -1,0 +1,1 @@
+$DIR/main.p:14:4: cannot keep get() in outer after this iteration: the loop at line 10 reuses v in every iteration

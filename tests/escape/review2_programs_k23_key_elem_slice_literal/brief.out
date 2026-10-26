@@ -1,0 +1,1 @@
+$DIR/main.p:38:10: cannot pass []S{...} to each, which keeps it after returning

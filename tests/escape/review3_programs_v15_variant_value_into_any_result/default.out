@@ -1,0 +1,18 @@
+$DIR/main.p:18:9: cannot return any(mk(&x)), an interface holding a copy of an U in g's frame
+    any(mk(&x)) is an interface that points at a copy of its value in g's frame.
+    Converting a value larger than one word to an interface puts a copy of the
+    value in the frame of the function that converts it (here g, at main.p:18),
+    and the interface points at that copy. That frame is reclaimed when g
+    returns, so the interface would point at memory that no longer holds the
+    value.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return a pointer to memory that outlives g, such as a field of a
+    longer-lived value:
+        p.err = U{...}
+        return &p.err
+    or return a value that fits in one word, such as an error code.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

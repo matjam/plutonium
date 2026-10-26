@@ -1,0 +1,18 @@
+$DIR/main.p:7:9: cannot return &e, a pointer to a local variable
+    &e is a pointer to e. e is a local variable of f (declared at main.p:6). Its
+    memory is reclaimed when f returns, so &e would point at memory that no
+    longer holds e.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    To give the value to the caller, return it instead. This copies it, or moves
+    it if it is an owner:
+        return e
+    To keep it at a fixed address after f returns, allocate it and return its
+    owner, an owned[E]:
+        e := new(E)
+        ...
+        return e
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

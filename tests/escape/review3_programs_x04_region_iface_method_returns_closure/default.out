@@ -1,0 +1,14 @@
+$DIR/main.p:18:12: cannot store g(M{}) in package variable keepF, which outlives f's frame
+    g(M{}) returns a closure, which it builds in a region of its caller's frame,
+    f's (at main.p:18); the closure lives as long as that frame (section 4.5).
+    When f returns, its frame is reclaimed, but package variables live for the
+    whole program, so package variable keepF would be left pointing at reclaimed
+    memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of f's frame, or allocate it so
+    that it lives as long as package variable keepF.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

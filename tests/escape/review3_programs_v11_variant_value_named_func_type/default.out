@@ -1,0 +1,15 @@
+$DIR/main.p:19:9: cannot return m(&x), which points into x, a local variable of g
+    m(&x) points into x. x is a local variable of g (declared at main.p:17). Its
+    memory is reclaimed when g returns, so m(&x) would point at memory that no
+    longer holds x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of x, or allocate x and return its owner, an
+    owned[int]:
+        x := new(int)
+        ...
+        return x
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)

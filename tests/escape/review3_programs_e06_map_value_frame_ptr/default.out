@@ -1,0 +1,16 @@
+$DIR/main.p:12:2: cannot store &x in gm[1], which outlives x
+    &x is a pointer to x. x is a local variable of f (declared at main.p:11).
+    When f returns, x's memory is reclaimed, but a map keeps its keys and
+    elements in a table on the heap, which every copy of the map shares and
+    which may live longer, so it would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of x, changing the map's element
+    type to match.
+    Or keep what the map refers to in memory that lives as long as the map, such
+    as a package variable, or in a counted reference (shared[T] or synced[T])
+    stored in the map.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

@@ -1,0 +1,1 @@
+$DIR/main.p:25:10: cannot pass &s to fv (which may call show), which keeps it after returning

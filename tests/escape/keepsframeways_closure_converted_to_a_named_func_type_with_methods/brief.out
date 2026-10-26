@@ -1,0 +1,1 @@
+$DIR/main.p:10:10: cannot pass HF((func() int literal)) to call, which keeps it after returning

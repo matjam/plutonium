@@ -1,0 +1,1 @@
+$DIR/main.p:4:22: cannot store c in package variable kept, which outlives c

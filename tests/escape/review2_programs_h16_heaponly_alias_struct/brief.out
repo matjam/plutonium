@@ -1,0 +1,1 @@
+$DIR/main.p:22:9: cannot return a.p, which points into in, a local variable of g

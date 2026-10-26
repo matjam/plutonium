@@ -1,0 +1,1 @@
+$DIR/main.p:18:2: cannot pass &x to hook (which may call put), which keeps it after returning

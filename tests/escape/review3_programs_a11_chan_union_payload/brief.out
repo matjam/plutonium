@@ -1,0 +1,1 @@
+$DIR/main.p:17:5: cannot send U.P(&x) on ch: the receiver may outlive x

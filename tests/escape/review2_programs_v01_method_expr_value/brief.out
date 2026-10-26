@@ -1,0 +1,1 @@
+$DIR/main.p:19:2: cannot pass &s to m (which may call (*S).keepIt), which keeps it after returning

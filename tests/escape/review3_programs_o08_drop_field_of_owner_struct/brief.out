@@ -1,0 +1,1 @@
+$DIR/main.p:21:1: cannot pass &w to (*O).Drop (called when w is dropped), which keeps it after returning

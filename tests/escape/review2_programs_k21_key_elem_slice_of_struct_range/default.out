@@ -1,0 +1,14 @@
+$DIR/main.p:45:10: cannot pass items[:] to each, which keeps it after returning
+    items[:] is a slice that looks at items. items is a local array of f
+    (declared at main.p:44). each passes items to s.String (which may call
+    main.(*S).String) (main.p:37), which stores s in package variable keepS
+    (main.p:13), so items[:] would outlive items.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If each should keep its own copy of items, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[[3]Item] from new, a
+    shared[[3]Item], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

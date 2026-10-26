@@ -1,0 +1,1 @@
+$DIR/main.p:8:2: cannot pass &p to rt.MoveValues, which keeps it after returning

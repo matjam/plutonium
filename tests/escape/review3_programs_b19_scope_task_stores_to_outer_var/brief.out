@@ -1,0 +1,1 @@
+$DIR/main.p:19:3: cannot keep &y in p after this iteration: the loop at line 14 reuses y in every iteration

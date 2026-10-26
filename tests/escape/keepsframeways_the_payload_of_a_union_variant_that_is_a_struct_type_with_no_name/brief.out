@@ -1,0 +1,1 @@
+$DIR/main.p:14:3: cannot store v.p in package variable keep, which outlives in

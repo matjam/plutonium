@@ -1,0 +1,1 @@
+$DIR/main.p:21:2: cannot pass &s to m (which may call (*S).K), which keeps it after returning

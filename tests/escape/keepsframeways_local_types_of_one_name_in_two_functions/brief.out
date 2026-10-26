@@ -1,0 +1,1 @@
+$DIR/main.p:16:10: cannot pass L{...} to call, which keeps it after returning

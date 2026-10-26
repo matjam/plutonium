@@ -1,0 +1,1 @@
+$DIR/main.p:15:9: cannot return &b.n, which points into the object b refers to, which b keeps alive in g

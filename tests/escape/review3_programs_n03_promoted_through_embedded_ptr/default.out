@@ -1,0 +1,14 @@
+$DIR/main.p:25:10: cannot pass &o to call, which keeps it after returning
+    &o points into in. in is a local variable of f (declared at main.p:23). call
+    passes a pointer reachable from s to s.String (which may call
+    main.(*Outer).String) (main.p:19), which stores i in package variable keep
+    (main.p:16), so &o would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If call should keep its own copy of in, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[Inner] from new, a shared[Inner],
+    or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

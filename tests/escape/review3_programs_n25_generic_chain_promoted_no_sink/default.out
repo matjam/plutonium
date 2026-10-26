@@ -1,0 +1,14 @@
+$DIR/main.p:36:10: cannot pass &u to outer, which keeps it after returning
+    &u is a pointer to u. u is a local variable of f (declared at main.p:35).
+    outer passes v to show (main.p:28), which passes v to s.String (which may
+    call main.(T0).String) (main.p:23), which stores t in package variable keep
+    (main.p:19), so &u would outlive u.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If outer should keep its own copy of u, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[U] from new, a shared[U], or a
+    library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

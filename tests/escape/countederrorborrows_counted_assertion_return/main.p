@@ -1,0 +1,10 @@
+package main
+import (
+ "pluto/alloc"
+ "pluto/errors"
+)
+type E struct { n int }
+func (e *E) Error() string { return "error" }
+func makeError() error { return alloc.Synced[E]() }
+func f() error { e := makeError(); a := any(e); return a.(error) }
+func main() { _ = f(); _ = errors.Is(nil, nil) }

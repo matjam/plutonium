@@ -1,0 +1,1 @@
+$DIR/main.p:13:3: cannot keep Big{...} in keepI after this iteration: the loop at line 12 makes it in the same memory in every iteration

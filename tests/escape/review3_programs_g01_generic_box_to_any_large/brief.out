@@ -1,0 +1,1 @@
+$DIR/main.p:9:35: cannot return any(v), an interface holding a copy of a T in box's frame

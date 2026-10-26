@@ -1,0 +1,1 @@
+$DIR/main.p:43:10: cannot pass h to callAny, which keeps it after returning

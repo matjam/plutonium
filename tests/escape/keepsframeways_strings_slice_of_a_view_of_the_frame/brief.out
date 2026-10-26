@@ -1,0 +1,1 @@
+$DIR/main.p:9:9: cannot return strings.Slice(unsafe.String(&b[0], 2), 0, 1), which points into b, a local array of f

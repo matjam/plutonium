@@ -1,0 +1,1 @@
+$DIR/main.p:12:2: cannot store &x in a key of gm, which outlives x

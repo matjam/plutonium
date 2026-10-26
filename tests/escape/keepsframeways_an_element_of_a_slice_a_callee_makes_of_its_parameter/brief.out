@@ -1,0 +1,1 @@
+$DIR/main.p:16:10: cannot pass &arr to g, which keeps it after returning

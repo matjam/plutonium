@@ -1,0 +1,2 @@
+$DIR/main.p:20:2: cannot pass &x to (*G).SetIndex, which keeps it after returning
+$DIR/main.p:20:9: cannot pass &x to (*G).SetIndex, which keeps it after returning

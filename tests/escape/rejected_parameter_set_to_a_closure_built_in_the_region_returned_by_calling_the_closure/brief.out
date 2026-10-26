@@ -1,0 +1,1 @@
+$DIR/main.p:9:12: cannot store swap(nil)() in package variable saved, which outlives h's frame
