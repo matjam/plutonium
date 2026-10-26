@@ -450,10 +450,14 @@ func (s *solver) shortCode(o2 uint32) int {
 	return cE3002
 }
 
-// find records a finding once per (code, object, position).
+// report records a finding once per (code, object, position, callee
+// entry). The order of a filtered summary's entries, and so which of them
+// a solve meets first, depends on the IDs the filters had when it ran;
+// the scheduler keeps one finding per (code, object, position) once it has
+// renumbered them (sched, canonicalFilters).
 func (s *solver) report(code int, o uint32, why uint64) {
 	pos, _, sink, site, callee, entry := s.whyAt(why)
-	if !s.findSeen.add(s.a, uint64(code)<<32|uint64(o), uint64(pos)) {
+	if !s.findSeen.add(s.a, uint64(code)<<32|uint64(o), uint64(uint32(pos))<<32|uint64(uint32(int32(entry)))) {
 		return
 	}
 	obj := eir.ObjID(o)

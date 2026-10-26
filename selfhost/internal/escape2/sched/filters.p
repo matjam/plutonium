@@ -8,6 +8,7 @@ import (
 	"selfhost/internal/escape2/eir"
 	"selfhost/internal/escape2/solve"
 	"selfhost/internal/escape2/summary"
+	"selfhost/internal/syntax/token"
 )
 
 // Type filters (D51) are interned as solves meet them, and parallel solves
@@ -15,8 +16,8 @@ import (
 // changes no set a summary stands for, only the IDs its keys name and so
 // the order of its sorted entries. canonicalFilters renumbers them when
 // the analysis is over (domain.Filters.Canonical) and renames every
-// summary's keys, and the entries the findings name, so that the results
-// do not depend on the number of workers or their timing.
+// summary's keys, and the entries the findings and reasons name, so that
+// the results do not depend on the number of workers or their timing.
 func canonicalFilters(env *env, findings [][]solve.Finding) {
 	rename := env.paths.Filters().Canonical()
 	if rename == nil {
@@ -88,6 +89,19 @@ func canonicalFilters(env *env, findings [][]solve.Finding) {
 	for i, s := range env.virt.cache {
 		do(eir.FuncID(len(env.p.Funcs)+i), s)
 	}
+	// A reason names an entry of its callee's summary, which the renaming
+	// may have moved as well.
+	for s := range done {
+		for i := range s.Reasons {
+			r := &s.Reasons[i]
+			if r.Callee == ^uint32(0) || r.Entry == ^uint32(0) {
+				continue
+			}
+			if ix, ok := newIndex[eir.FuncID(r.Callee)]; ok && int(r.Entry) < len(ix) {
+				r.Entry = uint32(ix[r.Entry])
+			}
+		}
+	}
 	for _, fs := range findings {
 		for i := range fs {
 			f := &fs[i]
@@ -96,4 +110,37 @@ func canonicalFilters(env *env, findings [][]solve.Finding) {
 			}
 		}
 	}
+}
+
+// dedupFindings keeps one of a function's findings per (code, object,
+// position): the one through the least (site, callee, entry). A solve
+// records one per callee entry (solve, report), as which entry it meets
+// first depends on the filters' IDs when it ran; once canonicalFilters has
+// renumbered them, the least entry is the same whatever the timing.
+func dedupFindings(fs []solve.Finding) []solve.Finding {
+	type key struct {
+		code string
+		pos  token.Pos
+		obj  eir.ObjID
+		site eir.SiteID // a region's call, when obj is eir.NoObj
+	}
+	at := map[key]int{}
+	out := fs[:0]
+	for _, f := range fs {
+		k := key{string(f.Code), f.Pos, f.Obj, ^eir.SiteID(0)}
+		if f.Obj == eir.NoObj {
+			k.site = f.Site
+		}
+		i, ok := at[k]
+		if !ok {
+			at[k] = len(out)
+			out = compat.Append(out, f)
+			continue
+		}
+		g := out[i]
+		if f.Site < g.Site || f.Site == g.Site && (f.Callee < g.Callee || f.Callee == g.Callee && f.Entry < g.Entry) {
+			out[i] = f
+		}
+	}
+	return out
 }

@@ -386,6 +386,9 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		env.current = int32(len(comps) - 1)
 	}
 	canonicalFilters(env, findings)
+	for id := range findings {
+		findings[id] = dedupFindings(findings[id])
+	}
 	for _, comp := range comps {
 		for _, id := range comp {
 			res.Findings = compat.Append(res.Findings, findings[id]...)

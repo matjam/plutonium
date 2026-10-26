@@ -2,8 +2,10 @@ package sched
 
 import (
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	plutonium "github.com/matjam/plutonium"
@@ -17,15 +19,18 @@ import (
 
 // TestParallelDeterministic checks that the parallel driver gives the same
 // analysis whatever the number of workers: the same findings, summaries
-// (path IDs included) and paths, on programs with many SCCs, with D49 on
-// and off.
+// (path IDs and the entries their reasons name included) and paths, on
+// programs with many SCCs, with D49 on and off. iface_receiver_pointers
+// calls through an interface whose candidates' entries are filtered, so
+// the reasons of its callers name entries of a join whose order the
+// filters' IDs decide.
 func TestParallelDeterministic(t *testing.T) {
 	if testing.Short() {
 		t.Skip("loads programs")
 	}
-	for _, dir := range []string{"../../../examples/15-interfaces", "../../../examples/24-errors", "../../../examples/22-maps"} {
+	for _, dir := range []string{"../../../examples/15-interfaces", "../../../examples/24-errors", "../../../examples/22-maps", "../../../cmd/pluto/testdata/diag/iface_receiver_pointers"} {
 		for _, defer_ := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/defer=%v", dir[len("../../../examples/"):], defer_), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/defer=%v", filepath.Base(dir), defer_), func(t *testing.T) {
 				savedDefer := deferralOn
 				deferralOn = defer_
 				defer func() { deferralOn = savedDefer }()
@@ -204,6 +209,56 @@ func TestReleasedArenasUnused(t *testing.T) {
 					})
 				}
 			}
+		}
+	}
+}
+
+// TestReasonsNameRenamedEntries checks that a reason names the callee's
+// entry it came from after canonicalFilters renumbers the filters and so
+// reorders the entries of filtered summaries. In iface_receiver_pointers,
+// call passes its parameter to an interface method whose candidates keep
+// their receivers under two filters: each entry of call's summary is the
+// entry of the join its reason names, key for key. Many workers intern the
+// filters in an order their timing decides, so the test runs the analysis
+// a few times.
+func TestReasonsNameRenamedEntries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("loads programs")
+	}
+	t.Setenv("PLUTO_ESCAPE2_JOBS", "24")
+	cfg := &load.Config{Tags: load.BuildTags(false, false, nil), Stdlib: plutonium.Stdlib(), Sizes: types2.SizesFor("gc", "amd64")}
+	prog, err := load.Load(cfg, "../../../cmd/pluto/testdata/diag/iface_receiver_pointers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for run := 0; run < 8; run++ {
+		p, err := eir.Build(prog)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res := RunWith(p, Options{})
+		en := res.Env.(*env)
+		checked := 0
+		for _, f := range p.Funcs {
+			if f.Name != "call" && !strings.HasSuffix(f.Name, ".call") {
+				continue
+			}
+			s := res.Summaries[f.ID]
+			for i, k := range s.Esc {
+				r := s.Reasons[i]
+				v := int(r.Callee) - len(p.Funcs)
+				if v < 0 || v >= len(en.virt.cache) {
+					continue
+				}
+				vs := en.virt.cache[v]
+				if int(r.Entry) >= len(vs.Esc) || vs.Esc[r.Entry] != k {
+					t.Fatalf("run %d: call's entry %d (%v) names entry %d of the join, whose entries are %v", run, i, k, r.Entry, vs.Esc)
+				}
+				checked++
+			}
+		}
+		if checked < 2 {
+			t.Fatalf("run %d: %d entries of call name the join: the test does not test it", run, checked)
 		}
 	}
 }
