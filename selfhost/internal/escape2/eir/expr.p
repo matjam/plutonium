@@ -43,6 +43,15 @@ func (fb *fnb) exprAs(e ast.Expr, T types2.Type) Reg {
 		}
 		return fb.constReg(fb.typeOf(e))
 	}
+	if from := fb.typeOf(e); T != nil && isInterface(unwrap(T)) && !types2.IsOwner(T) && isChanOrMap(from) {
+		if v := fb.pkgVarOf(e); v != nil {
+			// An ordinary interface lends the channel or map: it is a
+			// view of the variable converted (section 7.9), here a
+			// package variable, so of static memory, and may be kept
+			// anywhere.
+			return fb.convIn(fb.staticAddr(v.Type()), from, T, e.Pos(), true)
+		}
+	}
 	var r Reg
 	if from := fb.typeOf(e); T != nil && isBox(from) && isInterface(unwrap(T)) && !types2.IsOwner(T) && (!types2.IsCountedError(T) || !isCountedBox(from)) {
 		// An interface that does not own lends the box it holds: its data
@@ -83,8 +92,51 @@ func (fb *fnb) convertReg(r Reg, from, to types2.Type, pos token.Pos) Reg {
 	return r
 }
 
+// isChanOrMap reports whether T is a channel or a map: a counted
+// reference in one word, which an ordinary interface lends.
+func isChanOrMap(T types2.Type) bool {
+	if T == nil || isTypeParam(T) {
+		return false
+	}
+	switch unwrap(T).Underlying().(type) {
+	case *types2.Chan, *types2.Map:
+		return true
+	}
+	return false
+}
+
+// pkgVarOf returns the package variable e names, x or pkg.x, or nil.
+func (fb *fnb) pkgVarOf(e ast.Expr) *types2.Var {
+	var id *ast.Ident
+	switch x := ast.Unparen(e).(type) {
+	case *ast.Ident:
+		id = x
+	case *ast.SelectorExpr:
+		pkg, ok := x.X.(*ast.Ident)
+		if !ok {
+			return nil
+		}
+		if _, isPkg := fb.b.uses[pkg].(*types2.PkgName); !isPkg {
+			return nil
+		}
+		id = x.Sel
+	default:
+		return nil
+	}
+	if v, ok := fb.b.uses[id].(*types2.Var); ok && fb.isGlobal(v) {
+		return v
+	}
+	return nil
+}
+
 // conv converts r, of concrete type from, to interface I.
 func (fb *fnb) conv(r Reg, from, I types2.Type, pos token.Pos) Reg {
+	return fb.convIn(r, from, I, pos, false)
+}
+
+// convIn is conv; if inPlace, r is the address of the variable the value
+// is in, which is the interface's data word in place of a frame box.
+func (fb *fnb) convIn(r Reg, from, I types2.Type, pos token.Pos, inPlace bool) Reg {
 	if from == nil {
 		return r
 	}
@@ -103,7 +155,7 @@ func (fb *fnb) conv(r Reg, from, I types2.Type, pos token.Pos) Reg {
 	fb.noteItab(from, I)
 	fb.b.describe(from)
 	in := Instr{Op: OpConv, X: r, Type: from, To: I, Obj: NoObj, Pos: pos}
-	if !fb.isDirect(from) && !zeroSized(from) {
+	if !inPlace && !fb.isDirect(from) && !zeroSized(from) {
 		// (A box of no bytes holds nothing to read once its frame is
 		// gone.)
 		owner, o := fb.keptObj(Object{Kind: ObjBox, Type: from, Name: "interface box", Pos: pos})

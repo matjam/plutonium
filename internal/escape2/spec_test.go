@@ -237,3 +237,33 @@ func direct() {
 	retyped := strings.Replace(src, "func main() {", "//pu:noinline\nfunc other(q *Plain) string { return call((*S)(q)) }\n\nfunc main() {\n\tvar o Plain\n\tprintln(other(&o))", 1)
 	checkSpec(t, "retyped", retyped, "34:10 E3003", "36:10 E3003", "38:10 E3003", "40:10 E3003", "42:10 E3003", "44:10 E3003", "60:10 E3003")
 }
+
+// An ordinary interface lends a channel (section 7.9, "A channel or a map
+// in the data word of an ordinary interface is lent"): an any made from a
+// channel in a package-level variable may be kept anywhere, while one made
+// from a temporary channel or a parameter may not be returned (section
+// 18.3, Views).
+func TestChanInPackageVarLent(t *testing.T) {
+	src := `package main
+
+var global = make(chan int, 1)
+
+var gm = map[int]int{}
+
+func temp() any { return make(chan int) }
+
+func param(c chan int) any { return c }
+
+func fromGlobal() any { return global }
+
+func mapGlobal() any { return gm }
+
+func main() {
+	_ = temp()
+	_ = param(nil)
+	_ = fromGlobal()
+	_ = mapGlobal()
+}
+`
+	checkSpec(t, "package channel", src, "7:26 E3001", "9:37 E3001")
+}
