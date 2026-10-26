@@ -15,6 +15,7 @@ type Copier struct {
 	slots  []slotPair
 	vwork  []*Value // originals whose copies are still to be filled
 	bwork  []*Block
+	prog   *ProgramCopier // when copying a whole program: its symbols' copies
 }
 
 type valPair struct{ old, new *Value }
@@ -133,7 +134,18 @@ func (c *Copier) fillValue(v *Value, f *Func) {
 		n.Aux = c.slot(aux)
 	case *Type:
 		n.Aux = c.typ(aux)
+	case *Sym:
+		n.Aux = c.prog.Sym(aux)
+	case *Intrinsic:
+		if c.prog != nil {
+			n.Aux = NewIntrinsic(strings.Clone(string(*aux)))
+		} else {
+			n.Aux = aux
+		}
 	default:
+		if v.Aux != nil && c.prog != nil {
+			panic("ssa: copying a value with an unknown kind of aux")
+		}
 		n.Aux = v.Aux
 	}
 	if v.Call != nil {

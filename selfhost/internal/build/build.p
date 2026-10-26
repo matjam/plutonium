@@ -23,9 +23,11 @@ import (
 	"selfhost/internal/opt"
 	"selfhost/internal/race"
 	"selfhost/internal/scoped"
+	"selfhost/internal/scratch"
 	"selfhost/internal/ssa"
 	"selfhost/internal/types2"
 	"selfhost/pu"
+	"unsafe"
 )
 
 // Config describes a build.
@@ -220,7 +222,7 @@ func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		overlaps, raceErr = race.AnalyzeWith(prog, info)
 	}
 	phase("lower")
-	sp := lower.Lower(pu.New(lower.Config{
+	sp := runLower(pu.New(lower.Config{
 		Overlaps:     overlaps,
 		Freestanding: cfg.Freestanding || cfg.Kernel,
 		Kernel:       cfg.Kernel,
@@ -237,6 +239,46 @@ func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		return nil, raceErr
 	}
 	return sp, nil
+}
+
+// lowerStep runs lowering as a scratch step: the lowerer's tables and
+// what it built and dropped die with it, and only the lowered program and
+// its errors are kept. Each lowered function's code is kept in memory of
+// its own, which the optimiser's first step on it frees.
+type lowerStep struct {
+	cfg  *lower.Config
+	prog *load.Program
+	out  *ssa.Program
+	pc   *ssa.ProgramCopier
+	err  error
+}
+
+func (s *lowerStep) ScratchWork() {
+	s.out, s.err = lower.Lower(s.cfg, s.prog)
+	if s.err == nil {
+		s.pc = ssa.NewProgramCopier(s.out)
+	}
+}
+
+func (s *lowerStep) ScratchKeep() {
+	if s.err != nil {
+		s.out, s.err = nil, keepError(s.err)
+		return
+	}
+	s.out = s.pc.Program()
+	for i, f := range s.out.Funcs {
+		scratch.BeginHome(unsafe.Pointer(f))
+		s.pc.Func(i)
+		scratch.EndHome()
+	}
+}
+
+// runLower is lower.Lower in a scratch step of its own.
+func runLower(cfg *lower.Config, prog *load.Program) (*ssa.Program, error) {
+	s := pu.New(lowerStep{cfg: cfg, prog: prog})
+	scratch.Do(s)
+	scratch.Trim()
+	return s.out, s.err
 }
 
 func buildProgram(cfg *Config, prog *load.Program) error {

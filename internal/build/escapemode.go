@@ -37,15 +37,20 @@ func (s *escapeStep) ScratchWork() { s.calls, s.err = analyzeEscapes(s.prog) }
 
 func (s *escapeStep) ScratchKeep() {
 	s.calls = s.calls.Clone()
-	if l, ok := s.err.(*diag.List); ok {
+	s.err = keepError(s.err)
+}
+
+// keepError returns a copy of err from the current allocator, keeping a
+// list of diagnostics a list.
+func keepError(err error) error {
+	if l, ok := err.(*diag.List); ok {
 		var n diag.List
 		for _, d := range *l {
 			n = append(n, d.Clone())
 		}
-		s.err = &n
-	} else {
-		s.err = scratch.Error(s.err)
+		return &n
 	}
+	return scratch.Error(err)
 }
 
 // runEscapes is analyzeEscapes in a scratch step of its own.

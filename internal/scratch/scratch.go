@@ -58,6 +58,17 @@ func DoHome(key unsafe.Pointer, s Step) {
 // version of key's thing it holds again. Here it does nothing.
 func Drop(key unsafe.Pointer) { _ = key }
 
+// BeginHome makes memory of key's own the current allocator until EndHome,
+// as DoHome does for its step's ScratchKeep: a ScratchKeep that makes the
+// first versions of several things, such as the lowered functions, gives
+// each its own memory this way, for later DoHome steps with the same key
+// to free. It is called outside any Do's work, and EndHome before the
+// next BeginHome. Here it does nothing.
+func BeginHome(key unsafe.Pointer) { _ = key }
+
+// EndHome ends what BeginHome began. Here it does nothing.
+func EndHome() {}
+
 // String returns a copy of s from the current allocator.
 func String(s string) string { return strings.Clone(s) }
 

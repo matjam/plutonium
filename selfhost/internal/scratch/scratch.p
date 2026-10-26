@@ -133,6 +133,13 @@ func DoHome(key unsafe.Pointer, s Step) {
 	}
 	filling = home{}
 	do(s, &filling)
+	keepHome(key)
+}
+
+// keepHome makes what filling holds key's home, freeing the memory of
+// key's previous home, if there was one. With filling empty it does
+// nothing.
+func keepHome(key unsafe.Pointer) {
 	if filling.chunks == nil {
 		return
 	}
@@ -150,6 +157,46 @@ func DoHome(key unsafe.Pointer, s Step) {
 	r.Restore()
 	*old = filling
 	filling = home{}
+}
+
+// homeKey is the key of the home BeginHome began, and homeUse makes the
+// home being filled the current allocator until EndHome.
+var (
+	homeKey unsafe.Pointer
+	homeUse alloc.Restore
+)
+
+// BeginHome makes memory of key's own the current allocator until
+// EndHome, as DoHome does for its step's ScratchKeep: a ScratchKeep that
+// makes the first versions of several things, such as the lowered
+// functions, gives each its own memory this way, for later DoHome steps
+// with the same key to free. It is called outside any Do's work, and
+// EndHome before the next BeginHome.
+func BeginHome(key unsafe.Pointer) {
+	if depth != 0 || homeKey != nil || key == nil {
+		panic("scratch.BeginHome within a step's work or another BeginHome")
+	}
+	if !inited {
+		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
+		heap = alloc.Default()
+		inited = true
+	}
+	filling = home{}
+	homeKey = key
+	homeUse = alloc.Use(&filling)
+}
+
+// EndHome ends what BeginHome began: what was allocated since becomes the
+// key's home.
+func EndHome() {
+	if homeKey == nil {
+		panic("scratch.EndHome without BeginHome")
+	}
+	old := take(&homeUse)
+	old.Restore()
+	key := homeKey
+	homeKey = nil
+	keepHome(key)
 }
 
 // Drop frees the memory DoHome kept for key, once nothing will use the
