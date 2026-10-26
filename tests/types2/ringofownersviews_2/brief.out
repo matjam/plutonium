@@ -1,0 +1,1 @@
+$DIR/test.p:9:9: cannot use 1st function result (value of type *Conn) as Conn value in multiple assignment

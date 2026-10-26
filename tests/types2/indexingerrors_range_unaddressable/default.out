@@ -1,0 +1,13 @@
+$DIR/test.p:38:12: cannot range over mk(): method All of S has a pointer receiver, and mk() is not addressable
+    A for range loop over a container calls its All method. That method has a
+    pointer receiver, so the loop needs the address of the container. Here the
+    container is a value that has no address, such as the result of a function
+    call.
+    Store the container in a variable first, or range over a pointer to it.
+    Store it in a variable first:
+        m := load()
+        for k, v := range m {
+            use(k, v)
+        }
+    (see "For statements" in the Plutonium spec, section 12.10)
+    (run "pluto explain E2459" for a longer explanation)

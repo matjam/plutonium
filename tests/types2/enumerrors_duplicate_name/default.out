@@ -1,0 +1,10 @@
+$DIR/test.p:7:18: A redeclared
+    The same name is declared twice in one scope. Each name in a block, or at
+    package level across all the package's files, must be declared once. The
+    message shows where the other declaration is.
+    Rename one of them, or remove the duplicate.
+    (see "Declarations and scope" in the Plutonium spec, section 10)
+    (run "pluto explain E0010" for a longer explanation)
+
+$DIR/test.p:7:15: 	other declaration of A
+    (explained above; run "pluto explain E0010" for more)

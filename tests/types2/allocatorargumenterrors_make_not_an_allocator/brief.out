@@ -1,0 +1,1 @@
+$DIR/test.p:5:24: cannot use "x" (constant of type string) as rt.Allocator value in allocator argument to make: string does not implement rt.Allocator (missing method Alloc)

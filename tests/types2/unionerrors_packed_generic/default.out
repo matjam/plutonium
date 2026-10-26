@@ -1,0 +1,6 @@
+$DIR/test.p:88:15: packed union P cannot have type parameters: its layout must be fixed bit by bit
+    A packed union cannot have type parameters. Its layout is fixed bit by bit
+    by its backing type, its tag and its fields, so it cannot depend on a type
+    argument. An ordinary union can be generic.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2402" for a longer explanation)

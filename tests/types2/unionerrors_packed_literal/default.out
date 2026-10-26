@@ -1,0 +1,8 @@
+$DIR/test.p:88:9: cannot write a composite literal of union type PTE: name the variant it holds (Swapped and Mapped)
+    A union value holds one of its variants, so a literal must name the variant:
+    U.V{...} for a variant whose payload is a struct, array or packed type, or
+    U.V(payload) for any variant with a payload. A variant without a payload is
+    the value U.V itself. In a packed union, the variant sets the tag, so its
+    literal cannot.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2412" for a longer explanation)

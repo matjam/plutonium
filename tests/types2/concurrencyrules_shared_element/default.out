@@ -1,0 +1,21 @@
+$DIR/test.p:2:12: channel element type shared[int] is not sendable: a shared reference's count is not atomic, so it cannot cross tasks; use synced[T] (spec section 19.2)
+    A value that crosses tasks, as the argument or receiver of a task statement
+    or as the element of a channel, must be sendable. This type holds a
+    shared[T], whose reference count is changed with ordinary arithmetic, so two
+    tasks copying or dropping references at once would corrupt it. That holds
+    through pointers, slices, maps and interfaces too: two tasks that reach one
+    struct through a pointer could both copy the shared[T] out of it. Starting a
+    method of a shared box with a task statement (task z.Serve()) hands the box
+    itself to the new task, so it needs a synced box as well.
+    Use synced[T], which counts atomically.
+    Go's garbage collector makes every pointer safe to share. Plutonium counts
+    shared references without atomic instructions, which is only correct on one
+    task.
+    Count the references atomically:
+        type Job struct {
+            data synced[Buffer]
+        }
+
+        jobs := make(chan Job, 16)
+    (see "Sendable types" in the Plutonium spec, section 8.8)
+    (run "pluto explain E2010" for a longer explanation)

@@ -1,0 +1,7 @@
+$DIR/test.p:4:14: not enough arguments in call to f
+	have ()
+	want (int, int)
+    f is declared on line 3 with 2 parameters: (a int, b int). This call passes
+    0 arguments. Pass a value for each parameter that has no default value.
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E0126" for a longer explanation)

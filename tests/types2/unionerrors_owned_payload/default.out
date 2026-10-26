@@ -1,0 +1,18 @@
+$DIR/test.p:88:19: union U must be declared owner: its variant B holds an owned[int], which is an owner
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A union holding one owns the payload of
+    the variant it holds: it drops it when the union is dropped or given another
+    variant, and the union moves instead of being copied.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Plutonium does not make U an owner silently; say so in its declaration:
+        type U owner union {
+            ...
+        }
+    If the union should only look at a value something else owns, hold a
+    pointer:
+        B *int
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2406" for a longer explanation)

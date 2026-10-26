@@ -1,0 +1,1 @@
+$DIR/test.p:88:16: union variant *int needs a name: write Name *int

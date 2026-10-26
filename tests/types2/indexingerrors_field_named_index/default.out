@@ -1,0 +1,5 @@
+$DIR/test.p:35:26: cannot index b (variable of struct type B)
+    Only arrays, slices, strings, pointers to arrays, and generic types whose
+    type set allows it can be indexed with [i].
+    (see "Index expressions" in the Plutonium spec, section 11.10)
+    (run "pluto explain E0051" for a longer explanation)

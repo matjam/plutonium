@@ -1,0 +1,1 @@
+$DIR/test.p:88:29: union R must be declared owner: its variant Ok holds a T, which is an owner

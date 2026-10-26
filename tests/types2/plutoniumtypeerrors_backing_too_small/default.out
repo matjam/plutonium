@@ -1,0 +1,7 @@
+$DIR/test.p:2:8: packed fields need 9 bits but the backing type uint8 holds 8
+    The fields of a packed type are laid out one after another, from bit 0.
+    Their widths add up to more bits than the backing type holds.
+    Use a larger backing type, make fields narrower, or leave the backing type
+    out so the size follows the fields.
+    (see "packed types" in the Plutonium spec, section 7.14)
+    (run "pluto explain E2102" for a longer explanation)

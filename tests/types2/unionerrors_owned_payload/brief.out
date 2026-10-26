@@ -1,0 +1,1 @@
+$DIR/test.p:88:19: union U must be declared owner: its variant B holds an owned[int], which is an owner

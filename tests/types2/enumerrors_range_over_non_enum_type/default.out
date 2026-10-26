@@ -1,0 +1,5 @@
+$DIR/test.p:8:17: cannot range over a type: int is not an enum type
+    This operation needs an enum type, such as len(E) or for v := range E, and
+    the type given is not an enum.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2318" for a longer explanation)

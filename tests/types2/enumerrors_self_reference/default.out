@@ -1,0 +1,5 @@
+$DIR/test.p:7:26: invalid use of E in the declaration of enum E
+    An enum's member values cannot use the enum being declared, because those
+    values are what decides the enum's integer type.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2310" for a longer explanation)

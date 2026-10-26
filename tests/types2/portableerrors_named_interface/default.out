@@ -1,0 +1,17 @@
+$DIR/test.p:73:16: cannot use Reader as T in Send: Reader is not portable: an interface value refers to a type and to data in the sender's address space
+    A portable type can be sent between address spaces, such as two operating
+    system processes that share no memory. Its values mean the same to the
+    receiver as to the sender because they refer to nothing in the sender's
+    memory: they are made only of numbers, booleans, enums, packed types, and
+    arrays, structs and unions of those.
+    Go has one address space, so any value can be passed anywhere and a string
+    or pointer always means the same thing. A Plutonium kernel and its processes
+    have separate address spaces, and the compiler checks what may cross instead
+    of leaving the receiver to read a stale address.
+    Instead, send a union with one variant for each type the interface can hold:
+        type Shape union {
+            Circle struct{ r float64 }
+            Rect   struct{ w, h float64 }
+        }
+    (see "Portable types" in the Plutonium spec, section 8.9)
+    (run "pluto explain E2018" for a longer explanation)

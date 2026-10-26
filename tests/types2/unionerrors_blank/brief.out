@@ -1,0 +1,1 @@
+$DIR/test.p:88:16: union variant cannot be _: every variant needs a name

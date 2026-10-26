@@ -1,0 +1,14 @@
+$DIR/test.p:88:28: cannot use "x" (untyped string constant) as Errno value in argument to DeviceState.Failed
+    A number written in the source is not a member of an enum, so it cannot be
+    used where an enum value is expected. A number that is not a member's value
+    would make an enum value that is not a member, and one that is hides the
+    member's name.
+    Name the member, or convert the number: Color(1) is valid when 1 is a
+    member's value.
+    Go lets an untyped constant become any named integer type. Plutonium enums
+    are closed sets of named members, so a value is always one of them and the
+    source says which.
+    Name the member:
+        var c Color = Color.Green
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E2315" for a longer explanation)

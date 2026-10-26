@@ -1,0 +1,1 @@
+$DIR/test.p:8:19: enum member A: value v (variable of type int) is not constant

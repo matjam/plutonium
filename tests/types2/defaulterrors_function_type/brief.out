@@ -1,0 +1,1 @@
+$DIR/test.p:3:21: default parameter values are allowed only in function and method declarations, not in function types, function literals or interface methods

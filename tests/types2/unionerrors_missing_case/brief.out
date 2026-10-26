@@ -1,0 +1,1 @@
+$DIR/test.p:89:2: missing cases in type switch on st (DeviceState): Probing and Failed (add them or a default case)

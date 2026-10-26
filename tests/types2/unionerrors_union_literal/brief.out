@@ -1,0 +1,1 @@
+$DIR/test.p:88:9: cannot write a composite literal of union type DeviceState: name the variant it holds (Off, Probing, Ready and Failed)

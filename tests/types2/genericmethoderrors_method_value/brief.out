@@ -1,0 +1,1 @@
+$DIR/test.p:14:9: cannot use generic method S{}.Apply without instantiation

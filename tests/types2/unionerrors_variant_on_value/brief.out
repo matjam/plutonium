@@ -1,0 +1,1 @@
+$DIR/test.p:88:33: st.Ready undefined (Ready is a variant of union DeviceState, not a field: read it in a type switch on st (case Ready:), or construct one with DeviceState.Ready)

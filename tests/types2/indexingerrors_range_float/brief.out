@@ -1,0 +1,1 @@
+$DIR/test.p:35:12: cannot range over x (variable of type float64)

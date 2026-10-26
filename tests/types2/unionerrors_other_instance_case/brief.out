@@ -1,0 +1,1 @@
+$DIR/test.p:90:7: Result[string].Ok is a variant of Result[string], not of Result[int]

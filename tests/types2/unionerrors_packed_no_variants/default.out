@@ -1,0 +1,6 @@
+$DIR/test.p:88:8: packed union P has no variants: list them after the tag, as Name case value { fields }
+    A union value holds one of its variants, so a union needs at least one.
+    Variants are written like struct fields: a name, and a payload type if the
+    variant carries data.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2403" for a longer explanation)

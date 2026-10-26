@@ -1,0 +1,6 @@
+$DIR/test.p:2:17: ring capacity 6 is not a power of two
+    The alignment of aligned[T, N] and the size of ring[T, N] must be a power of
+    two: 1, 2, 4, 8, 16 and so on. Hardware alignment is always a power of two,
+    and a ring of that size finds a slot with a mask instead of a division.
+    (see "aligned[T, N]" in the Plutonium spec, section 7.16)
+    (run "pluto explain E2107" for a longer explanation)

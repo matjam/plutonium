@@ -1,0 +1,1 @@
+$DIR/test.p:2:8: packed fields need 9 bits but the backing type uint8 holds 8

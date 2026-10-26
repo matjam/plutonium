@@ -1,0 +1,1 @@
+$DIR/test.p:73:2: cannot use unsafe.Pointer as T in Send: unsafe.Pointer is not portable: an unsafe.Pointer holds an address in the sender's address space

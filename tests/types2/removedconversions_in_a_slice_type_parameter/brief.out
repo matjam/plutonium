@@ -1,0 +1,1 @@
+$DIR/test.p:13:42: string(s) of a slice whose elements are not runes is not permitted in Plutonium (only the element type rune says that the integers are characters; use []rune, or write each rune(x) with a strings.Builder)

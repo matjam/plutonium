@@ -1,0 +1,1 @@
+$DIR/test.p:3:16: volatile element type S must be an integer, bool or pointer

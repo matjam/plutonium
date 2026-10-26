@@ -1,0 +1,1 @@
+$DIR/test.p:3:33: a[:] is passed to a task statement, but it is a slice of a, which lives in this function's frame and which the receiving task may outlive (spec section 18.3)

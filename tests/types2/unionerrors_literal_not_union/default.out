@@ -1,0 +1,6 @@
+$DIR/test.p:89:11: S.X is not a type (S is not a union, so it has no variants)
+    The union has no variant with this name, or the type before the dot is not a
+    union, so it has no variants at all. The message lists the variants the
+    union has.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2410" for a longer explanation)

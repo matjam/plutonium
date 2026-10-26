@@ -1,0 +1,5 @@
+$DIR/test.p:2:37: bits[uint8, 9]: uint8 holds only 8 bits
+    A bit field is written bits[T, N]: N bits read as type T. T must be an
+    integer type at least N bits wide, an enum, or bool with N equal to 1.
+    (see "packed types" in the Plutonium spec, section 7.14)
+    (run "pluto explain E2103" for a longer explanation)

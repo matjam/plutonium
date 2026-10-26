@@ -1,0 +1,5 @@
+$DIR/test.p:2:9: invalid composite literal type owned[int]
+    This error occurs when a composite literal expression does not match its
+    type.
+    (see "Composite literals" in the Plutonium spec, section 11.3)
+    (run "pluto explain E0071" for a longer explanation)

@@ -1,0 +1,8 @@
+$DIR/test.p:3:19: result parameters cannot have default values
+    Default parameter values are allowed only on the parameters of a declared
+    function or method. Receivers and results cannot have them, and neither can
+    function types, function literals or interface methods, because a call
+    through a function value or an interface does not know which function it
+    calls, so it could not fill in the defaults.
+    (see "Default parameter values" in the Plutonium spec, section 10.13)
+    (run "pluto explain E2201" for a longer explanation)

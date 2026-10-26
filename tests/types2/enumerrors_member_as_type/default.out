@@ -1,0 +1,6 @@
+$DIR/test.p:7:13: Color.Red is not a type
+    A name used as a type is not a type: it is a variable, constant, function or
+    package. Check the spelling, and whether a local variable hides a type of
+    the same name.
+    (see "Types" in the Plutonium spec, section 7)
+    (run "pluto explain E0025" for a longer explanation)

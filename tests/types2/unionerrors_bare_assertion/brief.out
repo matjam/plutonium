@@ -1,0 +1,1 @@
+$DIR/test.p:88:34: write DeviceState.Off: a variant's bare name is accepted only in the cases of a type switch

@@ -1,0 +1,5 @@
+$DIR/test.p:8:9: range over Color (value of enum type Color) permits only one iteration variable
+    This error occurs when two iteration variables are used while ranging over a
+    channel.
+    (see "For statements" in the Plutonium spec, section 12.10)
+    (run "pluto explain E0108" for a longer explanation)

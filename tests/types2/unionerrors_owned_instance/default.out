@@ -1,0 +1,13 @@
+$DIR/test.p:89:9: cannot use owned[int] as T in R: owned[int] is an owner and T does not allow owners
+    Inside the generic code, values of T are copied freely. Copying an owner
+    would leave several values that all free the same memory.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    If the generic code moves each value of T at most once, allow owners in its
+    declaration:
+        [T owner any]
+    Otherwise use copies made explicitly with Clone, or pointers to the owners.
+    (see "Owner types" in the Plutonium spec, section 7.18)
+    (run "pluto explain E3207" for a longer explanation)

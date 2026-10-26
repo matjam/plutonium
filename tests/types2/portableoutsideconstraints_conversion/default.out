@@ -1,0 +1,5 @@
+$DIR/test.p:2:21: cannot use interface portable in conversion (contains specific type constraints or is comparable or portable)
+    This error occurs when a constraint-type interface is used outside of
+    constraint position.
+    (see "Interface types" in the Plutonium spec, section 7.9)
+    (run "pluto explain E0142" for a longer explanation)

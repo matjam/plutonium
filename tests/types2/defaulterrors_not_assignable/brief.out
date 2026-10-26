@@ -1,0 +1,1 @@
+$DIR/test.p:3:16: cannot use "x" (untyped string constant) as int value in default value of a

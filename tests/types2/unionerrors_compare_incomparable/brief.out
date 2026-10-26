@@ -1,0 +1,1 @@
+$DIR/test.p:90:9: invalid operation: x == y (union with variant A of type []int cannot be compared)

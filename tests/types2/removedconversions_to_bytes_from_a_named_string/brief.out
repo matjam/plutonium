@@ -1,0 +1,1 @@
+$DIR/test.p:13:32: []byte(s) is not permitted in Plutonium (the copy would belong to no one; use strings.Bytes, or copy into a buffer)

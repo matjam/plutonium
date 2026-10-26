@@ -1,0 +1,7 @@
+$DIR/test.p:7:8: enum E has no member with value 0 (its zero value must be a member)
+    A variable of an enum type starts as 0, like every Plutonium variable. So
+    one member must have the value 0, or a fresh variable would hold a value
+    that is not a member.
+    Add a member for the zero value, often named None, Unknown or Invalid.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2307" for a longer explanation)

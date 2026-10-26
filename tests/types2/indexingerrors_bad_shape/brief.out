@@ -1,0 +1,1 @@
+$DIR/test.p:36:26: cannot index B: method Index must have the form Index(k K) V

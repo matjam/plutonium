@@ -1,0 +1,7 @@
+$DIR/test.p:37:12: cannot range over s: method All of S must have the form All() iter.Seq[V] or All() iter.Seq2[K, V]
+    A for range loop over a container calls its All method, which must take no
+    arguments and return an iterator: a function of the form func(yield func(K,
+    V) bool), such as iter.Seq[V] or iter.Seq2[K, V]. This type's All method has
+    another form.
+    (see "For statements" in the Plutonium spec, section 12.10)
+    (run "pluto explain E2458" for a longer explanation)

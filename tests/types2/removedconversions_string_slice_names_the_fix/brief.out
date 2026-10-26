@@ -1,0 +1,1 @@
+$DIR/test.p:13:34: a slice expression on a string is not permitted in Plutonium (a cut must fall between runes; use strings.Slice(s, i, j) or strings.SliceFrom(s, i))

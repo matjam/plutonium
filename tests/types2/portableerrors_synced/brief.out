@@ -1,0 +1,1 @@
+$DIR/test.p:74:2: cannot use synced[int] as T in Send: synced[int] is not portable: a synced box is a counted reference to an object in the sender's address space

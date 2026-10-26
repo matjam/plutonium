@@ -1,0 +1,10 @@
+$DIR/test.p:89:9: s declared and not used
+    s is declared on line 89, but its value is never used. Plutonium, like Go,
+    treats this as an error, because an unused variable often means a mistake,
+    such as assigning to the wrong variable or forgetting a check.
+    Delete the variable, use it, or replace it with _ where it is declared if
+    you only need the other values.
+    To keep it for now:
+        _ = s
+    (see "Variable declarations" in the Plutonium spec, section 10.10)
+    (run "pluto explain E0101" for a longer explanation)

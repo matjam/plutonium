@@ -1,0 +1,13 @@
+$DIR/test.p:3:5: initialization cycle for x
+    Package-level variables are initialized in an order where each comes after
+    the ones its initial value uses. Here the values depend on each other in a
+    circle, so no order works. Break the circle by setting one of them in an
+    init function or at run time.
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E0009" for a longer explanation)
+
+$DIR/test.p:3:5: 	x refers to f
+    (explained above; run "pluto explain E0009" for more)
+
+$DIR/test.p:4:6: 	f refers to x
+    (explained above; run "pluto explain E0009" for more)

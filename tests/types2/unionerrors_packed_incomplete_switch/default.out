@@ -1,0 +1,8 @@
+$DIR/test.p:90:2: type switch on packed union p (P) needs a default case: its 2-bit tag t can hold 4 values, and its cases cover 3
+    A packed union's bits usually come from hardware or from converting a raw
+    value, so its tag may hold any value its bits allow, including values no
+    variant names. A type switch without a default case must therefore cover
+    every value of the tag; this one does not.
+    Add a default case that handles the other values.
+    (see "Switch statements" in the Plutonium spec, section 12.9)
+    (run "pluto explain E2415" for a longer explanation)

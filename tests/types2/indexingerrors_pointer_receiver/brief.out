@@ -1,0 +1,1 @@
+$DIR/test.p:35:23: cannot read mk()[0]: method Index of Vec has a pointer receiver, and mk() is not addressable

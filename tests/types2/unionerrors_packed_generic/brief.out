@@ -1,0 +1,1 @@
+$DIR/test.p:88:15: packed union P cannot have type parameters: its layout must be fixed bit by bit

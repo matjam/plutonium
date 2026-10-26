@@ -1,0 +1,1 @@
+$DIR/test.p:2:9: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)

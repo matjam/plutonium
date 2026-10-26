@@ -1,0 +1,10 @@
+$DIR/test.p:88:19: DeviceState.Ready is a variant of union DeviceState, not a type (its payload has type struct{irq uint8; base uintptr})
+    A variant of a union is not a type. U.V(x) and U.V{...} make a value of the
+    union type U holding the variant, and a type switch on a union gives you the
+    payload of the variant it holds, which has the payload's own type.
+    To keep a payload in a variable, give the variable the payload's type.
+    Go has no unions. Keeping variants out of the type system means a payload
+    always has its own type and methods, and generic unions need no special
+    rules.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2409" for a longer explanation)

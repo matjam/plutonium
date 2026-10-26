@@ -1,0 +1,1 @@
+$DIR/test.p:8:21: cannot convert non-constant n (variable of type int) to enum type Color without a check: use the comma-ok form (v, ok := Color(...))

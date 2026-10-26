@@ -1,0 +1,1 @@
+$DIR/test.p:7:15: enum member cannot be _: every member needs a name

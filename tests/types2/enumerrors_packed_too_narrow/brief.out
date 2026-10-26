@@ -1,0 +1,1 @@
+$DIR/test.p:7:37: bits[Color, 1]: enum Color needs 2 bits

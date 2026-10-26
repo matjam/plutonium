@@ -1,0 +1,1 @@
+$DIR/test.p:88:26: a struct type without a name cannot have owner fields: its field p is an owned[int], which is an owner

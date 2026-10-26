@@ -1,0 +1,1 @@
+$DIR/test.p:36:12: cannot range over s (variable of struct type S): S has no method All returning an iterator

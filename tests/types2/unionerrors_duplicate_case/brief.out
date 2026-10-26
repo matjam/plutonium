@@ -1,0 +1,2 @@
+$DIR/test.p:90:12: duplicate case DeviceState.Off in type switch
+$DIR/test.p:90:7: 	previous case

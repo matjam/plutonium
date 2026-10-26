@@ -1,0 +1,6 @@
+$DIR/test.p:7:31: cannot use 1 << n (untyped int value) as Color value in return statement
+    f is declared on line 7 to return Color, so it can only hold values of that
+    type; 1 << n is an untyped int constant. Plutonium, like Go, does not
+    convert between different types automatically.
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E0023" for a longer explanation)

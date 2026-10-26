@@ -1,0 +1,10 @@
+$DIR/test.p:35:23: cannot read mk()[0]: method Index of Vec has a pointer receiver, and mk() is not addressable
+    The container's indexing method has a pointer receiver, so x[k] needs the
+    address of x. Here x is a value that has no address, such as the result of a
+    function call.
+    Store the container in a variable first, or index through a pointer to it.
+    Store it in a variable first:
+        m := load()
+        v := m["key"]
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E2457" for a longer explanation)

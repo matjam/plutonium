@@ -1,0 +1,1 @@
+$DIR/test.p:74:2: cannot use owned[int] as T in Send: owned[int] is not portable: an owned box is an owner that points to memory in the sender's address space

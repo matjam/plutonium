@@ -1,0 +1,1 @@
+$DIR/test.p:5:16: cannot use 3 (constant of type int) as rt.Allocator value in allocator argument to new: int does not implement rt.Allocator (missing method Alloc)

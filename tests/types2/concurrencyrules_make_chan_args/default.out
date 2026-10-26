@@ -1,0 +1,6 @@
+$DIR/test.p:2:9: invalid operation: make(chan int, 1, 2, 3) expects 1 or 2 arguments and an optional allocator; found 4
+    The call passes a different number of arguments than the function has
+    parameters. The message shows the arguments given (have) and the parameters
+    (want). Parameters with default values may be left out from the end.
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E0126" for a longer explanation)

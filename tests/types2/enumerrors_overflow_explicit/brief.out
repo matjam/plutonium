@@ -1,0 +1,1 @@
+$DIR/test.p:7:28: enum member E.B value 256 overflows uint8

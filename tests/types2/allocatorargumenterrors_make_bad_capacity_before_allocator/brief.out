@@ -1,0 +1,2 @@
+$DIR/test.p:5:24: cannot convert "x" (untyped string constant) to type int
+$DIR/test.p:5:9: make of a slice is not permitted in Plutonium (a slice is a view and cannot own its array; use vec.Make)

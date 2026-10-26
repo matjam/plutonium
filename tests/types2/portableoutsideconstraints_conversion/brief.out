@@ -1,0 +1,1 @@
+$DIR/test.p:2:21: cannot use interface portable in conversion (contains specific type constraints or is comparable or portable)

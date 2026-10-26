@@ -1,0 +1,1 @@
+$DIR/test.p:74:2: cannot use R as T in Send: R has field p of type *int, which is not portable: a pointer holds an address in the sender's address space

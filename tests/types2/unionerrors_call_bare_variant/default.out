@@ -1,0 +1,6 @@
+$DIR/test.p:88:9: invalid operation: cannot call DeviceState.Off (value of union type DeviceState): DeviceState is not a function
+    Only functions, methods and func values can be called. The expression before
+    the parentheses is something else, or a type used in a way that is not a
+    conversion.
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E0127" for a longer explanation)

@@ -1,0 +1,7 @@
+$DIR/test.p:4:16: invalid operation: new with an allocator argument needs package pluto/rt
+    new and make take an optional allocator as their last argument. Its type,
+    Allocator, is declared in package pluto/rt, which this build could not find.
+    This happens only when the standard library is missing or incomplete.
+    Check that PLUTOROOT, if set, points at a directory that contains pluto/rt.
+    (see "Allocation" in the Plutonium spec, section 13.9)
+    (run "pluto explain E2007" for a longer explanation)

@@ -1,0 +1,6 @@
+$DIR/test.p:5:13: use of untyped nil in argument to new
+    nil has no type of its own: it is the zero value of pointers, slices,
+    interfaces and func values. A variable declared with := or var and no type
+    takes the type of its value, and nil gives it none. Write the type.
+    (see "Variable declarations" in the Plutonium spec, section 10.10)
+    (run "pluto explain E0016" for a longer explanation)

@@ -1,0 +1,1 @@
+$DIR/test.p:3:16: a variadic function cannot have default parameter values (an argument after the variadic ones could not be told apart from them)

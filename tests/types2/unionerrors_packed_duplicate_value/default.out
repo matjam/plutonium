@@ -1,0 +1,7 @@
+$DIR/test.p:88:70: variants A and B of packed union P both have tag value 1
+    The values after case in a packed union variant are the tag values that
+    select it. Each must be a constant of the tag's type that fits in the tag's
+    bits, and no value may select two variants, so that every bit pattern means
+    at most one variant.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2408" for a longer explanation)

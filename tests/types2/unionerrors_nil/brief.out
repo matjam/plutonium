@@ -1,0 +1,1 @@
+$DIR/test.p:88:21: cannot use nil as DeviceState value in variable declaration

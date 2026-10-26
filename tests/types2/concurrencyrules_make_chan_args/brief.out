@@ -1,0 +1,1 @@
+$DIR/test.p:2:9: invalid operation: make(chan int, 1, 2, 3) expects 1 or 2 arguments and an optional allocator; found 4

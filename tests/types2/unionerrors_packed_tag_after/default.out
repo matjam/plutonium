@@ -1,0 +1,7 @@
+$DIR/test.p:88:60: tag field u of packed union P must come before the first variant
+    A packed union has a backing type, which fixes its size, and exactly one
+    named field before its variants: the tag. The tag is a bool, integer or enum
+    field that occupies the same bits in every variant, and each variant lists
+    the tag values that select it.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2407" for a longer explanation)

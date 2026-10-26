@@ -1,0 +1,20 @@
+$DIR/test.p:2:32: append is not permitted in Plutonium (a slice cannot grow; use pluto/vec)
+    Plutonium has no append. In Go, append grows a slice by allocating a larger
+    array behind the program's back, and the garbage collector frees the old
+    one. A Plutonium slice is a view of an array that something else owns, so it
+    cannot grow.
+    Use a vec.Vec from pluto/vec, which owns its array and grows it from an
+    allocator. To fill a slice's spare capacity without growing it, slice it
+    longer and assign, or use copy.
+    Plutonium has no garbage collector and never allocates memory unless the
+    program asks for it in the code, so that every cost is visible and the same
+    code can run inside a kernel.
+    Keep s in a vec.Vec[int], which grows from an allocator:
+        import "pluto/vec"
+
+        s := vec.New[int]()
+        defer s.Free()
+        s.Push(1)
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
+    (run "pluto explain E2013" for a longer explanation)

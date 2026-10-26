@@ -1,0 +1,1 @@
+$DIR/test.p:7:19: enum member A: value "x" (untyped string constant) is not an integer

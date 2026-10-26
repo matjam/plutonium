@@ -1,0 +1,1 @@
+$DIR/test.p:89:11: S.X is not a type (S is not a union, so it has no variants)

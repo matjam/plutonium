@@ -1,0 +1,1 @@
+$DIR/test.p:7:15: invalid argument for built-in len: int is not an enum type

@@ -1,0 +1,5 @@
+$DIR/test.p:88:40: p.frame undefined (type PTE has no field or method frame)
+    p has type PTE, declared on line 49, which has no field or method frame. It
+    has no fields or methods at all.
+    (see "Selectors" in the Plutonium spec, section 11.7)
+    (run "pluto explain E0076" for a longer explanation)

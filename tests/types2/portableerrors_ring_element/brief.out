@@ -1,0 +1,1 @@
+$DIR/test.p:73:2: cannot use ring[*int, 4] as T in Send: ring[*int, 4] has element [] of type *int, which is not portable: a pointer holds an address in the sender's address space

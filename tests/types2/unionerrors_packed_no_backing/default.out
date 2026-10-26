@@ -1,0 +1,6 @@
+$DIR/test.p:88:43: expected type, found 'case'
+    The parser expected one thing here and found another. The mistake is often
+    just before the position shown: a missing comma, bracket or operator, or a
+    keyword used as a name.
+    (see "Grammar" in the Plutonium spec, section E)
+    (run "pluto explain E1001" for a longer explanation)

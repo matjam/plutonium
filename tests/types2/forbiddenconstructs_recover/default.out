@@ -1,0 +1,18 @@
+$DIR/test.p:2:31: recover is not permitted in Plutonium (a panic cannot be stopped; return errors instead)
+    In Plutonium, panic stops the program. A hosted program first runs the
+    pending deferred calls, as Go does, but control never returns to the
+    function that panicked, so there is nothing for recover to catch.
+    Report failures that the caller can handle by returning an error instead.
+    Resuming a function after a panic needs an unwinder, tables and runtime
+    support that a kernel cannot rely on, and a panic in kernel code means the
+    state is already wrong.
+    Return an error instead:
+        func parse(s string) (int, error) {
+            if s == "" {
+                return 0, errors.New("empty input")
+            }
+            ...
+        }
+    (see "Built-ins Plutonium does not have" in the Plutonium spec, section
+    13.1)
+    (run "pluto explain E2004" for a longer explanation)

@@ -1,0 +1,8 @@
+$DIR/test.p:7:33: invalid operation: operator - not defined on c (variable of enum type Order) (enum values only compare; convert to an integer for arithmetic)
+    Enum values can be compared, but not added, multiplied, shifted or combined
+    with bitwise operators, since the result would usually not be a member.
+    Convert to an integer to do arithmetic.
+    Convert to an integer first:
+        next := int(c) + 1
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2316" for a longer explanation)

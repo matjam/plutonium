@@ -1,0 +1,1 @@
+$DIR/test.p:88:60: tag field u of packed union P must come before the first variant

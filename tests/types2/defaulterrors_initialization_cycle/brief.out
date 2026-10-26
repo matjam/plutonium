@@ -1,0 +1,3 @@
+$DIR/test.p:3:5: initialization cycle for x
+$DIR/test.p:3:5: 	x refers to f
+$DIR/test.p:4:6: 	f refers to x

@@ -1,0 +1,8 @@
+$DIR/test.p:14:1: missing return
+    f is declared on line 7 to return int, but the end of its body on line 14
+    can be reached without a return statement. Every path through a function
+    with results must end in a return, a panic, or a loop that never exits.
+    Return a value at the end, for example:
+        return 0
+    (see "Terminating statements" in the Plutonium spec, section 12.1)
+    (run "pluto explain E0102" for a longer explanation)

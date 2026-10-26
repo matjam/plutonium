@@ -1,0 +1,9 @@
+$DIR/test.p:8:17: cannot range over c (variable of enum type Color): range over the enum type instead (for v := range Color)
+    To loop over the members of an enum, range over the enum type itself, not
+    over a value of it.
+    Range over the type:
+        for c := range Color {
+            ...
+        }
+    (see "For statements" in the Plutonium spec, section 12.10)
+    (run "pluto explain E2317" for a longer explanation)

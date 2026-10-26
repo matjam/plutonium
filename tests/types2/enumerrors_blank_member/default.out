@@ -1,0 +1,5 @@
+$DIR/test.p:7:15: enum member cannot be _: every member needs a name
+    Every member of an enum needs a name. To skip a value, give the next member
+    an explicit value instead.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2305" for a longer explanation)

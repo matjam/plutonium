@@ -1,0 +1,1 @@
+$DIR/test.p:73:16: cannot use Reader as T in Send: Reader is not portable: an interface value refers to a type and to data in the sender's address space

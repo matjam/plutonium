@@ -1,0 +1,14 @@
+$DIR/test.p:88:26: a struct type without a name cannot have owner fields: its field p is an owned[int], which is an owner
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A struct that contains one owns that
+    memory too, and only a named type can be declared an owner.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Declare a named owner type for the struct:
+        type T owner struct {
+            ...
+        }
+    (see "Owner types" in the Plutonium spec, section 7.18)
+    (run "pluto explain E3203" for a longer explanation)

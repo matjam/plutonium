@@ -1,0 +1,4 @@
+$DIR/test.p:14:19: impossible type assertion: x.(*S)
+	*S does not implement I (method Id has type parameters, so it cannot implement an interface method)
+		have Id[U any]() int
+		want Id() int

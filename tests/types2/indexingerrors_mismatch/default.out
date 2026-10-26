@@ -1,0 +1,7 @@
+$DIR/test.p:37:26: cannot index B: methods Index and SetIndex use different key or element types
+    The indexing methods of one type must agree: Index, SetIndex and IndexOk
+    take the same key type K, and use the same element type V. Otherwise x[k]
+    would have a different type depending on whether it is read or assigned, and
+    x[k] += 1 could not read and write the same element.
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E2453" for a longer explanation)

@@ -1,0 +1,1 @@
+$DIR/test.p:7:34: c.Red undefined (Red is a member of enum Color: write Color.Red)

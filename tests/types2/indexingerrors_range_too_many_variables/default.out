@@ -1,0 +1,5 @@
+$DIR/test.p:37:9: range over s (variable of struct type S) permits only one iteration variable
+    This error occurs when two iteration variables are used while ranging over a
+    channel.
+    (see "For statements" in the Plutonium spec, section 12.10)
+    (run "pluto explain E0108" for a longer explanation)

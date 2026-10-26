@@ -1,0 +1,5 @@
+$DIR/test.p:2:22: ring literal must be empty: ring[int, 4]{}
+    A ring literal cannot list elements. Write an empty literal, or use the zero
+    value, and add elements with Push.
+    (see "ring[T, N]" in the Plutonium spec, section 7.17)
+    (run "pluto explain E2110" for a longer explanation)

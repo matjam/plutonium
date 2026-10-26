@@ -1,0 +1,6 @@
+$DIR/test.p:7:36: cannot convert x (variable of type float64) to enum type Color (only integers convert to an enum)
+    Only integers convert to an enum, and a constant converts only if it is the
+    value of a member. Anything else would make an enum value that is not a
+    member.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2313" for a longer explanation)

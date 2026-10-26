@@ -1,0 +1,9 @@
+$DIR/test.p:88:34: int is not a variant of union DeviceState (its variants are Off, Probing, Ready and Failed)
+    A type switch on a union value, and a type assertion on one, name the
+    union's own variants: U.V, or in a case of the switch the bare name V. A
+    union value is never nil, and a variant of another union, or a type, can
+    never match.
+    A bare variant name is accepted only in the cases of a type switch, where
+    the switch says which union is meant.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2413" for a longer explanation)

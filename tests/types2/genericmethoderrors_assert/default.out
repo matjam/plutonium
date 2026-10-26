@@ -1,0 +1,8 @@
+$DIR/test.p:14:19: impossible type assertion: x.(*S)
+	*S does not implement I (method Id has type parameters, so it cannot implement an interface method)
+		have Id[U any]() int
+		want Id() int
+    The type in the assertion does not have every method of the interface, so no
+    value of the interface can hold it, and the assertion would always fail.
+    (see "Type assertions" in the Plutonium spec, section 11.13)
+    (run "pluto explain E0095" for a longer explanation)

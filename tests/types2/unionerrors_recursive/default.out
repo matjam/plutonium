@@ -1,0 +1,6 @@
+$DIR/test.p:88:6: invalid recursive type: U refers to itself
+    A type, constant or variable is defined in terms of itself, so it has no
+    well-defined size or value. A struct cannot contain itself directly; it can
+    contain a pointer to itself.
+    (see "Type declarations" in the Plutonium spec, section 10.8)
+    (run "pluto explain E0011" for a longer explanation)

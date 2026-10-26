@@ -1,0 +1,12 @@
+$DIR/test.p:34:17: cannot assign to v[0].x: v[0] is a copy returned by the Index method of *PV
+    x[k] on a container is a copy that its Index method returns, so assigning to
+    a field or element of it would change only the copy. This is the same rule
+    as Go's for map elements.
+    Read the element, change it, and store it back with x[k] = v, or change it
+    in place through a pointer from a method such as Ptr.
+    Store the changed element back:
+        p := v[i]
+        p.x = 1
+        v[i] = p
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E2455" for a longer explanation)

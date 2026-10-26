@@ -1,0 +1,17 @@
+$DIR/test.p:3:27: &x is passed to a task statement, but x lives in this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the task, or make it a package-level variable
+    This value points into the current function's stack frame: the address of a
+    local variable or of part of one, a slice of a local array, or the address
+    of a composite literal. A task statement or a channel send hands it to
+    another task, which may still use it after this function has returned and
+    its frame is gone.
+    Start the work with a sync.Scope instead: it waits for the tasks it starts
+    before its block ends, so they may use the function's variables. Or allocate
+    the variable with new, so that it outlives the frame, or make it a
+    package-level variable.
+    Go moves such variables to the heap without saying so. Plutonium never
+    allocates behind the program's back, so a local stays in its frame.
+    Start the work with a sync.Scope, which waits for it before its block ends:
+        var s sync.Scope
+        s.Task(func() { worker(&state) })
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E2011" for a longer explanation)

@@ -1,0 +1,6 @@
+$DIR/test.p:14:9: cannot use generic method S{}.Apply without instantiation
+    A generic function or type gets a different number of type arguments than it
+    has type parameters. Give one for each, or leave out the trailing ones that
+    can be inferred from the arguments.
+    (see "Instantiations" in the Plutonium spec, section 11.16)
+    (run "pluto explain E0137" for a longer explanation)

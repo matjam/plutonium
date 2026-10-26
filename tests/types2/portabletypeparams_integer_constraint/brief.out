@@ -1,0 +1,1 @@
+$DIR/test.p:72:33: cannot use T as T in Send: T is not portable: the type parameter's constraint does not require a portable type

@@ -1,0 +1,5 @@
+$DIR/test.p:35:12: cannot range over x (variable of type float64)
+    for range works over arrays, slices, strings, integers, channels, enum types
+    and iterator functions. This value is none of those.
+    (see "For statements" in the Plutonium spec, section 12.10)
+    (run "pluto explain E0109" for a longer explanation)

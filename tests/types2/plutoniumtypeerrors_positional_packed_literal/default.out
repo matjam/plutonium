@@ -1,0 +1,6 @@
+$DIR/test.p:3:11: packed literal elements must be field: value
+    A packed literal must name each field it sets, as field: value. The fields
+    of a packed type have no order a literal could follow, since reserved bits
+    sit between them.
+    (see "packed types" in the Plutonium spec, section 7.14)
+    (run "pluto explain E2105" for a longer explanation)

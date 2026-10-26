@@ -1,0 +1,6 @@
+$DIR/test.p:88:21: cannot use Errno.EIO (constant 5 of enum type Errno) as DeviceState value in variable declaration
+    v is declared as DeviceState, so it can only hold values of that type;
+    Errno.EIO is a Errno. Plutonium, like Go, does not convert between different
+    types automatically.
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E0023" for a longer explanation)

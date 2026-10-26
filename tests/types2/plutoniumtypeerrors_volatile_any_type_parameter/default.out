@@ -1,0 +1,6 @@
+$DIR/test.p:2:34: volatile element type T must be an integer, bool or pointer
+    volatile[T] makes every read and write of T exactly one load or store. That
+    is only possible for a value the processor moves in one instruction: an
+    integer, a bool, a pointer, or a packed type backed by an integer.
+    (see "volatile[T]" in the Plutonium spec, section 7.15)
+    (run "pluto explain E2108" for a longer explanation)

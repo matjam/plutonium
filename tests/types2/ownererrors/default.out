@@ -1,0 +1,16 @@
+$DIR/test.p:5:16: File has a Drop method but is not declared owner
+    Drop runs automatically when a value is destroyed. That only makes sense for
+    a type whose values have exactly one owner: if File values were copied as
+    ordinary values are, every copy would run Drop and release the same
+    resource.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Declare the type as an owner, so that its values move instead of being
+    copied:
+        type File owner struct {
+            ...
+        }
+    (see "Owner types" in the Plutonium spec, section 7.18)
+    (run "pluto explain E3201" for a longer explanation)

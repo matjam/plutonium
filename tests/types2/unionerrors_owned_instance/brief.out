@@ -1,0 +1,1 @@
+$DIR/test.p:89:9: cannot use owned[int] as T in R: owned[int] is an owner and T does not allow owners

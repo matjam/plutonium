@@ -1,0 +1,5 @@
+$DIR/test.p:90:9: s (variable of struct type S) is not an interface or a union
+    This error occurs when .(type) is used on an expression that is not of
+    interface type.
+    (see "Switch statements" in the Plutonium spec, section 12.9)
+    (run "pluto explain E0116" for a longer explanation)

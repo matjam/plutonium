@@ -1,0 +1,1 @@
+$DIR/test.p:73:2: cannot use []byte as T in Send: []byte is not portable: a slice refers to memory in the sender's address space

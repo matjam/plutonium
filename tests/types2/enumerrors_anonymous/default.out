@@ -1,0 +1,6 @@
+$DIR/test.p:7:7: enum type must be the type of a type definition: type E enum { ... }
+    An enum type can only be the type of a type definition, type E enum { ... }.
+    It cannot be written inline in a variable or field, or be an alias, because
+    its members are reached through its name (E.Member).
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2301" for a longer explanation)

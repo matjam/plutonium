@@ -1,0 +1,9 @@
+$DIR/test.p:34:31: invalid argument: r (variable of struct type RO) for built-in len
+    len takes a string, an array or a pointer to one, a slice, a map, a channel,
+    an owned, shared or synced array, or a value whose type has a method Len()
+    int, such as a library container or a ring; len(E) of an enum type E is its
+    number of members. A Len method with a pointer receiver needs an operand
+    that is addressable or a pointer, as a method call would.
+    Pass a value of one of these types, or store the value in a variable first.
+    (see "Length and capacity" in the Plutonium spec, section 13.6)
+    (run "pluto explain E0090" for a longer explanation)

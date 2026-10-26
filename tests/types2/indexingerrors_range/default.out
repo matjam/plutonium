@@ -1,0 +1,17 @@
+$DIR/test.p:35:17: cannot range over v (variable of type *Vec): *Vec has no method All returning an iterator
+    A for range loop over a value that is not a string, integer, array, slice,
+    map, channel or function calls the value's All method and ranges over the
+    iterator it returns, an iter.Seq or iter.Seq2. This type has no All method.
+    Give the type an All method that returns an iterator, or range over one of
+    its other iterators.
+    Library containers such as vec.Vec and hash.Map are structs, not built-in
+    types, so the loop asks them for an iterator by name. vec.Vec and hash.Map
+    have All, so they range like Go's slices and maps.
+    Add an All method:
+        func (t *T) All() iter.Seq2[string, int] {
+            return func(yield func(string, int) bool) {
+                // call yield for each key and value
+            }
+        }
+    (see "For statements" in the Plutonium spec, section 12.10)
+    (run "pluto explain E2456" for a longer explanation)

@@ -1,0 +1,9 @@
+$DIR/test.p:4:12: in call to f, cannot infer T (declared at $DIR/test.p:3:8)
+    f is generic: it has the type parameter list [T], and a call normally works
+    the types out from its arguments. T does not appear in the type of any
+    argument given here (it may appear only in the results, or in parameters
+    left out), so the compiler cannot tell which type to use.
+    Give the type arguments in square brackets, with the types you want:
+        f[T]()
+    (see "Type inference" in the Plutonium spec, section 11.17)
+    (run "pluto explain E0138" for a longer explanation)

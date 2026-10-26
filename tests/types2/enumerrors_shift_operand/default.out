@@ -1,0 +1,8 @@
+$DIR/test.p:7:32: invalid operation: shifted operand c (variable of enum type Color) is an enum value (convert it to an integer first)
+    Enum values can be compared, but not added, multiplied, shifted or combined
+    with bitwise operators, since the result would usually not be a member.
+    Convert to an integer to do arithmetic.
+    Convert to an integer first:
+        next := int(c) + 1
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2316" for a longer explanation)

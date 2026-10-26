@@ -1,0 +1,1 @@
+$DIR/test.p:90:7: Errno is not a union, so Errno.X is not a variant of DeviceState

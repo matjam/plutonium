@@ -1,0 +1,9 @@
+$DIR/test.p:14:20: in call to s.Id, cannot infer U (declared at $DIR/test.p:7:16)
+    s.Id is generic: it has the type parameter list [U], and a call normally
+    works the types out from its arguments. U does not appear in the type of any
+    argument given here (it may appear only in the results, or in parameters
+    left out), so the compiler cannot tell which type to use.
+    Give the type arguments in square brackets, with the types you want:
+        s.Id[U]()
+    (see "Type inference" in the Plutonium spec, section 11.17)
+    (run "pluto explain E0138" for a longer explanation)

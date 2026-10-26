@@ -1,0 +1,1 @@
+$DIR/test.p:4:26: task statement calls a pointer method on w, a variable in this function's frame, which the task may outlive (spec section 18.3); make it a package-level variable, or give the task a function that takes an owner

@@ -1,0 +1,1 @@
+$DIR/test.p:4:28: &t.a[1] is passed to a task statement, but t lives in this function's frame, which the receiving task may outlive (spec section 18.3); allocate it with new, whose owned[T] then moves to the task, or make it a package-level variable

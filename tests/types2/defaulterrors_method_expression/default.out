@@ -1,0 +1,7 @@
+$DIR/test.p:5:19: not enough arguments in call to T.M
+	have (T)
+	want (T, int)
+    T.M is declared on line 4 with 2 parameters: (_ T, a int). This call passes
+    1 argument. Pass a value for each parameter that has no default value.
+    (see "Calls" in the Plutonium spec, section 11.14)
+    (run "pluto explain E0126" for a longer explanation)

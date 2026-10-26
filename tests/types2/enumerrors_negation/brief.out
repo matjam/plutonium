@@ -1,0 +1,1 @@
+$DIR/test.p:7:33: invalid operation: operator - not defined on c (variable of enum type Order) (enum values only compare; convert to an integer for arithmetic)

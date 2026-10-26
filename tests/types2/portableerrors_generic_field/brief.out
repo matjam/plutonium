@@ -1,0 +1,1 @@
+$DIR/test.p:74:2: cannot use struct{p Packet[Header]; m Msg} as T in Send: struct{p Packet[Header]; m Msg} has field m.s of type string, which is not portable: a string's bytes live in the sender's address space

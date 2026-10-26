@@ -1,0 +1,6 @@
+$DIR/test.p:7:8: enum E: values do not fit in a 64-bit integer
+    A member's value does not fit in the enum's integer type. Pick a wider type
+    after the enum keyword, or leave the type out so the compiler picks one that
+    fits.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2308" for a longer explanation)

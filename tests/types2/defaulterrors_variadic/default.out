@@ -1,0 +1,9 @@
+$DIR/test.p:3:16: a variadic function cannot have default parameter values (an argument after the variadic ones could not be told apart from them)
+    A variadic function (one whose last parameter is ...T) cannot have default
+    values. An argument after the variadic ones could not be told apart from
+    them, and a default before them would have to be given whenever any variadic
+    argument is.
+    Variadic functions in the standard library allocate from alloc.Default
+    instead; alloc.Use replaces it for a region of code.
+    (see "Default parameter values" in the Plutonium spec, section 10.13)
+    (run "pluto explain E2202" for a longer explanation)

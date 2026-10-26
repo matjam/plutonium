@@ -1,0 +1,16 @@
+$DIR/test.p:73:2: cannot use Msg as T in Send: Msg has field s of type string, which is not portable: a string's bytes live in the sender's address space
+    A portable type can be sent between address spaces, such as two operating
+    system processes that share no memory. Its values mean the same to the
+    receiver as to the sender because they refer to nothing in the sender's
+    memory: they are made only of numbers, booleans, enums, packed types, and
+    arrays, structs and unions of those.
+    Go has one address space, so any value can be passed anywhere and a string
+    or pointer always means the same thing. A Plutonium kernel and its processes
+    have separate address spaces, and the compiler checks what may cross instead
+    of leaving the receiver to read a stale address.
+    Instead of s, send the bytes in a fixed-size array, with their length as a
+    number:
+        s [16]byte
+        sLen uint8
+    (see "Portable types" in the Plutonium spec, section 8.9)
+    (run "pluto explain E2018" for a longer explanation)

@@ -1,0 +1,29 @@
+$DIR/test.p:13:36: string(b) of a byte slice is not permitted in Plutonium (it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy)
+    Plutonium has no string(b) for a byte slice b. Every string holds valid
+    UTF-8 text, but a slice of bytes can hold anything. In Go the conversion
+    keeps the bytes. Here it would have to change each byte that is not valid
+    UTF-8 into the replacement character U+FFFD without telling you, so two
+    different slices, such as {0xfe} and {0xff}, would give equal strings.
+    Say what you mean. strings.FromUTF8(b) returns the string and an error, and
+    fails if the bytes are not valid UTF-8. strings.FromUTF8Lossy(b) returns a
+    string in which each invalid byte is replaced by U+FFFD. If the bytes are
+    binary data, such as a digest used as a map key, keep them in a byte array
+    or a slice and not in a string.
+    Go strings may hold any bytes. Plutonium strings are text, so a conversion
+    from bytes must either check them or replace some of them, and it must not
+    do the second without the program saying so. The data in a string must not
+    change silently.
+    To fail on bytes that are not UTF-8, return the error:
+        import "pluto/strings"
+
+        s, err := strings.FromUTF8(a[:])
+        if err != nil {
+            return "", err
+        }
+        return s, nil
+    To replace each byte that is not valid UTF-8 with U+FFFD, as string(b) did:
+        import "pluto/strings"
+
+        return strings.FromUTF8Lossy(a[:])
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E2015" for a longer explanation)

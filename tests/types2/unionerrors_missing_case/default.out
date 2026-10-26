@@ -1,0 +1,11 @@
+$DIR/test.p:89:2: missing cases in type switch on st (DeviceState): Probing and Failed (add them or a default case)
+    A type switch on a union value that has no default case must name every
+    variant. That way, adding a variant to the union shows every switch that
+    needs to handle it.
+    Add a case for each missing variant, or a default case if the remaining
+    variants share one action. A switch that names every variant needs no
+    default to end a function.
+    Go cannot check this for interfaces, whose set of types is open. A union's
+    variants are a closed set, so the compiler can tell when one is forgotten.
+    (see "Switch statements" in the Plutonium spec, section 12.9)
+    (run "pluto explain E2414" for a longer explanation)

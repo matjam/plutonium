@@ -1,0 +1,6 @@
+$DIR/test.p:7:28: enum member E.B value 256 overflows uint8
+    A member's value does not fit in the enum's integer type. Pick a wider type
+    after the enum keyword, or leave the type out so the compiler picks one that
+    fits.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2308" for a longer explanation)

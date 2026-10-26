@@ -1,0 +1,15 @@
+$DIR/test.p:34:25: cannot use comma-ok on r["k"]: RO has no method IndexOk
+    Library containers such as vec.Vec and hash.Map are indexed through methods.
+    x[k] calls x.Index(k), x[k] = v calls x.SetIndex(k, v), and v, ok := x[k]
+    calls x.IndexOk(k). The container's type does not have the method this use
+    of x[k] needs.
+    Add the method to the type, or call another of its methods directly.
+    Go builds maps and slices into the language. In Plutonium they are library
+    types that own their memory, so the index syntax is lent to them through
+    methods.
+    To support v, ok := x[k], add:
+        func (m *Table) IndexOk(k string) (int, bool) {
+            ...
+        }
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E2451" for a longer explanation)

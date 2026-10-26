@@ -1,0 +1,9 @@
+$DIR/test.p:5:27: cannot use 4 (constant of type int) as rt.Allocator value in allocator argument to make: int does not implement rt.Allocator (missing method Alloc)
+    A value can be used as an interface only if its type has every method the
+    interface lists, with the same parameters and results. Types satisfy
+    interfaces without saying so, so a missing method shows up where the value
+    is used.
+    The message names the missing or mismatched method. A method declared on *T
+    belongs to *T, not to T, so you may need to use a pointer.
+    (see "Interface types" in the Plutonium spec, section 7.9)
+    (run "pluto explain E0021" for a longer explanation)

@@ -1,0 +1,9 @@
+$DIR/test.p:34:31: cannot use "x" (untyped string constant) as int value in index
+    A value of one type is used where a different type is needed: in an
+    assignment, a variable declaration, an argument or a return. Plutonium, like
+    Go, never converts between types by itself, even between int and int64, or
+    between numbers and text.
+    Convert explicitly with T(x) between number types, or use a function such as
+    strconv.Atoi to turn text into a number.
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E0023" for a longer explanation)

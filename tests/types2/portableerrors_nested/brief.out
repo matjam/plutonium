@@ -1,0 +1,1 @@
+$DIR/test.p:75:2: cannot use Out as T in Send: Out has field a[].m.s of type string, which is not portable: a string's bytes live in the sender's address space

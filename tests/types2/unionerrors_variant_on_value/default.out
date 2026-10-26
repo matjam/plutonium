@@ -1,0 +1,5 @@
+$DIR/test.p:88:33: st.Ready undefined (Ready is a variant of union DeviceState, not a field: read it in a type switch on st (case Ready:), or construct one with DeviceState.Ready)
+    st has type DeviceState, declared on line 7, which has no field or method
+    Ready. It has no fields or methods at all.
+    (see "Selectors" in the Plutonium spec, section 11.7)
+    (run "pluto explain E0076" for a longer explanation)

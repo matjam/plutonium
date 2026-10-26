@@ -1,0 +1,6 @@
+$DIR/test.p:36:15: cannot index B: method SetIndex must have the form SetIndex(k K, v V)
+    The indexing methods have fixed forms, so that x[k] can be turned into a
+    call: Index(k K) V, SetIndex(k K, v V) and IndexOk(k K) (V, bool). They may
+    not have type parameters of their own or be variadic.
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E2452" for a longer explanation)

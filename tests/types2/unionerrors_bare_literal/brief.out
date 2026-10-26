@@ -1,0 +1,1 @@
+$DIR/test.p:88:9: variant Off of union DeviceState has no payload: write DeviceState.Off, not DeviceState.Off{}

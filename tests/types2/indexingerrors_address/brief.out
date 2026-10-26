@@ -1,0 +1,1 @@
+$DIR/test.p:34:31: invalid operation: cannot take address of v[0]: it is a copy returned by the Index method of *Vec

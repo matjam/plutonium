@@ -1,0 +1,1 @@
+$DIR/test.p:90:7: Result[int].Ok is a variant of Result[int], not of DeviceState

@@ -1,0 +1,1 @@
+$DIR/test.p:13:32: string(i) of an integer other than a rune is not permitted in Plutonium (it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i))

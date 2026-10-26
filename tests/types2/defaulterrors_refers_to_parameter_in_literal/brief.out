@@ -1,0 +1,1 @@
+$DIR/test.p:3:50: a default value cannot refer to parameter a (defaults are evaluated by the caller)

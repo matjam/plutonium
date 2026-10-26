@@ -1,0 +1,10 @@
+$DIR/test.p:2:10: complex numbers are not permitted in Plutonium (they are rarely useful in systems code; use a struct of two floats)
+    Plutonium has no complex number types (complex64 and complex128) and no
+    complex, real or imag builtins.
+    Use a struct of two floats for the real and imaginary parts.
+    Complex numbers are rarely useful in systems code, and leaving them out
+    keeps the code generator small.
+    Use a struct:
+        type Complex struct{ Re, Im float64 }
+    (see "Numeric types" in the Plutonium spec, section 7.2)
+    (run "pluto explain E2006" for a longer explanation)

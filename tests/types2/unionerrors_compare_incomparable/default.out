@@ -1,0 +1,6 @@
+$DIR/test.p:90:9: invalid operation: x == y (union with variant A of type []int cannot be compared)
+    The operator is not defined for this type. For example, + works on numbers
+    and constant strings, < works on numbers and strings, and ! works only on
+    bools. Structs, slices and funcs have no arithmetic.
+    (see "Operators" in the Plutonium spec, section 11.18)
+    (run "pluto explain E0045" for a longer explanation)

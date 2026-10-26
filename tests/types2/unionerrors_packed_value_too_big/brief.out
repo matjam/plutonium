@@ -1,0 +1,1 @@
+$DIR/test.p:88:54: case value 4 of variant A does not fit the 2-bit tag t

@@ -1,0 +1,1 @@
+$DIR/test.p:73:2: cannot use File as T in Send: File is not portable: an owner must be dropped exactly once, and sending it would also transfer that duty, which the structural rule does not express

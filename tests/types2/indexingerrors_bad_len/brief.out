@@ -1,0 +1,1 @@
+$DIR/test.p:36:30: invalid argument: b (variable of struct type B) for built-in len

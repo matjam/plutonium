@@ -1,0 +1,1 @@
+$DIR/test.p:35:17: cannot range over v (variable of type *Vec): *Vec has no method All returning an iterator

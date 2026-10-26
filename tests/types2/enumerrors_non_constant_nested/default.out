@@ -1,0 +1,14 @@
+$DIR/test.p:8:21: cannot convert non-constant n (variable of type int) to enum type Color without a check: use the comma-ok form (v, ok := Color(...))
+    A number that is not a constant may not be the value of any member, so
+    converting it to an enum needs a check. Use the comma-ok form: ok reports
+    whether the number is a member's value.
+    Go allows any integer in a named integer type. Plutonium enums are closed
+    sets, so a value outside the set is caught where it enters, not later in a
+    switch.
+    Use the comma-ok form:
+        c, ok := Color(n)
+        if !ok {
+            return errBadColor
+        }
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2314" for a longer explanation)

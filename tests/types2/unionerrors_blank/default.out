@@ -1,0 +1,6 @@
+$DIR/test.p:88:16: union variant cannot be _: every variant needs a name
+    Each variant of a union has a name of its own, which is not _, followed by
+    its payload type if it has one. Variants have no tags, and in a packed union
+    each variant has its own case clause.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2404" for a longer explanation)

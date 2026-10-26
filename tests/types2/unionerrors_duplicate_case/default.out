@@ -1,0 +1,8 @@
+$DIR/test.p:90:12: duplicate case DeviceState.Off in type switch
+    A switch lists the same constant value in two cases. Only the first could
+    ever match.
+    (see "Switch statements" in the Plutonium spec, section 12.9)
+    (run "pluto explain E0113" for a longer explanation)
+
+$DIR/test.p:90:7: 	previous case
+    (explained above; run "pluto explain E0113" for more)

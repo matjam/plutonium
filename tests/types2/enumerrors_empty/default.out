@@ -1,0 +1,5 @@
+$DIR/test.p:7:8: enum E has no members
+    An enum needs at least one member, and one member must have the value 0,
+    since that is the zero value of the type.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2304" for a longer explanation)

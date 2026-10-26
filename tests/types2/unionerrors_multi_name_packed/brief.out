@@ -1,0 +1,1 @@
+$DIR/test.p:88:47: each variant of packed union P needs its own case clause

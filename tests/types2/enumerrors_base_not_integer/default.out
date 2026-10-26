@@ -1,0 +1,6 @@
+$DIR/test.p:7:13: enum E: underlying type string must be an integer type
+    The type after the enum keyword is the integer type that holds the enum's
+    values. It must be an integer type such as uint8 or int32. Leave it out to
+    let the compiler pick the smallest one that fits.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2303" for a longer explanation)
