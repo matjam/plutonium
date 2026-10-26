@@ -123,10 +123,11 @@ The commands below use the Go-hosted compiler (stage 0) unless they say otherwis
   of every other build. `internal/build/test.go` generates the test main;
   `cmd/pluto/test.go` runs it and prints go test's format.
 
-End-to-end tests live in `internal/build`:
+End-to-end tests live in `tests` (`programs_test.go`), which runs the compiler as a binary
+(`./pluto`, or `$PLUTO_TEST_COMPILER`), and in `internal/build`:
 - `testdata/run/*.p` are programs in the common subset of Go and Plutonium. Their
   expected output (`*.out`) comes from running them with Go:
-  `go test ./internal/build -run TestRun -update`. Each runs at -O0 and -O2.
+  `go test ./tests -run TestRun -update`. Each runs at -O0 and -O2.
 - `testdata/lib/*.p` exercise the standard library (they import `pluto/...`, so
   Go cannot regenerate their output). Check a new or changed `.out` against Go
   running the same program with its imports pointed at Go's packages, or by
@@ -138,7 +139,8 @@ End-to-end tests live in `internal/build`:
   same trace at both. DWARF output is checked by `internal/build/dwarf_test.go` (see
   `docs/spec/debugging.md`).
 - `examples/*/main.p` are checked against `examples/*/expected` (first line
-  `exit N` for a non-zero exit status).
+  `exit N` for a non-zero exit status), and run again under `--alloc=debug`.
+- `testdata/cabi` and `testdata/kernel` (under QEMU) are built and run by `tests` too.
 - The tests in `internal/build` and their subtests call
   `testguard.Parallel(t)` (`internal/testguard`, which calls `t.Parallel()`
   and records the test as running); a new one should too. The exceptions are the scheduler, timer and poller

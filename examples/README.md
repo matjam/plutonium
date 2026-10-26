@@ -9,7 +9,7 @@ go build -o pluto ./cmd/pluto
 ```
 
 Each example's `expected` file holds its exact output (and, on a first line
-`exit N`, its exit status); `go test ./internal/build -run TestExamples` checks
+`exit N`, its exit status); `go test ./tests -run TestExamples` checks
 them all.
 
 | Example | Shows |
