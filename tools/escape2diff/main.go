@@ -10,7 +10,7 @@
 //
 // The corpus is that of tools/escapedigest (examples, testdata/run, lib,
 // plutonium and trace, the kernel and C ABI programs, tests/diag)
-// plus internal/escape/testdata/review*. With -stats it also prints, for
+// plus tests/testdata/escape/review*. With -stats it also prints, for
 // each program the new analysis runs on, its SCC measurements: functions,
 // SCCs, the largest SCC and the peak arena of one SCC.
 //
@@ -74,11 +74,11 @@ func corpus(root string) []program {
 	for _, f := range glob("tests/diag/*/main.p") {
 		out = append(out, program{name: "diag/" + filepath.Base(filepath.Dir(f)), dir: filepath.Dir(f)})
 	}
-	for _, f := range glob("internal/escape/testdata/review*/*.p") {
+	for _, f := range glob("tests/testdata/escape/review*/*.p") {
 		rel, _ := filepath.Rel(filepath.Join(root, "internal/escape/testdata"), f)
 		out = append(out, program{name: strings.TrimSuffix(rel, ".p"), file: f})
 	}
-	for _, f := range glob("internal/escape/testdata/review*/*/main.p") {
+	for _, f := range glob("tests/testdata/escape/review*/*/main.p") {
 		rel, _ := filepath.Rel(filepath.Join(root, "internal/escape/testdata"), filepath.Dir(f))
 		out = append(out, program{name: rel, dir: filepath.Dir(f)})
 	}

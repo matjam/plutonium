@@ -1,11 +1,9 @@
 package parser
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/matjam/plutonium/internal/syntax/ast"
-	"github.com/matjam/plutonium/internal/syntax/scanner"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/testguard"
 )
@@ -81,40 +79,17 @@ func f(q *queue, ch chan int) {
 	}
 }
 
-// TestParseGoStmt checks that a go statement is an error that names task,
-// and that it still parses as a task statement so that nothing else is
-// reported for it.
+// TestParseGoStmt checks that tools that read Go source can ask for go
+// statements to be accepted, as task statements with Go set. The errors
+// for a go statement are checked through pluto in tests (parse_test.go).
 func TestParseGoStmt(t *testing.T) {
 	testguard.Parallel(t)
 	src := "package p\n\nfunc f() {\n\tgo worker(jobs)\n\tgo func() {\n\t}()\n}\n"
-	file, err := ParseFile(token.NewFileSet(), "go.p", src, SkipObjectResolution)
-	if err == nil {
-		t.Fatal("go statement accepted")
-	}
-	var got []string
-	for _, e := range *err.(*scanner.ErrorList) {
-		got = append(got, e.Error())
-	}
-	want := []string{
-		"go.p:4:2: go starts no task here; write: task worker(jobs)",
-		"go.p:5:2: go starts no task here; write task in place of go",
-	}
-	if strings.Join(got, "\n") != strings.Join(want, "\n") {
-		t.Errorf("errors:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
-	}
-	if n := len(file.Decls[0].(*ast.FuncDecl).Body.List); n != 2 {
-		t.Errorf("got %d statements, want 2", n)
-	}
-	// Tools that read Go source ask for the statements to be accepted.
-	file, err = ParseFile(token.NewFileSet(), "go.p", src, SkipObjectResolution|AllowGoStmt)
+	file, err := ParseFile(token.NewFileSet(), "go.p", src, SkipObjectResolution|AllowGoStmt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if g, ok := file.Decls[0].(*ast.FuncDecl).Body.List[0].(*ast.TaskStmt); !ok || !g.Go {
 		t.Errorf("with AllowGoStmt the statement is %T, want a TaskStmt with Go set", file.Decls[0].(*ast.FuncDecl).Body.List[0])
-	}
-	// go cannot name a variable.
-	if _, err := ParseFile(token.NewFileSet(), "v.p", "package p\n\nfunc f() {\n\tgo := 1\n}\n", SkipObjectResolution); err == nil {
-		t.Error("go accepted as a variable name")
 	}
 }

@@ -1,9 +1,6 @@
 package parser
 
 import (
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -159,16 +156,6 @@ func f(c Color) {
 	if len(empty.Members) != 0 || empty.End() != empty.Rbrace+1 {
 		t.Errorf("Empty: %d members, end %d", len(empty.Members), empty.End())
 	}
-
-	for _, bad := range []struct{ src, want string }{
-		{"package p\ntype E enum { 1 }", "expected '}'"},
-		{"package p\ntype E enum { A = }", "expected operand"},
-		{"package p\nvar enum = 1", "expected 'IDENT'"},
-	} {
-		if _, err := ParseFile(token.NewFileSet(), "bad.p", bad.src, 0); err == nil || !strings.Contains(err.Error(), bad.want) {
-			t.Errorf("%q: got error %v, want %q", bad.src, err, bad.want)
-		}
-	}
 }
 
 func TestParseUnionTypes(t *testing.T) {
@@ -289,17 +276,6 @@ func f(union int) int {
 	// packed union { ... } is a packed type backed by a type named union.
 	if len(packed) != 1 || packed[0].Backing.(*ast.Ident).Name != "union" {
 		t.Errorf("packed union {...}: %d packed types", len(packed))
-	}
-
-	for _, bad := range []struct{ src, want string }{
-		{"package p\ntype U union { 1 }", "expected '}'"},
-		{"package p\ntype U packed union uint8 { A case { } }", "expected operand"},
-		{"package p\ntype U packed union uint8 { A case 1 x }", "expected '{'"},
-		{"package p\nvar x union { A int }", "expected ';'"},
-	} {
-		if _, err := ParseFile(token.NewFileSet(), "bad.p", bad.src, 0); err == nil || !strings.Contains(err.Error(), bad.want) {
-			t.Errorf("%q: got error %v, want %q", bad.src, err, bad.want)
-		}
 	}
 }
 
@@ -422,17 +398,6 @@ func f() {
 		}
 	}
 
-	bad := `package p
-
-type I interface {
-	M[T any](x T) T
-}
-`
-	_, err = ParseFile(token.NewFileSet(), "bad.p", bad, 0)
-	want := "interface method must have no type parameters: a method with type parameters is never called through an interface"
-	if err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("got error %v, want %q", err, want)
-	}
 }
 
 // TestParseDefaults checks that parameters may have default values, that
@@ -501,45 +466,4 @@ var f = func(x int = 1) {}
 		t.Errorf("function literal parameter lost its default")
 	}
 
-	for _, bad := range []string{
-		"package p\n\nfunc f(a, b int = 1) {}\n",
-		"package p\n\nfunc f(a = 1, b int) {}\n",
-	} {
-		_, err := ParseFile(token.NewFileSet(), "bad.p", bad, 0)
-		const want = "a default value must follow a single parameter name and its type"
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("%q: got error %v, want %q", bad, err, want)
-		}
-	}
-}
-
-// TestParseRepoSources parses every .p file shipped in the repository.
-func TestParseRepoSources(t *testing.T) {
-	root := filepath.Join("..", "..", "..")
-	var files []string
-	for _, dir := range []string{"lib", "examples", "testdata", "bench", "cmd"} {
-		n := len(files)
-		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() && strings.HasSuffix(path, ".p") && !strings.Contains(path, "invalid") {
-				files = append(files, path)
-			}
-			return err
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(files) == n {
-			t.Errorf("no .p files under %s", dir)
-		}
-	}
-	for _, path := range files {
-		src, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fset := token.NewFileSet()
-		if _, err := ParseFile(fset, path, src, ParseComments); err != nil {
-			t.Errorf("%v", err)
-		}
-	}
 }

@@ -1,11 +1,9 @@
 package parser
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/matjam/plutonium/internal/syntax/ast"
-	"github.com/matjam/plutonium/internal/syntax/scanner"
 	"github.com/matjam/plutonium/internal/syntax/token"
 	"github.com/matjam/plutonium/internal/testguard"
 )
@@ -160,45 +158,4 @@ func typeName(n ast.Node) string {
 		return "*ast.CompositeLit"
 	}
 	return "other"
-}
-
-// TestParseOrErrors checks the syntax errors of the or statement: an
-// operand that is not a call (E1013), a clause not on the line of the or,
-// and or in a statement that takes no clause, where it is an identifier.
-func TestParseOrErrors(t *testing.T) {
-	testguard.Parallel(t)
-	tests := []struct {
-		src  string // the body of a function
-		want string // the first error, without the file name
-	}{
-		{"a := g() + g() or return", "4:7: the operand of or is not a single call"},
-		{"b := (f()) or return", "4:7: the operand of or is a call in parentheses; write the call without them"},
-		{"c := f().x or return", "4:7: the operand of or is not a call; or must directly follow the call whose error it tests"},
-		{"d := x or return", "4:7: the operand of or is not a single call"},
-		{"a, b := x, f() or return", "4:10: the operand of or is a list of values; or follows a single call"},
-		{"e := (x) or return", "4:7: the operand of or is not a single call"},
-		{"f() or\n\treturn", "4:6: or must be followed by its clause on the same line"},
-		{"f() or; return", "4:8: or must be followed by a clause: a block, a return, break, continue or goto statement, or a call such as panic(err)"},
-		{"f()\n\tor return", "5:2: or must be on the line where its call ends: a newline after the call ends the statement"},
-		{"f()\n\tor panic(err)", "5:2: or must be on the line where its call ends: a newline after the call ends the statement"},
-		{"var x = f() or return", "4:14: expected end of statement, found or: an or clause follows only a call that stands alone or is on the right of = or :="},
-		{"defer f() or return", "4:12: expected end of statement, found or: an or clause follows only a call that stands alone or is on the right of = or :="},
-		{"task f() or return", "4:11: expected end of statement, found or: an or clause follows only a call that stands alone or is on the right of = or :="},
-		{"n += f() or return", "4:11: expected end of statement, found or: an or clause follows only a call that stands alone or is on the right of = or :="},
-		{"ch <- f() or return", "4:12: expected end of statement, found or: an or clause follows only a call that stands alone or is on the right of = or :="},
-		{"for v := range f() or return {\n\t}", "4:21: expected '{', found or"},
-		{"select {\n\tcase v := <-ch or return:\n\t}", "5:17: expected ':', found or"},
-	}
-	for _, tt := range tests {
-		src := "package p\n\nfunc h() {\n\t" + tt.src + "\n}\n"
-		_, err := ParseFile(token.NewFileSet(), "e.p", src, SkipObjectResolution)
-		if err == nil {
-			t.Errorf("%q: no error", tt.src)
-			continue
-		}
-		got := (*err.(*scanner.ErrorList))[0].Error()
-		if got = strings.TrimPrefix(got, "e.p:"); got != tt.want {
-			t.Errorf("%q:\n got %s\nwant %s", tt.src, got, tt.want)
-		}
-	}
 }

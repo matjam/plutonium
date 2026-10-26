@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-var updateReview2 = flag.Bool("update", false, "rewrite testdata/review*/want.txt with the diagnostics the analysis gives")
+var updateReview2 = flag.Bool("update", false, "rewrite tests/testdata/escape/review*/want.txt with the diagnostics the analysis gives")
 
 // TestReview2 checks the programs of the second adversarial review of the
-// escape analysis (testdata/review2, one per file; the review is of commits
+// escape analysis (tests/testdata/escape/review2, one per file; the review is of commits
 // 45d516b4, bac17283 and 0bb4fdd9). Each keeps, returns or stores a pointer into
 // a frame that is gone, by a way the analysis once missed or that the review
 // tried and found reported: each must stay reported, at the line where the
@@ -31,14 +31,14 @@ func TestReview3(t *testing.T) {
 	reviewSuite(t, "review3")
 }
 
-// reviewSuite checks the programs of testdata/<dir> against the first
-// diagnostic of each in testdata/<dir>/want.txt ("accepted" for none).
+// reviewSuite checks the programs of reviewRoot/<dir> against the first
+// diagnostic of each in reviewRoot/<dir>/want.txt ("accepted" for none).
 func reviewSuite(t *testing.T, dir string) {
-	files, err := filepath.Glob(filepath.Join("testdata", dir, "*.p"))
+	files, err := filepath.Glob(filepath.Join(reviewRoot, dir, "*.p"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no programs: %v", err)
 	}
-	wantFile := filepath.Join("testdata", dir, "want.txt")
+	wantFile := filepath.Join(reviewRoot, dir, "want.txt")
 	want := map[string]string{}
 	if !*updateReview2 {
 		data, err := os.ReadFile(wantFile)
@@ -79,7 +79,7 @@ func reviewSuite(t *testing.T, dir string) {
 	})
 	if !*updateReview2 {
 		if len(want) != len(files) {
-			t.Errorf("want.txt has %d programs, testdata/%s %d", len(want), dir, len(files))
+			t.Errorf("want.txt has %d programs, %s/%s %d", len(want), reviewRoot, dir, len(files))
 		}
 		return
 	}
@@ -96,3 +96,7 @@ func reviewSuite(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 }
+
+// reviewRoot holds the review programs, under tests so that they outlive
+// this package.
+const reviewRoot = "../../tests/testdata/escape"

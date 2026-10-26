@@ -56,7 +56,7 @@ func TestMeasure(t *testing.T) {
 		dirs = append(dirs, filepath.Dir(f))
 	}
 	var files []string
-	for _, d := range []string{"testdata/run", "testdata/lib", "testdata/plutonium", "testdata/trace", "internal/escape/testdata/review2", "internal/escape/testdata/review3", "internal/escape2/solve/testdata/review4"} {
+	for _, d := range []string{"testdata/run", "testdata/lib", "testdata/plutonium", "testdata/trace", "tests/testdata/escape/review2", "tests/testdata/escape/review3", "tests/testdata/escape/review4"} {
 		fs, _ := filepath.Glob(filepath.Join(root, d, "*.p"))
 		files = append(files, fs...)
 	}

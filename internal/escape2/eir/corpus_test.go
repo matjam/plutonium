@@ -61,9 +61,8 @@ func corpus(t *testing.T) []corpusProgram {
 	for _, f := range diags {
 		out = append(out, corpusProgram{name: "diag/" + filepath.Base(filepath.Dir(f)), dir: filepath.Dir(f), diag: true})
 	}
-	for _, d := range []string{"escape/testdata/review2", "escape/testdata/review3", "escape2/solve/testdata/review4"} {
-		files, _ := filepath.Glob(filepath.Join(root, "internal", d, "*.p"))
-		d := filepath.Base(d)
+	for _, d := range []string{"review2", "review3", "review4"} {
+		files, _ := filepath.Glob(filepath.Join(root, "tests", "testdata", "escape", d, "*.p"))
 		for _, f := range files {
 			out = append(out, corpusProgram{name: d + "/" + strings.TrimSuffix(filepath.Base(f), ".p"), file: f, rejected: true, diag: true}) // some of review4 do not type-check
 		}
