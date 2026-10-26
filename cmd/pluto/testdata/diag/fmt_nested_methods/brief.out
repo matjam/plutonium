@@ -7,9 +7,9 @@ $DIR/main.p:96:2: cannot pass &in to fmt.Println, which keeps it after returning
 $DIR/main.p:102:2: cannot pass &in to fmt.Println, which keeps it after returning
 $DIR/main.p:107:2: cannot pass &in to fmt.Println, which keeps it after returning
 $DIR/main.p:113:2: cannot pass []error{...} to fmt.Println, which keeps it after returning
-$DIR/main.p:113:2: cannot pass E{...} to fmt.Println, which keeps it after returning
 $DIR/main.p:113:2: cannot pass &in to fmt.Println, which keeps it after returning
 $DIR/main.p:118:6: cannot pass &in to fmt.Sprintf, which keeps it after returning
 $DIR/main.p:124:2: cannot pass &in to fmt.Println, which keeps it after returning
 $DIR/main.p:129:2: cannot pass &in to fmt.Println, which keeps it after returning
 $DIR/main.p:134:2: cannot pass []int{...} to fmt.Println, which keeps it after returning
+$DIR/main.p:134:2: cannot pass Outer{...} to fmt.Println, which keeps it after returning

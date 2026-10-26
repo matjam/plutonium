@@ -30,8 +30,8 @@ $DIR/main.p:54:10: cannot pass &arr[1] to callAny, which keeps it after returnin
 
 $DIR/main.p:60:10: cannot pass (*S)(&b) to call, which keeps it after returning
     (*S)(&b) points into b. b is a local variable of Converted (declared at
-    main.p:59). call passes s to s.String (which may call main.(D).String)
-    (main.p:35), which stores d in package variable keepInner (main.p:28), so
+    main.p:59). call passes s to s.String (which may call main.(*S).String)
+    (main.p:35), which stores s in package variable keepS (main.p:17), so
     (*S)(&b) would outlive b.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
@@ -61,8 +61,8 @@ $DIR/main.p:65:10: cannot pass (*S)(&b) to callAny, which keeps it after returni
 $DIR/main.p:71:10: cannot pass (*S)(unsafe.Pointer(&x)) to call, which keeps it after returning
     (*S)(unsafe.Pointer(&x)) points into x. x is a local array of Unsafe
     (declared at main.p:70). call passes s to s.String (which may call
-    main.(D).String) (main.p:35), which stores d in package variable keepInner
-    (main.p:28), so (*S)(unsafe.Pointer(&x)) would outlive x.
+    main.(*S).String) (main.p:35), which stores s in package variable keepS
+    (main.p:17), so (*S)(unsafe.Pointer(&x)) would outlive x.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -88,16 +88,16 @@ $DIR/main.p:77:10: cannot pass D{...} to call, which keeps it after returning
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3003" for a longer explanation)
 
-$DIR/main.p:83:10: cannot pass s to s.String (which may call main.(*S).String), which keeps it after returning
+$DIR/main.p:83:10: cannot pass s to s.String (which may call main.(D).String), which keeps it after returning
     s points into in. in is a local variable of DirectVariable (declared at
-    main.p:81). s.String (which may call main.(*S).String) stores s in package
-    variable keepS (main.p:17), so s would outlive in.
+    main.p:81). s.String (which may call main.(D).String) stores d in package
+    variable keepInner (main.p:28), so s would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    If s.String (which may call main.(*S).String) should keep its own copy of
-    in, change it to take the value, not a pointer, or an owner it can keep: an
+    If s.String (which may call main.(D).String) should keep its own copy of in,
+    change it to take the value, not a pointer, or an owner it can keep: an
     owned[Inner] from new, a shared[Inner], or a library owner such as a
     vec.Vec.
     (see "Views" in the Plutonium spec, section 18.3)

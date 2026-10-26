@@ -1,13 +1,13 @@
 $DIR/main.p:39:2: cannot pass &n0 to call, which keeps it after returning
-    &n0 points into n2. n2 is a local variable of f (declared at main.p:36).
+    &n0 points into n4. n4 is a local variable of f (declared at main.p:33).
     call passes a pointer reachable from v to k.Keep (which may call
     main.(*Node).Keep) (main.p:27), which stores a pointer reachable from n in
-    package variable keep (main.p:18), so &n0 would outlive n2.
+    package variable keep (main.p:18), so &n0 would outlive n4.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    If call should keep its own copy of n2, change it to take the value, not a
+    If call should keep its own copy of n4, change it to take the value, not a
     pointer, or an owner it can keep: an owned[Node] from new, a shared[Node],
     or a library owner such as a vec.Vec.
     (see "Views" in the Plutonium spec, section 18.3)

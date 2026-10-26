@@ -3,10 +3,9 @@ $DIR/main.p:72:2: cannot pass &in to fmt.Println, which keeps it after returning
     main.p:71). fmt.Println passes a pointer loaded from args[i] to Fprintln
     (print_linux.p:17), which passes a pointer loaded from args[i] to
     (*printer).doPrint (fmt.p:948), which passes a pointer loaded from args[i]
-    to (*printer).printArg (fmt.p:915), which passes arg to
-    (*printer).handleMethods (fmt.p:746), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    to (*printer).printArg (fmt.p:915), which passes arg to a formatting method
+    of what it walks (which may call main.(*Inner).String) (fmt.p:671), which
+    stores i in package variable keep (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -23,13 +22,9 @@ $DIR/main.p:78:2: cannot pass &in to fmt.Println, which keeps it after returning
     (print_linux.p:17), which passes a pointer reachable from args to
     (*printer).doPrint (fmt.p:948), which passes a pointer reachable from args
     to (*printer).printArg (fmt.p:915), which passes a pointer reachable from
-    arg to (*printer).fmtBytes (fmt.p:731), which passes a pointer reachable
-    from ptr to (*printer).printKind (value.p:373), which passes a pointer
-    reachable from ptr to (*printer).printWord (value.p:209), which passes word
-    to (*printer).printValue (value.p:76), which passes ptr to
-    (*printer).handleMethods (value.p:39), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    arg to a formatting method of what it walks (which may call
+    main.(*Inner).String) (fmt.p:671), which stores i in package variable keep
+    (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -45,10 +40,9 @@ $DIR/main.p:84:2: cannot pass &in to fmt.Println, which keeps it after returning
     main.p:83). fmt.Println passes a pointer loaded from args[i] to Fprintln
     (print_linux.p:17), which passes a pointer loaded from args[i] to
     (*printer).doPrint (fmt.p:948), which passes a pointer loaded from args[i]
-    to (*printer).printArg (fmt.p:915), which passes arg to
-    (*printer).handleMethods (fmt.p:746), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    to (*printer).printArg (fmt.p:915), which passes arg to a formatting method
+    of what it walks (which may call main.(*Inner).String) (fmt.p:671), which
+    stores i in package variable keep (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -66,13 +60,8 @@ $DIR/main.p:90:2: cannot pass []*Inner{...} to fmt.Println, which keeps it after
     pointer reachable from args to Fprintln (print_linux.p:17), which passes a
     pointer reachable from args to (*printer).doPrint (fmt.p:948), which passes
     a pointer reachable from args to (*printer).printArg (fmt.p:915), which
-    passes a pointer reachable from arg to (*printer).fmtBytes (fmt.p:731),
-    which passes a pointer reachable from ptr to (*printer).printKind
-    (value.p:373), which passes a pointer reachable from ptr to
-    (*printer).printWord (value.p:209), which passes word to
-    (*printer).printValue (value.p:76), which passes ptr to
-    (*printer).handleMethods (value.p:39), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
+    passes a pointer reachable from arg to a formatting method of what it walks
+    (which may call main.(*Inner).String) (fmt.p:671), which stores i in package
     variable keep (main.p:17), so []*Inner{...} would outlive SliceElem's frame.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
@@ -89,13 +78,9 @@ $DIR/main.p:90:2: cannot pass &in to fmt.Println, which keeps it after returning
     (print_linux.p:17), which passes a pointer reachable from args to
     (*printer).doPrint (fmt.p:948), which passes a pointer reachable from args
     to (*printer).printArg (fmt.p:915), which passes a pointer reachable from
-    arg to (*printer).fmtBytes (fmt.p:731), which passes a pointer reachable
-    from ptr to (*printer).printKind (value.p:373), which passes a pointer
-    reachable from ptr to (*printer).printWord (value.p:209), which passes word
-    to (*printer).printValue (value.p:76), which passes ptr to
-    (*printer).handleMethods (value.p:39), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    arg to a formatting method of what it walks (which may call
+    main.(*Inner).String) (fmt.p:671), which stores i in package variable keep
+    (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -112,13 +97,9 @@ $DIR/main.p:96:2: cannot pass &in to fmt.Println, which keeps it after returning
     (print_linux.p:17), which passes a pointer reachable from args to
     (*printer).doPrint (fmt.p:948), which passes a pointer reachable from args
     to (*printer).printArg (fmt.p:915), which passes a pointer reachable from
-    arg to (*printer).fmtBytes (fmt.p:731), which passes a pointer reachable
-    from ptr to (*printer).printKind (value.p:373), which passes a pointer
-    reachable from ptr to (*printer).printWord (value.p:209), which passes word
-    to (*printer).printValue (value.p:76), which passes ptr to
-    (*printer).handleMethods (value.p:39), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    arg to a formatting method of what it walks (which may call
+    main.(*Inner).String) (fmt.p:671), which stores i in package variable keep
+    (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -134,10 +115,9 @@ $DIR/main.p:102:2: cannot pass &in to fmt.Println, which keeps it after returnin
     main.p:101). fmt.Println passes a pointer loaded from args[i] to Fprintln
     (print_linux.p:17), which passes a pointer loaded from args[i] to
     (*printer).doPrint (fmt.p:948), which passes a pointer loaded from args[i]
-    to (*printer).printArg (fmt.p:915), which passes arg to
-    (*printer).handleMethods (fmt.p:746), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    to (*printer).printArg (fmt.p:915), which passes arg to a formatting method
+    of what it walks (which may call main.(*Inner).String) (fmt.p:671), which
+    stores i in package variable keep (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -153,10 +133,9 @@ $DIR/main.p:107:2: cannot pass &in to fmt.Println, which keeps it after returnin
     main.p:106). fmt.Println passes a pointer loaded from args[i] to Fprintln
     (print_linux.p:17), which passes a pointer loaded from args[i] to
     (*printer).doPrint (fmt.p:948), which passes a pointer loaded from args[i]
-    to (*printer).printArg (fmt.p:915), which passes arg to
-    (*printer).handleMethods (fmt.p:746), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    to (*printer).printArg (fmt.p:915), which passes arg to a formatting method
+    of what it walks (which may call main.(*Inner).String) (fmt.p:671), which
+    stores i in package variable keep (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -174,39 +153,9 @@ $DIR/main.p:113:2: cannot pass []error{...} to fmt.Println, which keeps it after
     reachable from args to Fprintln (print_linux.p:17), which passes a pointer
     reachable from args to (*printer).doPrint (fmt.p:948), which passes a
     pointer reachable from args to (*printer).printArg (fmt.p:915), which passes
-    a pointer reachable from arg to (*printer).fmtBytes (fmt.p:731), which
-    passes a pointer reachable from ptr to (*printer).printKind (value.p:373),
-    which passes a pointer reachable from ptr to (*printer).printWord
-    (value.p:209), which passes word to (*printer).printValue (value.p:76),
-    which passes ptr to (*printer).handleMethods (value.p:39), which passes arg
-    to v.String (which may call main.(*Inner).String) (fmt.p:777), which stores
-    i in package variable keep (main.p:17), so []error{...} would outlive
-    Errors's frame.
-    Go would move this memory to the heap, and its garbage collector would free
-    it later. Plutonium has no garbage collector and never moves memory to the
-    heap behind the program's back, so that every allocation is visible in the
-    code.
-    Change fmt.Println to take a value or an owner, which it can keep: an
-    owned[T] from new, a shared[T], or a library owner such as a vec.Vec.
-    (see "Views" in the Plutonium spec, section 18.3)
-    (run "pluto explain E3003" for a longer explanation)
-
-$DIR/main.p:113:2: cannot pass E{...} to fmt.Println, which keeps it after returning
-    E{...} is an interface that points at a copy of its value in Errors's frame.
-    Converting a value larger than one word to an interface puts a copy of the
-    value in the frame of the function that converts it (here Errors, at
-    main.p:113), and the interface points at that copy. fmt.Println passes a
-    pointer reachable from args to Fprintln (print_linux.p:17), which passes a
-    pointer reachable from args to (*printer).doPrint (fmt.p:948), which passes
-    a pointer reachable from args to (*printer).printArg (fmt.p:915), which
-    passes a pointer reachable from arg to (*printer).fmtBytes (fmt.p:731),
-    which passes a pointer reachable from ptr to (*printer).printKind
-    (value.p:373), which passes a pointer reachable from ptr to
-    (*printer).printWord (value.p:209), which passes word to
-    (*printer).printValue (value.p:76), which passes ptr to
-    (*printer).handleMethods (value.p:39), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so the interface would outlive Errors's frame.
+    a pointer reachable from arg to a formatting method of what it walks (which
+    may call main.(*Inner).String) (fmt.p:671), which stores i in package
+    variable keep (main.p:17), so []error{...} would outlive Errors's frame.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -222,13 +171,9 @@ $DIR/main.p:113:2: cannot pass &in to fmt.Println, which keeps it after returnin
     (print_linux.p:17), which passes a pointer reachable from args to
     (*printer).doPrint (fmt.p:948), which passes a pointer reachable from args
     to (*printer).printArg (fmt.p:915), which passes a pointer reachable from
-    arg to (*printer).fmtBytes (fmt.p:731), which passes a pointer reachable
-    from ptr to (*printer).printKind (value.p:373), which passes a pointer
-    reachable from ptr to (*printer).printWord (value.p:209), which passes word
-    to (*printer).printValue (value.p:76), which passes ptr to
-    (*printer).handleMethods (value.p:39), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    arg to a formatting method of what it walks (which may call
+    main.(*Inner).String) (fmt.p:671), which stores i in package variable keep
+    (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -243,10 +188,10 @@ $DIR/main.p:118:6: cannot pass &in to fmt.Sprintf, which keeps it after returnin
     &in points into in. in is a local variable of Sprintf (declared at
     main.p:117). fmt.Sprintf passes a pointer loaded from args[i] to
     (*printer).doPrintf (sprint.p:71), which passes a pointer loaded from
-    args[i] to (*printer).printArg (fmt.p:880), which passes arg to
-    (*printer).handleMethods (fmt.p:746), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    args[i] to (*printer).printArg (fmt.p:880), which passes arg to a formatting
+    method of what it walks (which may call main.(*Inner).String) (fmt.p:671),
+    which stores i in package variable keep (main.p:17), so &in would outlive
+    in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -263,13 +208,9 @@ $DIR/main.p:124:2: cannot pass &in to fmt.Println, which keeps it after returnin
     (print_linux.p:17), which passes a pointer reachable from args to
     (*printer).doPrint (fmt.p:948), which passes a pointer reachable from args
     to (*printer).printArg (fmt.p:915), which passes a pointer reachable from
-    arg to (*printer).fmtBytes (fmt.p:731), which passes a pointer reachable
-    from ptr to (*printer).printKind (value.p:373), which passes a pointer
-    reachable from ptr to (*printer).printWord (value.p:209), which passes word
-    to (*printer).printValue (value.p:76), which passes ptr to
-    (*printer).handleMethods (value.p:39), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    arg to a formatting method of what it walks (which may call
+    main.(*Inner).String) (fmt.p:671), which stores i in package variable keep
+    (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -286,13 +227,9 @@ $DIR/main.p:129:2: cannot pass &in to fmt.Println, which keeps it after returnin
     (print_linux.p:17), which passes a pointer reachable from args to
     (*printer).doPrint (fmt.p:948), which passes a pointer reachable from args
     to (*printer).printArg (fmt.p:915), which passes a pointer reachable from
-    arg to (*printer).fmtBytes (fmt.p:731), which passes a pointer reachable
-    from ptr to (*printer).printKind (value.p:373), which passes a pointer
-    reachable from ptr to (*printer).printWord (value.p:209), which passes word
-    to (*printer).printValue (value.p:76), which passes ptr to
-    (*printer).handleMethods (value.p:39), which passes arg to v.String (which
-    may call main.(*Inner).String) (fmt.p:777), which stores i in package
-    variable keep (main.p:17), so &in would outlive in.
+    arg to a formatting method of what it walks (which may call
+    main.(*Inner).String) (fmt.p:671), which stores i in package variable keep
+    (main.p:17), so &in would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -310,14 +247,29 @@ $DIR/main.p:134:2: cannot pass []int{...} to fmt.Println, which keeps it after r
     reachable from args to Fprintln (print_linux.p:17), which passes a pointer
     reachable from args to (*printer).doPrint (fmt.p:948), which passes a
     pointer reachable from args to (*printer).printArg (fmt.p:915), which passes
-    a pointer reachable from arg to (*printer).fmtBytes (fmt.p:731), which
-    passes a pointer reachable from ptr to (*printer).printKind (value.p:373),
-    which passes a pointer reachable from ptr to (*printer).printWord
-    (value.p:209), which passes word to (*printer).printValue (value.p:76),
-    which passes ptr to (*printer).handleMethods (value.p:39), which passes arg
-    to v.String (which may call main.(*Inner).String) (fmt.p:777), which stores
-    i in package variable keep (main.p:17), so []int{...} would outlive Fine's
-    frame.
+    a pointer reachable from arg to a formatting method of what it walks (which
+    may call main.(*Inner).String) (fmt.p:671), which stores i in package
+    variable keep (main.p:17), so []int{...} would outlive Fine's frame.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Change fmt.Println to take a value or an owner, which it can keep: an
+    owned[T] from new, a shared[T], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:134:2: cannot pass Outer{...} to fmt.Println, which keeps it after returning
+    Outer{...} is an interface that points at a copy of its value in Fine's
+    frame. Converting a value larger than one word to an interface puts a copy
+    of the value in the frame of the function that converts it (here Fine, at
+    main.p:134), and the interface points at that copy. fmt.Println passes a
+    pointer reachable from args to Fprintln (print_linux.p:17), which passes a
+    pointer reachable from args to (*printer).doPrint (fmt.p:948), which passes
+    a pointer reachable from args to (*printer).printArg (fmt.p:915), which
+    passes arg to a formatting method of what it walks (which may call
+    main.(W).String) (fmt.p:671), which stores w in package variable keep
+    (main.p:28), so the interface would outlive Fine's frame.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the

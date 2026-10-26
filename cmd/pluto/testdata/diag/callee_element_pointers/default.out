@@ -80,9 +80,9 @@ $DIR/main.p:93:2: cannot pass &arr to printElem, which keeps it after returning
     pointer loaded from args[i] to Fprintln (print_linux.p:17), which passes a
     pointer loaded from args[i] to (*printer).doPrint (fmt.p:948), which passes
     a pointer loaded from args[i] to (*printer).printArg (fmt.p:915), which
-    passes arg to (*printer).handleMethods (fmt.p:746), which passes arg to
-    v.String (which may call main.(*S).String) (fmt.p:777), which stores s in
-    package variable keepS (main.p:17), so &arr would outlive arr.
+    passes arg to a formatting method of what it walks (which may call
+    main.(*S).String) (fmt.p:671), which stores s in package variable keepS
+    (main.p:17), so &arr would outlive arr.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the

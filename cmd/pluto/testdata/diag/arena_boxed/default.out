@@ -1,12 +1,11 @@
 $DIR/main.p:23:14: cannot convert out.String() to an interface: it points into memory allocated from a, a local arena of builder, which is gone before the interface's copy is released
     out.String() points into memory allocated from a, a local arena of builder.
-    a (a local arena of builder, declared at main.p:19) was given as an
-    allocator to a call that returns a string, or to a value that returns one,
-    and such text may have been allocated from the arena. What lives in the
-    arena is gone when the arena is. Converting out.String() to an interface
-    puts a copy of it in builder's frame, and the copy holds a reference to the
-    text until builder returns. That is after the arena a is dropped, and
-    releasing the reference would write into the arena's memory.
+    a (a local arena of builder, declared at main.p:19) is given as an allocator
+    to out.Init(&a) (at main.p:21), so what is allocated from it lives in the
+    arena, and is gone when the arena is. Converting out.String() to an
+    interface puts a copy of it in builder's frame, and the copy holds a
+    reference to the text until builder returns. That is after the arena a is
+    dropped, and releasing the reference would write into the arena's memory.
     Go keeps memory alive for as long as any pointer refers to it. Plutonium has
     no garbage collector: an owner releases its memory when it is dropped, so a
     view must not be used after the value it looks at has gone.
@@ -40,11 +39,10 @@ $DIR/main.p:32:14: cannot convert s to an interface: it points into memory alloc
 
 $DIR/main.p:42:9: cannot return out.String(), which points into memory allocated from a, a local arena of leak
     out.String() points into memory allocated from a, a local arena of leak. a
-    (a local arena of leak, declared at main.p:38) was given as an allocator to
-    a call that returns a string, or to a value that returns one, and such text
-    may have been allocated from the arena. What lives in the arena is gone when
-    the arena is. When leak returns, the arena a is gone, so out.String() would
-    point at memory that is no longer allocated.
+    (a local arena of leak, declared at main.p:38) is given as an allocator to
+    out.Init(&a) (at main.p:40), so what is allocated from it lives in the
+    arena, and is gone when the arena is. When leak returns, the arena a is
+    gone, so out.String() would point at memory that is no longer allocated.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
