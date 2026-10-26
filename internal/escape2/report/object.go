@@ -72,6 +72,18 @@ func (r *reporter) locOf(fn *eir.Func, fd solve.Finding) *loc {
 		if o.Var != nil {
 			l.typ, l.pos = o.Var.Type(), o.Var.Pos()
 		}
+		if o.Life == eir.LifeStmt && !o.ErrHolder {
+			// The object of a box a call returns, which the statement
+			// holds as a temporary owner and drops at its end (section
+			// 18.3, "A local owner's memory"; section 18.6).
+			for _, n := range r.enclosing(o.Pos) {
+				if ce, ok := n.(*ast.CallExpr); ok && ce.Pos() == o.Pos && info != nil {
+					if tv, ok := info.Types[ce]; ok && tv.Type != nil {
+						l.kind, l.node, l.object, l.typ = lkStmtTemp, ce, true, tv.Type
+					}
+				}
+			}
+		}
 	case eir.ObjClosure:
 		l.kind = lkClosure
 		lit, _ := ast.Unparen(node).(*ast.FuncLit)

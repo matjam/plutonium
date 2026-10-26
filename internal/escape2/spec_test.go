@@ -382,3 +382,35 @@ func main() {
 		t.Errorf("message: %v, want %q", err, want)
 	}
 }
+
+// A view of the object of a box a call returns is a view of a temporary
+// owner: the statement holds the box and drops it at its end, so the view
+// may be passed to calls in that statement and may not outlive it (section
+// 18.3, "A local owner's memory": E3009; section 18.6), whether it is kept
+// in a variable or returned. A temporary in an if statement's header lives
+// until the whole statement ends (section 18.6, Temporaries).
+func TestTempBoxView(t *testing.T) {
+	src := `package main
+
+type Item struct{ x int }
+
+func mk() owned[Item] { return new(Item{x: 7}) }
+
+func read(p *int) int { return *p }
+
+func temp() *Item {
+	return (*Item)(mk())
+}
+
+func main() {
+	println(read(&mk().x))
+	if p := &mk().x; *p > 0 {
+		println(*p)
+	}
+	p := &mk().x
+	println(*p)
+	println(temp().x)
+}
+`
+	checkSpec(t, "temporary box", src, "10:9 E3009", "18:2 E3009")
+}
