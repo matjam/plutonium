@@ -348,6 +348,15 @@ func (h *heapOnly) regType1(f *eir.Func, r eir.Reg, depth int) types2.Type {
 		return h.regTypeRec(f, in.X, depth+1)
 	case eir.OpConv:
 		return in.To
+	case eir.OpClosure:
+		// A func value: its captures are written into its record when it
+		// is made (recordWrite), and a func type holds no struct field.
+		if in.Obj != eir.NoObj && int(in.Obj) < len(f.Objects) && f.Objects[in.Obj].Type != nil {
+			return f.Objects[in.Obj].Type
+		}
+		if int(in.Callee) < len(h.p.Funcs) && h.p.Funcs[in.Callee].Sig != nil {
+			return h.p.Funcs[in.Callee].Sig
+		}
 	case eir.OpPhi:
 		for _, a := range in.Args {
 			if t := h.regTypeRec(f, a, depth+1); t != nil {

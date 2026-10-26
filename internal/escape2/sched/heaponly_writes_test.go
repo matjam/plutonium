@@ -140,3 +140,30 @@ type C struct{ p synced[int] }
 		t.Errorf("C.p: holds a synced box, but heap-only")
 	}
 }
+
+// TestHeapOnlyClosureCapturesClosure checks that a closure captured by
+// another closure is a write of a func value, which holds no struct field,
+// and does not make the analysis give up on every class (the nested
+// closures of pluto/rt.heapSortFuncs did, so no field was heap-only and
+// an arena's current chunk, section 18.3's own example, was not).
+func TestHeapOnlyClosureCapturesClosure(t *testing.T) {
+	for _, static := range []bool{true, false} {
+		x := newHoFixture(t)
+		m := x.main
+		m.store(m.field(m.addr(x.nodeObj), 1), m.heap(), x.intPtr)
+		sig := types2.NewSignatureType(nil, nil, nil, nil, nil, false)
+		inner := x.pr.fn("inner", eir.FuncKey{}, sig)
+		outer := x.pr.fn("outer", eir.FuncKey{}, sig)
+		in := eir.Instr{Op: eir.OpClosure, Callee: inner.f.ID, Obj: eir.NoObj}
+		if !static {
+			in.Obj = m.obj(eir.Object{Kind: eir.ObjClosure, Type: sig, Life: eir.LifeFrame, Loop: -1})
+			in.Args = []eir.Reg{m.addr(x.localInt)}
+		}
+		c := m.add(in, true)
+		rec := m.obj(eir.Object{Kind: eir.ObjClosure, Type: sig, Life: eir.LifeFrame, Loop: -1})
+		m.add(eir.Instr{Op: eir.OpClosure, Callee: outer.f.ID, Obj: rec, Args: []eir.Reg{c}}, true)
+		if !x.heapOnly(x.node, 1) {
+			t.Errorf("static=%v: Node.next: only heap is stored, but not heap-only", static)
+		}
+	}
+}
