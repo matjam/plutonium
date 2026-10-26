@@ -61,7 +61,7 @@ func main(){heap.next=alloc.Default();println("owner exit",rt.CatchExitTask(crea
 				t.Fatal(err)
 			}
 			cfg := build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), OptLevel: level, Stdlib: plutonium.Stdlib()}
-			if err := build.Build(&cfg); err != nil {
+			if err := buildCfg(&cfg); err != nil {
 				t.Fatal(err)
 			}
 			output, status := runDebugAlloc(t, cfg.Output, "")
@@ -126,7 +126,7 @@ func main(){stringsHeap.next=alloc.Default();check("receiver",createReceiver,1);
 					t.Fatal(err)
 				}
 				cfg := build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), OptLevel: level, Stdlib: stdlib}
-				if err := build.Build(&cfg); err != nil {
+				if err := buildCfg(&cfg); err != nil {
 					t.Fatal(err)
 				}
 				output, status := runDebugAlloc(t, cfg.Output, "")

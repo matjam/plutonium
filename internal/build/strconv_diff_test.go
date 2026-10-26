@@ -645,7 +645,7 @@ func buildStrconvHarness(t *testing.T, optLevel int) string {
 	}
 	out := filepath.Join(dir, "harness")
 	cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: optLevel}
-	if err := build.Build(cfg); err != nil {
+	if err := buildCfg(cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	return out

@@ -95,7 +95,7 @@ func main(){rt.D6TimerHook(MODE);MAIN}
 					t.Fatal(err)
 				}
 				cfg := build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: stdlib, OptLevel: opt, GenCheck: true}
-				if err := build.Build(&cfg); err != nil {
+				if err := buildCfg(&cfg); err != nil {
 					t.Fatal(err)
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

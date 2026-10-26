@@ -1,6 +1,7 @@
 package build
 
 import (
+	"os"
 	"testing"
 
 	"github.com/matjam/plutonium/internal/testguard"
@@ -10,6 +11,9 @@ import (
 // default in hosted and freestanding builds and leave them out in kernel
 // mode, unless --fieldnames says otherwise.
 func TestFieldNamesDefault(t *testing.T) {
+	if os.Getenv("PLUTO_TEST_COMPILER") != "" {
+		t.Skip("Go API only (PLUTO_TEST_COMPILER is set): tests the unexported Config.fieldNames; TestFieldNames builds with each setting")
+	}
 	testguard.Parallel(t)
 	cases := []struct {
 		cfg  Config

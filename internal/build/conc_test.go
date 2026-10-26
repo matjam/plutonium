@@ -36,7 +36,7 @@ func buildIn(dir, src string, cfg build.Config) (string, error) {
 	cfg.Dir = dir
 	cfg.Output = filepath.Join(dir, "prog")
 	cfg.Stdlib = plutonium.Stdlib()
-	return cfg.Output, build.Build(&cfg)
+	return cfg.Output, buildCfg(&cfg)
 }
 
 // concBuild is a program, its name for messages, and the settings to build

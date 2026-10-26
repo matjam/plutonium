@@ -44,6 +44,9 @@ func textBackend(text []byte, level int) ([]byte, error) {
 // (tools/go2pu does the same with the Plutonium back end, over the whole
 // corpus.)
 func TestSSATextRoundTrip(t *testing.T) {
+	if os.Getenv("PLUTO_TEST_COMPILER") != "" {
+		t.Skip("Go API only (PLUTO_TEST_COMPILER is set): tests the Go ssatext reader and back end, which have no command-line form")
+	}
 	dirs := []string{"../../examples/07-hello"}
 	runs, _ := filepath.Glob("testdata/run/*.p")
 	dirs = append(dirs, runs[:min(len(runs), 6)]...)

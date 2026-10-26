@@ -71,7 +71,7 @@ func compileObject(t *testing.T, dir string, src []byte, optLevel int) (asm, obj
 	var listing bytes.Buffer
 	cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: optLevel,
 		Listing: &listing, CompileOnly: true}
-	if err := build.Build(cfg); err != nil {
+	if err := buildCfg(cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	obj, err := os.ReadFile(out)
@@ -186,7 +186,7 @@ func buildTree(t *testing.T, root string, files map[string]string, dir string, c
 	cfg.Dir = filepath.Join(root, filepath.FromSlash(dir))
 	cfg.Output = filepath.Join(root, "prog")
 	cfg.Stdlib = plutonium.Stdlib()
-	if err := build.Build(&cfg); err != nil {
+	if err := buildCfg(&cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	data, err := os.ReadFile(cfg.Output)

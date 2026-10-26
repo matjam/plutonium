@@ -9,7 +9,6 @@ import (
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
-	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/testguard"
 )
 
@@ -149,9 +148,8 @@ func main() {
 	if err == nil {
 		t.Fatal("built a panic handler that may wait in the poller")
 	}
-	var b strings.Builder
-	diag.Print(&b, err, false)
-	msg := strings.Join(strings.Fields(b.String()), " ")
+	full := fullError(err)
+	msg := strings.Join(strings.Fields(full), " ")
 	for _, want := range []string{
 		"main.p:10:2: onPanic is the panic handler, so it must not wait",
 		"onPanic waits on os.Stderr (main.p:10).",
@@ -159,7 +157,7 @@ func main() {
 		"Write to rt.Console{} instead of os.Stderr in a panic or interrupt handler; os.File writes may wait for the poller: p.Print(rt.Console{})",
 	} {
 		if !strings.Contains(msg, want) {
-			t.Errorf("error does not contain %q:\n%s", want, b.String())
+			t.Errorf("error does not contain %q:\n%s", want, full)
 		}
 	}
 }
@@ -242,7 +240,7 @@ func TestFreestandingPanicHandlerRequired(t *testing.T) {
 	}
 	for _, kernel := range []bool{false, true} {
 		cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "k.o"), Stdlib: plutonium.Stdlib(), Freestanding: !kernel, Kernel: kernel, CompileOnly: true}
-		err := build.Build(cfg)
+		err := buildCfg(cfg)
 		if err == nil || !strings.Contains(err.Error(), "no panic handler is defined") {
 			t.Errorf("kernel %v: err = %v", kernel, err)
 		}

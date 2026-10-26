@@ -36,7 +36,7 @@ func buildDebugAllocWith(t *testing.T, src string, cfg build.Config) string {
 	cfg.Output = filepath.Join(dir, "prog")
 	cfg.Stdlib = plutonium.Stdlib()
 	cfg.Alloc = "debug"
-	if err := build.Build(&cfg); err != nil {
+	if err := buildCfg(&cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	return cfg.Output
@@ -655,7 +655,7 @@ func TestDebugAllocNeedsHosted(t *testing.T) {
 		{"fancy", false, false, `unknown allocator "fancy"`},
 	} {
 		cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: plutonium.Stdlib(), Freestanding: tt.freestanding, Kernel: tt.kernel, Alloc: tt.alloc}
-		err := build.Build(cfg)
+		err := buildCfg(cfg)
 		if err == nil || !strings.Contains(err.Error(), tt.want) {
 			t.Errorf("-alloc=%s: error %v, want %q", tt.alloc, err, tt.want)
 		}

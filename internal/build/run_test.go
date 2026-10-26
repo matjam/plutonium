@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"testing"
 
 	plutonium "github.com/matjam/plutonium"
@@ -37,20 +36,16 @@ func compileAndRunFiles(t *testing.T, files map[string]string, optLevel int) (st
 		}
 	}
 	out := filepath.Join(dir, "prog")
-	if compiler := os.Getenv("PLUTO_TEST_COMPILER"); compiler != "" {
-		buildWith(t, compiler, dir, out, optLevel)
-	} else {
-		var listing bytes.Buffer
-		cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: optLevel}
-		if os.Getenv("PLUTO_LISTING") != "" {
-			cfg.Listing = &listing
-		}
-		if err := build.Build(cfg); err != nil {
-			t.Fatalf("build: %v", err)
-		}
-		if listing.Len() > 0 {
-			t.Logf("listing:\n%s", listing.String())
-		}
+	var listing bytes.Buffer
+	cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: optLevel}
+	if os.Getenv("PLUTO_LISTING") != "" {
+		cfg.Listing = &listing
+	}
+	if err := buildCfg(cfg); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if listing.Len() > 0 {
+		t.Logf("listing:\n%s", listing.String())
 	}
 	cmd := exec.Command(out)
 	var stderr, stdout bytes.Buffer
@@ -68,23 +63,6 @@ func compileAndRunFiles(t *testing.T, files map[string]string, optLevel int) (st
 		t.Fatal(err)
 	}
 	return stdout.String() + stderr.String(), status
-}
-
-// buildWith builds the main package in dir with the compiler binary named
-// by PLUTO_TEST_COMPILER, such as the self-hosted compiler, in place of
-// this package's Build, and the standard library under lib/.
-func buildWith(t *testing.T, compiler, dir, out string, optLevel int) {
-	t.Helper()
-	root, err := filepath.Abs(filepath.Join("..", "..", "lib"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command(compiler, "build", "-O"+strconv.Itoa(optLevel), "-o", out, ".")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PLUTOROOT="+root)
-	if msg, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, msg)
-	}
 }
 
 func TestReturnStatus(t *testing.T) {

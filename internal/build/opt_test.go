@@ -38,7 +38,7 @@ func listFuncWith(t *testing.T, src, name string, base build.Config) string {
 	var listing bytes.Buffer
 	cfg := base
 	cfg.Dir, cfg.Output, cfg.Stdlib, cfg.OptLevel, cfg.Listing = dir, filepath.Join(dir, "prog"), plutonium.Stdlib(), 2, &listing
-	if err := build.Build(&cfg); err != nil {
+	if err := buildCfg(&cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	text := listing.String()

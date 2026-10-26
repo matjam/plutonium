@@ -29,7 +29,7 @@ func buildFiles(t *testing.T, files map[string][]byte, cfg build.Config) (string
 	cfg.Dir = dir
 	cfg.Output = filepath.Join(dir, "prog")
 	cfg.Stdlib = plutonium.Stdlib()
-	if err := build.Build(&cfg); err != nil {
+	if err := buildCfg(&cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	cmd := exec.Command(cfg.Output)

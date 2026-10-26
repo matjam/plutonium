@@ -4,17 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/matjam/plutonium/internal/diag"
 	"github.com/matjam/plutonium/internal/testguard"
 )
-
-// fullError returns the diagnostics in err as pluto prints them, with
-// their explanations.
-func fullError(err error) string {
-	var b strings.Builder
-	diag.Print(&b, err, false)
-	return b.String()
-}
 
 // TestKernelInitAlloc checks that package initialization that can reach
 // an allocation is a compile error in a freestanding build, which has no

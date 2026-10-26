@@ -20,7 +20,7 @@ func buildDir(t *testing.T, dir string, optLevel int) string {
 	t.Helper()
 	out := filepath.Join(t.TempDir(), "prog")
 	cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: optLevel}
-	if err := build.Build(cfg); err != nil {
+	if err := buildCfg(cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	return out

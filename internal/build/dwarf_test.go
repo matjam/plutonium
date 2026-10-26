@@ -70,7 +70,7 @@ func buildDebug(t *testing.T, cfg build.Config) (*elf.File, string) {
 	cfg.Dir = dir
 	cfg.Output = filepath.Join(dir, "prog")
 	cfg.Stdlib = plutonium.Stdlib()
-	if err := build.Build(&cfg); err != nil {
+	if err := buildCfg(&cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	f, err := elf.Open(cfg.Output)
@@ -381,7 +381,13 @@ func dwarfFiles(t *testing.T, f *elf.File) (dirs, files []string) {
 // under Config.StdlibDir rather than $PLUTOROOT when it is set.
 func TestDWARFFileNames(t *testing.T) {
 	testguard.Parallel(t)
-	f, _ := buildDebug(t, build.Config{StdlibDir: "/opt/pluto/lib"})
+	// The external compiler reads the library from the directory it
+	// records, so it gets the real one.
+	stdDir := "/opt/pluto/lib"
+	if testCompiler != "" {
+		stdDir = libRoot(t)
+	}
+	f, _ := buildDebug(t, build.Config{StdlibDir: stdDir})
 	dirs, files := dwarfFiles(t, f)
 	for _, dir := range dirs {
 		if dir != "" {
@@ -397,7 +403,7 @@ func TestDWARFFileNames(t *testing.T) {
 		t.Errorf("line tables name neither main.p nor pluto/rt/rt.p: %v", files)
 	}
 
-	f, file := buildDebug(t, build.Config{StdlibDir: "/opt/pluto/lib", NoTrimPath: true})
+	f, file := buildDebug(t, build.Config{StdlibDir: stdDir, NoTrimPath: true})
 	dirs, files = dwarfFiles(t, f)
 	for _, dir := range dirs {
 		if dir != filepath.Dir(file) {
@@ -409,8 +415,8 @@ func TestDWARFFileNames(t *testing.T) {
 			t.Errorf("--trimpath=false: file %s is not absolute", name)
 		}
 	}
-	if !slices.Contains(files, file) || !slices.Contains(files, "/opt/pluto/lib/pluto/rt/rt.p") {
-		t.Errorf("--trimpath=false: line tables name neither %s nor /opt/pluto/lib/pluto/rt/rt.p: %v", file, files)
+	if rt := filepath.Join(stdDir, "pluto/rt/rt.p"); !slices.Contains(files, file) || !slices.Contains(files, rt) {
+		t.Errorf("--trimpath=false: line tables name neither %s nor %s: %v", file, rt, files)
 	}
 }
 

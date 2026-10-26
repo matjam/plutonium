@@ -42,7 +42,7 @@ func main(){if !rt.CatchExitTask(create){panic("direct exit lost")};if !rt.Catch
 			t.Fatal(err)
 		}
 		cfg := build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), OptLevel: level, Stdlib: plutonium.Stdlib()}
-		if err := build.Build(&cfg); err != nil {
+		if err := buildCfg(&cfg); err != nil {
 			t.Fatal(err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -165,7 +165,7 @@ func runGoexitHook(t *testing.T, source, want string, lib fs.FS) {
 			t.Fatal(err)
 		}
 		cfg := build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), OptLevel: level, Stdlib: lib}
-		if err := build.Build(&cfg); err != nil {
+		if err := buildCfg(&cfg); err != nil {
 			t.Fatal(err)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

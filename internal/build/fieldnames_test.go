@@ -43,7 +43,7 @@ func main() {
 			}
 			out := filepath.Join(dir, "prog")
 			cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: 2, FieldNames: c.setting}
-			if err := build.Build(cfg); err != nil {
+			if err := buildCfg(cfg); err != nil {
 				t.Fatalf("build: %v", err)
 			}
 			got, err := exec.Command(out).Output()
@@ -54,6 +54,13 @@ func main() {
 				t.Errorf("got %q, want %q", got, c.want)
 			}
 		})
+	}
+	if testCompiler != "" {
+		// The command line's form of Check's test.
+		if out, status := runTestCompiler(t, "build", "--fieldnames=maybe", "-o", filepath.Join(t.TempDir(), "prog"), t.TempDir()); status != 2 {
+			t.Errorf("--fieldnames=maybe: status %d, output:\n%s", status, out)
+		}
+		return
 	}
 	bad := &build.Config{FieldNames: "maybe"}
 	if err := bad.Check(); err == nil {

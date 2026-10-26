@@ -140,7 +140,7 @@ func check(name string,fn func(),want int,exits bool){events=0;deferred=0;evalua
 				t.Fatal(err)
 			}
 			cfg := build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), OptLevel: level, Stdlib: goexitHookOverlay{lib, fstest.MapFS{overlayPath: &fstest.MapFile{Data: data}}}}
-			if err := build.Build(&cfg); err != nil {
+			if err := buildCfg(&cfg); err != nil {
 				t.Fatal(err)
 			}
 			out, status := runDebugAlloc(t, cfg.Output, "")

@@ -49,7 +49,7 @@ func kernelCompile(t *testing.T, src string, optLevel int) (string, error) {
 	var listing bytes.Buffer
 	cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "k.o"), Stdlib: plutonium.Stdlib(),
 		OptLevel: optLevel, Kernel: true, Listing: &listing, CompileOnly: true}
-	err := build.Build(cfg)
+	err := buildCfg(cfg)
 	return listing.String(), err
 }
 
@@ -408,7 +408,7 @@ func TestKernelNoXMM(t *testing.T) {
 		obj := filepath.Join(dir, "k.o")
 		cfg := &build.Config{Dir: dir, Output: obj, Stdlib: plutonium.Stdlib(),
 			OptLevel: level, Kernel: true, Listing: &listing, CompileOnly: true}
-		if err := build.Build(cfg); err != nil {
+		if err := buildCfg(cfg); err != nil {
 			t.Fatalf("-O%d: %v", level, err)
 		}
 		text := listing.String()
@@ -458,12 +458,12 @@ func TestKernelSmoke(t *testing.T) {
 			// is what QEMU's multiboot loader boots.
 			elfOut := filepath.Join(t.TempDir(), "kernel.elf")
 			cfg := &build.Config{Dir: dir, Output: elfOut, Stdlib: plutonium.Stdlib(), OptLevel: level, Kernel: true}
-			if err := build.Build(cfg); err != nil {
+			if err := buildCfg(cfg); err != nil {
 				t.Fatalf("build ELF: %v", err)
 			}
 			image := filepath.Join(t.TempDir(), "kernel.bin")
 			cfg.Output, cfg.Format = image, "binary"
-			if err := build.Build(cfg); err != nil {
+			if err := buildCfg(cfg); err != nil {
 				t.Fatalf("build: %v", err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -545,7 +545,7 @@ func main() {
 	var buf bytes.Buffer
 	cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "k.o"), Stdlib: plutonium.Stdlib(),
 		OptLevel: 2, Freestanding: true, Listing: &buf, CompileOnly: true}
-	if err := build.Build(cfg); err != nil {
+	if err := buildCfg(cfg); err != nil {
 		t.Fatal(err)
 	}
 	if asm := funcListing(t, buf.String(), "main.tick"); strings.Count(asm, "movups") != 32 {

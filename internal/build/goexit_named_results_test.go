@@ -85,7 +85,7 @@ func main(){heap.next=alloc.Default();alloc.SetDefault(&heap);check("owner",owne
 				t.Fatal(err)
 			}
 			cfg := build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), OptLevel: level, Stdlib: plutonium.Stdlib()}
-			if err := build.Build(&cfg); err != nil {
+			if err := buildCfg(&cfg); err != nil {
 				t.Fatal(err)
 			}
 			output, status := runDebugAlloc(t, cfg.Output, "")

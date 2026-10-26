@@ -81,7 +81,7 @@ func main() int64 {
 		Dir: dir, Output: image, Stdlib: plutonium.Stdlib(),
 		Freestanding: true, LinkerScript: filepath.Join(dir, "kernel.ld"), Format: "binary",
 	}
-	if err := build.Build(cfg); err != nil {
+	if err := buildCfg(cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

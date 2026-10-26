@@ -28,7 +28,7 @@ func TestPerCPUHosted(t *testing.T) {
 		out := filepath.Join(t.TempDir(), "gsuser")
 		cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: level,
 			Kernel: true, LinkerScript: filepath.Join(dir, "user.ld")}
-		if err := build.Build(cfg); err != nil {
+		if err := buildCfg(cfg); err != nil {
 			t.Fatalf("-O%d: build: %v", level, err)
 		}
 		var stderr bytes.Buffer
@@ -72,7 +72,7 @@ func TestPerCPUErrors(t *testing.T) {
 			writePanicHandler(t, dir)
 			cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "k.o"), Stdlib: plutonium.Stdlib(),
 				OptLevel: 2, Kernel: tc.kernel, CompileOnly: true}
-			err := build.Build(cfg)
+			err := buildCfg(cfg)
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("err = %v, want %q", err, tc.want)
 			}
@@ -129,7 +129,7 @@ func buildPerCPU(t *testing.T, compileOnly bool, ldscript string) (string, error
 	out := filepath.Join(dir, "kernel")
 	cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: 2,
 		Kernel: true, CompileOnly: compileOnly, LinkerScript: ldscript}
-	return out, build.Build(cfg)
+	return out, buildCfg(cfg)
 }
 
 // TestPerCPUObject checks the object code for per-CPU variables: the

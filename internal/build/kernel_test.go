@@ -44,12 +44,12 @@ func TestKernelScheduler(t *testing.T) {
 			testguard.Parallel(t)
 			elfOut := filepath.Join(t.TempDir(), "kernel.elf")
 			cfg := &build.Config{Dir: dir, Output: elfOut, Stdlib: plutonium.Stdlib(), OptLevel: level, Kernel: true}
-			if err := build.Build(cfg); err != nil {
+			if err := buildCfg(cfg); err != nil {
 				t.Fatalf("build ELF: %v", err)
 			}
 			image := filepath.Join(t.TempDir(), "kernel.bin")
 			cfg.Output, cfg.Format = image, "binary"
-			if err := build.Build(cfg); err != nil {
+			if err := buildCfg(cfg); err != nil {
 				t.Fatalf("build: %v", err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -99,7 +99,7 @@ func TestKernelInterrupts(t *testing.T) {
 				Dir: dir, Output: image, Stdlib: plutonium.Stdlib(), OptLevel: level,
 				Freestanding: true, LinkerScript: filepath.Join(dir, "kernel.ld"), Format: "binary",
 			}
-			if err := build.Build(cfg); err != nil {
+			if err := buildCfg(cfg); err != nil {
 				t.Fatalf("build: %v", err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

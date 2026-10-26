@@ -171,7 +171,7 @@ func listGenFunc(t *testing.T, src, name string) string {
 	}
 	var listing bytes.Buffer
 	cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: plutonium.Stdlib(), OptLevel: 2, Listing: &listing, GenCheck: true}
-	if err := build.Build(cfg); err != nil {
+	if err := buildCfg(cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	text := listing.String()

@@ -19,6 +19,7 @@ import (
 // pluto/testing is also compiled under PLUTO_SSACHECK. cmd/pluto tests the
 // command's output.
 func TestBuildTest(t *testing.T) {
+	skipUnderTestCompiler(t, "build.BuildTest makes a test binary; the self-hosted driver has no pluto test command yet")
 	testguard.Parallel(t)
 	for _, pkg := range []string{"pluto/strings", "pluto/sort", "pluto/path/filepath", "pluto/flag", "pluto/hash"} {
 		for _, level := range []int{0, 2} {
@@ -82,6 +83,7 @@ func TestNext(t *testing.T) {
 `
 
 func TestBuildTestFailNow(t *testing.T) {
+	skipUnderTestCompiler(t, "build.BuildTest makes a test binary; the self-hosted driver has no pluto test command yet")
 	testguard.Parallel(t)
 	dir := t.TempDir()
 	files := map[string]string{"pluto.mod": "module example.com/p\n", "p.p": "package p\n", "p_test.p": fatalTest}
@@ -119,6 +121,7 @@ FAIL
 }
 
 func TestBuildTestNoTestFiles(t *testing.T) {
+	skipUnderTestCompiler(t, "build.BuildTest makes a test binary; the self-hosted driver has no pluto test command yet")
 	testguard.Parallel(t)
 	cfg := &build.Config{Output: filepath.Join(t.TempDir(), "test"), Stdlib: plutonium.Stdlib()}
 	bin, err := build.BuildTest(cfg, "pluto/bits", &build.TestOptions{})

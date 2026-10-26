@@ -61,7 +61,7 @@ func main() {
 		}
 		var listing bytes.Buffer
 		cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: plutonium.Stdlib(), OptLevel: level, Listing: &listing}
-		if err := build.Build(cfg); err != nil {
+		if err := buildCfg(cfg); err != nil {
 			t.Fatalf("build: %v", err)
 		}
 		text := listing.String()

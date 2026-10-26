@@ -76,7 +76,7 @@ func main() {
 	notes := func(level int) string {
 		var buf bytes.Buffer
 		cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: plutonium.Stdlib(), OptLevel: level, InlineNotes: &buf}
-		if err := build.Build(cfg); err != nil {
+		if err := buildCfg(cfg); err != nil {
 			t.Fatalf("build: %v", err)
 		}
 		return strings.ReplaceAll(buf.String(), dir, "$DIR")

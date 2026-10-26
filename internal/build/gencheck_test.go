@@ -38,7 +38,7 @@ func runGenMode(t *testing.T, src string, optLevel int, base build.Config) (stri
 	out := filepath.Join(dir, "prog")
 	cfg := base
 	cfg.Dir, cfg.Output, cfg.Stdlib, cfg.OptLevel = dir, out, plutonium.Stdlib(), optLevel
-	if err := build.Build(&cfg); err != nil {
+	if err := buildCfg(&cfg); err != nil {
 		t.Fatalf("build: %v", err)
 	}
 	var stdout bytes.Buffer
@@ -118,7 +118,7 @@ func TestGenCheckFreestanding(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg.Dir, "main.p"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := build.Build(cfg)
+	err := buildCfg(cfg)
 	if err == nil || !strings.Contains(err.Error(), "hosted builds only") {
 		t.Fatalf("error %v, want hosted builds only", err)
 	}

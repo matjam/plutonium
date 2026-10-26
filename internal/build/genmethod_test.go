@@ -19,7 +19,7 @@ func buildError(t *testing.T, src string) error {
 		t.Fatal(err)
 	}
 	cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog"), Stdlib: plutonium.Stdlib()}
-	return build.Build(cfg)
+	return buildCfg(cfg)
 }
 
 // TestGenericMethodErrors checks that the restrictions on methods with type

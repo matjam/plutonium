@@ -139,7 +139,7 @@ func TestMainStackErrors(t *testing.T) {
 			t.Fatal(err)
 		}
 		cfg := &build.Config{Dir: dir, Output: filepath.Join(dir, "prog.o"), Stdlib: plutonium.Stdlib(), Freestanding: true}
-		err := build.Build(cfg)
+		err := buildCfg(cfg)
 		if err == nil || !strings.Contains(err.Error(), "not supported in freestanding builds") {
 			t.Fatalf("got error %v, want the freestanding error", err)
 		}

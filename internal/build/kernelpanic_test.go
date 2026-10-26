@@ -83,7 +83,7 @@ panic: kernel nested
 				}
 				image := filepath.Join(dir, "kernel.bin")
 				cfg := &build.Config{Dir: dir, Output: image, Stdlib: plutonium.Stdlib(), OptLevel: level, Kernel: true, Format: "binary"}
-				if err := build.Build(cfg); err != nil {
+				if err := buildCfg(cfg); err != nil {
 					t.Fatalf("build: %v", err)
 				}
 				want := regexp.MustCompile(`\A` + strings.ReplaceAll(c.want, "FILE", `\./main\.p`) + `\z`)
