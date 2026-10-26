@@ -84,12 +84,24 @@ func Mem2Reg(f *ssa.Func) {
 		undo = append(undo, slotUndo{s, cur[s]})
 		cur[s] = v
 	}
+	// One zero constant per type serves every read before a store: it is
+	// in the entry block, which dominates them all. Making one per read
+	// was quadratic, since each is inserted at the start of the entry.
+	zeros := map[*ssa.Type]*ssa.Value{}
+	zero := func(t *ssa.Type) *ssa.Value {
+		z := zeros[t]
+		if z == nil {
+			z = zeroConst(f, t)
+			zeros[t] = z
+		}
+		return z
+	}
 	current := func(s *ssa.Slot) *ssa.Value {
 		if v := cur[s]; v != nil {
 			return v
 		}
 		// Read before any store on this path: the zero value.
-		z := zeroConst(f, types[s])
+		z := zero(types[s])
 		set(s, z)
 		return z
 	}
@@ -115,7 +127,7 @@ func Mem2Reg(f *ssa.Func) {
 				set(s, v.Args[1])
 				v.CopyOf(v.Args[2])
 			case ssa.OpZero:
-				set(s, zeroConst(f, types[s]))
+				set(s, zero(types[s]))
 				v.CopyOf(v.Args[1])
 			}
 		}
@@ -148,7 +160,7 @@ func Mem2Reg(f *ssa.Func) {
 		for _, a := range phiArgs[phi] {
 			if a == nil {
 				// Predecessor not reached by renaming (unreachable).
-				a = zeroConst(f, phi.Type)
+				a = zero(phi.Type)
 			}
 			phi.AddArg(a)
 		}

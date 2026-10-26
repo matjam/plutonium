@@ -8,6 +8,7 @@ import (
 	"selfhost/internal/scratch"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
+	"unsafe"
 )
 
 // Inlining replaces calls to small functions with a copy of their body.
@@ -101,7 +102,7 @@ func inline(p *ssa.Program, why map[*ssa.Value]string) {
 		for _, f := range scc {
 			if why == nil {
 				step.f, step.scc = f, scc
-				scratch.Do(step)
+				scratch.DoHome(unsafe.Pointer(f), step)
 			} else if inlineInto(f, funcs, sizes, inCycle, scc, refs, why) {
 				cleanup(f)
 			}
@@ -112,8 +113,9 @@ func inline(p *ssa.Program, why map[*ssa.Value]string) {
 }
 
 // inlineStep inlines into one caller and cleans it up as a scratch step,
-// then copies the caller out of scratch memory (ssa.Copier), so that the
-// copies and cleanup leave behind only the function they made. The step
+// then copies the caller out of scratch memory (ssa.Copier) into memory of
+// its own, which replaces the caller's previous copy (scratch.DoHome), so
+// that the copies and cleanup leave behind only the function they made. The step
 // only reads the tables it is given. Without why: the notes would hold on
 // to values made in the step.
 type inlineStep struct {

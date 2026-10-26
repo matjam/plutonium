@@ -13,6 +13,7 @@ package scratch
 import (
 	"errors"
 	"strings"
+	"unsafe"
 )
 
 // A Step is a step of the compiler run by Do. Its methods' names are
@@ -40,6 +41,22 @@ func Do(s Step) {
 	s.ScratchWork()
 	s.ScratchKeep()
 }
+
+// DoHome is Do for a step whose ScratchKeep makes a new version of the
+// thing key points to, such as an optimised copy of a function. The
+// self-hosted DoHome keeps what ScratchKeep allocates in memory of key's
+// own and, when there is any, frees the memory the previous DoHome with
+// the same key kept: nothing may still reach the older version. A step
+// whose ScratchKeep allocates nothing leaves the older version in place.
+// DoHome nested within a Do's work is Do. Here it is Do.
+func DoHome(key unsafe.Pointer, s Step) {
+	_ = key
+	Do(s)
+}
+
+// Drop frees the memory DoHome kept for key, once nothing will use the
+// version of key's thing it holds again. Here it does nothing.
+func Drop(key unsafe.Pointer) { _ = key }
 
 // String returns a copy of s from the current allocator.
 func String(s string) string { return strings.Clone(s) }

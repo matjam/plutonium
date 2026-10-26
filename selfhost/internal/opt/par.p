@@ -3,6 +3,7 @@ package opt
 import (
 	"selfhost/internal/scratch"
 	"selfhost/internal/ssa"
+	"unsafe"
 )
 
 // runFuncs is the Go compiler's runFuncs (internal/opt/par.go), run in
@@ -13,8 +14,10 @@ import (
 // functions are owned by the tasks that change them.
 //
 // Each function runs through the passes in scratch memory and is then
-// copied out of it (ssa.Copier), so what the passes allocated and dropped
-// goes with the step instead of piling up for the rest of the build. With
+// copied out of it (ssa.Copier) into memory of its own, which replaces the
+// function's previous copy (scratch.DoHome), so what the passes allocated
+// and dropped, and the code they replaced, go with the step instead of
+// piling up for the rest of the build. With
 // copyOut false, when something outside the functions holds on to their
 // values (the inline notes), they run in place. Hand-written; go2pu keeps
 // it in place of a translation of par.go.
@@ -31,7 +34,7 @@ func runFuncs(funcs []*ssa.Func, passes []*Pass, copyOut bool) {
 	s.passes = passes
 	for _, f := range funcs {
 		s.f = f
-		scratch.Do(&s)
+		scratch.DoHome(unsafe.Pointer(f), &s)
 	}
 	scratch.Trim()
 }

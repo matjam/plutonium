@@ -64,11 +64,22 @@ func staticCleanupIdentity() uint64 {
 
 // staticCleanupCheck guards program writes, including writes through aliases.
 // Compiler mandatory zeroing and progress updates do not call it recursively.
-// Keep its table scan out of every checked store's control-flow graph.
+// Lowering calls it before every store that may reach a static object, so
+// it is inlined to a test of the flag, which stays clear until shutdown
+// begins, and the table scan stays out of every checked store's
+// control-flow graph (staticCleanupScan). A plain load of the flag is an
+// atomic load on the architectures the runtime supports.
 //
-//pu:noinline
+//pu:inline
 func staticCleanupCheck(p unsafe.Pointer, n uintptr) {
-	if n == 0 || load32(&staticCleanupReady) == 0 {
+	if staticCleanupReady != 0 && n != 0 {
+		staticCleanupScan(p, n)
+	}
+}
+
+//pu:noinline
+func staticCleanupScan(p unsafe.Pointer, n uintptr) {
+	if load32(&staticCleanupReady) == 0 {
 		return
 	}
 	a := uintptr(p)

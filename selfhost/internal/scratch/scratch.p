@@ -16,6 +16,7 @@ import (
 	"pluto/os"
 	"pluto/rt"
 	"selfhost/compat"
+	"selfhost/pu"
 	"unsafe"
 )
 
@@ -64,7 +65,10 @@ type Step interface {
 // allocated. Do nests up to maxDepth deep: a Do within another's work
 // uses an arena of its own, and its ScratchKeep copies into the outer
 // step's memory.
-func Do(s Step) {
+func Do(s Step) { do(s, nil) }
+
+// do is Do, with s.ScratchKeep allocating from keep when it is not nil.
+func do(s Step, keep alloc.Allocator) {
 	if !inited {
 		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
 		heap = alloc.Default()
@@ -90,12 +94,140 @@ func Do(s Step) {
 	r.Restore()
 	depth--
 	l.outer = nil
-	s.ScratchKeep()
+	if keep != nil {
+		k := alloc.Use(keep)
+		s.ScratchKeep()
+		k.Restore()
+	} else {
+		s.ScratchKeep()
+	}
 	l.scr.Release(m)
 	if check {
 		l.scr.Trim()
 		l.pages.seal()
 	}
+}
+
+// homes holds, for each key DoHome has been given, the memory of what its
+// last step with that key kept; filling is the home of the step running.
+var (
+	homes   map[unsafe.Pointer]*home
+	filling home
+)
+
+// DoHome is Do for a step whose ScratchKeep makes a new version of the
+// thing key points to, such as an optimised copy of a function. What
+// ScratchKeep allocates goes into memory of key's own and, when there is
+// any, the memory the previous DoHome with the same key kept is freed:
+// nothing may still reach the older version. A step whose ScratchKeep
+// allocates nothing leaves the older version in place. Within a Do's work
+// DoHome is Do.
+func DoHome(key unsafe.Pointer, s Step) {
+	if depth != 0 {
+		Do(s)
+		return
+	}
+	if !inited {
+		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
+		heap = alloc.Default()
+		inited = true
+	}
+	filling = home{}
+	do(s, &filling)
+	if filling.chunks == nil {
+		return
+	}
+	r := alloc.Use(heap)
+	if homes == nil {
+		homes = map[unsafe.Pointer]*home{}
+	}
+	old := homes[key]
+	if old == nil {
+		old = pu.New(home{})
+		homes[key] = old
+	} else {
+		old.drop()
+	}
+	r.Restore()
+	*old = filling
+	filling = home{}
+}
+
+// Drop frees the memory DoHome kept for key, once nothing will use the
+// version of key's thing it holds again.
+func Drop(key unsafe.Pointer) {
+	if h := homes[key]; h != nil {
+		h.drop()
+	}
+}
+
+// homeChunk is the size of the chunks a home takes from the heap: most
+// functions' code fits in a few.
+const homeChunk = 32 << 10
+
+// A home is memory that DoHome keeps a step's results in: chunks taken
+// from the heap and filled in order, freed together by drop. Each chunk
+// begins with a link to the one taken before it and its own size. In
+// check mode (PLUTO_SCRATCH_CHECK) the chunks are pages of their own,
+// which drop makes inaccessible, so that a pointer to an older version
+// faults where it is used.
+type home struct {
+	chunks unsafe.Pointer // the chunk being filled, linking to the older ones
+	off    uintptr        // bytes of it in use
+	size   uintptr        // its size
+}
+
+const homeHeader = 16
+
+func (h *home) Alloc(size, align uintptr) unsafe.Pointer {
+	if align < 8 {
+		align = 8
+	}
+	off := (h.off + align - 1) &^ (align - 1)
+	if h.chunks == nil || off+size > h.size {
+		n := uintptr(homeChunk)
+		if need := homeHeader + size + align; need > n {
+			n = need
+		}
+		var c unsafe.Pointer
+		if check {
+			n = (n + pageSize - 1) &^ (pageSize - 1)
+			c = rt.Mmap(n)
+		} else {
+			c = heap.Alloc(n, 16)
+		}
+		if c == nil {
+			return nil
+		}
+		*(*unsafe.Pointer)(c) = h.chunks
+		*(*uintptr)(unsafe.Add(c, 8)) = n
+		h.chunks, h.size = c, n
+		off = (homeHeader + align - 1) &^ (align - 1)
+	}
+	h.off = off + size
+	return unsafe.Add(h.chunks, off)
+}
+
+// Free does nothing: a home's memory is freed all at once by drop.
+func (h *home) Free(p unsafe.Pointer, size, align uintptr) {}
+
+// drop frees h's chunks.
+func (h *home) drop() {
+	c := h.chunks
+	for c != nil {
+		next := *(*unsafe.Pointer)(c)
+		n := *(*uintptr)(unsafe.Add(c, 8))
+		if check {
+			rt.Discard(c, n)
+			if !rt.Mprotect(c, n, rt.ProtNone) {
+				panic("scratch: mprotect failed (PLUTO_SCRATCH_CHECK)")
+			}
+		} else {
+			heap.Free(c, n, 16)
+		}
+		c = next
+	}
+	h.chunks, h.off, h.size = nil, 0, 0
 }
 
 // Trim returns to the heap the spare memory that the arenas keep for later

@@ -60,14 +60,7 @@ func (c *Copier) Copy(f *Func) {
 	}
 	c.drain(f)
 
-	var inlines []InlineSite
-	if f.Inlines != nil {
-		inlines = make([]InlineSite, len(f.Inlines))
-		for i, s := range f.Inlines {
-			s.Func = strings.Clone(s.Func)
-			inlines[i] = s
-		}
-	}
+	inlines := CloneInlines(f.Inlines)
 	f.Blocks, f.Entry, f.Slots = blocks, entry, slots
 	f.DeferRecord, f.StrHolds, f.Inlines = rec, holds, inlines
 	f.Params, f.Results = c.types(f.Params), c.types(f.Results)
@@ -270,6 +263,21 @@ func copyBools(bs []bool) []bool {
 	}
 	out := make([]bool, len(bs))
 	copy(out, bs)
+	return out
+}
+
+// CloneInlines returns a copy of sites, and of the names they hold, in the
+// current allocator's memory: what outlives the function's code, such as
+// its debug information, keeps the copy.
+func CloneInlines(sites []InlineSite) []InlineSite {
+	if sites == nil {
+		return nil
+	}
+	out := make([]InlineSite, len(sites))
+	for i, s := range sites {
+		s.Func = strings.Clone(s.Func)
+		out[i] = s
+	}
 	return out
 }
 

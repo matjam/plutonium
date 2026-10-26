@@ -92,7 +92,7 @@ func (e *emitter) emit(f *ssa.Func, code *amd64.Code) error {
 	obj.Define(pu.New(objfile.Symbol{Name: f.Sym.Name, Section: sec, Value: off, Size: uint64(len(code.Bytes)),
 		Bind: elf.STB_GLOBAL, Type: elf.STT_FUNC}))
 	df := pu.New(debuginfo.Func{Sym: f.Sym.Name, Pkg: f.Pkg, Pos: f.Pos, Size: len(code.Bytes),
-		Debug: code.Debug.Clone(), Inlines: f.Inlines})
+		Debug: code.Debug.Clone(), Inlines: ssa.CloneInlines(f.Inlines)})
 	if f.DeferRunner != nil {
 		// Frame layout has placed the record (amd64.Compile).
 		df.DeferRunner, df.DeferOff = f.DeferRunner.Name, f.DeferRecord.Offset

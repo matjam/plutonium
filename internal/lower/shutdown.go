@@ -136,7 +136,7 @@ func staticCleanupHook(fn *types2.Func) bool {
 		return false
 	}
 	switch fn.Name() {
-	case "staticCleanupSet", "staticCleanupSelect", "staticCleanupCheck", "staticCleanupDone", "staticCleanupRecordDone", "staticCleanupPause", "staticCleanupResume", "staticCleanupOnTask", "staticCleanupIdentity":
+	case "staticCleanupSet", "staticCleanupSelect", "staticCleanupCheck", "staticCleanupScan", "staticCleanupDone", "staticCleanupRecordDone", "staticCleanupPause", "staticCleanupResume", "staticCleanupOnTask", "staticCleanupIdentity":
 		return true
 	}
 	return false

@@ -238,7 +238,7 @@ func init() {
 	add(Runtime, "errors.New call sites", none, "pluto/rt.errorsNewCount")
 	add(Runtime, "program shutdown and static cleanup (section 15.4)", none,
 		"pluto/rt.normalShutdown", "pluto/rt.normalShutdownFinish",
-		"pluto/rt.staticCleanupCheck", "pluto/rt.staticCleanupDone", "pluto/rt.staticCleanupPause",
+		"pluto/rt.staticCleanupCheck", "pluto/rt.staticCleanupScan", "pluto/rt.staticCleanupDone", "pluto/rt.staticCleanupPause",
 		"pluto/rt.staticCleanupResume", "pluto/rt.staticCleanupSelect", "pluto/rt.staticCleanupSet")
 	add(Runtime, "generation checks of custom allocators (abi.md section 1.3)", none,
 		"pluto/rt.GenCustomAlloc", "pluto/rt.GenCustomFree", "pluto/rt.GenAfterCustomFree",
