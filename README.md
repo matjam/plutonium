@@ -110,11 +110,13 @@ More programs are in `examples/`.
 
 ## Building and running
 
-The compiler is written in Go (1.27 or later). The standard library is Plutonium source under `lib/pluto/`,
-embedded in the compiler binary.
+The compiler is written in Plutonium (`selfhost/`) and builds itself. On a new machine it is bootstrapped
+with the frozen Go implementation (Go 1.27 or later, `cmd/pluto`, tag `go-cutover`); the standard library is
+Plutonium source under `lib/pluto/`, which the compiler finds beside its executable or in `PLUTOROOT`.
 
 ```bash
-go build -o pluto ./cmd/pluto/
+go build -o /tmp/pluto0 ./cmd/pluto/                                        # stage 0, the Go-hosted compiler
+PLUTOROOT=$PWD/lib /tmp/pluto0 build -O2 --gencheck=false -o pluto ./selfhost/cmd/pluto
 
 pluto run ./examples/07-hello/              # build a hosted program and run it
 pluto build -o hello ./examples/07-hello/   # build a linked binary
@@ -126,7 +128,7 @@ Set `PLUTOROOT=$PWD/lib` to use the library in the working tree instead of the e
 --help` lists the flags: target and mode (`hosted`, `freestanding`, `kernel`), build tags, the allocator,
 optimization level and debug information.
 
-Other commands:
+Other commands (provided by the Go-hosted `pluto0` until they are ported):
 
 - `pluto doc [package-or-directory] [symbol[.method]]` shows package documentation and source
   declarations, with each type labeled `value`, `view`, `owner (moves)` or `counted`. The package defaults
@@ -146,10 +148,11 @@ Other commands:
 | `docs/roadmap.md` | Every known gap between the specification and the compiler, in priority order |
 | `docs/plans/` | Working documents with a Status block that says what the specification supersedes; `archive/` holds the superseded March prototype plans |
 | `AGENTS.md` | Contributor guide: pipeline, build and test commands, verification checklist |
-| `cmd/pluto/`, `internal/` | The compiler: syntax, type checker, ownership and escape analyses, SSA, optimizer, x86-64 backend, ELF writer, driver, language server |
+| `selfhost/` | The compiler: syntax, type checker, ownership and escape analyses, SSA, optimizer, x86-64 backend, ELF writer, driver |
+| `cmd/pluto/`, `internal/` | The Go implementation, frozen at `go-cutover`: the bootstrap compiler, the language server and the other tool commands |
 | `lib/pluto/` | The standard library |
 | `examples/`, `bench/`, `testdata/` | Example programs, benchmarks against C, Rust and Go, end-to-end tests |
-| `selfhost/`, `tools/` | The compiler's sources translated to Plutonium (toward self-hosting), and development tools |
+| `tools/` | Development tools (`go2pu` translated the compiler to Plutonium; `bootstrap` checks the self-build) |
 
 ## Status
 

@@ -113,10 +113,13 @@ func testConfig() *Config {
 	return cfg
 }
 
-// TestTranslationsUpToDate translates each package again and checks that
-// selfhost/ holds exactly the result. Regenerate the translations by
-// running this test with GO2PU_UPDATE=1.
+// TestTranslationsUpToDate translated each package again and checked that
+// selfhost/ held exactly the result. Since the go-cutover tag the Go
+// compiler is frozen and selfhost/ is edited by hand (self-hosting plan,
+// section 6.4), so the check is retired; GO2PU_UPDATE=1 would overwrite
+// those edits and is refused.
 func TestTranslationsUpToDate(t *testing.T) {
+	t.Skip("the Go compiler is frozen at go-cutover; selfhost/ is the source (plan 6.4)")
 	cfg := testConfig()
 	update := os.Getenv("GO2PU_UPDATE") != ""
 	var results []*Result

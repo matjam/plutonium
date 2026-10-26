@@ -11,7 +11,10 @@
 Plutonium is a systems programming language: Go-familiar, not Go-compatible,
 with no garbage collector, ownership visible in the types, and tasks and
 channels on a scheduler that only programs using them carry
-(`docs/spec/language.md`, chapter 1). The compiler is written in Go. Pipeline:
+(`docs/spec/language.md`, chapter 1). The compiler is self-hosted: its source is
+`selfhost/` (Plutonium), and the Go implementation (`cmd/pluto`, `internal/`) is frozen
+at the `go-cutover` tag. See "Self-hosted compiler" below. The pipeline, by Go package
+(each has its port under `selfhost/internal/`, with the same names):
 
 | Stage | Package |
 |---|---|
@@ -68,7 +71,32 @@ plainly that it is historical.
   G. Elsewhere it states the Plutonium rule alone, and the word for a unit of
   concurrent execution is "task", never "goroutine" or "puroutine".
 
+## Self-hosted compiler
+Since the `go-cutover` tag (2026-10-26, self-hosting plan section 6.4) the compiler's
+source is `selfhost/`, edited by hand. The Go compiler under `cmd/pluto` and `internal/`
+is frozen: do not change its compiler packages. It stays as stage 0, the bootstrap that
+builds the self-hosted compiler on a machine with a Go toolchain, and it still provides
+the commands the self-hosted driver lacks (`fmt`, `vet`, `test`, `doc`, `lsp`,
+`explain`) until they are ported. go2pu no longer runs over the compiler
+(`TestTranslationsUpToDate` is retired); the first line of each translated file names
+the Go file it came from.
+
+- Build the compiler (about 3 minutes and 5 GB for the Go-hosted build):
+  `go build -o /tmp/pluto0 ./cmd/pluto && PLUTOROOT=$PWD/lib /tmp/pluto0 build -O2 --gencheck=false -o pluto ./selfhost/cmd/pluto`.
+  A `pluto` at the repository root finds `lib/` beside it; elsewhere set `PLUTOROOT`.
+- Rebuild it with itself after a change to `selfhost/`:
+  `PLUTOROOT=$PWD/lib ./pluto build -O2 --gencheck=false -o /tmp/pluto2 ./selfhost/cmd/pluto`
+  (about 5 minutes, 7 GB). A change is checked by the fixpoint: the compiler built by
+  the new compiler builds itself byte for byte the same (`go run ./tools/bootstrap`,
+  stages 2 and 3, `-pluto1` to start from a compiler built before).
+- Run the end-to-end corpus with it: `PLUTO_TEST_COMPILER=$PWD/pluto go test -count=1 -timeout 60m ./internal/build`.
+- The differential tests of `tools/go2pu` and `tools/bootstrap -corpus` compare the
+  self-hosted compiler with the frozen Go one. They hold until a change to `selfhost/`
+  deliberately changes the compiler's output; then that comparison is retired, and the
+  change is recorded in the commit.
+
 ## Build & Test
+The commands below use the Go-hosted compiler (stage 0) unless they say otherwise.
 - Build compiler: `go build -o /tmp/pluto ./cmd/pluto/`
 - Run all tests: `go test -count=1 ./...`
 - Build and run a program: `PLUTOROOT=$PWD/lib /tmp/pluto run ./examples/07-hello/`
