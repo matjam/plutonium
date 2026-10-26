@@ -1,22 +1,34 @@
 // Command gendiag writes the error code reference of the Plutonium skill
-// (references/diagnostics.md) from the compiler's diagnostics catalog
-// (internal/diag), the same text `pluto explain` prints.
+// (references/diagnostics.md) from the compiler's diagnostics catalog, the
+// same text `pluto explain` prints.
+//
+// The list of codes and their names comes from `pluto explain` with no
+// arguments. The explanation and the usual fix of each code come from the
+// catalog's source under selfhost/internal/diag, because pluto explain
+// prints them merged with the reason Plutonium differs from Go and leaves
+// out the fix's introduction when the entry has a corrected example.
 //
 // Run it from the repository root after the catalog changes:
 //
 //	go run ./skill/plutonium/tools/gendiag
 //
-// The -out flag names the file to write.
+// The -pluto flag names the compiler (default: pluto on PATH), -diag the
+// catalog's source directory and -out the file to write.
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
-
-	"github.com/matjam/plutonium/internal/diag"
 )
 
 // A section is a range of codes with its heading.
@@ -42,9 +54,38 @@ var sections = []section{
 	{9000, 9999, "E9000 to E9999: compiler errors", "A bug in the compiler. Report it with the program."},
 }
 
+// A fixText is the usual fix of an entry.
+type fixText struct {
+	Intro, Code string
+}
+
+// An entry is the part of a catalog entry the reference uses.
+type entry struct {
+	Code, Name string
+	Text       string
+	Fix        *fixText
+}
+
 func main() {
+	pluto := flag.String("pluto", "pluto", "the pluto compiler")
+	diagDir := flag.String("diag", "selfhost/internal/diag", "source directory of the diagnostics catalog")
 	out := flag.String("out", "skill/plutonium/references/diagnostics.md", "file to write")
 	flag.Parse()
+	if err := run(*pluto, *diagDir, *out); err != nil {
+		fmt.Fprintln(os.Stderr, "gendiag:", err)
+		os.Exit(1)
+	}
+}
+
+func run(pluto, diagDir, out string) error {
+	codes, err := listCodes(pluto)
+	if err != nil {
+		return err
+	}
+	byName, err := readCatalog(diagDir)
+	if err != nil {
+		return err
+	}
 	var b bytes.Buffer
 	fmt.Fprint(&b, `# Diagnostics
 
@@ -59,17 +100,22 @@ How to read a diagnostic: `+"`file:line:col: message`"+`, then an indented expla
 section (`+"`section 18.3`"+`: read `+"`docs/spec/language/18-ownership-and-memory.md`"+`) and the `+"`pluto explain`"+` line.
 
 `)
-	codes := diag.Codes()
 	for _, s := range sections {
-		var rows []*diag.Entry
+		var rows []*entry
 		for _, c := range codes {
 			var n int
-			if _, err := fmt.Sscanf(string(c), "E%d", &n); err != nil {
+			if _, err := fmt.Sscanf(c.Code, "E%d", &n); err != nil {
 				continue
 			}
-			if n >= s.from && n <= s.to {
-				rows = append(rows, diag.Lookup(c))
+			if n < s.from || n > s.to {
+				continue
 			}
+			e := byName[c.Name]
+			if e == nil {
+				return fmt.Errorf("%s %s: no catalog entry named %s under %s", c.Code, c.Name, c.Name, diagDir)
+			}
+			e.Code = c.Code
+			rows = append(rows, e)
 		}
 		if len(rows) == 0 {
 			continue
@@ -78,20 +124,272 @@ section (`+"`section 18.3`"+`: read `+"`docs/spec/language/18-ownership-and-memo
 		for _, e := range rows {
 			f := fix(e)
 			if f == "" {
-				f = "`pluto explain " + string(e.Code) + "`"
+				f = "`pluto explain " + e.Code + "`"
 			}
 			fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", e.Code, e.Name, cell(meaning(e)), cell(f))
 		}
 		fmt.Fprintln(&b)
 	}
-	if err := os.WriteFile(*out, b.Bytes(), 0o644); err != nil {
-		fmt.Fprintln(os.Stderr, "gendiag:", err)
-		os.Exit(1)
+	return os.WriteFile(out, b.Bytes(), 0o644)
+}
+
+// listCodes runs `pluto explain`, which lists every code and its name in
+// order, one "E0002  BlankPkgName" line each.
+func listCodes(pluto string) ([]entry, error) {
+	cmd := exec.Command(pluto, "explain")
+	cmd.Stderr = os.Stderr
+	outb, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("%s explain: %w", pluto, err)
 	}
+	var codes []entry
+	sc := bufio.NewScanner(bytes.NewReader(outb))
+	for sc.Scan() {
+		f := strings.Fields(sc.Text())
+		if len(f) != 2 || !strings.HasPrefix(f[0], "E") {
+			return nil, fmt.Errorf("%s explain: unexpected line %q", pluto, sc.Text())
+		}
+		codes = append(codes, entry{Code: f[0], Name: f[1]})
+	}
+	if len(codes) == 0 {
+		return nil, fmt.Errorf("%s explain listed no codes", pluto)
+	}
+	return codes, nil
+}
+
+// readCatalog parses the diagnostics package's source (its .p files use only
+// the Go subset of Plutonium, so go/parser reads them) and returns the
+// catalog's entries by name. It knows the three forms the catalog has:
+// Entry literals passed to register, the goPlain map from name to Entry,
+// and the goDocs list of go/types documentation, which goPlain overrides
+// as the catalog's init does.
+func readCatalog(dir string) (map[string]*entry, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*.p"))
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no .p files in %s", dir)
+	}
+	consts := map[string]string{}
+	var parsed []*ast.File
+	fset := token.NewFileSet()
+	for _, name := range files {
+		f, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, err
+		}
+		parsed = append(parsed, f)
+		for _, d := range f.Decls {
+			g, ok := d.(*ast.GenDecl)
+			if !ok || g.Tok != token.CONST {
+				continue
+			}
+			for _, sp := range g.Specs {
+				vs := sp.(*ast.ValueSpec)
+				for i, n := range vs.Names {
+					if i < len(vs.Values) {
+						if s, ok := stringLit(vs.Values[i]); ok {
+							consts[n.Name] = s
+						}
+					}
+				}
+			}
+		}
+	}
+	entries := map[string]*entry{}
+	plain := map[string]*entry{}
+	docs := map[string]*entry{}
+	add := func(m map[string]*entry, name string, fields map[string]ast.Expr, pos token.Pos) error {
+		e, err := makeEntry(name, fields, consts)
+		if err != nil {
+			return fmt.Errorf("%s: %w", fset.Position(pos), err)
+		}
+		if m[name] != nil {
+			return fmt.Errorf("%s: second entry named %s", fset.Position(pos), name)
+		}
+		m[name] = e
+		return nil
+	}
+	for _, f := range parsed {
+		var bad error
+		ast.Inspect(f, func(n ast.Node) bool {
+			if bad != nil {
+				return false
+			}
+			switch n := n.(type) {
+			case *ast.CallExpr:
+				// register(pu.New(Entry{Code: ..., Name: "X", Text: ...}), ...)
+				if id, ok := n.Fun.(*ast.Ident); !ok || id.Name != "register" {
+					return true
+				}
+				for _, arg := range n.Args {
+					lit := firstLit(arg)
+					if lit == nil {
+						// register(e) in the goDocs loop: the entry is
+						// built from goDocs and goPlain.
+						continue
+					}
+					fields := keyed(lit)
+					name, ok := stringLit(fields["Name"])
+					if !ok {
+						bad = fmt.Errorf("%s: entry without a literal Name", fset.Position(lit.Pos()))
+						return false
+					}
+					if bad = add(entries, name, fields, lit.Pos()); bad != nil {
+						return false
+					}
+				}
+				return false
+			case *ast.ValueSpec:
+				if len(n.Names) != 1 || len(n.Values) != 1 {
+					return false
+				}
+				lit, ok := n.Values[0].(*ast.CompositeLit)
+				if !ok {
+					return false
+				}
+				switch n.Names[0].Name {
+				case "goPlain":
+					// "Name": {Text: ..., Fix: ...}
+					for _, el := range lit.Elts {
+						kv := el.(*ast.KeyValueExpr)
+						name, ok := stringLit(kv.Key)
+						if !ok {
+							bad = fmt.Errorf("%s: goPlain key is not a string", fset.Position(kv.Pos()))
+							return false
+						}
+						if bad = add(plain, name, keyed(kv.Value.(*ast.CompositeLit)), kv.Pos()); bad != nil {
+							return false
+						}
+					}
+				case "goDocs":
+					// {Value: 2, Name: "BlankPkgName", Text: ...}
+					for _, el := range lit.Elts {
+						fields := keyed(el.(*ast.CompositeLit))
+						name, ok := stringLit(fields["Name"])
+						if !ok {
+							bad = fmt.Errorf("%s: goDocs entry without a literal Name", fset.Position(el.Pos()))
+							return false
+						}
+						if bad = add(docs, name, fields, el.Pos()); bad != nil {
+							return false
+						}
+					}
+				}
+				return false
+			}
+			return true
+		})
+		if bad != nil {
+			return nil, bad
+		}
+	}
+	for name, d := range docs {
+		if entries[name] != nil {
+			return nil, fmt.Errorf("%s is both registered and in goDocs", name)
+		}
+		if p := plain[name]; p != nil {
+			entries[name] = p
+			continue
+		}
+		// describeDoc: "UnusedImport occurs when ..." becomes "This error
+		// occurs when ...".
+		if rest, ok := strings.CutPrefix(d.Text, name+" "); ok {
+			d.Text = "This error " + rest
+		}
+		entries[name] = d
+	}
+	return entries, nil
+}
+
+// firstLit returns the outermost composite literal in x, or nil.
+func firstLit(x ast.Expr) *ast.CompositeLit {
+	var lit *ast.CompositeLit
+	ast.Inspect(x, func(n ast.Node) bool {
+		if l, ok := n.(*ast.CompositeLit); ok && lit == nil {
+			lit = l
+		}
+		return lit == nil
+	})
+	return lit
+}
+
+// keyed returns the keyed fields of a composite literal.
+func keyed(lit *ast.CompositeLit) map[string]ast.Expr {
+	m := map[string]ast.Expr{}
+	for _, el := range lit.Elts {
+		if kv, ok := el.(*ast.KeyValueExpr); ok {
+			if id, ok := kv.Key.(*ast.Ident); ok {
+				m[id.Name] = kv.Value
+			}
+		}
+	}
+	return m
+}
+
+// makeEntry builds an entry from the fields of an Entry or goDoc literal.
+func makeEntry(name string, fields map[string]ast.Expr, consts map[string]string) (*entry, error) {
+	e := &entry{Name: name}
+	var ok bool
+	if e.Text, ok = stringValue(fields["Text"], consts); !ok {
+		return nil, fmt.Errorf("%s: Text is not a constant string", name)
+	}
+	if fx := fields["Fix"]; fx != nil {
+		// pu.New(Fix{Intro: ..., Code: ...})
+		lit := firstLit(fx)
+		if lit == nil {
+			return nil, fmt.Errorf("%s: Fix is not a Fix literal", name)
+		}
+		ff := keyed(lit)
+		e.Fix = &fixText{}
+		if v := ff["Intro"]; v != nil {
+			if e.Fix.Intro, ok = stringValue(v, consts); !ok {
+				return nil, fmt.Errorf("%s: Fix.Intro is not a constant string", name)
+			}
+		}
+		if v := ff["Code"]; v != nil {
+			if e.Fix.Code, ok = stringValue(v, consts); !ok {
+				return nil, fmt.Errorf("%s: Fix.Code is not a constant string", name)
+			}
+		}
+	}
+	return e, nil
+}
+
+// stringValue evaluates a string literal, a constant's name, or a sum of
+// those.
+func stringValue(x ast.Expr, consts map[string]string) (string, bool) {
+	switch x := x.(type) {
+	case *ast.BasicLit:
+		return stringLit(x)
+	case *ast.Ident:
+		s, ok := consts[x.Name]
+		return s, ok
+	case *ast.ParenExpr:
+		return stringValue(x.X, consts)
+	case *ast.BinaryExpr:
+		if x.Op != token.ADD {
+			return "", false
+		}
+		l, ok1 := stringValue(x.X, consts)
+		r, ok2 := stringValue(x.Y, consts)
+		return l + r, ok1 && ok2
+	}
+	return "", false
+}
+
+func stringLit(x ast.Expr) (string, bool) {
+	lit, ok := x.(*ast.BasicLit)
+	if !ok || lit.Kind != token.STRING {
+		return "", false
+	}
+	s, err := strconv.Unquote(lit.Value)
+	return s, err == nil
 }
 
 // meaning is the first sentence of the entry's explanation.
-func meaning(e *diag.Entry) string {
+func meaning(e *entry) string {
 	paras := paragraphs(e.Text)
 	if len(paras) == 0 {
 		return e.Name
@@ -101,7 +399,7 @@ func meaning(e *diag.Entry) string {
 
 // fix is the entry's fix: its introduction, or else the first sentence of
 // the last paragraph of the explanation when that tells what to do.
-func fix(e *diag.Entry) string {
+func fix(e *entry) string {
 	if e.Fix != nil && e.Fix.Intro != "" {
 		s := e.Fix.Intro
 		if code := firstLine(e.Fix.Code); code != "" && len(code) <= 60 {
