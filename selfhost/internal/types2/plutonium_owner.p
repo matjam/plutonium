@@ -20,15 +20,13 @@ import (
 
 // IsOwner reports whether values of T are owners: they move on assignment
 // and are dropped at the end of their scope.
+//
+// It follows only array and wrapper elements, and stops at named types, so
+// it cannot meet a type again and needs no record of the types it saw.
 func IsOwner(T Type) bool {
-	return isOwner(T, map[Type]bool{})
-}
-
-func isOwner(T Type, seen map[Type]bool) bool {
-	if T == nil || seen[T] {
+	if T == nil {
 		return false
 	}
-	seen[T] = true
 	switch t := Unalias(T).(type) {
 	case *Named:
 		if t.Origin().obj.ownerMark {
@@ -40,13 +38,13 @@ func isOwner(T Type, seen map[Type]bool) bool {
 	case *TypeParam:
 		return t.obj.ownerMark
 	case *Array:
-		return isOwner(t.elem, seen)
+		return IsOwner(t.elem)
 	case *Wrapper:
 		switch t.kind {
 		case WrapOwned:
 			return true
 		case WrapRing, WrapAligned:
-			return isOwner(t.elem, seen)
+			return IsOwner(t.elem)
 		}
 	}
 	return false
@@ -564,7 +562,7 @@ func OwnerBase(T Type) Type {
 	return nil
 }
 
-// goClosure_ownerDecl_1 is the function literal at plutonium_owner.go:85, converted to a struct
+// goClosure_ownerDecl_1 is the function literal at plutonium_owner.go:83, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_ownerDecl_1 struct {
 	check *Checker
@@ -574,7 +572,7 @@ type goClosure_ownerDecl_1 struct {
 
 func (goSelf *goClosure_ownerDecl_1) Call() { goSelf.check.checkNotOwner(goSelf.obj, goSelf.tdecl) }
 
-// goClosure_ownerDecl_2 is the function literal at plutonium_owner.go:99, converted to a struct
+// goClosure_ownerDecl_2 is the function literal at plutonium_owner.go:97, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_ownerDecl_2 struct {
 	check *Checker

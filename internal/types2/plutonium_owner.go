@@ -16,15 +16,13 @@ import (
 
 // IsOwner reports whether values of T are owners: they move on assignment
 // and are dropped at the end of their scope.
+//
+// It follows only array and wrapper elements, and stops at named types, so
+// it cannot meet a type again and needs no record of the types it saw.
 func IsOwner(T Type) bool {
-	return isOwner(T, map[Type]bool{})
-}
-
-func isOwner(T Type, seen map[Type]bool) bool {
-	if T == nil || seen[T] {
+	if T == nil {
 		return false
 	}
-	seen[T] = true
 	switch t := Unalias(T).(type) {
 	case *Named:
 		if t.Origin().obj.ownerMark {
@@ -36,13 +34,13 @@ func isOwner(T Type, seen map[Type]bool) bool {
 	case *TypeParam:
 		return t.obj.ownerMark
 	case *Array:
-		return isOwner(t.elem, seen)
+		return IsOwner(t.elem)
 	case *Wrapper:
 		switch t.kind {
 		case WrapOwned:
 			return true
 		case WrapRing, WrapAligned:
-			return isOwner(t.elem, seen)
+			return IsOwner(t.elem)
 		}
 	}
 	return false
