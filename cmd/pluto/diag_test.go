@@ -113,6 +113,24 @@ func TestExplain(t *testing.T) {
 			t.Errorf("%s: explanation starts %q", c, firstLine(b.String()))
 		}
 	}
+	if os.Getenv("PLUTO_TEST_COMPILER") != "" {
+		// The compiler under test must print what explain prints here, for
+		// the list and for every code.
+		if out, status := runPluto(t, ".", "explain"); status != 0 || out != list.String() {
+			t.Errorf("pluto explain: status %d, output differs from explain's:\n%s", status, out)
+		}
+		args := []string{"explain"}
+		for _, c := range codes {
+			args = append(args, string(c))
+		}
+		var all bytes.Buffer
+		if err := explain(&all, args[1:]); err != nil {
+			t.Fatal(err)
+		}
+		if out, status := runPluto(t, ".", args...); status != 0 || out != all.String() {
+			t.Errorf("pluto explain <every code>: status %d, output differs from explain's", status)
+		}
+	}
 	out, status := runPluto(t, ".", "explain", "e23", "3213")
 	if status != 0 || !strings.HasPrefix(out, "E0023: IncompatibleAssign\n") || !strings.Contains(out, "\nE3213: MapOfOwner\n") {
 		t.Errorf("pluto explain e23 3213: status %d, output\n%s", status, out)

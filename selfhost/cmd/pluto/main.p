@@ -332,6 +332,10 @@ func execute(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		say(stdout, "pluto version %s\ntarget: x86_64-linux\n", version)
 		return 0
+	case "explain":
+		return explainCommand(args[1:], stdout, stderr)
+	case "vet":
+		return vetCommand(args[1:], stdout, stderr)
 	case "build", "run":
 	default:
 		say(stderr, "pluto: unknown command %q for \"pluto\"\n%s", pu.Box(args[0]), rootUsage)

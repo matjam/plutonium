@@ -97,7 +97,7 @@ func TestDocLibrarySources(t *testing.T) {
 		if tc.symbol != "" {
 			args = append(args, tc.symbol)
 		}
-		cmd := exec.Command(os.Args[0], args...)
+		cmd := exec.Command(plutoBinary(t), args...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), runMainEnv+"=1", "PLUTOROOT="+tc.root)
 		var out bytes.Buffer

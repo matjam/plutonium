@@ -21,6 +21,22 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// plutoBinary returns the pluto to run: the compiler binary named by
+// PLUTO_TEST_COMPILER, such as the self-hosted compiler, or else this test
+// binary, which runs pluto's main when runMainEnv is set.
+func plutoBinary(t *testing.T) string {
+	t.Helper()
+	compiler := os.Getenv("PLUTO_TEST_COMPILER")
+	if compiler == "" {
+		return os.Args[0]
+	}
+	abs, err := filepath.Abs(compiler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return abs
+}
+
 // runPluto runs pluto with args in dir and returns its combined output and
 // exit status.
 func runPluto(t *testing.T, dir string, args ...string) (string, int) {
@@ -29,7 +45,7 @@ func runPluto(t *testing.T, dir string, args ...string) (string, int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(os.Args[0], args...)
+	cmd := exec.Command(plutoBinary(t), args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), runMainEnv+"=1", "PLUTOROOT="+root)
 	var out bytes.Buffer
