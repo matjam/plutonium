@@ -3,7 +3,6 @@ package vscode
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 )
 
@@ -16,13 +15,12 @@ func TestLanguageServerClient(t *testing.T) {
 	}
 }
 
-// TestLanguageServerProtocol runs a freshly built pluto lsp against
+// TestLanguageServerProtocol runs pluto lsp against
 // vscode-jsonrpc, the library under vscode-languageclient
 // (test/lsp-protocol-check.js), and then starts it through the extension
 // with the installed vscode-languageclient (test/lsp-client-check.js). It
-// is skipped when the extension's npm dependencies are not installed. With
-// PLUTO_TEST_COMPILER set, it runs that pluto, such as the self-hosted
-// compiler, with the repository's library as $PLUTOROOT.
+// is skipped when the extension's npm dependencies are not installed, and
+// when there is no pluto to run (see plutoBinary).
 func TestLanguageServerProtocol(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is not installed")
@@ -30,20 +28,7 @@ func TestLanguageServerProtocol(t *testing.T) {
 	if _, err := os.Stat("node_modules/vscode-jsonrpc"); err != nil {
 		t.Skip("the extension's npm dependencies are not installed (npm ci)")
 	}
-	pluto := os.Getenv("PLUTO_TEST_COMPILER")
-	if pluto != "" {
-		lib, err := filepath.Abs("../../lib")
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Setenv("PLUTOROOT", lib)
-	} else {
-		pluto = filepath.Join(t.TempDir(), "pluto")
-		build := exec.Command("go", "build", "-o", pluto, "github.com/matjam/plutonium/cmd/pluto")
-		if out, err := build.CombinedOutput(); err != nil {
-			t.Fatalf("building pluto: %v\n%s", err, out)
-		}
-	}
+	pluto := plutoBinary(t)
 	if code := node(t, "test/lsp-protocol-check.js", pluto); code != 0 {
 		t.Errorf("lsp-protocol-check.js: exit status %d", code)
 	}
