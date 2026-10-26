@@ -2,7 +2,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -18,17 +21,45 @@ var (
 	stdlibLine  = regexp.MustCompile(`(\((?:\$PLUTOROOT/)?pluto/[^:]+):\d+\)`)
 )
 
+// runTestCommand runs "pluto test" with args and returns its standard
+// output, its standard error and its exit status. It runs runTests, or,
+// when $PLUTO_TEST_COMPILER names a compiler such as the self-hosted one,
+// that compiler's test command, with the standard library under lib/.
+func runTestCommand(t *testing.T, args ...string) (string, string, int) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	if os.Getenv("PLUTO_TEST_COMPILER") == "" {
+		t.Setenv("PLUTOROOT", "../../lib")
+		code := runTests(args, &stdout, &stderr)
+		return stdout.String(), stderr.String(), code
+	}
+	root, err := filepath.Abs(filepath.Join("..", "..", "lib"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	compiler := plutoBinary(t)
+	cmd := exec.Command(compiler, append([]string{"test"}, args...)...)
+	cmd.Env = append(os.Environ(), "PLUTOROOT="+root)
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	code := 0
+	var exitErr *exec.ExitError
+	if err := cmd.Run(); errors.As(err, &exitErr) && exitErr.ExitCode() >= 0 {
+		code = exitErr.ExitCode()
+	} else if err != nil {
+		t.Fatalf("running %s: %v\nstderr:\n%s", compiler, err, stderr.String())
+	}
+	return stdout.String(), stderr.String(), code
+}
+
 // pluto runs "pluto test" with args and returns its normalised standard
 // output and its exit status.
 func plutoTest(t *testing.T, args ...string) (string, int) {
 	t.Helper()
-	t.Setenv("PLUTOROOT", "../../lib")
-	var stdout, stderr bytes.Buffer
-	code := runTests(args, &stdout, &stderr)
-	if stderr.Len() > 0 {
-		t.Logf("stderr:\n%s", stderr.String())
+	stdout, stderr, code := runTestCommand(t, args...)
+	if stderr != "" {
+		t.Logf("stderr:\n%s", stderr)
 	}
-	out := benchResult.ReplaceAllString(stdout.String(), "$1\tN\tT ns/op")
+	out := benchResult.ReplaceAllString(stdout, "$1\tN\tT ns/op")
 	if wd, err := os.Getwd(); err == nil {
 		out = strings.ReplaceAll(out, wd, "$DIR")
 	}
@@ -296,17 +327,15 @@ func TestPlutoTestErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("PLUTOROOT", "../../lib")
-			var stdout, stderr bytes.Buffer
-			code := runTests(tt.args, &stdout, &stderr)
+			stdout, stderr, code := runTestCommand(t, tt.args...)
 			if code != tt.code {
 				t.Errorf("exit status %d, want %d", code, tt.code)
 			}
-			if !strings.Contains(stdout.String(), tt.out) {
-				t.Errorf("stdout %q does not contain %q", stdout.String(), tt.out)
+			if !strings.Contains(stdout, tt.out) {
+				t.Errorf("stdout %q does not contain %q", stdout, tt.out)
 			}
-			if !strings.Contains(stderr.String(), tt.err) {
-				t.Errorf("stderr %q does not contain %q", stderr.String(), tt.err)
+			if !strings.Contains(stderr, tt.err) {
+				t.Errorf("stderr %q does not contain %q", stderr, tt.err)
 			}
 		})
 	}

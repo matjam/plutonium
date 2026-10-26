@@ -336,6 +336,8 @@ func execute(args []string, stdout, stderr io.Writer) int {
 		return explainCommand(args[1:], stdout, stderr)
 	case "vet":
 		return vetCommand(args[1:], stdout, stderr)
+	case "test":
+		return testCommand(args[1:], stdout, stderr)
 	case "build", "run":
 	default:
 		say(stderr, "pluto: unknown command %q for \"pluto\"\n%s", pu.Box(args[0]), rootUsage)

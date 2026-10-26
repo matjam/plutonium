@@ -6,8 +6,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 
 	plutonium "github.com/matjam/plutonium"
 	"github.com/matjam/plutonium/internal/build"
@@ -19,17 +22,25 @@ import (
 // pluto/testing is also compiled under PLUTO_SSACHECK. cmd/pluto tests the
 // command's output.
 func TestBuildTest(t *testing.T) {
-	skipUnderTestCompiler(t, "build.BuildTest makes a test binary; the self-hosted driver has no pluto test command yet")
 	testguard.Parallel(t)
 	for _, pkg := range []string{"pluto/strings", "pluto/sort", "pluto/path/filepath", "pluto/flag", "pluto/hash"} {
 		for _, level := range []int{0, 2} {
 			t.Run(pkg+"/O"+string(rune('0'+level)), func(t *testing.T) {
 				testguard.Parallel(t)
 				out := filepath.Join(t.TempDir(), "test")
-				cfg := &build.Config{Output: out, Stdlib: plutonium.Stdlib(), OptLevel: level}
-				bin, err := build.BuildTest(cfg, pkg, &build.TestOptions{Verbose: true})
-				if err != nil {
-					t.Fatalf("build: %v", err)
+				var bin *build.TestBinary
+				if testCompiler != "" {
+					if msg, code := buildTestWith(t, pkg, out, level, "-v"); code != 0 {
+						t.Fatalf("build: exit status %d\n%s", code, msg)
+					}
+					bin = &build.TestBinary{Path: pkg, Tests: sourceTests(t, filepath.Join("..", "..", "lib", pkg))}
+				} else {
+					cfg := &build.Config{Output: out, Stdlib: plutonium.Stdlib(), OptLevel: level}
+					var err error
+					bin, err = build.BuildTest(cfg, pkg, &build.TestOptions{Verbose: true})
+					if err != nil {
+						t.Fatalf("build: %v", err)
+					}
 				}
 				if bin.Path != pkg || len(bin.Tests) == 0 {
 					t.Fatalf("binary for %q with tests %v", bin.Path, bin.Tests)
@@ -49,6 +60,44 @@ func TestBuildTest(t *testing.T) {
 			})
 		}
 	}
+}
+
+// buildTestWith builds a test binary into out with the PLUTO_TEST_COMPILER
+// binary, such as the self-hosted compiler, in place of BuildTest: pluto
+// test -c. It returns the command's output and exit status.
+func buildTestWith(t *testing.T, pkg, out string, optLevel int, flags ...string) (string, int) {
+	t.Helper()
+	args := append([]string{"test", "-c", "-O", strconv.Itoa(optLevel), "-o", out}, flags...)
+	return runTestCompiler(t, append(args, pkg)...)
+}
+
+// testFunc matches the declaration of a function that may be a test.
+var testFunc = regexp.MustCompile(`(?m)^func (Test\w*)\(`)
+
+// sourceTests returns the tests declared in the _test.p files of the
+// package directory dir, in source order, by reading the source: what
+// BuildTest returns as the binary's tests, for a compiler run as a
+// command.
+func sourceTests(t *testing.T, dir string) []string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(dir, "*_test.p"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tests []string
+	for _, f := range files {
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range testFunc.FindAllStringSubmatch(string(src), -1) {
+			// As go test, Test followed by a lower-case letter is not a test.
+			if r, _ := utf8.DecodeRuneInString(strings.TrimPrefix(m[1], "Test")); !unicode.IsLower(r) {
+				tests = append(tests, m[1])
+			}
+		}
+	}
+	return tests
 }
 
 // fatalTest fails a test with Fatalf, which must leave the test function at
@@ -83,7 +132,6 @@ func TestNext(t *testing.T) {
 `
 
 func TestBuildTestFailNow(t *testing.T) {
-	skipUnderTestCompiler(t, "build.BuildTest makes a test binary; the self-hosted driver has no pluto test command yet")
 	testguard.Parallel(t)
 	dir := t.TempDir()
 	files := map[string]string{"pluto.mod": "module example.com/p\n", "p.p": "package p\n", "p_test.p": fatalTest}
@@ -105,9 +153,15 @@ FAIL
 `
 	for _, level := range []int{0, 2} {
 		out := filepath.Join(dir, "test")
-		cfg := &build.Config{Output: out, Stdlib: plutonium.Stdlib(), OptLevel: level}
-		if _, err := build.BuildTest(cfg, dir, &build.TestOptions{Verbose: true}); err != nil {
-			t.Fatalf("build: %v", err)
+		if testCompiler != "" {
+			if msg, code := buildTestWith(t, dir, out, level, "-v"); code != 0 {
+				t.Fatalf("build: exit status %d\n%s", code, msg)
+			}
+		} else {
+			cfg := &build.Config{Output: out, Stdlib: plutonium.Stdlib(), OptLevel: level}
+			if _, err := build.BuildTest(cfg, dir, &build.TestOptions{Verbose: true}); err != nil {
+				t.Fatalf("build: %v", err)
+			}
 		}
 		got, err := exec.Command(out).CombinedOutput()
 		var exitErr *exec.ExitError
@@ -121,9 +175,19 @@ FAIL
 }
 
 func TestBuildTestNoTestFiles(t *testing.T) {
-	skipUnderTestCompiler(t, "build.BuildTest makes a test binary; the self-hosted driver has no pluto test command yet")
 	testguard.Parallel(t)
-	cfg := &build.Config{Output: filepath.Join(t.TempDir(), "test"), Stdlib: plutonium.Stdlib()}
+	out := filepath.Join(t.TempDir(), "test")
+	if testCompiler != "" {
+		msg, code := buildTestWith(t, "pluto/bits", out, 2)
+		if want := "?   \tpluto/bits\t[no test files]\n"; code != 0 || msg != want {
+			t.Errorf("pluto test -c pluto/bits: exit status %d, output %q; want 0 and %q", code, msg, want)
+		}
+		if _, err := os.Stat(out); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("pluto test -c pluto/bits wrote a binary: %v", err)
+		}
+		return
+	}
+	cfg := &build.Config{Output: out, Stdlib: plutonium.Stdlib()}
 	bin, err := build.BuildTest(cfg, "pluto/bits", &build.TestOptions{})
 	if !errors.Is(err, build.ErrNoTestFiles) || bin == nil || bin.Path != "pluto/bits" {
 		t.Errorf("BuildTest(pluto/bits) = %v, %v; want ErrNoTestFiles", bin, err)

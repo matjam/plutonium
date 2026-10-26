@@ -13,6 +13,7 @@ import (
 	"selfhost/internal/diag"
 	"selfhost/internal/escape"
 	"selfhost/internal/escape2/cache"
+	"selfhost/internal/escape2/domain"
 	"selfhost/internal/escape2/eir"
 	"selfhost/internal/escape2/report"
 	"selfhost/internal/escape2/sched"
@@ -138,6 +139,7 @@ func recoveredError(r any) error {
 
 // Run builds the program's EIR and analyses it.
 func Run(prog *load.Program, opts sched.Options) (*eir.Program, *sched.Result, error) {
+	defer domain.ForgetPool()
 	p := eir.Build(prog) or return
 	return p, sched.RunWith(p, opts), nil
 }

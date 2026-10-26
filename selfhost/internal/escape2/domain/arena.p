@@ -110,6 +110,20 @@ func give(bs [][]uint64) {
 	pool.mu.Unlock()
 }
 
+// ForgetPool empties the pool without freeing its blocks. The blocks come
+// from the memory of the scratch step that runs the analysis, which frees
+// them when it ends; a later analysis in the same process (pluto test
+// builds a program per package) must not take them from the pool after
+// that. Call it when an analysis is done, before its step ends.
+func ForgetPool() {
+	pool.mu.Lock()
+	for k := range pool.free {
+		pool.free[k] = nil
+	}
+	pool.words = 0
+	pool.mu.Unlock()
+}
+
 func (a *arena) Alloc(n int) []uint64 {
 	if n < 0 {
 		panic("escape2/domain: Alloc: negative size")
