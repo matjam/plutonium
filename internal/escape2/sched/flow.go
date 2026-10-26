@@ -357,18 +357,31 @@ func (fl *funcFlow) targetsOf(c *eir.Call) ([]eir.FuncID, bool) {
 	return setIDs(s.ids), true
 }
 
-// flowEval evaluates the registers of one function.
+// flowEval evaluates the registers of one function. Copies and phis make
+// a graph of registers; set walks it with Tarjan's algorithm, so each cycle
+// of copies and phis is evaluated once, as the union of what its members'
+// other sources hold.
 type flowEval struct {
 	fl   *funcFlow
 	f    *eir.Func
 	defs []*eir.Instr
 	res  map[eir.Reg]*eir.Instr // call results
 	memo map[eir.Reg]*fset
-	busy map[eir.Reg]bool
+
+	// The walk's state. A register has an index while it is on the stack.
+	idx     map[eir.Reg]int
+	low     map[eir.Reg]int
+	part    map[eir.Reg]*fset // the sources found so far
+	tainted map[eir.Reg]bool  // met a register of an enclosing walk
+	stack   []eir.Reg
+	cur     eir.Reg // the register being evaluated, or 0
+	base    int     // the first index of the current walk
+	next    int
 }
 
 func newFlowEval(fl *funcFlow, f *eir.Func) *flowEval {
-	ev := &flowEval{fl: fl, f: f, defs: fl.c.defsOf(f), res: map[eir.Reg]*eir.Instr{}, memo: map[eir.Reg]*fset{}, busy: map[eir.Reg]bool{}}
+	ev := &flowEval{fl: fl, f: f, defs: fl.c.defsOf(f), res: map[eir.Reg]*eir.Instr{}, memo: map[eir.Reg]*fset{},
+		idx: map[eir.Reg]int{}, low: map[eir.Reg]int{}, part: map[eir.Reg]*fset{}, tainted: map[eir.Reg]bool{}}
 	for _, b := range f.Blocks {
 		for i := range b.Instrs {
 			if in := &b.Instrs[i]; in.Op == eir.OpCall {
@@ -385,8 +398,9 @@ func newFlowEval(fl *funcFlow, f *eir.Func) *flowEval {
 
 // set returns what register r may hold. A register met again on a cycle
 // of copies and phis contributes nothing on that path: the cycle's sources
-// are found on its other paths. Answers found inside a cycle are not
-// memoized, so each answer is complete.
+// are found on its other paths, and every member of the cycle gets their
+// union. A register of an enclosing walk (a call's target evaluated while
+// its result is) contributes nothing too, and what met it is not memoized.
 func (ev *flowEval) set(r eir.Reg) *fset {
 	if r == 0 {
 		return &fset{}
@@ -394,61 +408,116 @@ func (ev *flowEval) set(r eir.Reg) *fset {
 	if s, ok := ev.memo[r]; ok {
 		return s
 	}
-	if ev.busy[r] {
+	if i, ok := ev.idx[r]; ok {
+		if ev.cur != 0 {
+			if i < ev.base {
+				ev.tainted[ev.cur] = true
+			} else if i < ev.low[ev.cur] {
+				ev.low[ev.cur] = i
+			}
+		}
 		return nil
 	}
-	ev.busy[r] = true
-	s, complete := ev.eval(r)
-	delete(ev.busy, r)
-	if complete {
-		ev.memo[r] = s
+	parent := ev.cur
+	i := ev.next
+	ev.next++
+	ev.idx[r], ev.low[r] = i, i
+	ev.stack = append(ev.stack, r)
+	ev.cur = r
+	s := ev.eval(r)
+	ev.cur = parent
+	if parent != 0 {
+		if ev.low[r] < ev.low[parent] {
+			ev.low[parent] = ev.low[r]
+		}
+		if ev.tainted[r] {
+			ev.tainted[parent] = true
+		}
+	}
+	if ev.low[r] != i {
+		ev.part[r] = s
+		return s
+	}
+	// r is the root of its cycle: the members above it on the stack share
+	// one set.
+	k := len(ev.stack) - 1
+	for ev.stack[k] != r {
+		k--
+	}
+	members := ev.stack[k:]
+	ev.stack = ev.stack[:k]
+	if len(members) > 1 {
+		u := &fset{}
+		u.add(s)
+		for _, m := range members[1:] {
+			u.add(ev.part[m])
+		}
+		s = u
+	}
+	taint := false
+	for _, m := range members {
+		if ev.tainted[m] {
+			taint = true
+		}
+	}
+	for _, m := range members {
+		delete(ev.idx, m)
+		delete(ev.low, m)
+		delete(ev.part, m)
+		delete(ev.tainted, m)
+		if !taint {
+			ev.memo[m] = s
+		}
+	}
+	if taint && parent != 0 {
+		ev.tainted[parent] = true
 	}
 	return s
 }
 
-func (ev *flowEval) eval(r eir.Reg) (*fset, bool) {
-	out := &fset{}
-	complete := true
-	join := func(rs ...eir.Reg) {
-		for _, x := range rs {
-			s := ev.set(x)
-			if s == nil {
-				complete = false
-				continue
-			}
-			if _, ok := ev.memo[x]; !ok {
-				complete = false
-			}
-			out.add(s)
-		}
-	}
+// sub evaluates r in a walk of its own, for a call result's target.
+func (ev *flowEval) sub(r eir.Reg) *fset {
+	cur, base := ev.cur, ev.base
+	ev.cur, ev.base = 0, ev.next
+	s := ev.set(r)
+	ev.cur, ev.base = cur, base
+	return s
+}
+
+func (ev *flowEval) eval(r eir.Reg) *fset {
 	if call, ok := ev.res[r]; ok {
-		return ev.result(call, r), true
+		return ev.result(call, r)
 	}
 	if int(r) >= len(ev.defs) || ev.defs[r] == nil {
-		return topSet, true
+		return topSet
 	}
 	in := ev.defs[r]
+	out := &fset{}
+	join := func(rs ...eir.Reg) {
+		for _, x := range rs {
+			out.add(ev.set(x))
+		}
+	}
 	switch in.Op {
 	case eir.OpClosure:
 		if in.Callee == eir.NoFunc || int(in.Callee) >= len(ev.fl.p.Funcs) {
-			return topSet, true
+			return topSet
 		}
 		out.addID(in.Callee)
 	case eir.OpMethodVal:
 		if in.Method == nil {
-			return topSet, true
+			return topSet
 		}
 		ids := ev.fl.methodVals[in.Method.Origin()]
 		if len(ids) == 0 {
-			return topSet, true
+			return topSet
 		}
 		for _, id := range ids {
 			out.addID(id)
 		}
 	case eir.OpInput:
 		if in.Index >= len(ev.fl.in[ev.f.ID]) {
-			return topSet, true
+			return topSet
 		}
 		out.add(&ev.fl.in[ev.f.ID][in.Index])
 	case eir.OpCopy:
@@ -460,24 +529,24 @@ func (ev *flowEval) eval(r eir.Reg) (*fset, bool) {
 		// reaches: its contents, if it is tracked.
 		if objs, isPlace, tracked := ev.fl.cp.placeObjs(ev.f, ev.defs, in.X); isPlace {
 			if !tracked {
-				return topSet, true
+				return topSet
 			}
 			for _, o := range objs {
 				out.add(ev.fl.cp.content(o))
 			}
-			return out, true
+			return out
 		}
 		// A load of a field of the closure's record: what was captured
 		// there by value.
 		if c, ok := recordField(ev.f, ev.defs, in.X); ok {
 			out.add(ev.fl.cp.value(c))
-			return out, true
+			return out
 		}
-		return topSet, true
+		return topSet
 	default:
-		return topSet, true
+		return topSet
 	}
-	return out, complete
+	return out
 }
 
 // result is what result register r of call may hold.
@@ -496,7 +565,7 @@ func (ev *flowEval) result(call *eir.Instr, r eir.Reg) *fset {
 	case eir.CallFunc:
 		t := ev.fl.targets[c]
 		if t == nil {
-			t = ev.set(c.Target)
+			t = ev.sub(c.Target)
 		}
 		if t != nil && !t.top {
 			callees = setIDs(t.ids)
