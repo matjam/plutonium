@@ -54,6 +54,7 @@
 package race
 
 import (
+	"pluto/fmt"
 	"pluto/os"
 	"pluto/slices"
 	"pluto/sort"
@@ -75,6 +76,9 @@ const maxErrors = 50
 // debug prints the progress of the analysis (PLUTO_RACE_DEBUG=1).
 var debug = compat.Getenv("PLUTO_RACE_DEBUG") != ""
 
+// analyzing is held while a program is analysed (AnalyzeWith).
+var analyzing compat.Mutex
+
 // Check analyses a loaded program that passed the escape analysis and
 // returns the races it finds, as a diag.List, or nil.
 func Check(prog *load.Program) error {
@@ -95,6 +99,10 @@ func CheckWith(prog *load.Program, mv *moves.Info) error {
 // and that tasks use only in the same partition form (spec section 19.4,
 // Memory reached through views).
 func AnalyzeWith(prog *load.Program, mv *moves.Info) (scoped.Overlaps, error) {
+	// loadLimit (path.go) is package state that run changes while it
+	// widens a unit, so analyses in one process take turns.
+	analyzing.Lock()
+	defer analyzing.Unlock()
 	a := newAnalyzer(prog)
 	a.moves = mv
 	if debug {
@@ -106,7 +114,13 @@ func AnalyzeWith(prog *load.Program, mv *moves.Info) (scoped.Overlaps, error) {
 		return nil, nil
 	}
 	a.run()
+	if debug {
+		fmt.Fprintf(os.Stderr, "race: summaries done; checking\n")
+	}
 	a.check()
+	if debug {
+		fmt.Fprintf(os.Stderr, "race: checking scopes\n")
+	}
 	a.checkScopes()
 	sort.SortStableFunc(a.errs, func(a, b *diag.Diagnostic) bool {
 		pi, pj := a.Pos, b.Pos
@@ -159,17 +173,25 @@ type unit struct {
 	vars    map[*types2.Var]origins
 	grew    bool
 	callee  map[*unit]bool
-	dynamic bool                // calls a func value the call graph cannot name
-	dynSigs []*types2.Signature // the types of those func values
+	dynSigs []*types2.Signature // the types of the func values it calls
 	dynAll  bool                // a call that may reach any function used as a value
+	users   map[*unit]bool      // the units whose walks applied a summary of this one
+	widened bool                // walked with places cut after one load (run)
 	index   int                 // Tarjan
 	low     int
 	onstk   bool
 }
 
 type analyzer struct {
-	prog *load.Program
-	fset *token.FileSet
+	subs  int // places substituted at call sites (debug)
+	round int // the round of run (debug)
+	// capSites holds the call arguments whose origins were cut: once cut,
+	// always, so the summaries settle.
+	capSites map[capSite]bool
+	// applyMemo holds what each call instantiated at the last walk.
+	applyMemo map[applyKey]*applyMemo
+	prog      *load.Program
+	fset      *token.FileSet
 
 	scoped *scoped.Info // the scoped tasks of sync.Scope (scope.go)
 	moves  *moves.Info  // what moves, for the uses of scoped tasks
@@ -242,7 +264,7 @@ type analyzer struct {
 	crossMaps    map[int]bool                        // map type numbers a crossing value reaches (checkMaps)
 	tpArgs       map[*types2.TypeParam][]types2.Type // the type arguments each type parameter is instantiated with
 	typeAcc      map[string][]*typeAccess            // uses of each field of objects, for the type rule
-	typeSeen     map[string]bool
+	typeSeen     map[typeSeenKey]bool
 	resultNodes  map[resultKey]ast.Node // the memory a call's fresh results are
 
 	errs    diag.List
@@ -273,7 +295,7 @@ func newAnalyzer(prog *load.Program) *analyzer {
 		tpArgs:       map[*types2.TypeParam][]types2.Type{},
 		typeAcc:      map[string][]*typeAccess{},
 		crossMaps:    map[int]bool{},
-		typeSeen:     map[string]bool{},
+		typeSeen:     map[typeSeenKey]bool{},
 		resultNodes:  map[resultKey]ast.Node{},
 		views:        map[token.Pos]*types2.Var{},
 		overlaps:     scoped.Overlaps{},
@@ -692,25 +714,31 @@ func (a *analyzer) run() {
 	// program one group), so the whole order is repeated until nothing
 	// changes.
 	// A unit is analysed again only when something it depends on changed:
-	// a callee's summary, or, for units that call func values (which are
-	// not edges of the graph), any function used as a value.
+	// a callee's summary, or a summary its last walk applied through a
+	// func value (calls through func values are not edges of the graph),
+	// which apply records in the callee's users.
 	callers := map[*unit][]*unit{}
 	for _, u := range a.units {
 		for c := range u.callee {
 			callers[c] = compat.Append(callers[c], u)
 		}
 	}
-	valued := map[*unit]bool{}
-	for _, f := range a.values {
-		valued[f.unit] = true
-	}
 	dirty := map[*unit]bool{}
 	for u := range a.reach {
 		dirty[u] = true
 	}
 	for round := 0; round < 10 && len(dirty) > 0; round++ {
+		a.round = round
 		for _, scc := range sccs {
 			for pass := 0; pass <= 30; pass++ {
+				if pass == widenPass && len(scc) > 1 {
+					// The group is slow to settle: its places are cut
+					// shorter from here on, in every later walk too,
+					// which only makes them stand for more memory.
+					for _, u := range scc {
+						u.widened = true
+					}
+				}
 				var todo []*unit
 				for _, u := range scc {
 					if dirty[u] {
@@ -727,16 +755,16 @@ func (a *analyzer) run() {
 					}
 					if debug {
 						f := u.fns[len(u.fns)-1]
-						compat.Fprintfb(os.Stderr, "race: round %d pass %d changed %s (%d accesses, %d edges, %d spawns, %d crossings, %d calls; %d type accesses)\n", compat.ArgI(int64(round)), compat.ArgI(int64(pass)), compat.ArgS(f.name), compat.ArgI(int64(len(f.sum.accesses))), compat.ArgI(int64(len(f.sum.edges))), compat.ArgI(int64(len(f.sum.spawns))), compat.ArgI(int64(len(f.sum.cross))), compat.ArgI(int64(len(f.sum.calls))), compat.ArgI(int64(len(a.typeSeen))))
+						compat.Fprintfb(os.Stderr, "race: round %d pass %d changed %s (%d accesses, %d typed, %d edges, %d spawns, %d crossings, %d calls; %d type accesses)\n", compat.ArgI(int64(round)), compat.ArgI(int64(pass)), compat.ArgS(f.name), compat.ArgI(int64(len(f.sum.accesses))), compat.ArgI(int64(len(f.sum.typed))), compat.ArgI(int64(len(f.sum.edges))), compat.ArgI(int64(len(f.sum.spawns))), compat.ArgI(int64(len(f.sum.cross))), compat.ArgI(int64(len(f.sum.calls))), compat.ArgI(int64(len(a.typeSeen))))
 					}
 					for _, c := range callers[u] {
 						dirty[c] = true
 					}
-					if valued[u] {
-						for d := range a.reach {
-							if d.dynamic {
-								dirty[d] = true
-							}
+					// The units that applied u's summary through func
+					// values or interfaces: no other unit read it.
+					for c := range u.users {
+						if a.reach[c] {
+							dirty[c] = true
 						}
 					}
 				}
@@ -744,6 +772,9 @@ func (a *analyzer) run() {
 		}
 	}
 	// The program: initialisation of every package in order, then main.
+	if debug {
+		fmt.Fprintf(os.Stderr, "race: walking the program\n")
+	}
 	w := newWalker(a, a.program)
 	w.runProgram()
 	a.program.sum = w.sum
@@ -772,6 +803,10 @@ func unitPos(u *unit) token.Pos {
 // analyzeUnit walks every function of u until its variables stop growing,
 // and reports whether any summary changed.
 func (a *analyzer) analyzeUnit(u *unit) bool {
+	if u.widened {
+		loadLimit = 1
+		defer func() { loadLimit = maxLoads }()
+	}
 	changed := false
 	for i := 0; i < 20; i++ {
 		u.grew = false
@@ -780,8 +815,20 @@ func (a *analyzer) analyzeUnit(u *unit) bool {
 				continue
 			}
 			w := newWalker(a, f)
+			subs0 := a.subs
 			w.run()
+			if debug && a.subs-subs0 > 1000000 {
+				compat.Fprintfb(os.Stderr, "race: heavy walk %s iter %d: %d substituted places, %d accesses\n", compat.ArgS(f.name), compat.ArgI(int64(i)), compat.ArgI(int64(a.subs-subs0)), compat.ArgI(int64(len(w.sum.accesses))))
+			}
+			if a.round >= 2 {
+				// Past the first rounds a summary only grows, so that
+				// the rounds end (keep).
+				w.sum.keep(f.sum)
+			}
 			if !w.sum.equal(f.sum) {
+				if debug && a.round >= 3 {
+					compat.Fprintfb(os.Stderr, "race: flip %s: %s\n", compat.ArgS(f.name), compat.ArgS(w.sum.diff(f.sum)))
+				}
 				f.sum = w.sum
 				changed = true
 			}
@@ -838,13 +885,11 @@ func (a *analyzer) calleesOf(u *unit, n ast.Node) {
 			}
 		case *ast.CallExpr:
 			if sig, ok := a.typeOf(n.Fun).Underlying().(*types2.Signature); ok && !a.isStaticCall(n) {
-				u.dynamic = true
 				u.dynSigs = compat.Append(u.dynSigs, sig)
 			}
 		case *ast.RangeStmt:
 			// A range over a function or a container's iterator calls the
 			// iterator, which may be any function value of its type.
-			u.dynamic = true
 			if T := a.typeOf(n.X); T != nil {
 				if sig, ok := T.Underlying().(*types2.Signature); ok {
 					u.dynSigs = compat.Append(u.dynSigs, sig)

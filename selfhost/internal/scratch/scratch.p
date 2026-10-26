@@ -40,9 +40,9 @@ type level owner struct {
 
 var (
 	levels [maxDepth]level
-	depth  int  // Do's whose work is running
+	depth  int             // Do's whose work is running
 	heap   alloc.Allocator // the allocator of the first Do, parent of the arenas
-	check  bool // PLUTO_SCRATCH_CHECK
+	check  bool            // PLUTO_SCRATCH_CHECK
 	inited bool
 )
 
@@ -108,12 +108,28 @@ func Trim() {
 	}
 }
 
+// Used returns the bytes the innermost running step has allocated from
+// scratch memory, or 0 outside a step's work. A step whose work allocated
+// nothing holds nothing in scratch memory and has nothing to copy out.
+func Used() int {
+	if depth == 0 {
+		return 0
+	}
+	return levels[depth-1].scr.Used()
+}
+
 // Outer makes the allocator that was current when the innermost running
 // Do began the current one until Restore is called, so that memory a step
 // adds to state outliving it (a memo table, an interning table, a pool)
 // does not come from that step's scratch memory. Outside a Do's work it
 // changes nothing.
 func Outer() alloc.Restore {
+	switch a := alloc.Default().(type) {
+	case *Worker:
+		return alloc.Use(a.outer)
+	case *Locked:
+		return alloc.Use(a)
+	}
 	if depth > 0 {
 		return alloc.Use(levels[depth-1].outer)
 	}
@@ -129,6 +145,92 @@ func Heap() alloc.Restore {
 		return alloc.Use(heap)
 	}
 	return alloc.Use(alloc.Default())
+}
+
+// A Locked allocator is an allocator that several tasks use at once
+// through a lock: the memory of the running step, while workers solve
+// beside each other (Worker), for what they add to state that outlives
+// their steps.
+type Locked struct {
+	mu rt.Lock // an allocator's lock, which never parks
+	a  alloc.Allocator
+}
+
+// NewLocked returns the current allocator behind a lock. The caller
+// keeps it where the tasks that use it can reach it, such as its frame.
+func NewLocked() Locked { return Locked{a: alloc.Default()} }
+
+func (l *Locked) Alloc(size, align uintptr) unsafe.Pointer {
+	l.mu.Lock()
+	p := l.a.Alloc(size, align)
+	l.mu.Unlock()
+	return p
+}
+
+func (l *Locked) Free(p unsafe.Pointer, size, align uintptr) {
+	l.mu.Lock()
+	l.a.Free(p, size, align)
+	l.mu.Unlock()
+}
+
+// A Worker runs steps on a task of its own, beside other workers, in
+// scratch memory of its own. Its steps do not nest. Outer within a step
+// makes outer current, which the workers share.
+type Worker owner struct {
+	scr   arena.Chunked
+	outer *Locked
+	base  arena.ChunkMark // the arena empty, for Reset
+}
+
+// NewWorker returns a worker whose steps keep their results in outer. Its
+// arena's chunks come from the heap, which tasks share.
+func NewWorker(outer *Locked) Worker {
+	if !inited {
+		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
+		heap = alloc.Default()
+		inited = true
+	}
+	w := Worker{scr: arena.NewChunked(chunkSize, heap), outer: outer}
+	w.base = w.scr.Mark()
+	return w
+}
+
+// Work runs s.ScratchWork in w's memory and keeps that memory until
+// Reset, so that its results can be copied out later, in order with other
+// workers'.
+func (w *Worker) Work(s Step) {
+	r := alloc.Use(w)
+	s.ScratchWork()
+	r.Restore()
+}
+
+// Mark, Release and Shared are Do in parts, for a task that calls its
+// step's methods directly rather than through Step: Mark notes the arena,
+// Release frees what was allocated since, and Shared is the outer memory.
+func (w *Worker) Mark() arena.ChunkMark { return w.scr.Mark() }
+
+func (w *Worker) Release(m arena.ChunkMark) { w.scr.Release(m) }
+
+func (w *Worker) Shared() *Locked { return w.outer }
+
+// Reset frees everything w's steps allocated.
+func (w *Worker) Reset() { w.scr.Release(w.base) }
+
+func (w *Worker) Alloc(size, align uintptr) unsafe.Pointer { return w.scr.Alloc(size, align) }
+
+func (w *Worker) Free(p unsafe.Pointer, size, align uintptr) { w.scr.Free(p, size, align) }
+
+// Do runs s.ScratchWork in w's memory and s.ScratchKeep in its outer
+// memory, then frees what ScratchWork allocated.
+func (w *Worker) Do(s Step) {
+	m := w.scr.Mark()
+	r := alloc.Use(w)
+	s.ScratchWork()
+	r.Restore()
+	o := alloc.Use(w.outer)
+	s.ScratchKeep()
+	o.Restore()
+	w.scr.Release(m)
 }
 
 // String returns a copy of s from the current allocator.

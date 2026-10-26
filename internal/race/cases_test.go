@@ -46,6 +46,26 @@ func main() {
 }`, []string{"main.p:25:6: the field a of v (holding a *Bump) is a view of Bump that may change while another task uses it, so v cannot be sent on a channel",
 		"A Bump is changed through a pointer at main.p:14 (its field off, in (*Bump).Alloc) without a lock of the same Bump held", "E3501"}},
 
+	// callHook is analysed before start, whose task it reaches only
+	// through a func value: it must be analysed again once start's
+	// summary has the task.
+	{"a task started through a func value whose callee is analysed later", `
+var n int
+
+var hook func()
+
+func callHook() { hook() }
+
+func main() {
+	hook = start
+	callHook()
+	n++
+}
+
+func start() { task worker() }
+
+func worker() { n++ }`, []string{"n is written here with no lock that guards it", "E3502"}},
+
 	{"package variable written by several tasks", `
 var hits int
 

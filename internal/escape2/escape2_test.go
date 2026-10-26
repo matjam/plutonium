@@ -48,7 +48,7 @@ func main() { _ = f() }
 `
 
 func TestModeFromEnv(t *testing.T) {
-	for v, want := range map[string]Mode{"": ModeOld, "old": ModeOld, "new": ModeNew, "both": ModeBoth} {
+	for v, want := range map[string]Mode{"": ModeNew, "old": ModeOld, "new": ModeNew, "both": ModeBoth} {
 		t.Setenv("PLUTO_ESCAPE", v)
 		if got, err := ModeFromEnv(); err != nil || got != want {
 			t.Errorf("PLUTO_ESCAPE=%q: %v, %v; want %v", v, got, err, want)

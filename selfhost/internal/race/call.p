@@ -258,11 +258,11 @@ func funcOrigins(s origins) origins {
 		switch o.vp.root.kind {
 		case rFunc, rLit, rParam:
 			if o.vp.path == "" {
-				out.add(origin{vp: o.vp})
+				out = origins(compat.Append(out, origin{vp: o.vp}))
 			}
 		}
 	}
-	return out
+	return out.uniq()
 }
 
 // calledFunc returns the declared function a call names, if any.
@@ -865,12 +865,28 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 	if unknown || base.dead {
 		return nil, after
 	}
+	if w.u != nil && f.unit != nil && f.unit != w.u {
+		// The walk reads f's summary: when it changes, w.u is walked again.
+		if f.unit.users == nil {
+			f.unit.users = map[*unit]bool{}
+		}
+		f.unit.users[w.u] = true
+	}
 	s := f.sum
 	// An argument the analysis cannot follow points to unknown memory, one
 	// place per call and parameter.
 	full := compat.Make[origins](len(args))
 	for i, a := range args {
 		full[i] = a
+		if k := (capSite{pos, i}); len(a) > maxOrigins || w.a.capSites[k] {
+			// Once cut, always: else a set that shrinks by being cut
+			// elsewhere would grow back, and the summaries never settle.
+			if w.a.capSites == nil {
+				w.a.capSites = map[capSite]bool{}
+			}
+			w.a.capSites[k] = true
+			full[i] = a.cut()
+		}
 		if len(a) == 0 {
 			full[i] = compat.Clone(origins{{vp: vpath{root: root{kind: rUnknown, pos: pos, idx: i}}}})
 		}
@@ -887,11 +903,34 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 		if w.frame != nil {
 			w.frame.noteEdge(w, f, args, base.locks, pos)
 		}
+		// The callee's accesses instantiated here are the same as at the
+		// last walk when its summary and the context are: they are kept
+		// per call (memo) and added again instead of worked out again.
+		var mk applyKey
+		var me *applyMemo
+		var seen map[*access]bool // what me holds, as one access may come from many
+		memo := w.frame == nil && !w.a.cpuOn && !hasFresh(args)
+		if memo {
+			mk = applyKey{pos: pos, f: f}
+			ctx := (&edge{args: args, locks: base.locks, rel: base.rel, pre: !base.spawned}).key()
+			if m := w.a.applyMemo[mk]; m != nil && m.sum == s && m.ctx == ctx {
+				for _, x := range m.accs {
+					w.sum.addAccess(x)
+				}
+				for _, x := range m.typed {
+					w.sum.addTyped(x)
+				}
+				goto rest
+			}
+			me = pu.New(applyMemo{sum: s, ctx: ctx})
+			seen = map[*access]bool{}
+		}
 		for _, x := range s.accesses {
 			if x.place.root.kind != rParam {
 				continue
 			}
 			ps := substitute(x.place, args)
+			w.a.subs += len(ps)
 			if len(ps) == 0 {
 				continue
 			}
@@ -916,7 +955,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 				if !w.a.shareable(p) {
 					continue
 				}
-				w.sum.addAccess(pu.New(access{
+				na := pu.New(access{
 					tkey:   x.tkey,
 					place:  p,
 					write:  x.write,
@@ -927,18 +966,62 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 					pre:    !base.spawned && x.pre,
 					typ:    x.typ,
 					free:   x.free,
-				}))
+				})
+				// The memo holds the summary's own accesses, not copies.
+				acc, ty := w.sum.putAccess(na)
+				if me != nil {
+					if !seen[acc] {
+						seen[acc] = true
+						me.accs = compat.Append(me.accs, acc)
+					}
+					if ty != nil && !seen[ty] {
+						seen[ty] = true
+						me.typed = compat.Append(me.typed, ty)
+					}
+				}
 			}
 		}
+		for _, x := range s.typed {
+			if w.frame != nil {
+				break
+			}
+			locks := compose(base.locks, substRel(x.rel, args), substLocks(x.locks, args))
+			tps := substitute(x.place, args)
+			w.a.subs += len(tps)
+			for _, p := range tps {
+				if p.root.kind != rParam {
+					// The place is cut, so it is not memory being initialised.
+					w.a.recordType(x.tkey, p, x.write, x.atomic, locks, x.pos, name, false)
+					continue
+				}
+				t := pu.New(*x)
+				t.place = vpath{root: p.root, path: "#"}
+				t.locks = locks
+				t.rel = base.rel.union(substRel(x.rel, args))
+				t.pre = !base.spawned && x.pre
+				ty := w.sum.putTyped(t)
+				if me != nil && !seen[ty] {
+					seen[ty] = true
+					me.typed = compat.Append(me.typed, ty)
+				}
+			}
+		}
+		if me != nil {
+			if w.a.applyMemo == nil {
+				w.a.applyMemo = map[applyKey]*applyMemo{}
+			}
+			w.a.applyMemo[mk] = me
+		}
+	rest:
 		for _, c := range s.cross {
 			var vals origins
 			for _, o := range c.vals {
 				for _, v := range substitute(o.vp, args) {
-					vals.add(origin{vp: v, tag: o.tag})
+					vals = origins(compat.Append(vals, origin{vp: v, tag: o.tag}))
 				}
 			}
 			cc := pu.New(*c)
-			cc.vals = vals
+			cc.vals = vals.uniq()
 			cc.via = compat.Append(compat.Clone([]frame{fr}), c.via...)
 			w.sum.addCrossing(cc)
 		}
@@ -946,17 +1029,18 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 			ns := pu.New(spawn{pos: sp.pos, multi: sp.multi, handler: sp.handler, trap: sp.trap, desc: sp.desc, via: compat.Append(compat.Clone([]frame{fr}), sp.via...)})
 			for _, o := range sp.root {
 				for _, v := range substitute(o.vp, args) {
-					ns.root.add(origin{vp: v})
+					ns.root = origins(compat.Append(ns.root, origin{vp: v}))
 				}
 			}
+			ns.root = ns.root.uniq()
 			for _, a := range sp.args {
 				var na origins
 				for _, o := range a {
 					for _, v := range substitute(o.vp, args) {
-						na.add(origin{vp: v, tag: o.tag})
+						na = origins(compat.Append(na, origin{vp: v, tag: o.tag}))
 					}
 				}
-				ns.args = compat.Append(ns.args, na)
+				ns.args = compat.Append(ns.args, na.uniq())
 			}
 			w.sum.addSpawn(ns)
 		}
@@ -1022,10 +1106,10 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 		var out origins
 		for _, o := range r {
 			for _, v := range substitute(o.vp, args) {
-				out.add(origin{vp: v, tag: o.tag})
+				out = origins(compat.Append(out, origin{vp: v, tag: o.tag}))
 			}
 		}
-		res = compat.Append(res, out)
+		res = compat.Append(res, out.uniq())
 	}
 	return res, after
 }
@@ -1226,6 +1310,34 @@ func sameShape(fs, sig *types2.Signature) bool {
 		}
 		expr := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(vars...), fs.Results(), fs.Variadic())
 		return types2.Identical(expr, target)
+	}
+	return false
+}
+
+// An applyKey is a call of one callee at one place.
+type applyKey struct {
+	pos token.Pos
+	f   *function
+}
+
+// An applyMemo is what apply last instantiated at a call: the accesses of
+// the callee's summary sum in context ctx.
+type applyMemo struct {
+	sum   *summary
+	ctx   string
+	accs  []*access
+	typed []*access
+}
+
+// hasFresh reports whether an argument may be memory allocated by the
+// caller, whose initialisation depends on the walk's state.
+func hasFresh(args []origins) bool {
+	for _, a := range args {
+		for _, o := range a {
+			if o.vp.root.kind == rFresh {
+				return true
+			}
+		}
 	}
 	return false
 }

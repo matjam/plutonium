@@ -35,9 +35,16 @@ import (
 // maxLoads and maxSteps bound a path; a longer one is cut short with #,
 // which stands for everything below it.
 const (
-	maxLoads = 3
+	maxLoads = 2
 	maxSteps = 8
 )
+
+// loadLimit is the bound on loads in force: maxLoads, or fewer while run
+// widens the summaries of a group of functions that is slow to settle.
+var loadLimit = maxLoads
+
+// widenPass is the pass of a group of functions after which run widens it.
+const widenPass = 4
 
 // A rootKind says what a path starts from.
 type rootKind uint8
@@ -112,27 +119,43 @@ func countSteps(p string) int {
 }
 
 func loads(p string) int {
-	return strings.Count(p, "*") + strings.Count(p, "%") + strings.Count(p, "$")
+	n := 0
+	for i := 0; i < len(p); i++ {
+		if c := p[i]; c == '*' || c == '%' || c == '$' {
+			n++
+		}
+	}
+	return n
 }
 
 // extend appends a step to v's path, keeping it within the bounds.
 func (v vpath) extend(step string) vpath {
-	if strings.HasSuffix(v.path, "#") {
-		return v
-	}
-	if step == "*" || step == "%" || step[0] == '$' {
-		if strings.HasSuffix(v.path, "&") {
-			// The memory a pointer to P points to is P.
-			v.path = v.path[:len(v.path)-1]
-			return v
-		}
-	}
-	p := v.path + step
-	if loads(p) > maxLoads || countSteps(p) > maxSteps {
-		p = v.path + "#"
-	}
-	v.path = p
+	v, _, _ = v.extendN(step, loads(v.path), countSteps(v.path))
 	return v
+}
+
+// extendN is extend for a path with nl loads and ns steps; it returns the
+// new path's counts.
+func (v vpath) extendN(step string, nl, ns int) (vpath, int, int) {
+	if strings.HasSuffix(v.path, "#") {
+		return v, nl, ns
+	}
+	load := step == "*" || step == "%" || step[0] == '$'
+	if load && strings.HasSuffix(v.path, "&") {
+		// The memory a pointer to P points to is P.
+		v.path = v.path[:len(v.path)-1]
+		return v, nl, ns - 1
+	}
+	sl := 0
+	if load {
+		sl = 1
+	}
+	if nl+sl > loadLimit || ns+1 > maxSteps {
+		v.path += "#"
+		return v, nl, ns + 1
+	}
+	v.path += step
+	return v, nl + sl, ns + 1
 }
 
 // addr returns a pointer to the place v.
@@ -322,21 +345,25 @@ func prefixOf(p, q string) bool {
 // objectBase returns the part of place p that is the object holding its
 // first field after the last pointer followed: p up to that field.
 func objectBase(p vpath) vpath {
-	ss := steps(p.path)
-	last := -1
-	for i, s := range ss {
-		if s == "*" || s == "%" || s == "#" || s[0] == '$' {
-			last = i
+	path := p.path
+	last := -1 // where the step after the last load starts
+	for i := 0; i < len(path); {
+		j := stepEnd(path, i)
+		if c := path[i]; c == '*' || c == '%' || c == '#' || c == '$' {
+			last = j
 		}
+		i = j
 	}
 	n := 0
-	for i, s := range ss {
-		if i > last && s[0] == '.' {
+	for i := 0; i < len(path); {
+		j := stepEnd(path, i)
+		if i >= last && path[i] == '.' {
 			break
 		}
-		n += len(s)
+		n = j
+		i = j
 	}
-	return vpath{root: p.root, path: p.path[:n]}
+	return vpath{root: p.root, path: path[:n]}
 }
 
 // substitute replaces the parameter roots of v with the caller's values
@@ -361,17 +388,21 @@ func (v vpath) join(p string) vpath {
 		return v
 	}
 	if !strings.HasSuffix(v.path, "&") && !strings.HasSuffix(v.path, "#") && !strings.Contains(p, "&") &&
-		loads(v.path)+loads(p) <= maxLoads && countSteps(v.path)+countSteps(p) <= maxSteps {
+		loads(v.path)+loads(p) <= loadLimit && countSteps(v.path)+countSteps(p) <= maxSteps {
 		// Nothing to normalise or cut: the paths simply join.
 		v.path += p
 		return v
 	}
+	nl, ns := loads(v.path), countSteps(v.path)
 	for i := 0; i < len(p); {
 		j := stepEnd(p, i)
 		if s := p[i:j]; s == "&" {
-			v = v.addr()
+			if !strings.HasSuffix(v.path, "#") {
+				v.path += "&"
+				ns++
+			}
 		} else {
-			v = v.extend(s)
+			v, nl, ns = v.extendN(s, nl, ns)
 		}
 		i = j
 	}
@@ -423,7 +454,91 @@ func (s *origins) add(o origin) bool {
 	return true
 }
 
+// uniq drops repeated origins, keeping the first of each; s is built by
+// appending, which is linear where add on each would be quadratic.
+func (s origins) uniq() origins {
+	if len(s) < 2 {
+		return s
+	}
+	out := s[:0]
+	if len(s) <= 16 {
+		for _, o := range s {
+			if !out.has(o) {
+				out = append(out, o)
+			}
+		}
+		return out
+	}
+	seen := make(map[origin]bool, len(s))
+	for _, o := range s {
+		if !seen[o] {
+			seen[o] = true
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// maxOrigins is how many origins a call argument keeps exactly: past it,
+// the origins under each root are cut to the root, which stands for all of
+// them, so a callee's accesses are not instantiated once per origin.
+const maxOrigins = 16
+
+// A capSite is an argument of a call whose origins were cut.
+type capSite struct {
+	pos token.Pos
+	idx int
+}
+
+// capped returns s, cut when it is large.
+func (s origins) capped() origins {
+	if len(s) <= maxOrigins {
+		return s
+	}
+	return s.cut()
+}
+
+// cut returns s with the origins sharing a root and tag cut to the root.
+func (s origins) cut() origins {
+	if len(s) < 2 {
+		return s
+	}
+	type group struct {
+		r   root
+		tag string
+	}
+	n := map[group]int{}
+	for _, o := range s {
+		n[group{o.vp.root, o.tag}]++
+	}
+	out := make(origins, 0, len(n))
+	for _, o := range s {
+		g := group{o.vp.root, o.tag}
+		if n[g] > 1 && o.vp.root.kind != rFunc && o.vp.root.kind != rLit {
+			o.vp.path = "#"
+		}
+		out = append(out, o)
+	}
+	return out.uniq()
+}
+
 func (s *origins) addAll(t origins) bool {
+	if len(*s)*len(t) > 256 {
+		// Large sets: a map instead of a scan for each.
+		seen := make(map[origin]bool, len(*s)+len(t))
+		for _, o := range *s {
+			seen[o] = true
+		}
+		grew := false
+		for _, o := range t {
+			if !seen[o] {
+				seen[o] = true
+				*s = append(*s, o)
+				grew = true
+			}
+		}
+		return grew
+	}
 	grew := false
 	for _, o := range t {
 		if s.add(o) {
@@ -446,9 +561,9 @@ func (s origins) untag() origins {
 	var out origins
 	for _, o := range s {
 		o.tag = ""
-		out.add(o)
+		out = append(out, o)
 	}
-	return out
+	return out.uniq()
 }
 
 // field returns the origins of field name of a struct value with origins s.
@@ -461,13 +576,13 @@ func (s origins) field(name string) origins {
 			if o.vp.root.kind == rFunc || o.vp.root.kind == rLit {
 				continue
 			}
-			out.add(origin{vp: o.vp.extend(step)})
+			out = append(out, origin{vp: o.vp.extend(step)})
 		case prefixOf(step, o.tag):
 			o.tag = o.tag[len(step):]
-			out.add(o)
+			out = append(out, o)
 		}
 	}
-	return out
+	return out.uniq()
 }
 
 // tagged marks every origin in s as held in field name of a struct value.
@@ -478,9 +593,9 @@ func (s origins) tagged(name string) origins {
 		if countSteps(o.tag) > maxSteps {
 			o.tag = ""
 		}
-		out.add(o)
+		out = append(out, o)
 	}
-	return out
+	return out.uniq()
 }
 
 // derefOr returns the places that values with origins s point to, or a
@@ -517,16 +632,16 @@ func (s origins) deref(step string) []vpath {
 func valuesAt(ps []vpath) origins {
 	var out origins
 	for _, p := range ps {
-		out.add(origin{vp: p})
+		out = append(out, origin{vp: p})
 	}
-	return out
+	return out.uniq()
 }
 
 // addrsOf returns pointers to places ps.
 func addrsOf(ps []vpath) origins {
 	var out origins
 	for _, p := range ps {
-		out.add(origin{vp: p.addr()})
+		out = append(out, origin{vp: p.addr()})
 	}
-	return out
+	return out.uniq()
 }

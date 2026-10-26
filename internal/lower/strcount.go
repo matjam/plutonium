@@ -76,7 +76,7 @@ func (l *Lowerer) counted(T types2.Type) bool {
 	if T == nil || types2.IsOwner(T) {
 		return false
 	}
-	key := typeString(T)
+	key := l.typeStr(T)
 	if c, ok := l.countedTypes[key]; ok {
 		return c
 	}

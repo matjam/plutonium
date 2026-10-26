@@ -5,6 +5,7 @@ package opt
 import (
 	"pluto/sort"
 	"selfhost/compat"
+	"selfhost/internal/scratch"
 	"selfhost/internal/ssa"
 	"selfhost/pu"
 )
@@ -94,13 +95,53 @@ func inline(p *ssa.Program, why map[*ssa.Value]string) {
 		}
 	}
 	sizes := map[*ssa.Func]int{}
+	step := pu.Alloc[inlineStep]()
+	step.funcs, step.sizes, step.inCycle, step.refs = funcs, sizes, inCycle, refs
 	for _, scc := range sccs { // callees first
 		for _, f := range scc {
-			if inlineInto(f, funcs, sizes, inCycle, scc, refs, why) {
+			if why == nil {
+				step.f, step.scc = f, scc
+				scratch.Do(step)
+			} else if inlineInto(f, funcs, sizes, inCycle, scc, refs, why) {
 				cleanup(f)
 			}
 			sizes[f] = funcSize(f)
 		}
+	}
+	scratch.Trim()
+}
+
+// inlineStep inlines into one caller and cleans it up as a scratch step,
+// then copies the caller out of scratch memory (ssa.Copier), so that the
+// copies and cleanup leave behind only the function they made. The step
+// only reads the tables it is given. Without why: the notes would hold on
+// to values made in the step.
+type inlineStep struct {
+	f       *ssa.Func
+	scc     []*ssa.Func
+	funcs   map[*ssa.Sym]*ssa.Func
+	sizes   map[*ssa.Func]int
+	inCycle map[*ssa.Func]bool
+	refs    map[*ssa.Sym]int
+	cp      *ssa.Copier // made in the step's memory, for ScratchKeep
+}
+
+func (s *inlineStep) ScratchWork() {
+	used := scratch.Used()
+	if inlineInto(s.f, s.funcs, s.sizes, s.inCycle, s.scc, s.refs, nil) {
+		cleanup(s.f)
+	}
+	// A caller with nothing to inline allocated nothing, and copying
+	// would only duplicate it.
+	if scratch.Used() != used {
+		s.cp = ssa.NewCopier(s.f)
+	}
+}
+
+func (s *inlineStep) ScratchKeep() {
+	if s.cp != nil {
+		s.cp.Copy(s.f)
+		s.cp = nil
 	}
 }
 

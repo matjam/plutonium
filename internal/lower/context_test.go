@@ -59,7 +59,22 @@ func TestInterruptContext(t *testing.T) {
 		{"func value", "var hook func()\n\nfunc quick() {}\n\nfunc slow() { wait() }\n\nfunc init() {\n\thook = quick\n\thook = slow\n}\n\n" +
 			"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\thook()\n}\n", []string{
 			"keyboard calls hook (main.p:53), which may be slow, which calls wait\n    (main.p:44), which may wait.",
-			"hook calls through a func value, so it counts as calling every function\n    of type func() whose value the program takes."}},
+			"hook is a hook, a variable its package only sets to functions and\n    calls, so it counts as calling the functions assigned to it."}},
+		// A func value that is not a hook (copied into a local) counts as
+		// every function of its type, including one assigned only to a hook.
+		{"func value not a hook", "var hook func()\n\nvar other func()\n\nfunc slow() { wait() }\n\nfunc init() {\n\thook = slow\n\tf := other\n\tother = f\n}\n\n" +
+			"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tother()\n}\n", nil},
+		{"func value copied", "var hook func()\n\nfunc slow() { wait() }\n\nfunc init() { hook = slow }\n\n" +
+			"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tg := hook\n\tg()\n}\n", []string{
+			"which may be slow, which calls wait",
+			"g calls through a func value, so it counts as calling every function\n    of type func() whose value the program takes."}},
+		// A function stored only in a hook is not reached by calls through
+		// other func values of its type.
+		{"hook only", "var hook func()\n\nvar fn func()\n\nfunc quick() {}\n\nfunc slow() { wait() }\n\nfunc init() {\n\thook = slow\n\tfn = quick\n\tg := fn\n\tfn = g\n}\n\n" +
+			"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tfn()\n}\n", nil},
+		// A literal called where it is written calls only that literal.
+		{"called literal", "var hook func()\n\nvar fn func()\n\nfunc slow() { wait() }\n\nfunc init() {\n\tfn = slow\n\tg := fn\n\tfn = g\n}\n\nvar n int\n\n" +
+			"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tfunc() { n++ }()\n}\n", nil},
 		{"interface", "type Locker interface{ Lock() }\n\nvar l Locker = &mu\n\n" +
 			"//pu:interrupt\nfunc keyboard(f *x86.InterruptFrame) {\n\tl.Lock()\n}\n", []string{
 			"keyboard calls l.Lock (main.p:46), which may be (*Mutex).Lock, which may\n    wait.",

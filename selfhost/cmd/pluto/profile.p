@@ -7,6 +7,10 @@ package main
 // which does nothing; this hand-written file replaces it in the
 // translation.
 //
+// PLUTO_PROFILE_PHASE=name writes the profiles and stops the build as the
+// phase of that name starts (the names PLUTO_PHASES prints), for a profile
+// of the phases before it.
+//
 // The allocation profile sees what is allocated through the default
 // allocator; the scratch arenas of the analyses show as the arenas' own
 // requests for memory. The compiler's translated code does not free, so
@@ -17,9 +21,10 @@ package main
 import (
 	"pluto/os"
 	"pluto/prof"
+	"selfhost/internal/build"
 )
 
-var cpuProfile, memProfile string
+var cpuProfile, memProfile, stopPhase string
 
 // startProfiles starts the profiles the environment asks for, and returns
 // the function that stops them and writes them.
@@ -38,7 +43,20 @@ func startProfiles() func() {
 			memProfile = ""
 		}
 	}
+	stopPhase = os.GetenvLossy("PLUTO_PROFILE_PHASE")
+	if stopPhase != "" {
+		build.PhaseHook = atPhase
+	}
 	return stopProfiles
+}
+
+// atPhase writes the profiles and exits when the phase PLUTO_PROFILE_PHASE
+// names starts.
+func atPhase(name string) {
+	if name == stopPhase {
+		stopProfiles()
+		os.Exit(130)
+	}
 }
 
 func stopProfiles() {

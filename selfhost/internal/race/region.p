@@ -660,9 +660,9 @@ func (w *walker) addrsOfPlaces(ps []vpath) origins {
 		if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] && !hasDeref(p.path) {
 			p.root.idx = w.a.regionSet(w.st.locks)
 		}
-		out.add(origin{vp: p.addr()})
+		out = origins(compat.Append(out, origin{vp: p.addr()}))
 	}
-	return out
+	return out.uniq()
 }
 
 // publishAt records that val is stored where other code can reach it, and

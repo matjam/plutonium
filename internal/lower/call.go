@@ -115,12 +115,21 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 		}
 	}
 
-	// A call through a func value.
-	fv := s.scalar(e.Fun)
+	// A call through a func value. A literal called where it is written
+	// (func() {...}()) has its function as the call's only target.
+	var fv *ssa.Value
+	var litSym *ssa.Sym
+	if lit, ok := ast.Unparen(e.Fun).(*ast.FuncLit); ok {
+		captures := s.capturedVars(lit)
+		litSym = s.closureFunc(lit, captures)
+		fv = s.closureWith(lit, captures, litSym)
+	} else {
+		fv = s.scalar(e.Fun)
+	}
 	sig := s.typeOf(e.Fun).Underlying().(*types2.Signature)
 	args := s.callArgs(e, sig, nil)
 	code := s.load(ssa.TPtr, fv)
-	site := &callSite{desc: types2.ExprString(e.Fun), fsig: sig}
+	site := &callSite{desc: types2.ExprString(e.Fun), fsig: sig, lit: litSym, hook: hookVar(s.info, e.Fun)}
 	return s.emitCall(callee{code: code, ctx: fv, site: site}, sig, nil, args, e.Pos())
 }
 

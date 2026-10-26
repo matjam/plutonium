@@ -23,17 +23,17 @@ import (
 type Mode uint8
 
 const (
-	ModeOld  Mode = iota // internal/escape alone: the default
-	ModeNew              // this analysis decides the verdict
+	ModeOld  Mode = iota // internal/escape alone
+	ModeNew              // this analysis decides the verdict: the default
 	ModeBoth             // both run; the old one decides, and every difference is reported
 )
 
-// ModeFromEnv reads PLUTO_ESCAPE: "" or "old", "new", "both".
+// ModeFromEnv reads PLUTO_ESCAPE: "old", "" or "new", "both".
 func ModeFromEnv() (Mode, error) {
 	switch v := os.Getenv("PLUTO_ESCAPE"); v {
-	case "", "old":
+	case "old":
 		return ModeOld, nil
-	case "new":
+	case "", "new":
 		return ModeNew, nil
 	case "both":
 		return ModeBoth, nil

@@ -141,12 +141,8 @@ func Emit(cfg *Config, p *ssa.Program, dbg *debuginfo.Table) (*objfile.Object, e
 	// Each function's code is generated in scratch memory (internal/scratch);
 	// the emitter copies out what the object file and debug information keep.
 	e := &emitter{cfg: cfg, obj: obj, text: text, dbg: dbg, constDone: map[string]bool{}, names: map[string]string{}}
-	for _, f := range p.Funcs {
-		e.f = f
-		scratch.Do(e)
-		if e.err != nil {
-			return nil, e.err
-		}
+	if err := e.emitAll(p.Funcs); err != nil {
+		return nil, err
 	}
 
 	dbg.WriteTraceTable(obj, cfg.NoTrace)

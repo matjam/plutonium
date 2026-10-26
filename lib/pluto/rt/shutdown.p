@@ -170,8 +170,10 @@ func CallbackEnd() {
 // with main's status and nothing is cleaned up.
 func normalShutdown() bool {
 	ok := true
-	if f := shutdownWaitFn; f != nil {
-		ok = f()
+	if shutdownWaitFn != nil {
+		// Called as the variable, so that the compiler sees it calls only
+		// what startTasks installs (hook variables, internal/lower/hooks.go).
+		ok = shutdownWaitFn()
 	} else if !tasking {
 		// Task and application-timer admission starts tasking first.
 		// With neither, only this startup context can close admission.

@@ -146,6 +146,7 @@ type Lowerer struct {
 	// declared function a generated method expression thunk calls.
 	gx        *goexitInfo
 	gxWrapped map[*ssa.Sym]*types2.Func
+	typeStrs  map[types2.Type]string // typeStr's memo
 
 	// initRoots are the parts of each package's initialization, which a
 	// freestanding build checks for allocation (initalloc.go).
@@ -230,6 +231,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		sites:          map[*ssa.Value]*callSite{},
 		callOrigins:    map[*ssa.Value]token.Pos{},
 		gxWrapped:      map[*ssa.Sym]*types2.Func{},
+		typeStrs:       map[types2.Type]string{},
 	})
 	l.types = newTypeTable(l)
 	if cfg.Keep != nil {
@@ -340,6 +342,17 @@ func pkgPath(pkg *types2.Package) string {
 // functions, see typeMap.local) told apart by position.
 func typeString(T types2.Type) string {
 	return types2.SymbolString(T, func(p *types2.Package) string { return p.Path() })
+}
+
+// typeStr is typeString, remembered for each type: the drop and counting
+// checks key their tables by it and ask about the same types many times.
+func (l *Lowerer) typeStr(T types2.Type) string {
+	if s, ok := l.typeStrs[T]; ok {
+		return s
+	}
+	s := typeString(T)
+	l.typeStrs[T] = s
+	return s
 }
 
 // funcSymName returns the symbol name of a function or method instance.
@@ -546,6 +559,8 @@ type typeMap struct {
 	// The source range of the generic function: types declared in it
 	// are instantiated with it (see local).
 	start, end token.Pos
+
+	memo map[types2.Type]types2.Type // subst's results
 }
 
 // A localKey names an instance of a type declared in a generic function.
@@ -581,7 +596,17 @@ func (m *typeMap) subst(T types2.Type) types2.Type {
 	if m == nil || T == nil {
 		return T
 	}
-	return types2.SubstLocal(m.l.ctxt, T, m.tparams, m.targs, m)
+	// A function's body asks for the same types many times, and each
+	// substitution builds its map of the type parameters afresh.
+	if r, ok := m.memo[T]; ok {
+		return r
+	}
+	r := types2.SubstLocal(m.l.ctxt, T, m.tparams, m.targs, m)
+	if m.memo == nil {
+		m.memo = map[types2.Type]types2.Type{}
+	}
+	m.memo[T] = r
+	return r
 }
 
 // Local instantiates a type declared inside the generic function, which

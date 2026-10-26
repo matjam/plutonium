@@ -674,6 +674,15 @@ func (c *cands) ifaceDrops() []eir.FuncID {
 // pointers to them), or all of them when known is false.
 func (c *cands) dropsOf(types []types2.Type, known bool) []eir.FuncID {
 	set := map[eir.FuncID]bool{}
+	// The pointer types are made once: each new one is a new key of the
+	// type table's memo (hasTypeParam).
+	var ptrs []types2.Type
+	if known {
+		ptrs = make([]types2.Type, len(types))
+		for i, t := range types {
+			ptrs[i] = types2.NewPointer(t)
+		}
+	}
 	for _, f := range c.p.Funcs {
 		var recv types2.Type
 		switch {
@@ -688,8 +697,8 @@ func (c *cands) dropsOf(types []types2.Type, known bool) []eir.FuncID {
 			set[f.ID] = true
 			continue
 		}
-		for _, t := range types {
-			if c.tt.mayMatch(recv, t) || c.tt.mayMatch(recv, types2.NewPointer(t)) {
+		for i, t := range types {
+			if c.tt.mayMatch(recv, t) || c.tt.mayMatch(recv, ptrs[i]) {
 				set[f.ID] = true
 				break
 			}
@@ -704,12 +713,18 @@ func (c *cands) dropsOf(types []types2.Type, known bool) []eir.FuncID {
 // drop glue and Drop method of the program when the instantiations are
 // open, or when tp is not known.
 func (c *cands) typeParamDrops(tp *types2.TypeParam) []eir.FuncID {
-	var types []types2.Type
-	known := false
-	if tp != nil {
-		types, known = c.inst.instantiated(tp)
+	if tp == nil {
+		return c.dropsOf(nil, false)
 	}
-	return c.dropsOf(types, known)
+	// Memoized as typeParam's sets are; no method has the empty name.
+	key := tpKey{c.inst.canon(tp), ""}
+	if ids, ok := c.tpMemo[key]; ok {
+		return ids
+	}
+	types, known := c.inst.instantiated(tp)
+	ids := c.dropsOf(types, known)
+	c.tpMemo[key] = ids
+	return ids
 }
 
 // allNamedMemo is allNamed, memoized by method.

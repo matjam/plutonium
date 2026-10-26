@@ -58,6 +58,10 @@ func Error(err error) error {
 // does nothing.
 func Trim() {}
 
+// Used returns how much of the current step's scratch memory is in use.
+// Here there is no scratch memory, so it is always 0.
+func Used() int { return 0 }
+
 // Outer makes the allocator that was current when Do began the current one
 // until Restore is called, so that memory a step adds to state outliving it
 // (a memo table, an interning table, a pool) does not come from scratch

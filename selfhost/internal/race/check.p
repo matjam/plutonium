@@ -185,8 +185,16 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 		used := x.a.envParams(f)
 		trimmed := compat.Make[origins](len(env))
 		for i := range env {
+			// A lock named through a parameter is held only where the
+			// argument is one place (substLocks), so an argument of many
+			// places names no lock: it is left empty, which names none
+			// either and releases every lock (substRel), the safe side.
+			// Calls that differ only in such arguments then share one
+			// expansion.
 			if used.has(i) {
-				trimmed[i] = lockRoots(env[i])
+				if r := lockRoots(env[i]); len(r) == 1 {
+					trimmed[i] = r
+				}
 			}
 		}
 		env = trimmed
@@ -203,6 +211,13 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 		return
 	}
 	x.seen[k] = true
+	if debug && len(x.seen)%20000 == 0 {
+		a := k.args
+		if len(a) > 1500 {
+			a = strings.Slice(a, 0, 1500)
+		}
+		compat.Fprintfb(os.Stderr, "race: expanding: %d contexts, %d accesses; now %s locks %d bytes args %d bytes: %s\n", compat.ArgI(int64(len(x.seen))), compat.ArgI(int64(len(x.out))), compat.ArgS(f.name), compat.ArgI(int64(len(k.locks))), compat.ArgI(int64(len(k.args))), compat.ArgS(a))
+	}
 	s := f.sum
 	for _, acc := range s.accesses {
 		// What the parameters reach was instantiated where f was called.
@@ -229,10 +244,10 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 				var na origins
 				for _, o := range a {
 					for _, v := range substitute(o.vp, env) {
-						na.add(origin{vp: v, tag: o.tag})
+						na = origins(compat.Append(na, origin{vp: v, tag: o.tag}))
 					}
 				}
-				args = compat.Append(args, na)
+				args = compat.Append(args, na.uniq())
 			}
 		} else {
 			args = ce.args

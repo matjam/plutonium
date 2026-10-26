@@ -32,11 +32,27 @@ type typeAccess struct {
 	global        *types2.Var // the object is this package variable
 }
 
+// A typeSeenKey identifies a recorded typeAccess of a field.
+type typeSeenKey struct {
+	key           string
+	write, atomic bool
+	excl, shared  string
+	pos           token.Pos
+	global        *types2.Var
+}
+
 // recordType records a use of field key of the object place p is in.
 // Initialising uses of memory nobody else can reach yet are left out.
 func (a *analyzer) recordType(key string, p vpath, write, atomic bool, locks lockset, pos token.Pos, fn string, initializing bool) {
 	if initializing || p.root.kind == rLocal || p.root.kind == rParam {
 		return
+	}
+	if len(locks) == 0 && p.root.kind != rGlobal {
+		// Nothing about the place itself goes into the record: skip
+		// working out its object when it is already known.
+		if a.typeSeen[typeSeenKey{key: key, write: write, atomic: atomic, pos: pos}] {
+			return
+		}
 	}
 	base := objectBase(p)
 	x := pu.New(typeAccess{write: write, atomic: atomic, pos: pos, fn: fn})
@@ -45,7 +61,8 @@ func (a *analyzer) recordType(key string, p vpath, write, atomic bool, locks loc
 	}
 	for _, l := range locks {
 		var k string
-		if l.place.root == base.root && prefixOf(base.path, l.place.path) && !strings.ContainsAny(strings.SliceFrom(l.place.path, len(base.path)), "*%$#") {
+		// A cut base (#) names no one object, so no lock is relative to it.
+		if l.place.root == base.root && !strings.Contains(base.path, "#") && prefixOf(base.path, l.place.path) && !strings.ContainsAny(strings.SliceFrom(l.place.path, len(base.path)), "*%$#") {
 			k = compat.Concat("rel:", strings.SliceFrom(l.place.path, len(base.path)))
 		} else if g, ok := globalLock(l); ok {
 			k = compat.Concat("glob:", g)
@@ -59,13 +76,13 @@ func (a *analyzer) recordType(key string, p vpath, write, atomic bool, locks loc
 			x.shared = compat.Append(x.shared, k)
 		}
 	}
-	sort.Strings(x.excl)
-	sort.Strings(x.shared)
-	gk := ""
-	if x.global != nil {
-		gk = x.global.Name()
+	if len(x.excl) > 1 {
+		sort.Strings(x.excl)
 	}
-	dk := compat.Sprintf("%s|%v|%v|%v|%v|%d|%s", key, write, atomic, x.excl, x.shared, pos, gk)
+	if len(x.shared) > 1 {
+		sort.Strings(x.shared)
+	}
+	dk := typeSeenKey{key: key, write: write, atomic: atomic, excl: compat.Join(x.excl, ","), shared: compat.Join(x.shared, ","), pos: pos, global: x.global}
 	if a.typeSeen[dk] {
 		return
 	}

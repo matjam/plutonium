@@ -117,12 +117,21 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 		}
 	}
 
-	// A call through a func value.
-	fv := s.scalar(e.Fun)
+	// A call through a func value. A literal called where it is written
+	// (func() {...}()) has its function as the call's only target.
+	var fv *ssa.Value
+	var litSym *ssa.Sym
+	if lit, ok := ast.Unparen(e.Fun).(*ast.FuncLit); ok {
+		captures := s.capturedVars(lit)
+		litSym = s.closureFunc(lit, captures)
+		fv = s.closureWith(lit, captures, litSym)
+	} else {
+		fv = s.scalar(e.Fun)
+	}
 	sig := s.typeOf(e.Fun).Underlying().(*types2.Signature)
 	args := s.callArgs(e, sig, nil)
 	code := s.load(ssa.TPtr, fv)
-	site := pu.New(callSite{desc: types2.ExprString(e.Fun), fsig: sig})
+	site := pu.New(callSite{desc: types2.ExprString(e.Fun), fsig: sig, lit: litSym, hook: hookVar(s.info, e.Fun)})
 	return s.emitCall(callee{code: code, ctx: fv, site: site}, sig, nil, args, e.Pos())
 }
 
@@ -1127,7 +1136,7 @@ func (s *fnState) lastingTemp(T types2.Type, name string) *ssa.Value {
 	return s.temp(T, name)
 }
 
-// goClosure_methodExprThunk_1 is the function literal at call.go:865, converted to a struct
+// goClosure_methodExprThunk_1 is the function literal at call.go:874, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_methodExprThunk_1 struct {
 	sig    *types2.Signature
@@ -1148,7 +1157,7 @@ func (goSelf *goClosure_methodExprThunk_1) Call(s *fnState) {
 	s.returnValues(s.emitCall(callee{sym: goSelf.target}, goSelf.full, &recv, in[1:], token.NoPos))
 }
 
-// goClosure_boundMethodWrapper_1 is the function literal at call.go:1069, converted to a struct
+// goClosure_boundMethodWrapper_1 is the function literal at call.go:1078, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_boundMethodWrapper_1 struct {
 	recvT  types2.Type

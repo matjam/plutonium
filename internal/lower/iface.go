@@ -359,7 +359,7 @@ func (tt *typeTable) finish() bool {
 			concrete = append(concrete, d.T)
 		}
 	}
-	sort.Slice(concrete, func(i, j int) bool { return typeString(concrete[i]) < typeString(concrete[j]) })
+	sort.Slice(concrete, func(i, j int) bool { return tt.l.typeStr(concrete[i]) < tt.l.typeStr(concrete[j]) })
 	var ifaces []string
 	for k := range tt.asserted {
 		ifaces = append(ifaces, k)
@@ -369,7 +369,7 @@ func (tt *typeTable) finish() bool {
 		I := tt.asserted[ik]
 		iface := I.Underlying().(*types2.Interface)
 		for _, T := range concrete {
-			key := typeString(T) + "," + ik
+			key := tt.l.typeStr(T) + "," + ik
 			if tt.done[key] {
 				continue
 			}

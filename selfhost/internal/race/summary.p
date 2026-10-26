@@ -5,6 +5,7 @@ package race
 import (
 	"pluto/fmt"
 	"pluto/sort"
+	"pluto/strings"
 	"selfhost/compat"
 	"selfhost/internal/syntax/ast"
 	"selfhost/internal/syntax/token"
@@ -326,7 +327,9 @@ func (e *edge) key() string {
 // A summary is what a function does that its callers need to know.
 type summary struct {
 	accesses []*access
-	accKeys  map[accKey]bool
+	accKeys  map[accKey]*access
+	typed    []*access // uses of fields through cut places, for the type rule only
+	tyKeys   map[accKey]*access
 	calls    []*paramCall
 	callKeys map[string]bool
 	edges    []*edge
@@ -346,16 +349,56 @@ type summary struct {
 	notFresh  []bool
 }
 
-func (s *summary) addAccess(x *access) {
+func (s *summary) addAccess(x *access) { s.putAccess(x) }
+
+// putAccess adds x to the summary and returns the access the summary holds
+// for it, and the typed access it adds with it if any.
+func (s *summary) putAccess(x *access) (acc, ty *access) {
+	if x.tkey != "" && x.place.root.kind != rParam {
+		// The type rule has seen the use (recordType): only callers that
+		// instantiate a parameter's place read the field again.
+		y := pu.New(*x)
+		y.tkey = ""
+		x = y
+	} else if x.tkey != "" && strings.Contains(x.place.path, "#") {
+		// Past a cut the place no longer tells the fields apart, so the
+		// field it uses would make a copy of the access per field. The
+		// type rule sees only the place's root and the locks of such a use
+		// (recordType), so it is kept apart, at the root, and the access
+		// for the other rules without its field.
+		t := pu.New(*x)
+		t.place = vpath{root: x.place.root, path: "#"}
+		ty = s.putTyped(t)
+		y := pu.New(*x)
+		y.tkey = ""
+		x = y
+	}
 	if s.accKeys == nil {
-		s.accKeys = map[accKey]bool{}
+		s.accKeys = map[accKey]*access{}
 	}
 	k := x.key()
-	if s.accKeys[k] {
-		return
+	if y := s.accKeys[k]; y != nil {
+		return y, ty
 	}
-	s.accKeys[k] = true
+	s.accKeys[k] = x
 	s.accesses = compat.Append(s.accesses, x)
+	return x, ty
+}
+
+func (s *summary) addTyped(x *access) { s.putTyped(x) }
+
+// putTyped adds x to the typed accesses and returns the one held for it.
+func (s *summary) putTyped(x *access) *access {
+	if s.tyKeys == nil {
+		s.tyKeys = map[accKey]*access{}
+	}
+	k := x.key()
+	if y := s.tyKeys[k]; y != nil {
+		return y
+	}
+	s.tyKeys[k] = x
+	s.typed = compat.Append(s.typed, x)
+	return x
 }
 
 func (s *summary) addSpawn(x *spawn) {
@@ -413,6 +456,50 @@ func (s *summary) addCall(c *paramCall) {
 	s.calls = compat.Append(s.calls, c)
 }
 
+// keep adds what old says that s does not: a function's summary only grows
+// from walk to walk. A walk reads the summaries of the functions it calls,
+// and some of those (calls through func values, cut places) can make a
+// group of summaries take turns dropping and regaining the same accesses;
+// growing only, they settle. Everything kept is something the function
+// may do, so keeping more stays sound.
+func (s *summary) keep(old *summary) {
+	if old == nil {
+		return
+	}
+	for _, x := range old.accesses {
+		s.addAccess(x)
+	}
+	for _, x := range old.typed {
+		s.addTyped(x)
+	}
+	for _, c := range old.calls {
+		s.addCall(c)
+	}
+	for _, e := range old.edges {
+		s.addEdge(e)
+	}
+	for _, x := range old.spawns {
+		s.addSpawn(x)
+	}
+	for _, x := range old.cross {
+		s.addCrossing(x)
+	}
+	for i, r := range old.results {
+		s.addResult(i, r)
+	}
+	s.maySpawn = s.maySpawn || old.maySpawn
+	s.mayAlloc = s.mayAlloc || old.mayAlloc
+	s.pubParams |= old.pubParams
+	for i := range old.fresh {
+		if old.fresh[i] {
+			s.noteFresh(i, true)
+		}
+		if old.notFresh[i] {
+			s.noteFresh(i, false)
+		}
+	}
+}
+
 // noteFresh records whether one return of result i is fresh memory.
 func (s *summary) noteFresh(i int, fresh bool) {
 	for len(s.fresh) <= i {
@@ -462,9 +549,21 @@ func sameSet[K comparable](a, b map[K]bool) bool {
 	return true
 }
 
+func sameKeys[K comparable, V any](a, b map[K]V) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // equal reports whether two summaries of a function say the same.
 func (s *summary) equal(t *summary) bool {
-	if !sameSet(s.accKeys, t.accKeys) || !sameSet(s.callKeys, t.callKeys) || !sameSet(s.edgeKeys, t.edgeKeys) ||
+	if !sameKeys(s.accKeys, t.accKeys) || !sameKeys(s.tyKeys, t.tyKeys) || !sameSet(s.callKeys, t.callKeys) || !sameSet(s.edgeKeys, t.edgeKeys) ||
 		!sameSet(s.spKeys, t.spKeys) || !sameSet(s.crKeys, t.crKeys) {
 		return false
 	}
@@ -485,4 +584,55 @@ func (s *summary) equal(t *summary) bool {
 		}
 	}
 	return true
+}
+
+// diff names what differs between s and t (debug).
+func (s *summary) diff(t *summary) string {
+	var out []string
+	one := func(name string, a, b map[accKey]*access) {
+		if sameKeys(a, b) {
+			return
+		}
+		var add, del []string
+		for k := range a {
+			if b[k] == nil {
+				add = compat.Append(add, compat.Sprint(k))
+			}
+		}
+		for k := range b {
+			if a[k] == nil {
+				del = compat.Append(del, compat.Sprint(k))
+			}
+		}
+		sort.Strings(add)
+		sort.Strings(del)
+		if len(add) > 2 {
+			add = add[:2]
+		}
+		if len(del) > 2 {
+			del = del[:2]
+		}
+		out = compat.Append(out, compat.Sprintf("%s +%v -%v", name, add, del))
+	}
+	one("acc", s.accKeys, t.accKeys)
+	one("typed", s.tyKeys, t.tyKeys)
+	if !sameSet(s.callKeys, t.callKeys) {
+		out = compat.Append(out, "calls")
+	}
+	if !sameSet(s.edgeKeys, t.edgeKeys) {
+		out = compat.Append(out, "edges")
+	}
+	if !sameSet(s.spKeys, t.spKeys) || !sameSet(s.crKeys, t.crKeys) {
+		out = compat.Append(out, "spawns/cross")
+	}
+	if s.maySpawn != t.maySpawn || s.mayAlloc != t.mayAlloc || s.pubParams != t.pubParams || !s.exitLocks.equal(t.exitLocks) || !s.exitRel.equal(t.exitRel) {
+		out = compat.Append(out, "flags/locks")
+	}
+	if compat.Sprint(s.fresh, s.notFresh) != compat.Sprint(t.fresh, t.notFresh) {
+		out = compat.Append(out, "fresh")
+	}
+	if compat.Sprint(s.results) != compat.Sprint(t.results) {
+		out = compat.Append(out, "results")
+	}
+	return compat.Join(out, "; ")
 }

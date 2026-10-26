@@ -183,8 +183,16 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 		used := x.a.envParams(f)
 		trimmed := make([]origins, len(env))
 		for i := range env {
+			// A lock named through a parameter is held only where the
+			// argument is one place (substLocks), so an argument of many
+			// places names no lock: it is left empty, which names none
+			// either and releases every lock (substRel), the safe side.
+			// Calls that differ only in such arguments then share one
+			// expansion.
 			if used.has(i) {
-				trimmed[i] = lockRoots(env[i])
+				if r := lockRoots(env[i]); len(r) == 1 {
+					trimmed[i] = r
+				}
 			}
 		}
 		env = trimmed
@@ -201,6 +209,13 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 		return
 	}
 	x.seen[k] = true
+	if debug && len(x.seen)%20000 == 0 {
+		a := k.args
+		if len(a) > 1500 {
+			a = a[:1500]
+		}
+		fmt.Fprintf(os.Stderr, "race: expanding: %d contexts, %d accesses; now %s locks %d bytes args %d bytes: %s\n", len(x.seen), len(x.out), f.name, len(k.locks), len(k.args), a)
+	}
 	s := f.sum
 	for _, acc := range s.accesses {
 		// What the parameters reach was instantiated where f was called.
@@ -227,10 +242,10 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 				var na origins
 				for _, o := range a {
 					for _, v := range substitute(o.vp, env) {
-						na.add(origin{vp: v, tag: o.tag})
+						na = append(na, origin{vp: v, tag: o.tag})
 					}
 				}
-				args = append(args, na)
+				args = append(args, na.uniq())
 			}
 		} else {
 			args = ce.args

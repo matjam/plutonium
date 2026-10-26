@@ -183,9 +183,17 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 // matched to the phases.
 var phases = compat.Getenv("PLUTO_PHASES") != ""
 
+// PhaseHook, when set, is called as each phase starts, after it is named.
+// The self-hosted driver uses it to write its profiles and stop at the
+// phase PLUTO_PROFILE_PHASE names.
+var PhaseHook func(name string)
+
 func phase(name string) {
 	if phases {
 		compat.Fprintfb(os.Stderr, "%v %v\n", compat.ArgS("pluto: phase"), compat.ArgS(name))
+	}
+	if PhaseHook != nil {
+		PhaseHook(name)
 	}
 }
 
@@ -418,14 +426,24 @@ func internal(err error) error {
 // optimize runs the SSA pipeline over every function.
 func optimize(cfg *Config, p *ssa.Program, prog *load.Program) error {
 	pipeline := opt.ForLevel(cfg.OptLevel)
+	if phases {
+		pipeline.OnStep = func(name string) {
+			compat.Fprintfb(os.Stderr, "%v %v\n", compat.ArgS("pluto: opt step"), compat.ArgS(name))
+		}
+	}
 	if cfg.InlineNotes != nil {
 		pipeline.ReportInlining()
 	}
-	err := pipeline.Run(p, func(pass string, f *ssa.Func) {
-		if cfg.SSADump != "" && (cfg.SSADump == "all" || cfg.SSADump == f.Name) {
-			fmt.Fprintf(os.Stderr, "--- after %s ---\n%s", pass, f)
+	// Without a dump the function passes run in parallel.
+	var after func(pass string, f *ssa.Func)
+	if cfg.SSADump != "" {
+		after = func(pass string, f *ssa.Func) {
+			if cfg.SSADump == "all" || cfg.SSADump == f.Name {
+				fmt.Fprintf(os.Stderr, "--- after %s ---\n%s", pass, f)
+			}
 		}
-	})
+	}
+	err := pipeline.Run(p, after)
 	if err != nil || cfg.InlineNotes == nil {
 		return err
 	}

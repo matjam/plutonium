@@ -914,9 +914,9 @@ func (s origins) tagged2(tag string) origins {
 		if countSteps(o.tag) > maxSteps {
 			o.tag = ""
 		}
-		out.add(o)
+		out = origins(compat.Append(out, o))
 	}
-	return out
+	return out.uniq()
 }
 
 // publish records that memory allocated here, which val may point to, is
@@ -1491,9 +1491,9 @@ func (w *walker) fieldValue(ps places, e *ast.SelectorExpr) origins {
 	if w.a.ownsField(T, fieldOf(T, idx[len(idx)-1])) {
 		var out origins
 		for _, p := range ps.ps {
-			out.add(origin{vp: p.extend("#").addr()})
+			out = origins(compat.Append(out, origin{vp: p.extend("#").addr()}))
 		}
-		return out
+		return out.uniq()
 	}
 	return w.placeValue(ps.ps)
 }
@@ -1509,12 +1509,12 @@ func (w *walker) placeValue(ps []vpath) origins {
 					v = v.field(strings.SliceFrom(s, 1))
 				}
 			}
-			out.addAll(v)
+			out = origins(compat.Append(out, v...))
 			continue
 		}
-		out.add(origin{vp: p})
+		out = origins(compat.Append(out, origin{vp: p}))
 	}
-	return out
+	return out.uniq()
 }
 
 func extendAll(ps []vpath, step string) []vpath {

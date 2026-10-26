@@ -742,7 +742,12 @@ way (E2585).
   A call of method `m` through an interface type `I` may reach `m` of every type the program converts to
   `I`, whether directly, from another interface, or by a type assertion. A call through a func value of
   type `F` may reach every function of type `F` whose value the program takes anywhere: as a func value,
-  a method value or a method expression, or as a function literal. The error says when a path goes
+  a method value or a method expression, or as a function literal. Two calls are exact: a function
+  literal called where it is written (`func() { ... }()`, also deferred), which reaches only that
+  literal; and a call of a *hook*, an unexported package-level variable of func type that the program
+  only assigns plain functions or `nil` to, calls, and compares with `nil`, which reaches only the
+  functions assigned to it. A function whose value is taken only to be assigned to hooks is not among
+  the functions a call through any other func value may reach. The error says when a path goes
   through such a call. To make a handler's call exact, call the function directly.
 - **Allocation.** An allocator is not marked as a whole. `new`, `make` and every operation that makes a
   string call the allocator's `Alloc` through the `alloc.Allocator` interface, and the check follows

@@ -9,9 +9,9 @@ import (
 )
 
 // analyzeEscapes runs the escape analysis that PLUTO_ESCAPE selects
-// (docs/plans/2026-10-20-escape-redesign.md, section (g)): internal/escape
-// when it is unset or "old", the analysis being rebuilt in internal/escape2
-// for "new", and both for "both", which keeps the old verdict and reports
+// (docs/plans/2026-10-20-escape-redesign.md, section (g)): the analysis in
+// internal/escape2 when it is unset or "new", internal/escape for "old",
+// and both for "both", which keeps the old verdict and reports
 // every program and error site where the two differ (on standard error,
 // and appended to the file PLUTO_ESCAPE_DIFF names). The self-hosted
 // compiler links both, from go2pu's translation of this file.

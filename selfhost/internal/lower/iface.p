@@ -361,7 +361,7 @@ func (tt *typeTable) finish() bool {
 			concrete = compat.Append(concrete, d.T)
 		}
 	}
-	sort.SortFunc(concrete, func(a, b types2.Type) bool { return typeString(a) < typeString(b) })
+	sort.SortFunc(concrete, func(a, b types2.Type) bool { return tt.l.typeStr(a) < tt.l.typeStr(b) })
 	var ifaces []string
 	for k := range tt.asserted {
 		ifaces = compat.Append(ifaces, k)
@@ -371,7 +371,7 @@ func (tt *typeTable) finish() bool {
 		I := tt.asserted[ik]
 		iface := I.Underlying().(*types2.Interface)
 		for _, T := range concrete {
-			key := compat.Concat(typeString(T), ",", ik)
+			key := compat.Concat(tt.l.typeStr(T), ",", ik)
 			if tt.done[key] {
 				continue
 			}

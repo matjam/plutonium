@@ -323,6 +323,8 @@ var untranslated = map[string]string{
 	"internal/escape/oracle.go":         "the lowering oracle's record of the calls the escape analysis applies, test machinery of the Go compiler",
 	"internal/escape2/guard.go":         "recover, which turns a crash of the analysis into an internal error: guard.p is hand-written",
 	"internal/escape2/sched/workers.go": "the workers of the parallel driver, a channel and task statements the panic handler would reach through func values: workers.p is hand-written and runs the tasks in order",
+	"internal/backend/par.go":           "the parallel code generation, goroutines and a WaitGroup: par.p is hand-written and runs it in order",
+	"internal/opt/par.go":               "the parallel driver of the function passes, goroutines and a WaitGroup: par.p is hand-written and runs them in order",
 }
 
 // TranslateDir translates the Go package in dir.

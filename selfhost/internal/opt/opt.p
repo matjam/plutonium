@@ -32,6 +32,10 @@ type Pipeline struct {
 	why     map[*ssa.Value]string
 	inlined bool
 	notes   []InlineNote
+
+	// OnStep, if set, is called with the name of each step as it starts:
+	// a program pass, or the first of a run of function passes.
+	OnStep func(name string)
 }
 
 type step struct {
@@ -130,8 +134,28 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 			}
 		}
 	}
-	for _, st := range p.steps {
+	for i := 0; i < len(p.steps); i++ {
+		st := p.steps[i]
+		if st.fn != nil && after == nil && !checkSSA {
+			// A run of function passes, each function through all of
+			// them, the functions in parallel (par.go).
+			var group []*Pass
+			for ; i < len(p.steps) && p.steps[i].fn != nil; i++ {
+				group = compat.Append(group, p.steps[i].fn)
+			}
+			i--
+			if p.OnStep != nil {
+				p.OnStep(group[0].Name)
+			}
+			// The inline notes (p.why) name calls by their values, which
+			// copying the functions out (par.go) would change.
+			runFuncs(prog.Funcs, group, p.why == nil)
+			continue
+		}
 		if st.prog != nil {
+			if p.OnStep != nil {
+				p.OnStep(st.prog.Name)
+			}
 			if st.inline {
 				inline(prog, p.why)
 				p.inlined = true

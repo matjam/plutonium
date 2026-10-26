@@ -25,7 +25,7 @@ import (
 // an owner with a Drop method, or with parts that need destroying (owners,
 // or strings to release).
 func (l *Lowerer) needsDrop(T types2.Type) bool {
-	key := typeString(T)
+	key := l.typeStr(T)
 	if v, ok := l.dropNeeds[key]; ok {
 		return v
 	}

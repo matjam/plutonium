@@ -67,6 +67,8 @@ type callSite struct {
 	method      int               // and the index of the method in it
 	fsig        *types2.Signature // for a call through a func value: its type
 	lit         *ssa.Sym          // and the function, when the value is a literal's (defer func() {...}())
+	hook        *types2.Var       // or the package variable called, which may be a hook (hooks.go)
+	viaHook     bool              // the walk resolved the call as a hook's
 	drop        bool              // a dynamic interface's descriptor drop adapter
 	dropType    types2.Type       // interface whose dynamic value is dropped
 	countedDrop bool              // only shared/synced payloads are released
@@ -166,14 +168,17 @@ type callGraph struct {
 	// candidates of indirect calls, by itab key or signature
 	ifaceTargets map[string][]*ssa.Sym // by interface and method index
 	valueFuncs   []*ssa.Sym
+	hooks        *hookInfo
 }
 
 // checkContexts checks that no interrupt handler, and not the panic
 // handler, can reach an operation that waits or starts a task.
 func (l *Lowerer) checkContexts() {
-	g := &callGraph{l: l, funcs: l.funcsBySym(), edges: map[*ssa.Sym][]hop{}, ifaceTargets: map[string][]*ssa.Sym{}}
+	g := &callGraph{l: l, funcs: l.funcsBySym(), edges: map[*ssa.Sym][]hop{}, ifaceTargets: map[string][]*ssa.Sym{}, hooks: l.findHooks()}
 	for sym := range l.funcValues {
-		g.valueFuncs = compat.Append(g.valueFuncs, sym)
+		if !g.hooks.hidden[sym] {
+			g.valueFuncs = compat.Append(g.valueFuncs, sym)
+		}
 	}
 	sort.SortFunc(g.valueFuncs, func(a, b *ssa.Sym) bool { return a.Name < b.Name })
 
@@ -354,6 +359,12 @@ func (g *callGraph) targets(site *callSite) []*ssa.Sym {
 	}
 	if site.lit != nil {
 		return compat.Clone([]*ssa.Sym{site.lit})
+	}
+	if g.hooks != nil && site.hook != nil {
+		if t, ok := g.hooks.targets[site.hook]; ok {
+			site.viaHook = true
+			return t
+		}
 	}
 	var out []*ssa.Sym
 	want := plainSig(site.fsig)
@@ -625,6 +636,10 @@ func indirectNote(h *hop) string {
 		}
 		return compat.Sprintfb("%s calls through an interface, so it counts as calling the %s method "+
 			"of every type the program converts to %s.", compat.ArgS(h.site.desc), compat.ArgS(method), compat.ArgS(types2.TypeString(I, qual)))
+	}
+	if h.site.viaHook {
+		return compat.Sprintfb("%s is a hook, a variable its package only sets to functions and calls, "+
+			"so it counts as calling the functions assigned to it.", compat.ArgS(h.site.desc))
 	}
 	return compat.Sprintfb("%s calls through a func value, so it counts as calling every function "+
 		"of type %s whose value the program takes.", compat.ArgS(h.site.desc), compat.ArgS(types2.TypeString(h.site.fsig, qual)))

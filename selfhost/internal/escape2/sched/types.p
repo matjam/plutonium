@@ -18,10 +18,13 @@ type typeTable struct {
 	types   []types2.Type
 	buckets map[string][]typeID
 	hasTP   map[types2.Type]bool
+	// ids remembers the ID found for each type value looked up, so that
+	// looking the same value up again does not build its bucket key.
+	ids map[types2.Type]typeID
 }
 
 func newTypeTable() *typeTable {
-	return pu.New(typeTable{buckets: map[string][]typeID{}, hasTP: map[types2.Type]bool{}})
+	return pu.New(typeTable{buckets: map[string][]typeID{}, hasTP: map[types2.Type]bool{}, ids: map[types2.Type]typeID{}})
 }
 
 // intern returns the ID of t, adding it if no identical type is known.
@@ -33,13 +36,18 @@ func (tt *typeTable) intern(t types2.Type) typeID {
 	id := typeID(len(tt.types))
 	tt.types = compat.Append(tt.types, t)
 	tt.buckets[h] = compat.AppendPlain(tt.buckets[h], id)
+	tt.ids[t] = id
 	return id
 }
 
 // lookup returns the ID of a type identical to t, if one is interned.
 func (tt *typeTable) lookup(t types2.Type) (typeID, bool) {
+	if id, ok := tt.ids[t]; ok {
+		return id, true
+	}
 	for _, id := range tt.buckets[bucketKey(t)] {
 		if types2.Identical(tt.types[id], t) {
+			tt.ids[t] = id
 			return id, true
 		}
 	}
@@ -82,6 +90,8 @@ func appendKey(b []byte, t types2.Type, depth int) []byte {
 		return b
 	case *types2.TypeParam:
 		return compat.AppendString(compat.AppendString(b, "$"), t.Obj().Name())
+	case *types2.Basic:
+		return compat.AppendString(b, t.Name())
 	case *types2.Pointer:
 		return appendKey(compat.AppendPlain(b, '*'), t.Elem(), d)
 	case *types2.Slice:
@@ -172,16 +182,70 @@ func (tt *typeTable) hasTypeParam(t types2.Type) bool {
 	if v, ok := tt.hasTP[t]; ok {
 		return v
 	}
-	tt.hasTP[t] = false // cycles through named types: assume none until found
-	v := false
-	walkType(t, func(u types2.Type) bool {
-		if _, ok := u.(*types2.TypeParam); ok {
-			v = true
-		}
-		return !v
-	})
+	v := mentionsTypeParam(t)
 	tt.hasTP[t] = v
 	return v
+}
+
+// mentionsTypeParam is walkType looking for a type parameter, without a
+// func value: hasTypeParam is called often enough that one allocated per
+// call adds up.
+func mentionsTypeParam(t types2.Type) bool {
+	switch t := t.(type) {
+	case nil:
+		return false
+	case *types2.TypeParam:
+		return true
+	case *types2.Alias:
+		return mentionsTypeParam(types2.Unalias(t))
+	case *types2.Named:
+		if args := t.TypeArgs(); args != nil {
+			for i := 0; i < args.Len(); i++ {
+				if mentionsTypeParam(args.At(i)) {
+					return true
+				}
+			}
+		}
+	case *types2.Pointer:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Slice:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Array:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Map:
+		return mentionsTypeParam(t.Key()) || mentionsTypeParam(t.Elem())
+	case *types2.Chan:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Wrapper:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Struct:
+		for i := 0; i < t.NumFields(); i++ {
+			if mentionsTypeParam(t.Field(i).Type()) {
+				return true
+			}
+		}
+	case *types2.Tuple:
+		for i := 0; i < t.Len(); i++ {
+			if mentionsTypeParam(t.At(i).Type()) {
+				return true
+			}
+		}
+	case *types2.Signature:
+		return mentionsTypeParam(t.Params()) || mentionsTypeParam(t.Results())
+	case *types2.Interface:
+		for i := 0; i < t.NumExplicitMethods(); i++ {
+			if mentionsTypeParam(t.ExplicitMethod(i).Type()) {
+				return true
+			}
+		}
+	case *types2.TaggedUnion:
+		for i := 0; i < t.NumVariants(); i++ {
+			if v := t.Variant(i); v.HasPayload() && mentionsTypeParam(v.Payload()) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // typeParamsIn returns the type parameters t mentions, each once, in the
