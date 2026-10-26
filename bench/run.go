@@ -92,7 +92,7 @@ func run() error {
 		runs       = flag.Int("n", 5, "timed runs per binary (the median is reported)")
 		only       = flag.String("only", "", "comma-separated benchmark names to run (default all)")
 		langsFlag  = flag.String("langs", "c,rust,go,pu", "comma-separated languages: c, rust, go, pu")
-		pluto      = flag.String("pluto", "", "path to the pluto compiler (default: go build ./cmd/pluto from the repo root)")
+		pluto      = flag.String("pluto", "", "path to the pluto compiler (default: pluto on PATH)")
 		jsonOut    = flag.String("json", "", "write results as JSON to this file")
 		cc         = flag.String("cc", "gcc", "C compiler")
 		timeout    = flag.Duration("timeout", 60*time.Second, "per-run time limit")
@@ -157,11 +157,11 @@ func run() error {
 		selected = opts.only
 	}
 
-	// Resolve (or build) the Plutonium compiler once.
+	// Resolve the Plutonium compiler once.
 	var plutoBin string
 	var plutoErr error
 	if hasLang(opts.langs, "pu") {
-		plutoBin, plutoErr = resolvePluto(opts.pluto, repoRoot, work)
+		plutoBin, plutoErr = resolvePluto(opts.pluto)
 		if plutoErr != nil {
 			fmt.Fprintf(os.Stderr, "pluto compiler unavailable: %v\n", plutoErr)
 		}
@@ -350,9 +350,9 @@ func execute(bin string, env []string, timeout time.Duration) ([]byte, time.Dura
 	return stdout.Bytes(), d, nil
 }
 
-// resolvePluto returns the compiler path, building ./cmd/pluto when none was
-// given.
-func resolvePluto(flagPath, repoRoot, work string) (string, error) {
+// resolvePluto returns the compiler path: the -pluto flag if given,
+// otherwise pluto on PATH.
+func resolvePluto(flagPath string) (string, error) {
 	if flagPath != "" {
 		p, err := filepath.Abs(flagPath)
 		if err != nil {
@@ -363,9 +363,9 @@ func resolvePluto(flagPath, repoRoot, work string) (string, error) {
 		}
 		return p, nil
 	}
-	bin := filepath.Join(work, "pluto")
-	if err := command(repoRoot, nil, "go", "build", "-o", bin, "./cmd/pluto"); err != nil {
-		return "", fmt.Errorf("go build ./cmd/pluto: %w", err)
+	bin, err := exec.LookPath("pluto")
+	if err != nil {
+		return "", errors.New("no pluto on PATH: install it or pass -pluto /path/to/pluto")
 	}
 	return bin, nil
 }

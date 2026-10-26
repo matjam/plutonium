@@ -25,7 +25,7 @@ go run ./bench/run.go -json results.json      # also save machine-readable resul
 | `-n` | `5` | timed runs per binary; the median wall time is reported |
 | `-only` | all | comma-separated benchmark names |
 | `-langs` | `c,rust,go,pu` | comma-separated languages |
-| `-pluto` | build `./cmd/pluto` | path to a `pluto` compiler binary |
+| `-pluto` | `pluto` on `PATH` | path to a `pluto` compiler binary |
 | `-json` | none | write per-run timings, failures and toolchain versions to a file |
 | `-cc` | `gcc` | C compiler (`clang` works too) |
 | `-timeout` | `60s` | limit for a single run of a benchmark binary |
@@ -124,7 +124,7 @@ checked output. Build and run both by hand:
 
 ```sh
 (cd bench && go build -o /tmp/goconc ./conc/)
-go run ./cmd/pluto build -O2 -o /tmp/puconc ./bench/conc/pu
+pluto build -O2 -o /tmp/puconc ./bench/conc/pu
 /tmp/goconc; /tmp/puconc
 ```
 
@@ -150,8 +150,8 @@ nanoseconds per operation for each phase and a checksum all three must agree on:
 
 ```sh
 (cd bench && GOAMD64=v1 go build -o /tmp/gomaps ./maps/)
-go run ./cmd/pluto build -O2 -o /tmp/pumaps ./bench/maps/pu
-go run ./cmd/pluto build -O2 -o /tmp/hashmaps ./bench/maps/hash
+pluto build -O2 -o /tmp/pumaps ./bench/maps/pu
+pluto build -O2 -o /tmp/hashmaps ./bench/maps/hash
 GOMAXPROCS=1 /tmp/gomaps; /tmp/pumaps; /tmp/hashmaps
 ```
 
