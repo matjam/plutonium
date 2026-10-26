@@ -144,7 +144,7 @@ func (c *Copier) fillValue(v *Value, f *Func) {
 		n.Aux = c.prog.Sym(aux)
 	case *Intrinsic:
 		if c.prog != nil {
-			n.Aux = NewIntrinsic(strings.Clone(string(*aux)))
+			n.Aux = c.prog.Intrinsic(aux)
 		} else {
 			n.Aux = aux
 		}

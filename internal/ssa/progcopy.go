@@ -17,6 +17,10 @@ type ProgramCopier struct {
 	newSyms []*Sym       // their copies, made by Program
 	copiers []*Copier    // one for each function
 	out     *Program
+	// The copies of the intrinsic names, made by Program in the
+	// program's memory: a function's own memory is freed when a pass
+	// replaces its code, and the copy a pass makes shares the Aux.
+	intrinsics map[string]*Intrinsic
 }
 
 // NewProgramCopier returns a copier for p as it is now.
@@ -95,8 +99,27 @@ func (pc *ProgramCopier) Program() *Program {
 		n.DeferRunner = pc.Sym(f.DeferRunner)
 		out.Funcs[i] = n
 	}
+	pc.intrinsics = map[string]*Intrinsic{}
+	for _, f := range old.Funcs {
+		for _, b := range f.Blocks {
+			for _, v := range b.Values {
+				if aux, ok := v.Aux.(*Intrinsic); ok && pc.intrinsics[string(*aux)] == nil {
+					pc.intrinsics[string(*aux)] = NewIntrinsic(strings.Clone(string(*aux)))
+				}
+			}
+		}
+	}
 	pc.out = out
 	return out
+}
+
+// Intrinsic returns the copy of the intrinsic name aux, which Program made.
+func (pc *ProgramCopier) Intrinsic(aux *Intrinsic) *Intrinsic {
+	n := pc.intrinsics[string(*aux)]
+	if n == nil {
+		panic("ssa: copying an intrinsic the program does not hold")
+	}
+	return n
 }
 
 // Func copies the code of the program's i'th function into the current
