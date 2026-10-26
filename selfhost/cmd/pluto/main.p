@@ -116,6 +116,7 @@ const rootUsage = `Usage:
 
 Available Commands:
   build       Compile and link a Plutonium program
+  doc         Show package documentation and type ownership kinds
   explain     Explain a compile error code
   fmt         Format Plutonium source files
   help        Help about any command
@@ -336,6 +337,8 @@ func execute(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		say(stdout, "pluto version %s\ntarget: x86_64-linux\n", version)
 		return 0
+	case "doc":
+		return docCommand(args[1:], stdout, stderr)
 	case "explain":
 		return explainCommand(args[1:], stdout, stderr)
 	case "vet":
