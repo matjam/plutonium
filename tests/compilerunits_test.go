@@ -18,7 +18,7 @@ type compilerUnit struct {
 }
 
 // noGenCheck builds without generation checks. With them, the test builds
-// of escape2/sched, lsp and build run out of memory (over 24 GB) in the
+// of escape2, lsp and build run out of memory (11 to over 24 GB) in the
 // optimiser; this is a known compiler bug (AGENTS.md, "Known gaps").
 var noGenCheck = []string{"-gencheck=false"}
 
@@ -32,6 +32,8 @@ var compilerUnits = []compilerUnit{
 	{pkg: "internal/opt"},
 	{pkg: "internal/arch/amd64"},
 	{pkg: "internal/escape2/domain", flags: noGenCheck, heavy: true},
+	{pkg: "internal/escape2/summary", flags: noGenCheck, heavy: true},
+	{pkg: "internal/escape2/solve", flags: noGenCheck, heavy: true},
 	{pkg: "internal/escape2/sched", flags: noGenCheck, heavy: true},
 	{pkg: "internal/escape2/eir", flags: noGenCheck, heavy: true},
 	{pkg: "internal/escape2", flags: noGenCheck, heavy: true},

@@ -181,14 +181,25 @@ About the programs:
   must not change the output, digest the old compiler (`-pluto old/pluto > before.txt`) and
   compare the new one (`-compare before.txt`).
 
+Compiler unit tests: the Go packages' API-level tests are `_test.p` files in their
+`compiler/` packages, run by `pluto test` and by `tests/compilerunits_test.go`
+(TestCompilerUnits). The light packages (compat, regexp, ssa, opt, arch/amd64) run unless
+`-short`, in about 15 s. escape2, lsp and build take minutes each and 5 to 12 GB, and run
+only with `PLUTO_UNIT_HEAVY=1`, built with `-gencheck=false`. The `internal/build` program
+tests are Go tests in `tests/build_*_test.go`.
+
 Known gaps: these guards went with the Go implementation and have no replacement yet.
-- The Go packages' API-level unit tests with no program form (opt, arch, ssa, escape2,
-  lsp, the `internal/build` units; list in the go-removal plan, "Phase 2 status"). Their
-  behaviour is covered by the corpus and the self-build fixpoint only.
+- The test builds of escape2, lsp and build run out of memory with generation checks on
+  (11 GB locally, over 24 GB on kraken, in the first opt group), so they are run with
+  `-gencheck=false`. This is a compiler bug.
+- Unit tests left out (list in the go-removal plan, "Phase 2 status"): the external
+  `solve_test` package files (pluto test has no external test packages), escape2
+  oracle_test and sample_test, refsolve, lsp TestDefinitionExtractedStdlib. Three
+  corpus-sized escape2 tests are knownfail: they pass the memory cap.
 - Coverage: `tools/pkgcov` and the per-package floors measured the Go packages. Nothing
   measures the coverage of `compiler/`.
-- The test memory guard (`internal/testguard`) and the scale test of the escape analysis
-  (`PLUTO_SCALE_TEST`).
+- The test memory guard (`internal/testguard`). The scale test of the escape analysis is
+  back as TestScaleTranslated in `compiler/internal/escape2`, gated by `PLUTO_SCALE_TEST`.
 
 ## The agent skill
 

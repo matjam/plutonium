@@ -118,6 +118,57 @@ shared counter). Left in Go, with the reason:
   moves TestEmptyFacts; `cmd/pluto` TestBuildModes and TestGenCheckFlag.
   They go with their packages in phase 3.
 
+Unit tests restored (2026-10-27). The Go packages' API-level tests at
+`go-cutover` are `_test.p` files in the matching `compiler/` packages, run by
+`pluto test` and by TestCompilerUnits (`tests/compilerunits_test.go`; the heavy
+packages need `PLUTO_UNIT_HEAVY=1` and build with `-gencheck=false`):
+
+| Package | Tests | pluto test |
+|---------|-------|------------|
+| ssa | schedule, disjoint, verify (4) | 3.5 s, 370 MB |
+| opt | all 21 | 10 s, 570 MB |
+| arch/amd64 | all 27 (3 run GNU `as`) | 16 s, 650 MB |
+| escape2/domain | all 37 | 69 s, 1.5 GB |
+| escape2/summary | all 8 | 122 s, 5 GB |
+| escape2/solve | 68 (internal package files) | 130 s, 5.2 GB |
+| escape2/sched | 60 of 61 | 192 s, 5.8 GB |
+| escape2/eir | build, desugar, corpus | 833 s, 5.4 GB |
+| escape2 | cache, calls, report, scale and the rest | 931 s, 12 GB |
+| lsp | all 32 | 99 s, 3.2 GB |
+| build | fieldnames, ssatext | about 34 min, over 8 GB |
+
+The `internal/build` program tests (about 190) are Go tests in
+`tests/build_*_test.go`, built through the CLI (Config fields map to `pluto
+build` flags; library overlays copy `lib` and set `PLUTOROOT`), with shared
+helpers in `tests/build_support_test.go`. New test helpers:
+`compiler/internal/testrand` (Go's PCG), `compiler/internal/testpanic`,
+`compiler/internal/testenv`, `compat.SetenvForTest`.
+
+Left out, with the reason:
+- `escape2/solve` external `solve_test` files (arena, counted, counted_old,
+  libfalse, measure, review): they import escape2, which imports solve, and
+  `pluto test` has no external test packages.
+- escape2 oracle_test (needs `lower.LowerFacts`, gone) and sample_test (needs
+  `runtime.Stack`); refsolve and its tests (no Plutonium refsolve).
+- sched explain_test (a debug aid with no assertions, behind `ESCAPE2_EXPLAIN`).
+- lsp TestDefinitionExtractedStdlib (the library is no longer embedded).
+- arch/amd64 `testing.AllocsPerRun` checks (no counter in `pluto/testing`).
+- `internal/build` main_test.go (Go GC tuning only).
+
+Knownfail (`t.Skip("knownfail: ...")`): eir TestBuildCorpus, escape2
+TestAdversarial and TestMessageDiff. With no GC they pass kraken's 24 GB cap.
+
+Bugs found by the ported tests:
+- Fixed: escape2 cache summaries were damaged by UTF-8 replacement in
+  `compat.String` (80dfe057); `lower` crashed indexing an array element of a
+  value with no address, and panicked comparing interfaces of two types
+  (2e700afa, `testdata/run/elemarrayindex.p`, `ifaceeqmixed.p`).
+- `pluto/testing` printed test names with fmt, which the escape analysis
+  rejects (E3003) in any program with a formatting method that keeps
+  receiver data, such as types2; it now writes them directly.
+- Open: the test builds of escape2, lsp and build run out of memory with
+  generation checks on (first opt group, around copyelim).
+
 Known differences and bugs found:
 - `pluto fmt --harness` exists only in the self-hosted compiler; its goldens
   fail on pluto0.
