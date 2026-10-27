@@ -9,12 +9,12 @@
 package types2
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // assignment reports whether x can be assigned to a variable of type T,

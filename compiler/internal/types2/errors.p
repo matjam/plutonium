@@ -9,13 +9,13 @@
 package types2
 
 import (
-	"pluto/fmt"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/strings"
 )
 
 func assert(p bool) {

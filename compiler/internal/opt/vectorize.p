@@ -3,10 +3,10 @@
 package opt
 
 import (
-	"pluto/math"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/pu"
+	"pluto/math"
 )
 
 // Vectorize runs counted loops over float64 data two iterations at a time

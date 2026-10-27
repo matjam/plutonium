@@ -3,11 +3,11 @@
 package lsp
 
 import (
+	"compiler/compat"
 	"pluto/path/filepath"
 	"pluto/slices"
 	"pluto/strconv"
 	"pluto/strings"
-	"compiler/compat"
 )
 
 // diagnose checks the package of every open document and publishes the

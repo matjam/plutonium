@@ -9,11 +9,11 @@
 package parser
 
 import (
-	"pluto/io"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/io"
 )
 
 // If src != nil, readSource converts src to a []byte if possible;

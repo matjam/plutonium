@@ -10,14 +10,14 @@
 package scanner
 
 import (
+	"compiler/compat"
+	"compiler/internal/syntax/token"
+	"compiler/pu"
 	"pluto/bytes"
 	"pluto/path/filepath"
 	"pluto/strconv"
 	"pluto/unicode"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/internal/syntax/token"
-	"compiler/pu"
 )
 
 // An ErrorHandler may be provided to [Scanner.Init]. If a syntax error is

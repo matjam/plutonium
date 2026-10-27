@@ -3,13 +3,13 @@
 package debuginfo
 
 import (
-	"pluto/strings"
-	"pluto/unicode/utf8"
 	"compiler/compat"
 	"compiler/elf"
 	"compiler/internal/arch/amd64"
 	"compiler/internal/objfile"
 	"compiler/pu"
+	"pluto/strings"
+	"pluto/unicode/utf8"
 )
 
 // TraceSym is the symbol of the trace table. The runtime finds the table

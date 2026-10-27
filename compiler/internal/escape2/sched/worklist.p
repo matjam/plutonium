@@ -3,10 +3,10 @@
 package sched
 
 import (
-	"pluto/container/heap"
 	"compiler/compat"
 	"compiler/internal/escape2/eir"
 	"compiler/pu"
+	"pluto/container/heap"
 )
 
 // sccWork is the worklist of one SCC's iteration. Functions are solved in a

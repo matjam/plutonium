@@ -13,10 +13,10 @@
 package ast
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // ----------------------------------------------------------------------------

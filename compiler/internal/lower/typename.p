@@ -3,9 +3,9 @@
 package lower
 
 import (
-	"pluto/strconv"
 	"compiler/compat"
 	"compiler/internal/types2"
+	"pluto/strconv"
 )
 
 // reflectName returns the name of T in a type descriptor: T as Go's

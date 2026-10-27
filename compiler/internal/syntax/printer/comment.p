@@ -7,11 +7,11 @@
 package printer
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	comment "compiler/internal/doccomment"
 	"compiler/internal/syntax/ast"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // formatDocComment reformats the doc comment list,

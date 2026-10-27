@@ -3,7 +3,6 @@
 package lower
 
 import (
-	"pluto/path/filepath"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/ssa"
@@ -11,6 +10,7 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/path/filepath"
 )
 
 // The panic handler (language spec, "Panics in freestanding programs"). A

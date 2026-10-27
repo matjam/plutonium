@@ -3,8 +3,8 @@
 package solve
 
 import (
-	"pluto/bits"
 	"compiler/internal/escape2/eir"
+	"pluto/bits"
 )
 
 // checkDrops is the OpDrop rule (rules.go): a register live after the drop

@@ -6,11 +6,11 @@
 package lsp
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/io"
 	"pluto/strconv"
 	"pluto/strings"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // The base protocol of LSP: JSON-RPC 2.0 messages, each preceded by a
@@ -19,7 +19,7 @@ import (
 // A message is any JSON-RPC message: a request (ID and Method), a
 // notification (Method only) or a response (ID with Result or Error).
 type message struct {
-	ID        []byte     // the id's JSON text; nil if there is none
+	ID        []byte // the id's JSON text; nil if there is none
 	Method    string
 	Params    *jsonValue // nil if there are none
 	HasParams bool

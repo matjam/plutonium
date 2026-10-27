@@ -12,9 +12,9 @@
 package fs
 
 import (
-	"pluto/os"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/os"
 )
 
 // ErrNotExist and ErrInvalid are Go's fs.ErrNotExist and fs.ErrInvalid:

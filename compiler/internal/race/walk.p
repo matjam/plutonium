@@ -3,12 +3,12 @@
 package race
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // A state is what the flow analysis knows at a point of a function body.

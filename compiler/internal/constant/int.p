@@ -3,8 +3,8 @@
 package constant
 
 import (
-	"pluto/strings"
 	"compiler/compat"
+	"pluto/strings"
 )
 
 // A bigInt is a signed integer of any size: a sign and a magnitude. Zero is

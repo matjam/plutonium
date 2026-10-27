@@ -3,13 +3,13 @@
 package lower
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // Interface values are two words: a table pointer and a data word.

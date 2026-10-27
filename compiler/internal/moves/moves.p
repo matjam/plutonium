@@ -18,7 +18,6 @@
 package moves
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/load"
@@ -27,6 +26,7 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // Info is what lowering needs to know to destroy owners (spec section 18.6):

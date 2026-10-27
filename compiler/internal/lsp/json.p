@@ -7,11 +7,11 @@
 package lsp
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/strconv"
 	"pluto/strings"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 type jsonKind int

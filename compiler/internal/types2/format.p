@@ -9,13 +9,13 @@
 package types2
 
 import (
-	"pluto/fmt"
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 // A formatted is an argument of sprintf that has been converted to text. It

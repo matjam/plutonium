@@ -3,8 +3,6 @@
 package lower
 
 import (
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/ssa"
@@ -12,6 +10,8 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // Interrupt context (language spec, "Interrupts"). An interrupt handler

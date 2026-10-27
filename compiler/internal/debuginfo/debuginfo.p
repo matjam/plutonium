@@ -8,7 +8,6 @@
 package debuginfo
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/elf"
 	"compiler/internal/arch/amd64"
@@ -16,6 +15,7 @@ import (
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // A Func is one compiled function.

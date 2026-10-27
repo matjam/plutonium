@@ -3,10 +3,10 @@
 package constant
 
 import (
+	"compiler/compat"
 	"pluto/bits"
 	"pluto/math"
 	"pluto/strings"
-	"compiler/compat"
 )
 
 // A bigFloat is a binary floating-point number with a mantissa of prec bits,

@@ -5,11 +5,11 @@
 package lsp
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/path/filepath"
 	"pluto/strings"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // LSP positions count lines from 0 and characters in UTF-16 code units;

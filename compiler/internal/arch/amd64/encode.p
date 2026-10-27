@@ -3,10 +3,10 @@
 package amd64
 
 import (
-	"pluto/fmt"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/pu"
+	"pluto/fmt"
 )
 
 // RelocType is an x86-64 ELF relocation type.

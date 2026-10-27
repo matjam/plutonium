@@ -5,12 +5,6 @@
 package build
 
 import (
-	"pluto/errors"
-	"pluto/fmt"
-	"pluto/io"
-	"pluto/os"
-	"pluto/path/filepath"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/compat/fs"
 	"compiler/internal/backend"
@@ -27,6 +21,12 @@ import (
 	"compiler/internal/ssa"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/errors"
+	"pluto/fmt"
+	"pluto/io"
+	"pluto/os"
+	"pluto/path/filepath"
+	"pluto/strings"
 	"unsafe"
 )
 

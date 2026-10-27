@@ -16,11 +16,11 @@
 package regexp
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/strings"
 	"pluto/unicode"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // A Regexp is a compiled regular expression.
@@ -240,12 +240,12 @@ func isWordByte(b byte) bool {
 
 // The nodes of a parsed expression.
 const (
-	nEmpty   = iota // matches the empty string
-	nInst           // one instruction: a rune, class, any or assertion
-	nConcat         // subs in sequence
-	nAlt            // one of subs
-	nRepeat         // sub repeated min to max times; max < 0 is no limit
-	nGroup          // a parenthesised sub-expression
+	nEmpty  = iota // matches the empty string
+	nInst          // one instruction: a rune, class, any or assertion
+	nConcat        // subs in sequence
+	nAlt           // one of subs
+	nRepeat        // sub repeated min to max times; max < 0 is no limit
+	nGroup         // a parenthesised sub-expression
 )
 
 type node struct {

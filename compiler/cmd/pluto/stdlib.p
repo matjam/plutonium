@@ -6,10 +6,10 @@ package main
 // executable or one level above it (self-hosting plan, section 8).
 
 import (
-	"pluto/os"
-	"pluto/path/filepath"
 	"compiler/compat"
 	"compiler/compat/fs"
+	"pluto/os"
+	"pluto/path/filepath"
 )
 
 // stdlib returns the standard library: the directory stdlibDir names, or

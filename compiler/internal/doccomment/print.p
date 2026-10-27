@@ -7,10 +7,10 @@
 package comment
 
 import (
-	"pluto/fmt"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/strings"
 )
 
 // A Printer is a doc comment printer. This copy keeps only Comment, the

@@ -3,12 +3,12 @@
 package diag
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/scanner"
 	"compiler/internal/syntax/token"
 	typerr "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // Syntax errors come from the parser and scanner, forked from Go's, as

@@ -3,13 +3,13 @@
 package race
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // Messages of the check of scoped tasks (scope.go).

@@ -3,9 +3,9 @@
 package diag
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // FromTool returns the diagnostic for a failed run of an external tool:

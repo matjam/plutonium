@@ -12,10 +12,10 @@ package types2
 // comparable.
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // A portableStep is one step from a type to a component of it.

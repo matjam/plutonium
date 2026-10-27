@@ -5,9 +5,9 @@
 package errors
 
 import (
+	"compiler/compat"
 	"pluto/strconv"
 	"pluto/strings"
-	"compiler/compat"
 )
 
 func _() {

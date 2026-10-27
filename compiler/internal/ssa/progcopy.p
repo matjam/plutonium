@@ -3,9 +3,9 @@
 package ssa
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // A ProgramCopier moves a whole program into fresh memory: its symbols,

@@ -3,7 +3,6 @@
 package sched
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
@@ -11,6 +10,7 @@ import (
 	"compiler/internal/escape2/summary"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // The parts of other packages the driver calls, as variables so that the

@@ -9,11 +9,11 @@
 package diff
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/bytes"
 	"pluto/sort"
 	"pluto/strings"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // A pair is a pair of values tracked for both the x and y side of a diff.

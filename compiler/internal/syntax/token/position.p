@@ -7,11 +7,11 @@
 package token
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/cmp"
 	"pluto/slices"
 	"pluto/strconv"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // If debug is set, invalid offset and position values cause a panic

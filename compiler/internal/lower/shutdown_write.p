@@ -3,12 +3,12 @@
 package lower
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // These existing library ABI operations write typed memory without a source

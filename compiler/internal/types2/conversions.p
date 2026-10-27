@@ -9,11 +9,11 @@
 package types2
 
 import (
-	"pluto/unicode"
 	"compiler/compat"
 	"compiler/internal/constant"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/unicode"
 )
 
 // conversion type-checks the conversion T(x).

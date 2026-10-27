@@ -3,12 +3,12 @@
 package lower
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/load"
 	"compiler/internal/ssa"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/slices"
 )
 
 // A staticCleanupObject has one ownership obligation, independently of its

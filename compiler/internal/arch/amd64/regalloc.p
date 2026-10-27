@@ -3,12 +3,12 @@
 package amd64
 
 import (
-	"pluto/bits"
-	"pluto/math"
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/pu"
+	"pluto/bits"
+	"pluto/math"
+	"pluto/sort"
 )
 
 // expandPCopies turns each parallel copy into a sequence of copies that has

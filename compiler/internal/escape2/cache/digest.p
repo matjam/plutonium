@@ -3,14 +3,14 @@
 package cache
 
 import (
-	"pluto/slices"
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/summary"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // hasher writes the parts of a digest with their lengths, so that two

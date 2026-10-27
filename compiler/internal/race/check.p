@@ -3,9 +3,6 @@
 package race
 
 import (
-	"pluto/os"
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/load"
@@ -14,6 +11,9 @@ import (
 	"compiler/internal/types2"
 	typerr "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/os"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // maxGroups bounds the tasks followed from the program's start.

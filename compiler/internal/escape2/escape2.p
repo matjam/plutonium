@@ -3,9 +3,6 @@
 package escape2
 
 import (
-	"pluto/errors"
-	"pluto/fmt"
-	"pluto/os"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/escape2/cache"
@@ -17,6 +14,9 @@ import (
 	"compiler/internal/load"
 	"compiler/internal/moves"
 	"compiler/pu"
+	"pluto/errors"
+	"pluto/fmt"
+	"pluto/os"
 )
 
 // Check runs this analysis on prog and returns its errors, sorted, as a

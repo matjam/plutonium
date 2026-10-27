@@ -9,10 +9,10 @@
 package types2
 
 import (
-	"pluto/fmt"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/pu"
+	"pluto/fmt"
 )
 
 // ExprString returns the (possibly shortened) string representation for x.

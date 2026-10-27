@@ -9,12 +9,12 @@
 package types2
 
 import (
-	"pluto/slices"
-	"pluto/strconv"
-	"pluto/unicode/utf8"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/strconv"
+	"pluto/unicode/utf8"
 )
 
 // A Qualifier controls how named package-level objects are printed in

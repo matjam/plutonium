@@ -3,7 +3,6 @@
 package lower
 
 import (
-	"pluto/fmt"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/ssa"
@@ -11,6 +10,7 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/fmt"
 )
 
 // The C calling convention (System V AMD64) for //pu:extern and //pu:export

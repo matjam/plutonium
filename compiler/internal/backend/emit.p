@@ -6,8 +6,6 @@
 package backend
 
 import (
-	"pluto/io"
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/elf"
 	"compiler/internal/arch/amd64"
@@ -16,6 +14,8 @@ import (
 	"compiler/internal/scratch"
 	"compiler/internal/ssa"
 	"compiler/pu"
+	"pluto/io"
+	"pluto/sort"
 )
 
 // PerCPUSelf is the symbol of the word at offset 0 of every per-CPU block.

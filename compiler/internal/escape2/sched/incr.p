@@ -3,12 +3,12 @@
 package sched
 
 import (
-	"pluto/os"
-	"pluto/strconv"
 	"compiler/compat"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/solve"
 	"compiler/pu"
+	"pluto/os"
+	"pluto/strconv"
 )
 
 // Incremental re-solving inside an SCC. A function of an SCC is solved again

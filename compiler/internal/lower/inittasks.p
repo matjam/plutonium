@@ -3,13 +3,13 @@
 package lower
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // checkInitTasks enforces section 15.2 before any optimization can remove

@@ -9,13 +9,13 @@
 package types2
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // funcInst type-checks a function instantiation.

@@ -3,10 +3,10 @@
 package opt
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/token"
+	"pluto/sort"
 )
 
 // Notes on //pu:inline calls left out of line (pluto build --inlinenotes).

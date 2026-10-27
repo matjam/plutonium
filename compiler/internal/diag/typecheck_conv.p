@@ -3,11 +3,11 @@
 package diag
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // The conversions of Go that Plutonium removes (language spec section 11.24):

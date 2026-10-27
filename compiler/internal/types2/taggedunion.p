@@ -30,14 +30,14 @@ package types2
 // union of terms in a type constraint.
 
 import (
-	"pluto/slices"
-	"pluto/strconv"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/strconv"
 )
 
 // A TaggedUnion is the underlying type of a union type declaration.

@@ -12,17 +12,17 @@
 package printer
 
 import (
-	"pluto/fmt"
-	"pluto/io"
-	"pluto/os"
-	"pluto/strings"
-	"pluto/unicode"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/constraint"
 	"compiler/internal/syntax/token"
 	"compiler/internal/tabwriter"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/io"
+	"pluto/os"
+	"pluto/strings"
+	"pluto/unicode"
 )
 
 const (

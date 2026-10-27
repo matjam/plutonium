@@ -3,11 +3,11 @@
 package diag
 
 import (
-	"pluto/io"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/scanner"
 	"compiler/pu"
+	"pluto/io"
+	"pluto/strings"
 )
 
 // width is the width explanations are wrapped to, indent included.

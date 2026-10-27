@@ -3,12 +3,12 @@
 package report
 
 import (
-	"pluto/path/filepath"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	"pluto/path/filepath"
+	"pluto/strings"
 )
 
 // A locKind says what memory a view looks at, in the terms a message uses.

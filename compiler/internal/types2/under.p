@@ -7,9 +7,9 @@
 package types2
 
 import (
-	"pluto/iter"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/iter"
 )
 
 // If typ is a type parameter, underIs returns the result of typ.underIs(f).

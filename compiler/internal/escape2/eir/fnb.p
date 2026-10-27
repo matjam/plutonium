@@ -82,7 +82,7 @@ type fnb struct {
 	// The holders of what scoped tasks carry for the check of the blocks
 	// that end before the join (endsHolder), with each task's JoinBlock.
 	endsHolders map[ObjID]*types2.Scope
-	boxViews   map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
+	boxViews    map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
 	varBlock    map[*types2.Var]*Block // the block that declares each local
 
 	// The closures this function builds in its caller's region, and the

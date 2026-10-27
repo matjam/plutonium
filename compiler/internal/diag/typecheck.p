@@ -3,15 +3,15 @@
 package diag
 
 import (
-	"pluto/path/filepath"
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	typerr "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/path/filepath"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 // A CheckContext is what the type checker recorded about a package, used

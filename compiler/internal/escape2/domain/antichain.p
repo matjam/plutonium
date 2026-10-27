@@ -3,8 +3,8 @@
 package domain
 
 import (
-	"pluto/slices"
 	"compiler/compat"
+	"pluto/slices"
 )
 
 // Antichains of keys. A summary keeps its key sets as antichains under

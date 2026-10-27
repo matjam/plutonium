@@ -3,7 +3,6 @@
 package lower
 
 import (
-	"pluto/math"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/ssa"
@@ -11,6 +10,7 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/math"
 )
 
 // A value is the result of lowering an expression. Scalars are SSA values;

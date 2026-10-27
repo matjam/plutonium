@@ -3,12 +3,12 @@
 package race
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // The sendable rule for views (language spec section 19.2). A view crossing

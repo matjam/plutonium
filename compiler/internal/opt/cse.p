@@ -3,10 +3,10 @@
 package opt
 
 import (
-	"pluto/fmt"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/pu"
+	"pluto/fmt"
 )
 
 // CSE replaces each value with an equivalent value that dominates it.

@@ -11,13 +11,13 @@
 package directive
 
 import (
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 // Prefix starts every directive.

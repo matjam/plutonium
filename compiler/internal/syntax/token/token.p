@@ -9,10 +9,10 @@
 package token
 
 import (
+	"compiler/compat"
 	"pluto/strconv"
 	"pluto/unicode"
 	"pluto/unicode/utf8"
-	"compiler/compat"
 )
 
 // Token is the set of lexical tokens of the Go programming language.

@@ -3,11 +3,11 @@
 package lsp
 
 import (
-	"pluto/path/filepath"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	"pluto/path/filepath"
 )
 
 // enclosing returns the nodes of f's syntax tree that contain pos,

@@ -3,13 +3,13 @@
 package lsp
 
 import (
-	"pluto/cmp"
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/cmp"
+	"pluto/slices"
 )
 
 func (s *server) definition(p *TextDocumentPositionParams) ([]Location, *rpcError) {

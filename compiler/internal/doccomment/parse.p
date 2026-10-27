@@ -7,12 +7,12 @@
 package comment
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/slices"
 	"pluto/strings"
 	"pluto/unicode"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // A Doc is a parsed Go doc comment.

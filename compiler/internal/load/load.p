@@ -11,12 +11,6 @@
 package load
 
 import (
-	"pluto/errors"
-	"pluto/path/filepath"
-	path "pluto/path/filepath"
-	"pluto/slices"
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/compat/fs"
 	"compiler/internal/diag"
@@ -28,6 +22,12 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/errors"
+	"pluto/path/filepath"
+	path "pluto/path/filepath"
+	"pluto/slices"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // Config controls loading.

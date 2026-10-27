@@ -7,14 +7,14 @@
 package types2
 
 import (
-	"pluto/fmt"
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/slices"
 )
 
 func (check *Checker) declare(scope *Scope, id *ast.Ident, obj Object, pos token.Pos) {

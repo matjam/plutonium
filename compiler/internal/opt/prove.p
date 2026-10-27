@@ -3,10 +3,10 @@
 package opt
 
 import (
-	"pluto/bits"
-	"pluto/math"
 	"compiler/compat"
 	"compiler/internal/ssa"
+	"pluto/bits"
+	"pluto/math"
 )
 
 // Prove folds conditional branches whose outcome follows from the branches

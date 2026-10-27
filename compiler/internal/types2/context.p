@@ -7,11 +7,11 @@
 package types2
 
 import (
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/scratch"
 	"compiler/pu"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 // This file contains a definition of the type-checking context; an opaque type

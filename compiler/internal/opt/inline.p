@@ -3,11 +3,11 @@
 package opt
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/scratch"
 	"compiler/internal/ssa"
 	"compiler/pu"
+	"pluto/sort"
 	"unsafe"
 )
 

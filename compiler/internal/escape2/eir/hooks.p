@@ -3,12 +3,12 @@
 package eir
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // The bodies the lowerer gives functions of pluto/rt that are declared

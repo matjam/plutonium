@@ -3,11 +3,11 @@
 package lower
 
 import (
-	"pluto/slices"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/slices"
 )
 
 // Packed storage. A packed type whose size is 1, 2, 4 or 8 bytes is held in

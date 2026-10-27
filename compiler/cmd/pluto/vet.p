@@ -3,9 +3,6 @@ package main
 // pluto vet -unsafe, as cmd/pluto/vet.go has it.
 
 import (
-	"pluto/io"
-	"pluto/path/filepath"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/compat/fs"
 	"compiler/internal/audit"
@@ -13,6 +10,9 @@ import (
 	"compiler/internal/load"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/io"
+	"pluto/path/filepath"
+	"pluto/strings"
 )
 
 const vetHelp = `vet -unsafe audits each package and its dependencies without running or

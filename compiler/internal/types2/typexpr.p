@@ -9,12 +9,12 @@
 package types2
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/syntax/ast"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // ident type-checks identifier e and initializes x with the value or type of e.

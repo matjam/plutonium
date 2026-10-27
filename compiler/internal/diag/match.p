@@ -3,8 +3,8 @@
 package diag
 
 import (
-	"pluto/strings"
 	"compiler/compat"
+	"pluto/strings"
 )
 
 // This file holds the matchers the type checker's message rewriting and the

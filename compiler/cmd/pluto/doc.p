@@ -3,13 +3,13 @@ package main
 // pluto doc, as cmd/pluto/doc.go has it.
 
 import (
-	"pluto/io"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/doc"
 	"compiler/internal/load"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/io"
 )
 
 const docHelp = `Show source documentation and declarations without running or linking the package.

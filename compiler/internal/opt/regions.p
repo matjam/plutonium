@@ -3,9 +3,9 @@
 package opt
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/ssa"
+	"pluto/sort"
 )
 
 // Closure regions.

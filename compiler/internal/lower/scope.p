@@ -3,15 +3,15 @@
 package lower
 
 import (
-	"pluto/slices"
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/moves"
 	"compiler/internal/scoped"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/types2"
+	"pluto/slices"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 // Where owners are destroyed (language spec section 18.6).

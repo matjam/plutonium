@@ -7,9 +7,9 @@
 package types2
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // A trie[V] maps keys to values V, similar to a map.

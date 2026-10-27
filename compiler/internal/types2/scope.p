@@ -9,13 +9,13 @@
 package types2
 
 import (
+	"compiler/compat"
+	"compiler/internal/syntax/token"
+	"compiler/pu"
 	"pluto/fmt"
 	"pluto/io"
 	"pluto/slices"
 	"pluto/strings"
-	"compiler/compat"
-	"compiler/internal/syntax/token"
-	"compiler/pu"
 )
 
 // A Scope maintains a set of objects and links to its containing

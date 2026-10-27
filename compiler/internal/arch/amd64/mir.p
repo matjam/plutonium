@@ -3,11 +3,11 @@
 package amd64
 
 import (
-	"pluto/fmt"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/fmt"
 )
 
 // An MOp is a machine instruction kind. Most map to one x86-64 instruction;

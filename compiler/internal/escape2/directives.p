@@ -1,12 +1,12 @@
 package escape2
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/load"
 	"compiler/internal/syntax/ast"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // directiveErrors reports the //pu:resultholds directives the analysis

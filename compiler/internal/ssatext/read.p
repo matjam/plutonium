@@ -48,11 +48,11 @@
 package ssatext
 
 import (
-	"pluto/strconv"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/strconv"
 )
 
 // Version is the version of the text form, on its first line.

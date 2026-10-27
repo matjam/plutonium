@@ -3,13 +3,13 @@
 package lower
 
 import (
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 // The //pu:stack directive on main.main sets the size of the stack the

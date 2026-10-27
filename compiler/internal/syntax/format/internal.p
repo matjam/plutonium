@@ -12,14 +12,14 @@
 package format
 
 import (
-	"pluto/bytes"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/parser"
 	"compiler/internal/syntax/printer"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/bytes"
+	"pluto/strings"
 )
 
 // parse parses src, which was read from the named file,

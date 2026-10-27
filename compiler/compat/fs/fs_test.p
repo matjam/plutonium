@@ -1,10 +1,10 @@
 package fs
 
 import (
+	"compiler/compat"
 	"pluto/errors"
 	"pluto/os"
 	"pluto/testing"
-	"compiler/compat"
 )
 
 func TestDirFS(t *testing.T) {

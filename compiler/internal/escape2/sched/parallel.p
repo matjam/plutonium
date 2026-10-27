@@ -3,9 +3,6 @@
 package sched
 
 import (
-	"pluto/os"
-	"pluto/slices"
-	"pluto/strconv"
 	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
@@ -14,6 +11,9 @@ import (
 	"compiler/internal/scratch"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/os"
+	"pluto/slices"
+	"pluto/strconv"
 )
 
 // The parallel driver. The analysis goes in rounds. In a round, every

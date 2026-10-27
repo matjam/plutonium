@@ -5,9 +5,6 @@
 package audit
 
 import (
-	"pluto/io"
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/directive"
 	"compiler/internal/escape2"
@@ -18,6 +15,9 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/io"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 type site struct {

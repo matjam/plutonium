@@ -6,10 +6,10 @@ package build
 // (self-hosting plan, section 8).
 
 import (
-	"pluto/errors"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/pu"
+	"pluto/errors"
 )
 
 // checkPerCPU verifies, in a linked ELF executable, that the per-CPU block

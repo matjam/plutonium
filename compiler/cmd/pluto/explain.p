@@ -3,12 +3,12 @@ package main
 // pluto explain, as cmd/pluto/explain.go has it.
 
 import (
-	"pluto/io"
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/pu"
+	"pluto/io"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 const explainLong = `explain prints the long explanation of a compile error code, with an

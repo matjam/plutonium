@@ -7,13 +7,13 @@
 package scanner
 
 import (
+	"compiler/compat"
+	"compiler/internal/syntax/token"
+	"compiler/pu"
 	"pluto/cmp"
 	"pluto/fmt"
 	"pluto/io"
 	"pluto/slices"
-	"compiler/compat"
-	"compiler/internal/syntax/token"
-	"compiler/pu"
 )
 
 // In an [ErrorList], an error is represented by an *Error.

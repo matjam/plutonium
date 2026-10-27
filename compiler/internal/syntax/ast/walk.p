@@ -7,9 +7,9 @@
 package ast
 
 import (
-	"pluto/iter"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/iter"
 )
 
 // A Visitor's Visit method is invoked for each node encountered by [Walk].

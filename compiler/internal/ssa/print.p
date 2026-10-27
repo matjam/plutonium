@@ -3,10 +3,10 @@
 package ssa
 
 import (
-	"pluto/fmt"
-	"pluto/math"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/math"
 )
 
 // String formats the function as text, for tests and debugging.

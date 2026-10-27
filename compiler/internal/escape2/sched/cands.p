@@ -3,11 +3,11 @@
 package sched
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // Candidate sets (plan section (b), stage B; invariant I2): for each dynamic

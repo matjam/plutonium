@@ -7,12 +7,12 @@
 package types2
 
 import (
-	"pluto/strings"
-	"pluto/sync/atomic"
 	"compiler/compat"
 	"compiler/internal/scratch"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/strings"
+	"pluto/sync/atomic"
 )
 
 // Type-checking Named types is subtle, because they may be recursively

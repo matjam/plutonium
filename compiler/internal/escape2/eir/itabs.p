@@ -3,10 +3,10 @@
 package eir
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/types2"
+	"pluto/sort"
 )
 
 // Itabs found at run time (internal/lower iface.go typeTable.finish, the

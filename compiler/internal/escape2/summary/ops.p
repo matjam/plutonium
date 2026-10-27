@@ -3,10 +3,10 @@
 package summary
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
+	"pluto/slices"
 )
 
 // Leq reports whether s is no wider than t: every entry of s is covered by

@@ -35,11 +35,11 @@
 package types2
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/cmp"
 	"pluto/slices"
 	"pluto/strings"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 const (

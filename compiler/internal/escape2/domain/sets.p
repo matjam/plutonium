@@ -3,9 +3,9 @@
 package domain
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/slices"
 )
 
 // Hash-consed sets. Each distinct set is stored once, as a sorted array of

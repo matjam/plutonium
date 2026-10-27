@@ -17,13 +17,13 @@ package types2
 // range E, and a generated String method.
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/slices"
 )
 
 // An Enum lists the members of an enum type.

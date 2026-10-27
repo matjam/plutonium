@@ -3,11 +3,11 @@
 package eir
 
 import (
-	"pluto/fmt"
-	"pluto/io"
 	"compiler/compat"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	"pluto/fmt"
+	"pluto/io"
 )
 
 // Dump writes a function in a readable form, for tests and debugging.

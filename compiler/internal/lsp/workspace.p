@@ -3,11 +3,6 @@
 package lsp
 
 import (
-	"pluto/os"
-	"pluto/path/filepath"
-	"pluto/slices"
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/compat/fs"
 	"compiler/internal/diag"
@@ -19,6 +14,11 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/os"
+	"pluto/path/filepath"
+	"pluto/slices"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 // A workspace type-checks packages from disk and from the editor's open

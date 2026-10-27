@@ -3,13 +3,13 @@
 package lsp
 
 import (
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 func (s *server) completion(p *TextDocumentPositionParams) (*CompletionList, *rpcError) {

@@ -3,11 +3,6 @@
 package main
 
 import (
-	"pluto/errors"
-	"pluto/io"
-	"pluto/os"
-	"pluto/path/filepath"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diff"
 	"compiler/internal/syntax/format"
@@ -16,6 +11,11 @@ import (
 	"compiler/internal/syntax/scanner"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/errors"
+	"pluto/io"
+	"pluto/os"
+	"pluto/path/filepath"
+	"pluto/strings"
 )
 
 const fmtLong = `fmt formats Plutonium source the way gofmt formats Go.

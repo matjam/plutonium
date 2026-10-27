@@ -8,8 +8,8 @@ import (
 
 	"compiler/compat"
 	"compiler/internal/testpanic"
-	"compiler/pu"
 	"compiler/internal/testrand"
+	"compiler/pu"
 )
 
 // model is the reference a set is checked against: a sorted slice without

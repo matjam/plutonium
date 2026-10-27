@@ -7,12 +7,12 @@ package main
 // the arena (self-hosting plan, section 8).
 
 import (
+	"compiler/internal/build"
+	"compiler/pu"
 	"pluto/errors"
 	"pluto/io"
 	"pluto/os"
 	"pluto/os/exec"
-	"compiler/internal/build"
-	"compiler/pu"
 )
 
 // runProgram runs the program at path with args, on the compiler's own

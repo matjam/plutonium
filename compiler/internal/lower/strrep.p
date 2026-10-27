@@ -3,9 +3,9 @@
 package lower
 
 import (
-	"pluto/unicode/utf8"
 	"compiler/compat"
 	"compiler/internal/ssa"
+	"pluto/unicode/utf8"
 )
 
 // The representation of a string (abi.md section 1, language spec section

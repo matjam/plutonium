@@ -7,18 +7,18 @@
 package types2
 
 import (
-	"pluto/cmp"
-	"pluto/fmt"
-	"pluto/slices"
-	"pluto/strconv"
-	"pluto/strings"
-	"pluto/unicode"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/cmp"
+	"pluto/fmt"
+	"pluto/slices"
+	"pluto/strconv"
+	"pluto/strings"
+	"pluto/unicode"
 )
 
 // A declInfo describes a package-level const, type, var, or func declaration.

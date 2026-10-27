@@ -3,11 +3,11 @@
 package lsp
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // codeLang is the language of code blocks in hover text: the extension's

@@ -9,10 +9,10 @@
 package types2
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/slices"
 )
 
 // If enableReverseTypeInference is set, uninstantiated and

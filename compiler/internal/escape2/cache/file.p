@@ -3,12 +3,12 @@
 package cache
 
 import (
+	"compiler/compat"
 	"pluto/bytes"
 	"pluto/os"
 	"pluto/path/filepath"
 	"pluto/slices"
 	"pluto/strings"
-	"compiler/compat"
 )
 
 // The file of one package (D44: deterministic, versioned, per package):

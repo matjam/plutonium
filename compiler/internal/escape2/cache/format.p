@@ -3,14 +3,14 @@
 package cache
 
 import (
-	"pluto/bytes"
-	"pluto/errors"
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/summary"
 	"compiler/pu"
+	"pluto/bytes"
+	"pluto/errors"
+	"pluto/slices"
 )
 
 // The encoding of a summary, canonical: the same summary gives the same

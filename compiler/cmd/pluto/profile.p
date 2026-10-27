@@ -19,9 +19,9 @@ package main
 // sampler passes on would be registered twice, by the heap and by it.
 
 import (
+	"compiler/internal/build"
 	"pluto/os"
 	"pluto/prof"
-	"compiler/internal/build"
 )
 
 var cpuProfile, memProfile, stopPhase string

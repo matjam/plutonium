@@ -3,12 +3,12 @@
 package amd64
 
 import (
-	"pluto/fmt"
-	"pluto/math"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/math"
 )
 
 // isel selects machine instructions for one SSA function.

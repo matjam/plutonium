@@ -7,14 +7,14 @@
 package types2
 
 import (
-	"pluto/strings"
-	"pluto/unicode"
-	"pluto/unicode/utf8"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/strings"
+	"pluto/unicode"
+	"pluto/unicode/utf8"
 )
 
 // An Object is a named language entity.

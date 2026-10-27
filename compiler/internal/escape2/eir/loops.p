@@ -3,8 +3,8 @@
 package eir
 
 import (
-	"pluto/sort"
 	"compiler/compat"
+	"pluto/sort"
 )
 
 // findLoops returns the natural loops of f's CFG, outermost first, and sets

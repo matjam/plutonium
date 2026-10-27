@@ -9,14 +9,14 @@
 package types2
 
 import (
-	"pluto/strings"
-	"pluto/unicode/utf8"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strings"
+	"pluto/unicode/utf8"
 )
 
 // langCompat reports an error if the representation of a numeric

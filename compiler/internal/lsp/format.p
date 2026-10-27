@@ -3,9 +3,9 @@
 package lsp
 
 import (
-	"pluto/bytes"
 	"compiler/compat"
 	"compiler/internal/syntax/format"
+	"pluto/bytes"
 )
 
 // formatting formats a document as pluto fmt does. A document that does

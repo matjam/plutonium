@@ -9,9 +9,9 @@
 package types2
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // A MethodSet is an ordered set of concrete or abstract (interface) methods;

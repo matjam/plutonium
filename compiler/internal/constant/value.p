@@ -29,14 +29,14 @@
 package constant
 
 import (
+	"compiler/compat"
+	"compiler/internal/syntax/token"
+	"compiler/pu"
 	"pluto/bits"
 	"pluto/math"
 	"pluto/strconv"
 	"pluto/strings"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/internal/syntax/token"
-	"compiler/pu"
 )
 
 // Kind specifies the kind of value represented by a Value.

@@ -35,11 +35,11 @@
 package diag
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/token"
 	typerr "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // A Code identifies a kind of error: "E" and four digits.

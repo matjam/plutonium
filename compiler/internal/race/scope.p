@@ -3,8 +3,6 @@
 package race
 
 import (
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/scoped"
@@ -12,6 +10,8 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // Scoped tasks (language spec sections 19.4 and 19.3).

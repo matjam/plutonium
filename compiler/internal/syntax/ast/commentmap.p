@@ -7,12 +7,12 @@
 package ast
 
 import (
-	"pluto/cmp"
-	"pluto/fmt"
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/cmp"
+	"pluto/fmt"
+	"pluto/slices"
 )
 
 // sortComments sorts the list of comment groups in source order.

@@ -13,15 +13,15 @@
 package ssawrite
 
 import (
-	"pluto/fmt"
-	"pluto/io"
-	"pluto/sort"
-	"pluto/strconv"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/internal/ssatext"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/io"
+	"pluto/sort"
+	"pluto/strconv"
 )
 
 // Write writes p, whose positions are in fset.

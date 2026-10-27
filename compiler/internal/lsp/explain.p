@@ -3,10 +3,10 @@
 package lsp
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // Errors carry a code and an explanation from internal/diag. A diagnostic

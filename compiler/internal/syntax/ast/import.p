@@ -7,14 +7,14 @@
 package ast
 
 import (
+	"compiler/compat"
+	"compiler/internal/syntax/token"
 	"pluto/bytes"
 	"pluto/cmp"
 	"pluto/slices"
 	"pluto/strconv"
 	"pluto/strings"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/internal/syntax/token"
 )
 
 // SortImports sorts runs of consecutive import lines in import blocks in f.

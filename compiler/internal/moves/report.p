@@ -3,13 +3,13 @@
 package moves
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // Messages (language spec section 21.1). Each says what happened, explains

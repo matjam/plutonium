@@ -3,9 +3,9 @@
 package ssa
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // A Copier moves a function's code into fresh memory: its blocks, values,

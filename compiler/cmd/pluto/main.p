@@ -11,16 +11,16 @@
 package main
 
 import (
+	"compiler/compat"
+	"compiler/internal/build"
+	"compiler/internal/diag"
+	"compiler/pu"
 	"pluto/fmt"
 	"pluto/io"
 	"pluto/os"
 	"pluto/path/filepath"
 	"pluto/strconv"
 	"pluto/strings"
-	"compiler/compat"
-	"compiler/internal/build"
-	"compiler/internal/diag"
-	"compiler/pu"
 )
 
 const version = "0.1.0-dev"

@@ -3,12 +3,12 @@
 package solve
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/summary"
 	"compiler/pu"
+	"pluto/slices"
 )
 
 // Deferred calls (decision D49; rules.go, "Deferred calls"). A dcall is a

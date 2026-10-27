@@ -54,11 +54,6 @@
 package race
 
 import (
-	"pluto/fmt"
-	"pluto/os"
-	"pluto/slices"
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/load"
@@ -68,6 +63,11 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/os"
+	"pluto/slices"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // maxErrors stops a run that has gone badly wrong from printing pages.

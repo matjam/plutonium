@@ -3,12 +3,12 @@
 package domain
 
 import (
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/scratch"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 // Type filters on keys (decision D51; docs/plans/2026-10-24-type-filtered-summaries.md).

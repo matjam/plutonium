@@ -3,12 +3,12 @@
 package lsp
 
 import (
-	"pluto/strings"
-	"pluto/unicode/utf8"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
+	"pluto/unicode/utf8"
 )
 
 func (s *server) signatureHelp(p *TextDocumentPositionParams) (*SignatureHelp, *rpcError) {

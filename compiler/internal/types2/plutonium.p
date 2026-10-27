@@ -10,12 +10,12 @@ package types2
 // checker can treat them as ordinary Go.
 
 import (
-	"pluto/slices"
-	"pluto/strconv"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/strconv"
 )
 
 // forbidden reports a construct that Plutonium does not support. reason

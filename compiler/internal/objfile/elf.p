@@ -4,11 +4,11 @@
 package objfile
 
 import (
-	"pluto/io"
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/elf"
 	"compiler/pu"
+	"pluto/io"
+	"pluto/sort"
 )
 
 // A Section is an output section.

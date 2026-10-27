@@ -3,9 +3,9 @@
 package opt
 
 import (
+	"compiler/internal/ssa"
 	"pluto/bits"
 	"pluto/math"
-	"compiler/internal/ssa"
 )
 
 // Simplify folds constants, applies algebraic identities and strength

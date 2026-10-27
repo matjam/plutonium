@@ -3,9 +3,6 @@
 package lower
 
 import (
-	"pluto/cmp"
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/load"
@@ -14,6 +11,9 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/cmp"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 // Allocation during package initialization (language spec section 15.2).

@@ -3,15 +3,15 @@
 package solve
 
 import (
-	"pluto/fmt"
-	"pluto/os"
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/summary"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/os"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // ESCAPE2_DUMP=<substring>[|<substring>...] prints, for every solve of a

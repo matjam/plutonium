@@ -27,14 +27,14 @@
 package parser
 
 import (
-	"pluto/fmt"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/constraint"
 	"compiler/internal/syntax/scanner"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/strings"
 )
 
 // The parser structure holds the parser's internal state.

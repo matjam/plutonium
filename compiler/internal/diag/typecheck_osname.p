@@ -3,11 +3,11 @@
 package diag
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // Names from the operating system (language spec sections 7.3 and F.9). The

@@ -44,8 +44,6 @@ package lower
 //     it returns comes back from such a call.
 
 import (
-	"pluto/bits"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/scoped"
@@ -53,6 +51,8 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/bits"
+	"pluto/strings"
 )
 
 // A bitset is a set of small integers.

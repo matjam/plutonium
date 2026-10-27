@@ -3,10 +3,10 @@
 package opt
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // GenCheck inserts the generation checks of generational references

@@ -30,7 +30,6 @@
 package cache
 
 import (
-	"pluto/os"
 	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
@@ -39,6 +38,7 @@ import (
 	"compiler/internal/escape2/summary"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/os"
 )
 
 // EnvVar names the directory of the cache: unset or empty, no cache.

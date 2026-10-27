@@ -3,12 +3,12 @@
 package cache
 
 import (
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 // Stable function IDs. A FuncID is an index that changes whenever a function

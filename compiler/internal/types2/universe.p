@@ -9,10 +9,10 @@
 package types2
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // The Universe scope contains all predeclared objects of Go.

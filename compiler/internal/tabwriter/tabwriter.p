@@ -14,11 +14,11 @@
 package tabwriter
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/fmt"
 	"pluto/io"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // ----------------------------------------------------------------------------

@@ -3,11 +3,11 @@
 package solve
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/summary"
+	"pluto/slices"
 )
 
 // Closures a callee returns (summary.Region.Lits; rules.go, "Calls of

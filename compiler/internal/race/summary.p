@@ -3,14 +3,14 @@
 package race
 
 import (
-	"pluto/fmt"
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // A lock is a mutex (sync.Mutex, sync.RWMutex or the runtime's rt.Lock)

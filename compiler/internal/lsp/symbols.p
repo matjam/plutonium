@@ -3,11 +3,11 @@
 package lsp
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	"pluto/strings"
 )
 
 func (s *server) documentSymbols(p *DocumentSymbolParams) ([]DocumentSymbol, *rpcError) {

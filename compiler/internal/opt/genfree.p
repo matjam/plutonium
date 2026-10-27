@@ -3,9 +3,9 @@
 package opt
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/ssa"
+	"pluto/strings"
 )
 
 // GenFrees finds the functions whose calls cannot make a pointer that

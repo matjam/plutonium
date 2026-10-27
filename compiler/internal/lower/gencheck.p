@@ -3,10 +3,10 @@
 package lower
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/token"
+	"pluto/strings"
 )
 
 // Generational references (ABI section 1.3).

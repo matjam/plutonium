@@ -3,10 +3,10 @@
 package diag
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	typerr "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // The type checker comes from go/types, and so do its error codes and their

@@ -76,6 +76,10 @@ jobs:
         run: |
           PLUTOROOT=$PWD/lib "$RUNNER_TEMP/bs/pluto0" build -O2 --gencheck=false -o pluto ./compiler/cmd/pluto
           ./pluto version
+      - name: pluto fmt
+        run: |
+          out=$(./pluto fmt -l $(git ls-files 'compiler/*.p' 'lib/*.p'))
+          if [ -n "$out" ]; then echo "not pluto fmt-formatted:"; echo "$out"; exit 1; fi
       - name: tests
         run: PLUTO_TEST_COMPILER=$PWD/pluto go test -count=1 -timeout 100m ./...
       - uses: actions/upload-artifact@v4

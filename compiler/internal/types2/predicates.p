@@ -9,10 +9,10 @@
 package types2
 
 import (
-	"pluto/slices"
-	"pluto/unicode"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/unicode"
 )
 
 // isValid reports whether t is a valid type.

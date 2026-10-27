@@ -3,12 +3,12 @@
 package race
 
 import (
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 // Paths. A value or a place is a root followed by a path of steps:

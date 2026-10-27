@@ -11,14 +11,14 @@
 package printer
 
 import (
-	"pluto/strconv"
-	"pluto/strings"
-	"pluto/unicode"
-	"pluto/unicode/utf8"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/strconv"
+	"pluto/strings"
+	"pluto/unicode"
+	"pluto/unicode/utf8"
 )
 
 // Formatting issues:

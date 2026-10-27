@@ -3,13 +3,13 @@
 package moves
 
 import (
-	"pluto/slices"
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/sort"
 )
 
 func (f *fn) block(b *ast.BlockStmt) {

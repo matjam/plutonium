@@ -25,9 +25,9 @@ package token
 // The implementation is simplified from Russ Cox's github.com/rsc/omap.
 
 import (
-	"pluto/iter"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/iter"
 )
 
 // A tree is a tree-based ordered map:

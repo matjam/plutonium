@@ -7,13 +7,13 @@
 package types2
 
 import (
+	"compiler/compat"
+	. "compiler/internal/types2/errors"
+	"compiler/pu"
 	"pluto/cmp"
 	"pluto/container/heap"
 	"pluto/slices"
 	"pluto/sort"
-	"compiler/compat"
-	. "compiler/internal/types2/errors"
-	"compiler/pu"
 )
 
 // initOrder computes the complete variable sequence and Info.InitOrder.

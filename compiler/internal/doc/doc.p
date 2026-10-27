@@ -4,9 +4,6 @@
 package doc
 
 import (
-	"pluto/io"
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/load"
 	"compiler/internal/syntax/ast"
@@ -14,6 +11,9 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/io"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 type entry struct {

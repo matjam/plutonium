@@ -7,13 +7,13 @@ package lower
 // comma-ok conversion c, ok := E(n), and range E.
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/slices"
 )
 
 // enumOfMethod returns the enum whose generated String method fn is, or nil.

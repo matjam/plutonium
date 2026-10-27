@@ -3,10 +3,10 @@
 package amd64
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // Frame layout, without a frame pointer (the usual case):

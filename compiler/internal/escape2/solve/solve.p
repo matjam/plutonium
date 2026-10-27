@@ -3,7 +3,6 @@
 package solve
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/escape2/domain"
@@ -12,6 +11,7 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/slices"
 )
 
 // Solve solves f against env in ws and returns its summary and findings, by

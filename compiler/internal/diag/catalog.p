@@ -3,10 +3,10 @@
 package diag
 
 import (
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 // An Entry is the catalog's explanation of a code.

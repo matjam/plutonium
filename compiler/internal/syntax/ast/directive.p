@@ -7,12 +7,12 @@
 package ast
 
 import (
+	"compiler/compat"
+	"compiler/internal/syntax/token"
 	"pluto/strconv"
 	"pluto/strings"
 	"pluto/unicode"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/internal/syntax/token"
 )
 
 // A Directive is a comment of this form:

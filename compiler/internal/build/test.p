@@ -3,12 +3,6 @@
 package build
 
 import (
-	"pluto/errors"
-	"pluto/fmt"
-	"pluto/strconv"
-	"pluto/strings"
-	"pluto/unicode"
-	"pluto/unicode/utf8"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/load"
@@ -17,6 +11,12 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/errors"
+	"pluto/fmt"
+	"pluto/strconv"
+	"pluto/strings"
+	"pluto/unicode"
+	"pluto/unicode/utf8"
 )
 
 // ErrNoTestFiles is returned by BuildTest for a package without _test.p

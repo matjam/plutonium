@@ -11,11 +11,11 @@
 package scratch
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/alloc"
 	"pluto/os"
 	"pluto/rt"
-	"compiler/compat"
-	"compiler/pu"
 	"unsafe"
 )
 

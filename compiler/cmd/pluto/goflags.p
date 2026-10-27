@@ -6,9 +6,9 @@ package main
 // the first positional argument or "--", and Go's error messages.
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // goFlags is a set of flags and, once parsed, their values and the

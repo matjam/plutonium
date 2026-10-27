@@ -3,9 +3,6 @@
 package lower
 
 import (
-	"pluto/math"
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/diag"
@@ -15,6 +12,9 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/math"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 var constOne = constant.MakeInt64(1)

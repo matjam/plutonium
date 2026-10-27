@@ -3,11 +3,11 @@
 package load
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/os"
 	"pluto/path/filepath"
 	"pluto/strings"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // LoadPackage loads an ordinary package and its dependencies without requiring

@@ -3,13 +3,13 @@
 package race
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/scoped"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // maxDepth bounds how deeply func-valued arguments are followed into the

@@ -17,8 +17,6 @@
 package lower
 
 import (
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/directive"
@@ -30,6 +28,8 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // Config controls lowering.
@@ -152,7 +152,7 @@ type Lowerer struct {
 	// the dispatchers.
 	taskVariants   map[*ssa.Sym]*taskVariant
 	taskDispatches []*taskDispatch
-	typeStrs  map[types2.Type]string // typeStr's memo
+	typeStrs       map[types2.Type]string // typeStr's memo
 
 	// initRoots are the parts of each package's initialization, which a
 	// freestanding build checks for allocation (initalloc.go).

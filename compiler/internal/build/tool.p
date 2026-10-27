@@ -5,10 +5,10 @@ package build
 // ExitError is a word (self-hosting plan, section 8).
 
 import (
+	"compiler/compat"
 	"pluto/errors"
 	"pluto/os"
 	"pluto/os/exec"
-	"compiler/compat"
 )
 
 // A toolRun is the outcome of running an external tool.

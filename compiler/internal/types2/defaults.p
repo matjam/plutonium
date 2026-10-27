@@ -14,11 +14,11 @@ package types2
 // interface method is called with all of its arguments.
 
 import (
-	"pluto/strconv"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strconv"
 )
 
 // Defaults returns the default values of the trailing parameters of a

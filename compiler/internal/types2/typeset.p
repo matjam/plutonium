@@ -7,12 +7,12 @@
 package types2
 
 import (
-	"pluto/slices"
 	"compiler/compat"
 	"compiler/internal/scratch"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/slices"
 )
 
 // ----------------------------------------------------------------------------

@@ -48,7 +48,7 @@ func setsFixture(n int) (Sets, []SetID) {
 	r := &rv
 	ids := compat.Make[SetID](n)
 	for i := range ids {
-		xs := compat.Make[uint64](1+r.IntN(8))
+		xs := compat.Make[uint64](1 + r.IntN(8))
 		for j := range xs {
 			xs[j] = r.Uint64N(4096)
 		}

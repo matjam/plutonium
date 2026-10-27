@@ -3,14 +3,14 @@
 package debuginfo
 
 import (
-	path "pluto/path/filepath"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/dwarf"
 	"compiler/internal/arch/amd64"
 	"compiler/internal/objfile"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	path "pluto/path/filepath"
+	"pluto/strings"
 )
 
 // DWARF 4 constants that debug/dwarf does not export.

@@ -3,14 +3,14 @@
 package moves
 
 import (
-	"pluto/slices"
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 // Views of local owners (language spec section 18.3).

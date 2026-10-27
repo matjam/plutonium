@@ -7,9 +7,9 @@
 package constraint
 
 import (
+	"compiler/compat"
 	"pluto/strconv"
 	"pluto/strings"
-	"compiler/compat"
 )
 
 // GoVersion returns the minimum Go version implied by a given build expression.

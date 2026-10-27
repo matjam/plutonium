@@ -13,12 +13,12 @@
 package constraint
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/errors"
 	"pluto/strings"
 	"pluto/unicode"
 	"pluto/unicode/utf8"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // maxSize is a limit used to control the complexity of expressions, in order

@@ -3,10 +3,10 @@
 package race
 
 import (
-	"pluto/strings"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	"pluto/strings"
 )
 
 // Frees and drops (language spec sections 18.11 and 19.3, memory-model.md

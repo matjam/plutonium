@@ -23,9 +23,9 @@
 package contract
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // Kind says what an entry is.

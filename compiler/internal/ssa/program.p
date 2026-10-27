@@ -3,9 +3,9 @@
 package ssa
 
 import (
-	"pluto/sort"
 	"compiler/compat"
 	"compiler/pu"
+	"pluto/sort"
 )
 
 // A Program is everything the backend emits: functions and data.

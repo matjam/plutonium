@@ -3,7 +3,6 @@
 package lower
 
 import (
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/ssa"
@@ -11,6 +10,7 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // builtin lowers a call of a predeclared function or an unsafe function.

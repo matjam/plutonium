@@ -889,7 +889,7 @@ func TestServeShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Serve = %v", err)
 	}
-	for _, want := range []string{`"id":1,"result":{"capabilities"`, `"id":2,"result":`,`"id":3,"result":null`} {
+	for _, want := range []string{`"id":1,"result":{"capabilities"`, `"id":2,"result":`, `"id":3,"result":null`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output %q lacks %q", out, want)
 		}

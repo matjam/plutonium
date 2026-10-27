@@ -3,8 +3,6 @@
 package race
 
 import (
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/directive"
@@ -14,6 +12,8 @@ import (
 	"compiler/internal/types2"
 	typerr "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // Regions and per-CPU variables (language spec sections 19.3 and 20.9).

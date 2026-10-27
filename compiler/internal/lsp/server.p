@@ -18,13 +18,13 @@
 package lsp
 
 import (
+	"compiler/compat"
+	"compiler/pu"
 	"pluto/io"
 	"pluto/path/filepath"
 	"pluto/strings"
 	"pluto/syscall"
 	"pluto/time"
-	"compiler/compat"
-	"compiler/pu"
 )
 
 // Options configure a server.

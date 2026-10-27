@@ -3,14 +3,14 @@
 package report
 
 import (
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 // maxChain bounds the calls a reason follows down: a recursive chain is

@@ -3,8 +3,6 @@
 package report
 
 import (
-	"pluto/strings"
-	"pluto/unicode/utf8"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/escape2/solve"
@@ -12,6 +10,8 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
+	"pluto/unicode/utf8"
 )
 
 // Messages. Every escape is reported as a view of the frame (a pointer, a

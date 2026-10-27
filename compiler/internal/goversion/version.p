@@ -13,8 +13,8 @@
 package goversion
 
 import (
-	"pluto/strings"
 	"compiler/compat"
+	"pluto/strings"
 )
 
 // stripGo converts from a "go1.21-custom" version to a "1.21" version.

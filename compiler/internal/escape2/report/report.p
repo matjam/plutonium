@@ -20,9 +20,6 @@
 package report
 
 import (
-	"pluto/sort"
-	"pluto/strconv"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/escape2/domain"
@@ -35,6 +32,9 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
+	"pluto/strconv"
+	"pluto/strings"
 )
 
 // Diagnostics returns the diagnostics of the findings of res, the analysis

@@ -3,8 +3,6 @@
 package eir
 
 import (
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/load"
@@ -14,6 +12,8 @@ import (
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // Build desugars every function of a loaded program into EIR: declared

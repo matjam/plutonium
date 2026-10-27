@@ -14,6 +14,11 @@ package main
 // pluto test drive the self-hosted compiler through it.
 
 import (
+	"compiler/compat"
+	"compiler/compat/fs"
+	"compiler/internal/build"
+	"compiler/internal/diag"
+	"compiler/pu"
 	"pluto/errors"
 	"pluto/flag"
 	"pluto/io"
@@ -21,11 +26,6 @@ import (
 	"pluto/os/exec"
 	"pluto/path/filepath"
 	"pluto/strings"
-	"compiler/compat"
-	"compiler/compat/fs"
-	"compiler/internal/build"
-	"compiler/internal/diag"
-	"compiler/pu"
 )
 
 // testLong is the help text of pluto test.
@@ -444,15 +444,15 @@ func scanLine(b []byte) string {
 // test is announced before it runs, a panic that ends the binary is
 // reported as a failure of the test that was running.
 type testReporter struct {
-	w       io.Writer      // where the report finally goes
-	out     io.Writer      // where the report is written: w, or buf until the package's result is known
-	buf     compat.Buffer  // the report without -v, printed only if the package fails
-	stream  bool           // print as the binary runs, and print the final PASS line
-	verbose bool           // print every test, not only failures
-	stack   []*testNode    // the tests running now, outermost first
-	crash   []string       // output after a panic
-	summary string         // the binary's final PASS or FAIL line
-	noTests bool           // the binary found no tests to run
+	w       io.Writer     // where the report finally goes
+	out     io.Writer     // where the report is written: w, or buf until the package's result is known
+	buf     compat.Buffer // the report without -v, printed only if the package fails
+	stream  bool          // print as the binary runs, and print the final PASS line
+	verbose bool          // print every test, not only failures
+	stack   []*testNode   // the tests running now, outermost first
+	crash   []string      // output after a panic
+	summary string        // the binary's final PASS or FAIL line
+	noTests bool          // the binary found no tests to run
 }
 
 type testNode struct {

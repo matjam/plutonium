@@ -419,8 +419,8 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	var vals []value          // receiver or func value first, then the arguments
 	emit := pu.Alloc[goFn1]() // makes the call in the thunk
 	sig := pu.Alloc[*types2.Signature]()
-	nlead := 0               // values before the arguments
-	boxRecv := pu.New(false) // the receiver is the owned or synced box itself (task p.Serve())
+	nlead := 0                // values before the arguments
+	boxRecv := pu.New(false)  // the receiver is the owned or synced box itself (task p.Serve())
 	adopted := false          // the callee is a task entry, which owns the counted arguments (taskEntry)
 	dynamic := false          // the call goes through an interface or a func value
 	dispatch := pu.New(false) // ... through a dispatcher, which owns the counted arguments (taskdispatch.go)

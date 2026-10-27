@@ -3,12 +3,12 @@
 package race
 
 import (
-	"pluto/sort"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/sort"
+	"pluto/strings"
 )
 
 // The type rule. A view may cross to another task when every object of

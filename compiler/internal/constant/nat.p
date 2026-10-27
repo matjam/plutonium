@@ -3,8 +3,8 @@
 package constant
 
 import (
-	"pluto/bits"
 	"compiler/compat"
+	"pluto/bits"
 )
 
 // A nat is a natural number: little-endian 64-bit words, normalized so that

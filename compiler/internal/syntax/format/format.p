@@ -20,14 +20,14 @@
 package format
 
 import (
-	"pluto/fmt"
-	"pluto/io"
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/parser"
 	"compiler/internal/syntax/printer"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/fmt"
+	"pluto/io"
 )
 
 // Keep these in sync with cmd/gofmt/gofmt.go.
@@ -51,7 +51,6 @@ var parserMode = parser.ParseComments | parser.SkipObjectResolution
 // go statement; pluto fmt's hidden test harness mode calls this to run
 // those tests' goldens.
 func AllowGoStmt() { parserMode |= parser.AllowGoStmt }
-
 
 // Node formats node in canonical gofmt style and writes the result to dst.
 //

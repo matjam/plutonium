@@ -3,9 +3,9 @@
 package constant
 
 import (
+	"compiler/compat"
 	"pluto/math"
 	"pluto/strings"
-	"compiler/compat"
 )
 
 // A rat is an exact fraction a/b in lowest terms, with b >= 1 (as a big.Rat

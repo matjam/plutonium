@@ -10,11 +10,11 @@
 package types2
 
 import (
-	"pluto/fmt"
 	"compiler/compat"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/fmt"
 )
 
 // A genericType implements access to its type parameters.

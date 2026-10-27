@@ -7,12 +7,12 @@
 package printer
 
 import (
-	"pluto/slices"
-	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/syntax/constraint"
 	"compiler/internal/tabwriter"
 	"compiler/pu"
+	"pluto/slices"
+	"pluto/strings"
 )
 
 // isPuBuild reports whether text is a Plutonium //pu:build line, which

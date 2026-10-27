@@ -9,8 +9,8 @@
 package types2
 
 import (
-	"pluto/strings"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // lookupError returns a case-specific error when a lookup of selector sel in the

@@ -7,10 +7,10 @@
 package types2
 
 import (
-	"pluto/sync/atomic"
 	"compiler/compat"
 	"compiler/internal/scratch"
 	"compiler/pu"
+	"pluto/sync/atomic"
 )
 
 // Note: This is a uint32 rather than a uint64 because the

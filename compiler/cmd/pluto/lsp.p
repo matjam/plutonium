@@ -3,13 +3,13 @@
 package main
 
 import (
+	"compiler/compat"
+	"compiler/internal/lsp"
+	"compiler/pu"
 	"pluto/io"
 	"pluto/os"
 	"pluto/strconv"
 	"pluto/strings"
-	"compiler/compat"
-	"compiler/internal/lsp"
-	"compiler/pu"
 )
 
 const lspLong = `lsp runs a Language Server Protocol server for editors, speaking JSON-RPC

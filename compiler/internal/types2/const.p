@@ -9,12 +9,12 @@
 package types2
 
 import (
-	"pluto/math"
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/math"
 )
 
 // overflow checks that the constant x is representable by its type.
