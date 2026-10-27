@@ -111,6 +111,15 @@ func sigprof(sig int32, info, ctx unsafe.Pointer) {
 	}
 	xadd32(&cpuProf.inflight, 1)
 	if load32(&cpuProf.on) != 0 {
+		// When SIGURG and SIGPROF are pending together, as when a thread
+		// comes back after the system descheduled it, the kernel starts
+		// sigpreempt and delivers SIGPROF before its first instruction.
+		// The time sampled is the preempted code's: take the context
+		// sigpreempt was given, its third argument (gregs[REG_RDX]).
+		h := sigpreempt
+		if *(*uintptr)(unsafe.Add(ctx, 40+16*8)) == *(*uintptr)(*(*unsafe.Pointer)(unsafe.Pointer(&h))) {
+			ctx = *(*unsafe.Pointer)(unsafe.Add(ctx, 40+12*8))
+		}
 		pc := *(*uintptr)(unsafe.Add(ctx, 40+16*8)) // uc_mcontext.gregs[REG_RIP]
 		sp := *(*uintptr)(unsafe.Add(ctx, 40+15*8)) // gregs[REG_RSP]
 		bp := *(*uintptr)(unsafe.Add(ctx, 40+10*8)) // gregs[REG_RBP]

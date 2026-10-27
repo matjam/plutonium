@@ -104,22 +104,42 @@ func TestProfiles(t *testing.T) {
 		if got := cpu.typ(); got != "samples/count cpu/nanoseconds" {
 			t.Errorf("-O%d: cpu sample types %q", level, got)
 		}
-		var spin, total int64
-		viaTask := false
+		// The timer counts CPU time, so a loaded machine changes how many
+		// samples there are only through the profiler's own mistakes. One
+		// was charging to the preemption handler the samples of a thread
+		// that came back from being descheduled with both signals pending.
+		var spin, total, preempt int64
+		viaTask, viaMain := false, false
 		for _, s := range cpu.samples {
 			total += s.values[0]
+			if len(s.stack) > 0 && s.stack[0] == "pluto/rt.sigpreempt" {
+				preempt += s.values[0]
+			}
 			if len(s.stack) > 0 && s.stack[0] == "main.spin" {
 				spin += s.values[0]
-				if strings.HasPrefix(strings.Join(s.stack, " ")+" ", "main.spin main.outer main.worker ") {
+				stack := strings.Join(s.stack, " ") + " "
+				if strings.HasPrefix(stack, "main.spin main.outer main.worker ") {
 					viaTask = true
+				}
+				if strings.HasPrefix(stack, "main.spin main.outer main.main ") {
+					viaMain = true
 				}
 			}
 		}
 		if total < 20 || spin*10 < total*8 {
 			t.Errorf("-O%d: %d of %d cpu samples in main.spin\n%s", level, spin, total, cpu.dump())
 		}
+		// A sample taken while the handler itself runs is its own, but it
+		// runs for a microsecond in each time slice: more than one is the
+		// mistake.
+		if preempt > 1 {
+			t.Errorf("-O%d: %d cpu samples charged to the preemption handler\n%s", level, preempt, cpu.dump())
+		}
 		if !viaTask {
 			t.Errorf("-O%d: no cpu sample in main.spin under the task\n%s", level, cpu.dump())
+		}
+		if !viaMain {
+			t.Errorf("-O%d: no cpu sample in main.spin under main\n%s", level, cpu.dump())
 		}
 
 		mem := readProfile(t, filepath.Join(dir, "mem.prof"))
