@@ -1,0 +1,1 @@
+$DIR/main.p:20:4: n is not sendable: it is an interface that may hold a *Node (converted at main.p:9, package main), which contains shared[int], whose count is not atomic; use synced[T] (spec section 19.2)

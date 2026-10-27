@@ -1,0 +1,1 @@
+$DIR/main.p:10:3: current = ... uses the per-CPU variable current outside a region where the task cannot move to another processor
