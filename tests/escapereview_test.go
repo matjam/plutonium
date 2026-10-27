@@ -27,6 +27,27 @@ var knownEscapeGaps = map[string]string{
 	"review3/o14_drop_in_vec_of_owners_local": "contract: ReleaseValues/ZeroValues run element drops",
 }
 
+// rejectedBeforeEscape are the programs a check that runs before the
+// escape analysis rejects (the lowering's closure and scope rules), with
+// the code it reports. The build stops there, so the analysis's own verdict
+// on them cannot be seen through pluto; the Go test ran the analysis on the
+// loaded program directly. The test requires that code, so that the list
+// stays true.
+var rejectedBeforeEscape = map[string]string{
+	"review3/b03_task_func_param":                         "E2594",
+	"review3/b05_scope_returned":                          "E3100",
+	"review3/b09_scope_task_afterfunc":                    "E2594",
+	"review3/b11_scope_in_owner_struct_returned":          "E2594",
+	"review3/b13_waitgroup_task_closure":                  "E2594",
+	"review3/b15_scope_through_pointer_param":             "E2594",
+	"review3/b17_scope_loop_body_ptr_via_helper":          "E3401",
+	"review3/b18_scope_loop_body_slice_in_struct":         "E3401",
+	"review3/d09_defer_named_result_closure":              "E3100",
+	"review3/d10_defer_method_value_named_result":         "E3100",
+	"review3/x02_region_refill_in_loop":                   "E3101",
+	"review3/x03_region_closure_called_after_second_call": "E3101",
+}
+
 // knownEscapeFalseRejections are controls the analysis rejects, with the
 // reason.
 var knownEscapeFalseRejections = map[string]string{}
@@ -55,13 +76,19 @@ var escapeDiag = regexp.MustCompile(`run "pluto explain E30\d\d"`)
 // output, that are about main.p: the library's are false rejections of
 // their own.
 func escapeErrorsInMain(out string) []string {
+	return errorsInMain(out, escapeDiag)
+}
+
+// errorsInMain returns the errors in out about main.p whose explanation
+// matches code.
+func errorsInMain(out string, code *regexp.Regexp) []string {
 	var errs []string
 	head := ""
 	for _, line := range strings.Split(out, "\n") {
 		switch {
 		case line == "":
 		case strings.HasPrefix(line, " "):
-			if head != "" && escapeDiag.MatchString(line) {
+			if head != "" && code.MatchString(line) {
 				errs = append(errs, head)
 				head = ""
 			}
@@ -107,8 +134,14 @@ func TestEscapeReviews(t *testing.T) {
 					if strings.Contains(out, "internal compiler error") {
 						t.Fatalf("internal error: %s", out)
 					}
-					errs := escapeErrorsInMain(out)
 					key := review + "/" + name
+					if code, ok := rejectedBeforeEscape[key]; ok {
+						if len(errorsInMain(out, regexp.MustCompile(`run "pluto explain `+code+`"`))) == 0 {
+							t.Errorf("not rejected with %s before the escape analysis; update rejectedBeforeEscape\n%s", code, out)
+						}
+						return
+					}
+					errs := escapeErrorsInMain(out)
 					gap, isGap := knownEscapeGaps[key]
 					switch {
 					case ctl[name] && len(errs) > 0 && knownEscapeFalseRejections[key] == "":
