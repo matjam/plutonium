@@ -1,6 +1,6 @@
 # Build output
 /pluto.bin
-/cmd/pluto/pluto
+/pluto
 
 # Go test cache
 *.test
