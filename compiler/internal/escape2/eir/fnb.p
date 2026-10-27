@@ -79,7 +79,10 @@ type fnb struct {
 	// The objects that hold what scoped tasks joined inside a loop carry
 	// (scopedTask), for their lifetime (finish).
 	joinHolders map[ObjID]joinHolder
-	boxViews    map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
+	// The holders of what scoped tasks carry for the check of the blocks
+	// that end before the join (endsHolder), with each task's JoinBlock.
+	endsHolders map[ObjID]*types2.Scope
+	boxViews   map[*types2.Var]ObjID  // the box view object of each box variable (boxview.go)
 	varBlock    map[*types2.Var]*Block // the block that declares each local
 
 	// The closures this function builds in its caller's region, and the
@@ -459,6 +462,26 @@ func (fb *fnb) finish() {
 		if o.Loop < 0 {
 			o.Loop, o.Life = s.Loop, s.Life
 		}
+	}
+	// The variables whose blocks end before a scoped task's join: those
+	// declared in a block that is not the joining block or around it
+	// (section 19.4), in ID order.
+	for obj, J := range fb.endsHolders {
+		around := map[*types2.Scope]bool{}
+		for s := J; s != nil; s = s.Parent() {
+			around[s] = true
+		}
+		var ends []ObjID
+		for i, o := range fb.f.Objects {
+			if (o.Kind != ObjVar && o.Kind != ObjParam) || o.Var == nil || o.Var.Parent() == nil {
+				continue
+			}
+			if !around[o.Var.Parent()] {
+				ends = compat.AppendPlain(ends, ObjID(i))
+			}
+		}
+		fb.f.Objects[obj].Ends = ends
+		fb.f.Objects[obj].Loop = -1
 	}
 }
 

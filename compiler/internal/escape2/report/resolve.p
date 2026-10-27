@@ -82,6 +82,13 @@ func (r *reporter) diagnostic(fd solve.Finding) *diag.Diagnostic {
 	case diag.ClosureRegionLoop:
 		e.sink = sinkRegionLoop
 		r.regionStore(e, f)
+	case diag.ScopeOutlivesVar:
+		// A scoped task given a view of a variable whose block ends before
+		// the join (eir.Object.Ends).
+		if d := r.scopeBlockDiag(f); d != nil {
+			return d
+		}
+		r.stored(e, f)
 	case diag.StaleView:
 		// A counted value of a local arena copied into an interface box
 		// (eir.SinkBoxCopy).
@@ -856,7 +863,8 @@ func (r *reporter) loopOf(e *viewErr, f *finding) {
 }
 
 // loopAround returns the innermost loop statement whose iterations hold a
-// declaration at pos.
+// declaration at pos. A loop made with goto (section 12.17) is returned as
+// a block that holds the statements from its label to its goto.
 func (r *reporter) loopAround(pos token.Pos) ast.Node {
 	path := r.enclosing(pos)
 	for i := len(path) - 1; i >= 0; i-- {
@@ -867,7 +875,71 @@ func (r *reporter) loopAround(pos token.Pos) ast.Node {
 			if n.Pos() != pos { // a literal made at pos is in the loop around it
 				return nil
 			}
+		case *ast.BlockStmt:
+			if lp := gotoLoop(n.List, pos); lp != nil {
+				return lp
+			}
+		case *ast.CaseClause:
+			if lp := gotoLoop(n.Body, pos); lp != nil {
+				return lp
+			}
+		case *ast.CommClause:
+			if lp := gotoLoop(n.Body, pos); lp != nil {
+				return lp
+			}
 		}
 	}
 	return nil
+}
+
+// gotoLoop finds in list a loop made with goto around pos: a labeled
+// statement at or before pos and a goto to its label after pos. It returns
+// the statements from the label to the last such goto, as a block.
+func gotoLoop(list []ast.Stmt, pos token.Pos) ast.Node {
+	k := -1
+	for i, s := range list {
+		if s.Pos() <= pos && pos < s.End() {
+			k = i
+		}
+	}
+	if k < 0 {
+		return nil
+	}
+	for i := k; i >= 0; i-- {
+		ls, ok := list[i].(*ast.LabeledStmt)
+		if !ok {
+			continue
+		}
+		last := -1
+		for j := k; j < len(list); j++ {
+			if jumpsTo(list[j], ls.Label.Name, pos) {
+				last = j
+			}
+		}
+		if last >= 0 {
+			return pu.New(ast.BlockStmt{Lbrace: ls.Pos(), List: list[i : last+1], Rbrace: list[last].End() - 1})
+		}
+	}
+	return nil
+}
+
+// jumpsTo reports whether s holds a goto to label after pos, outside any
+// function literal.
+func jumpsTo(s ast.Stmt, label string, pos token.Pos) bool {
+	found := false
+	ast.Inspect(s, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.BranchStmt:
+			if n.Tok == token.GOTO && n.Label != nil && n.Label.Name == label && n.Pos() > pos {
+				found = true
+			}
+		}
+		return true
+	})
+	return found
 }

@@ -114,6 +114,15 @@ func (r *reporter) safeDiagnostic(fd solve.Finding) (d *diag.Diagnostic) {
 // that pointer, and the other message names the variable the program wrote.
 func (r *reporter) explainedBy(fd solve.Finding, all []solve.Finding, i int) bool {
 	fn := r.p.Funcs[fd.Func]
+	if fd.Code == diag.ScopeOutlivesVar {
+		// A variable of a loop body that a scoped task outlives: the
+		// loop's message at the same call says more (scopeTaskDiag).
+		for j, o := range all {
+			if j != i && o.Func == fd.Func && o.Pos == fd.Pos && o.Code == diag.LoopFrameView {
+				return true
+			}
+		}
+	}
 	if mem, ok := fn.ArenaMem[fd.Obj]; ok {
 		// A local arena whose memory is reported at the same place: a
 		// string buffer or box allocated from it records the arena.

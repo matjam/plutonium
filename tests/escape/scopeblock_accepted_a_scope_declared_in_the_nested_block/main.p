@@ -1,0 +1,12 @@
+package main
+
+import "pluto/sync"
+
+func main() {
+	{
+		var s sync.Scope
+		y := 42
+		p := &y
+		s.Task(func() { println(*p) })
+	}
+}

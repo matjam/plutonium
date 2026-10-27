@@ -294,13 +294,23 @@ func (fb *fnb) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 	if a := fb.taskHolder(t); a != 0 {
 		if lf := fb.b.litFns[lit]; lf != nil {
 			ptr := types2.Typ[types2.UnsafePointer]
+			ends := fb.endsHolder(t)
 			for _, k := range lf.caps {
 				addr := fb.outerAddr(k)
 				if v, ok := k.(*types2.Var); ok && t.Taken[v] {
-					fb.store(a, fb.load(addr, v.Type()), v.Type())
+					val := fb.load(addr, v.Type())
+					fb.store(a, val, v.Type())
+					if ends != 0 {
+						fb.store(ends, val, v.Type())
+					}
 					continue
 				}
 				fb.store(a, addr, ptr)
+				if v, ok := k.(*types2.Var); ok && ends != 0 {
+					// A variable the task shares: what it holds now is
+					// what the task finds there.
+					fb.store(ends, fb.load(addr, v.Type()), v.Type())
+				}
 			}
 		}
 	}
@@ -321,6 +331,23 @@ func (fb *fnb) taskHolder(t *scoped.Task) Reg {
 		fb.joinHolders = map[ObjID]joinHolder{}
 	}
 	fb.joinHolders[obj] = joinHolder{up: t.JoinLoops, depth: len(t.Loops), scope: so}
+	return fb.addr(obj)
+}
+
+// endsHolder returns the address of a holder of what scoped task t carries
+// for the check of the blocks that end before the join (section 19.4,
+// "Views of storage that ends before the join"): finish lists in its Ends
+// the variables of fb whose blocks are not t.JoinBlock or around it. 0 when
+// the analysis has no join block for t.
+func (fb *fnb) endsHolder(t *scoped.Task) Reg {
+	if t.JoinBlock == nil {
+		return 0
+	}
+	obj := fb.newObj(Object{Kind: ObjTemp, Type: t.Scope.Var.Type(), Name: t.Scope.Var.Name(), Life: LifeStmt, Pos: t.Call.Pos()})
+	if fb.endsHolders == nil {
+		fb.endsHolders = map[ObjID]*types2.Scope{}
+	}
+	fb.endsHolders[obj] = t.JoinBlock
 	return fb.addr(obj)
 }
 

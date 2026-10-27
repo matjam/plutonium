@@ -1,0 +1,17 @@
+$DIR/main.p:10:2: cannot keep &v in ps[v] after this iteration: the loop at line 8 reuses v in every iteration
+    &v is a pointer to v. v lives in main's frame, where every iteration of the
+    loop at line 8 reuses the same memory for it. When the next iteration
+    starts, ps[v] would see that iteration's v, not this one's.
+    Go gives each iteration of a loop its own variables, so a function literal
+    made in one iteration keeps that iteration's values. Plutonium keeps
+    variables in the function's frame, which has room for one copy of each;
+    giving every iteration its own copy would need memory for each iteration,
+    allocated behind the program's back.
+    If ps[v] is needed only in this iteration, use it before the iteration ends.
+    To use the value later, keep the value instead of a view of it:
+        var saved int // declared before the loop
+        ...
+        saved = v
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
+    (run "pluto explain E3006" for a longer explanation)

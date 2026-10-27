@@ -285,6 +285,12 @@ type Object struct {
 	// ErrHolder marks the view object of what holds a counted error
 	// (borrow.go): what a callee's Borrowed keys lead to, and no other key.
 	ErrHolder bool
+	// Ends marks the holder of what a scoped task carries for the check of
+	// section 19.4 (scopedTask): the frame variables whose blocks end
+	// before the Scope joins the task. A pointer to one of them stored
+	// into the holder is E3401. The holder itself lives for a statement,
+	// so no other store check applies to it.
+	Ends []ObjID
 }
 
 // Loop is a natural loop of the CFG. Back edges of SSA registers are phis

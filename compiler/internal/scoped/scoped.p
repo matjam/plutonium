@@ -96,6 +96,12 @@ type Task struct {
 	// is -1 when only the end of the Scope's block joins it, or when the
 	// block that joins it is outside Func.
 	JoinLoops int
+	// JoinBlock is the innermost block that joins the task: one between
+	// the call and the Scope's block with an s.Wait() that joins it before
+	// the block can end (joinedIn), or else the Scope's block. Storage of
+	// any block that is not JoinBlock or around it ends before the join,
+	// so a view of it the task carries is E3401.
+	JoinBlock *types2.Scope
 }
 
 // IsScopeType reports whether T is pluto/sync.Scope.
@@ -295,6 +301,7 @@ func (a *analyzer) walk(fn ast.Node, n ast.Node, outer *Task, loops []ast.Stmt) 
 					}
 				}
 				t.JoinLoops = a.joinLoops(t)
+				t.JoinBlock = a.joinBlock(t)
 				a.walk(fn, recv, outer, loops)
 				a.walk(fn, lit.Body, t, nil)
 				return false
@@ -386,25 +393,7 @@ func (a *analyzer) taken(v *types2.Var, t *Task) bool {
 // and the Scope's block (that block left out) that joins t, and the number
 // of t's loops inside it.
 func (a *analyzer) joinLoops(t *Task) int {
-	B := t.Scope.Block
-	pos := t.Call.Pos()
-	// The blocks from B in to the innermost one holding the call.
-	var path []*types2.Scope
-	for s := B; ; {
-		var next *types2.Scope
-		for i := 0; i < s.NumChildren(); i++ {
-			c := s.Child(i)
-			if n := a.nodes[c]; n != nil && n.Pos() <= pos && pos < n.End() {
-				next = c
-				break
-			}
-		}
-		if next == nil {
-			break
-		}
-		path = compat.Append(path, next)
-		s = next
-	}
+	path := a.blocksTo(t)
 	for i := len(path) - 1; i >= 0; i-- {
 		V := path[i]
 		node := a.nodes[V]
@@ -426,6 +415,42 @@ func (a *analyzer) joinLoops(t *Task) int {
 		return n
 	}
 	return -1
+}
+
+// joinBlock computes t.JoinBlock: the innermost block between t's call and
+// the Scope's block that joins t, or the Scope's block when none does.
+func (a *analyzer) joinBlock(t *Task) *types2.Scope {
+	path := a.blocksTo(t)
+	for i := len(path) - 1; i >= 0; i-- {
+		if a.joinedIn(path[i], t) {
+			return path[i]
+		}
+	}
+	return t.Scope.Block
+}
+
+// blocksTo returns the blocks from the Scope's block (left out) in to the
+// innermost one that holds t's call.
+func (a *analyzer) blocksTo(t *Task) []*types2.Scope {
+	B := t.Scope.Block
+	pos := t.Call.Pos()
+	var path []*types2.Scope
+	for s := B; ; {
+		var next *types2.Scope
+		for i := 0; i < s.NumChildren(); i++ {
+			c := s.Child(i)
+			if n := a.nodes[c]; n != nil && n.Pos() <= pos && pos < n.End() {
+				next = c
+				break
+			}
+		}
+		if next == nil {
+			break
+		}
+		path = compat.Append(path, next)
+		s = next
+	}
+	return path
 }
 
 // joinedIn reports whether a call s.Wait() in block V, after the statement

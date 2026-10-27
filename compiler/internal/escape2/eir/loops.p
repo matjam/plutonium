@@ -54,6 +54,7 @@ func findLoops(f *Func) []Loop {
 			}
 		}
 	}
+	irreducible(f, idom, bodies, dominates)
 	var loops []Loop
 	for h, body := range bodies {
 		l := Loop{Header: h, Parent: -1}
@@ -90,6 +91,93 @@ func findLoops(f *Func) []Loop {
 		}
 	}
 	return loops
+}
+
+// irreducible adds to bodies the loops that have no header dominating them.
+// A goto into the middle of a loop made with goto enters it at two blocks
+// (section 12.17: a backward goto is a loop, and a forward goto may reach a
+// label inside it), so no block dominates the back edge's source. Each edge
+// to a block on the depth-first search's stack whose target does not
+// dominate its source closes such a loop: its body is the blocks that are
+// reached from the target and reach the source, and the target stands for
+// its header.
+func irreducible(f *Func, idom []int, bodies map[BlockID]map[BlockID]bool, dominates func(a, b BlockID) bool) {
+	n := len(f.Blocks)
+	onStack := compat.Make[bool](n)
+	seen := compat.Make[bool](n)
+	type frame struct {
+		b BlockID
+		i int
+	}
+	var retreat [][2]BlockID
+	stack := []frame{{0, 0}}
+	seen[0], onStack[0] = true, true
+	for len(stack) > 0 {
+		top := &stack[len(stack)-1]
+		succs := f.Blocks[top.b].Succs
+		if top.i < len(succs) {
+			s := succs[top.i]
+			top.i++
+			if onStack[s] && !dominates(s, top.b) {
+				retreat = compat.Append(retreat, [2]BlockID{top.b, s})
+			}
+			if !seen[s] {
+				seen[s], onStack[s] = true, true
+				stack = compat.Append(stack, frame{s, 0})
+			}
+			continue
+		}
+		onStack[top.b] = false
+		stack = stack[:len(stack)-1]
+	}
+	for _, e := range retreat {
+		src, h := e[0], e[1]
+		ahead := map[BlockID]bool{h: true}
+		work := []BlockID{h}
+		for len(work) > 0 {
+			x := work[len(work)-1]
+			work = work[:len(work)-1]
+			for _, s := range f.Blocks[x].Succs {
+				if !ahead[s] && (idom[s] >= 0 || s == 0) {
+					ahead[s] = true
+					work = compat.AppendPlain(work, s)
+				}
+			}
+		}
+		body := bodies[h]
+		if body == nil {
+			body = map[BlockID]bool{h: true}
+			bodies[h] = body
+		}
+		work = []BlockID{src}
+		for len(work) > 0 {
+			x := work[len(work)-1]
+			work = work[:len(work)-1]
+			if body[x] || !ahead[x] {
+				continue
+			}
+			body[x] = true
+			work = compat.AppendPlain(work, f.Blocks[x].Preds...)
+		}
+	}
+}
+
+// IsEntry reports whether block b is an entry of loop l: its header, or a
+// block of an irreducible loop that a block outside it jumps to.
+func (f *Func) IsEntry(l int, b BlockID) bool {
+	loop := f.Loops[l]
+	if loop.Header == b {
+		return true
+	}
+	if !contains(loop.Blocks, b) {
+		return false
+	}
+	for _, p := range f.Blocks[b].Preds {
+		if !contains(loop.Blocks, p) {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(s []BlockID, x BlockID) bool {

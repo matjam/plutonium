@@ -333,15 +333,23 @@ against the corrected specification. The immediate implementation order is:
      checker's view tracking (E3313, E3314) then follows them, and `Reset`/`Release` of a local arena end
      its views. This changes what every call on a local owner returns, so the translated compiler, which
      holds views of local vectors in locals, must be checked for each step.
-139. **Loops made with `goto` and the blocks a scoped task outlives** (planned; sections 18.4 and 19.4; found
-     by the third adversarial review, defect 8). A loop made with `goto` (l05: `top: v := n; ps[i] = &v; ...;
-     goto top`) shares one variable across its iterations, which 18.4 forbids ("every loop that compiles
-     behaves as if each iteration had variables of its own", and 11.5 counts a `goto` loop as a loop): the
-     escape analysis must find such loops (it stops following control flow in a function with a `goto`) and
-     apply E3006, or lowering must give each iteration its own variables. A scoped task given a pointer into a
-     nested block whose storage ends before the scope waits (b16, b23: `{ y := 42; p := &y; s.Task(func() {
-     ... *p ... }) }` with the join after the block) is E3401 by 19.4; the check covers loop bodies only. No
-     dangling pointer today (b23 prints `same slot: false`), but a slot reused after the block would be one.
+139. **Loops made with `goto` and the blocks a scoped task outlives** (done; sections 18.4, 11.5, 12.17 and
+     19.4; found by the third adversarial review, defect 8). A loop made with `goto` (l05: `top: v := n;
+     ps[i] = &v; ...; goto top`) shares one variable across its iterations. Sections 11.5 and 12.17 count a
+     backward `goto` as a loop, and 18.4 rejects a view kept past an iteration with E3006 rather than giving
+     each iteration its own variables, so the escape analysis applies E3006 and lowering is unchanged. The
+     loops of `eir` were natural loops only; `findLoops` now also finds a loop that a `goto` enters in the
+     middle (no block dominates it), and the back-edge checks run at each block where it is entered. The
+     report names the loop from the label to the last `goto` that jumps back to it, where it printed "line 0".
+     A scoped task given a view of a variable whose block ends before the scope waits (b16, b23: `{ y := 42;
+     p := &y; s.Task(func() { ... *p ... }) }` with the join after the block) is E3401 by 19.4. `scoped`
+     records the innermost block where the task is joined (`Task.JoinBlock`); the task's values also go to a
+     holder object whose `Ends` lists the variables declared in any block other than that one and those around it, and
+     the solver reports a view of one of them stored there. The analysis is flow-insensitive for memory, so a
+     shared variable that holds such a view only after the join is still rejected. The old escape analysis
+     (`PLUTO_ESCAPE=old`) is unchanged. Tests: `tests/escape/gotoloop_*` (five rejected, among them a loop
+     entered in the middle and a nested one, and five accepted), `scopeblock_*` (seven rejected, six
+     accepted) and the review programs l05, b16 and b23.
 140. **Memory allocated from a shared allocator, for the race check** (planned; sections 19.4 "Memory reached
      through views", 18.9; depends on item 138; found by the race-fix agent, probe `a13fixed`). A scoped task
      that calls `Reset` on an `arena.Fixed` held in the starting function's frame, then allocates from it,

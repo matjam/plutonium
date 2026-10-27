@@ -1,0 +1,15 @@
+$DIR/main.p:17:3: the task started here takes p, a view of y, whose block ends before s waits for the task
+    y is declared in the block at main.p:14, and its storage ends with that
+    block. The task may run until s waits for it, after the block ends, so p
+    would look at storage that no longer holds y. A copy of a view still looks
+    at the same memory.
+    Go keeps the variables a goroutine uses alive with its garbage collector,
+    however long the goroutine runs. Plutonium has none: a variable lives in its
+    function's frame until its block ends. A sync.Scope waits for the tasks it
+    started before its block ends, so they may use the function's variables, and
+    the compiler checks that nothing they use ends or moves first.
+    Declare y in the block that declares s, or wait for the task before the
+    block that declares y ends:
+        s.Wait() // before the end of the block that declares y
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3401" for a longer explanation)

@@ -129,6 +129,10 @@ func (c *Cache) eirDigest(id eir.FuncID) digest {
 		h.str(c.typeKey(o.Type))
 		h.int(int64(o.Life))
 		h.int(int64(o.Loop))
+		h.int(int64(len(o.Ends)))
+		for _, e := range o.Ends {
+			h.int(int64(e))
+		}
 	}
 	h.int(int64(len(f.Loops)))
 	for _, l := range f.Loops {

@@ -1,0 +1,1 @@
+$DIR/main.p:10:3: cannot keep a[:] in first after this iteration: the loop at line 6 reuses a in every iteration

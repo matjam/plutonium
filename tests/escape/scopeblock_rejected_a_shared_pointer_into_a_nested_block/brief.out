@@ -1,0 +1,1 @@
+$DIR/main.p:11:3: the task started here uses p, which holds a view of y, whose block ends before s waits for the task

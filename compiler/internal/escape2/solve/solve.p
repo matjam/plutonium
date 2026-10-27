@@ -301,6 +301,7 @@ var codes = []diag.Code{
 	diag.TempViewKept,      // 6 E3009
 	diag.ClosureRegionLoop, // 7 E3101
 	diag.StaleView,         // 8 E3313
+	diag.ScopeOutlivesVar,  // 9 E3401
 }
 
 const (
@@ -313,6 +314,7 @@ const (
 	cE3009
 	cE3101
 	cE3313
+	cE3401
 	cTask // at a task starter (ImplTask): E3004 for a local sync.WaitGroup, else E3003
 
 	// cHeap, or'ed into a cSink code, says the sink is heap memory or a
@@ -651,6 +653,17 @@ func (s *solver) checkStore(m uint32, u tok, why uint64) {
 	}
 	if !s.outlives(u.base, o) && !s.regionOutlives(u.base, o) {
 		s.report(s.shortCode(u.base), u.base, why)
+		return
+	}
+	if int(o) < len(s.f.Objects) {
+		// What a scoped task carries, and a variable whose block ends
+		// before the task is joined (section 19.4, eir.Object.Ends).
+		for _, e := range s.f.Objects[o].Ends {
+			if uint32(e) == u.base {
+				s.report(cE3401, u.base, why)
+				break
+			}
+		}
 	}
 }
 
@@ -1513,11 +1526,12 @@ func (s *solver) objResult(dst uint32, o uint32) {
 }
 
 // backEdges attaches the back-edge check to the arguments of a phi in a
-// loop header (rules.go, "Back-edge check").
+// loop header (rules.go, "Back-edge check"), or in any block where a loop
+// made with goto is entered from outside it.
 func (s *solver) backEdges(b eir.BlockID, in *eir.Instr, why uint64) {
 	blk := s.f.Blocks[b]
-	for l, loop := range s.f.Loops {
-		if loop.Header != b {
+	for l := range s.f.Loops {
+		if !s.f.IsEntry(l, b) {
 			continue
 		}
 		for k, a := range in.Args {

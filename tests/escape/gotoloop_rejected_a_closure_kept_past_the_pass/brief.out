@@ -1,0 +1,1 @@
+$DIR/main.p:8:2: cannot keep the function literal in fs[n] after this iteration: it uses v, which the loop at line 6 reuses in every iteration

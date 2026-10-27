@@ -76,3 +76,98 @@ func (r *reporter) scopeTaskDiag(f *finding) *diag.Diagnostic {
 	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s itself in the function literal, so that the task gets its own copy of it, or wait for the task inside the loop", compat.ArgS(held)), Code: compat.Concat(sname, ".Wait() // at the end of the loop body")})
 	return d
 }
+
+// scopeBlockDiag writes E3401 for a scoped s.Task(lit) call that gives the
+// task a view of a variable whose block ends before s joins the task
+// (section 19.4, "Views of storage that ends before the join";
+// eir.Object.Ends). It returns nil when the finding is not at such a call.
+func (r *reporter) scopeBlockDiag(f *finding) *diag.Diagnostic {
+	if f.info == nil || f.l.v == nil {
+		return nil
+	}
+	ce, ok := innermost[*ast.CallExpr](f.path)
+	if !ok || ce.Pos() != f.fd.Pos || len(ce.Args) != 1 {
+		return nil
+	}
+	lit, ok := ast.Unparen(ce.Args[0]).(*ast.FuncLit)
+	if !ok {
+		return nil
+	}
+	name, recv := scoped.ScopeMethod(f.info.Selections, ce)
+	sv := scoped.LocalScopeVar(f.info.Uses, recv)
+	if name != "Task" || sv == nil {
+		return nil
+	}
+	y := f.l.v
+	// The variable the task uses that holds the view: a carrier of it
+	// first, else the first variable it uses.
+	var v, other *types2.Var
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		u, ok := f.info.Uses[id].(*types2.Var)
+		if !ok || u.IsField() || isGlobal(u) || contains(lit, u.Pos()) {
+			return true
+		}
+		if f.carr[u] && u != y && v == nil {
+			v = u
+		}
+		if other == nil {
+			other = u
+		}
+		return true
+	})
+	if v == nil {
+		v = other
+	}
+	if v == nil {
+		return nil
+	}
+	sname, yname := sv.Name(), y.Name()
+	block := r.basePos(r.blockOf(y).Pos())
+	verb, what := "takes", compat.Concat(v.Name(), ", a view of ", yname, ",")
+	if !inside(v.Parent(), sv.Parent()) {
+		// Declared in s's block or around it: the task shares it.
+		verb, what = "uses", compat.Concat(v.Name(), ", which holds a view of ", yname, ",")
+	}
+	d := diag.New(r.fset.Position(ce.Pos()), diag.ScopeOutlivesVar,
+		"the task started here %s %s whose block ends before %s waits for the task", pu.Box(verb), pu.Box(what), pu.Box(sname))
+	d.Text = compat.Sprintfb("%s is declared in the block at %s, and its storage ends with that block. The task may run until %s waits for it, after the block ends, so %s would look at storage that no longer holds %s. A copy of a view still looks at the same memory.",
+		compat.ArgS(yname), compat.ArgS(block), compat.ArgS(sname), compat.ArgS(v.Name()), compat.ArgS(yname))
+	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Declare %s in the block that declares %s, or wait for the task before the block that declares %s ends", compat.ArgS(yname), compat.ArgS(sname), compat.ArgS(yname)), Code: compat.Concat(sname, ".Wait() // before the end of the block that declares ", yname)})
+	return d
+}
+
+// blockOf returns the block that declares local variable v: the innermost
+// block statement around it, or the body of the function whose parameter
+// it is.
+func (r *reporter) blockOf(v *types2.Var) ast.Node {
+	path := r.enclosing(v.Pos())
+	for i := len(path) - 1; i >= 0; i-- {
+		switch n := path[i].(type) {
+		case *ast.BlockStmt:
+			return n
+		case *ast.FuncLit:
+			return n.Body
+		case *ast.FuncDecl:
+			return n.Body
+		}
+	}
+	return pu.New(ast.BadStmt{From: v.Pos(), To: v.Pos()})
+}
+
+// inside reports whether block s is nested inside block outer, and is not
+// outer itself.
+func inside(s, outer *types2.Scope) bool {
+	if s == nil || s == outer {
+		return false
+	}
+	for p := s.Parent(); p != nil; p = p.Parent() {
+		if p == outer {
+			return true
+		}
+	}
+	return false
+}
