@@ -11,19 +11,55 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
-
-	plutonium "github.com/matjam/plutonium"
-	"github.com/matjam/plutonium/internal/build"
-	"github.com/matjam/plutonium/internal/diag"
-	"github.com/matjam/plutonium/internal/load"
-	"github.com/matjam/plutonium/internal/syntax/format"
-	"github.com/matjam/plutonium/internal/testguard"
-	"github.com/matjam/plutonium/internal/types2"
 )
 
 const skillDir = "../../skill/plutonium"
+
+// A compiler is the pluto binary the checks run, with the environment that
+// points it at the repository's library.
+type compiler struct {
+	path string
+	env  []string
+}
+
+// plutoCompiler returns the compiler to check the skill with:
+// $PLUTO_TEST_COMPILER, such as the self-hosted compiler, or else pluto on
+// PATH, either with the repository's lib as $PLUTOROOT. It skips the test
+// when there is neither.
+func plutoCompiler(t *testing.T) *compiler {
+	t.Helper()
+	path := os.Getenv("PLUTO_TEST_COMPILER")
+	if path == "" {
+		var err error
+		if path, err = exec.LookPath("pluto"); err != nil {
+			t.Skip("no pluto compiler: set PLUTO_TEST_COMPILER or put pluto on PATH")
+		}
+	}
+	lib, err := filepath.Abs("../../lib")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &compiler{path: path, env: append(os.Environ(), "PLUTOROOT="+lib, "PLUTO_BRIEF=")}
+}
+
+// command returns a command that runs the compiler with args in dir.
+func (c *compiler) command(dir string, args ...string) *exec.Cmd {
+	cmd := exec.Command(c.path, args...)
+	cmd.Dir = dir
+	cmd.Env = c.env
+	return cmd
+}
+
+// run runs the compiler with args in dir and returns its combined output.
+func (c *compiler) run(dir string, stdin string, args ...string) (string, error) {
+	cmd := c.command(dir, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
 
 // markdownFiles returns the Markdown files of the skill.
 func markdownFiles(t *testing.T) []string {
@@ -50,7 +86,8 @@ func markdownFiles(t *testing.T) []string {
 
 // TestSkillExamples builds and runs every checked block of the skill.
 func TestSkillExamples(t *testing.T) {
-	testguard.Parallel(t)
+	t.Parallel()
+	c := plutoCompiler(t)
 	counts := map[Kind]int{}
 	var all []*Block
 	for _, f := range markdownFiles(t) {
@@ -79,10 +116,10 @@ func TestSkillExamples(t *testing.T) {
 	slots := make(chan struct{}, 3)
 	for _, b := range all {
 		t.Run(b.Name(), func(t *testing.T) {
-			testguard.Parallel(t)
+			t.Parallel()
 			slots <- struct{}{}
 			defer func() { <-slots }()
-			checkBlock(t, b)
+			checkBlock(t, c, b)
 		})
 	}
 }
@@ -91,53 +128,51 @@ var mainRE = regexp.MustCompile(`(?m)^func main\(`)
 var packageRE = regexp.MustCompile(`(?m)^package (\w+)`)
 
 // checkBlock builds a block and checks the outcome its kind asks for.
-func checkBlock(t *testing.T, b *Block) {
+func checkBlock(t *testing.T, c *compiler, b *Block) {
 	dir := t.TempDir()
 	for _, f := range b.Files {
 		write(t, dir, f.Name, f.Text)
-		checkFormatted(t, b, f)
+		checkFormatted(t, c, b, f)
 	}
 	switch b.Kind {
 	case Test:
-		checkTest(t, dir)
+		checkTest(t, c, dir)
 		return
 	case Names, Absent:
-		checkNames(t, b)
+		checkNames(t, c, b)
 		return
 	case Compile, Error:
 		prepare(t, dir, b)
 	}
 	out := filepath.Join(t.TempDir(), "prog")
-	opt := 2
+	opt := "2"
 	if b.Kind != Run {
-		opt = 0
+		opt = "0"
 	}
-	cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: opt}
+	args := []string{"build", "--brief=false", "-O", opt, "-o", out}
 	if b.Mode != "" {
-		cfg.Kernel = b.Mode == "kernel"
-		cfg.Freestanding = b.Mode == "freestanding"
-		cfg.CompileOnly = true
+		args = append(args, "--mode", b.Mode, "-c")
 	}
-	err := build.Build(cfg)
+	msg, err := c.run(dir, "", append(args, ".")...)
 	switch b.Kind {
 	case Error:
 		if err == nil {
 			t.Fatalf("the program built, want error %s", b.Code)
 		}
-		codes := codesOf(err)
+		codes := codesOf(msg)
 		for _, c := range codes {
-			if string(c) == b.Code {
+			if c == b.Code {
 				return
 			}
 		}
-		t.Fatalf("want error %s, got %v:\n%v", b.Code, codes, err)
+		t.Fatalf("want error %s, got %v:\n%s", b.Code, codes, msg)
 	case Compile:
 		if err != nil {
-			t.Fatalf("build: %v", err)
+			t.Fatalf("build: %v\n%s", err, msg)
 		}
 	case Run:
 		if err != nil {
-			t.Fatalf("build: %v", err)
+			t.Fatalf("build: %v\n%s", err, msg)
 		}
 		runProgram(t, out, b)
 	}
@@ -146,12 +181,14 @@ func checkBlock(t *testing.T, b *Block) {
 // checkFormatted fails when a source file of a block is not what pluto fmt
 // would write, so that the skill teaches formatted code. Error examples
 // are exempt, since they may show deliberately odd code.
-func checkFormatted(t *testing.T, b *Block, f SourceFile) {
+func checkFormatted(t *testing.T, c *compiler, b *Block, f SourceFile) {
 	t.Helper()
 	if b.Kind == Names || b.Kind == Absent || !strings.HasSuffix(f.Name, ".p") {
 		return
 	}
-	got, err := format.Source([]byte(f.Text))
+	cmd := c.command("", "fmt")
+	cmd.Stdin = strings.NewReader(f.Text)
+	got, err := cmd.Output()
 	if err != nil {
 		return // the build reports syntax errors
 	}
@@ -162,15 +199,8 @@ func checkFormatted(t *testing.T, b *Block, f SourceFile) {
 
 // checkNames looks up the qualified library names of a block: all must
 // exist (Names) or none may (Absent).
-func checkNames(t *testing.T, b *Block) {
+func checkNames(t *testing.T, c *compiler, b *Block) {
 	t.Helper()
-	cfg := &load.Config{
-		Stdlib: plutonium.Stdlib(),
-		Sizes:  types2.SizesFor("gc", "amd64"),
-		Tags:   load.BuildTags(false, false, nil),
-	}
-	cfg.Tags["gencheck"] = true
-	progs := map[string]*load.Program{}
 	for _, line := range strings.Split(b.Files[0].Text, "\n") {
 		name := strings.TrimSpace(line)
 		if i := strings.Index(name, "//"); i >= 0 {
@@ -184,17 +214,11 @@ func checkNames(t *testing.T, b *Block) {
 			t.Errorf("%q: want a name like strings.Cut or vec.Vec.Push", name)
 			continue
 		}
-		prog := progs[pkg]
-		if prog == nil {
-			var err error
-			prog, err = load.LoadPackage(cfg, "pluto/"+pkg)
-			if err != nil {
-				t.Errorf("%s: package pluto/%s: %v", name, pkg, err)
-				continue
-			}
-			progs[pkg] = prog
+		found, err := c.lookup(pkg, rest)
+		if err != nil {
+			t.Errorf("%s: package pluto/%s: %v", name, pkg, err)
+			continue
 		}
-		found := lookup(prog.Main.Types, rest)
 		if b.Kind == Names && !found {
 			t.Errorf("%s does not exist", name)
 		}
@@ -216,26 +240,87 @@ func splitQualified(name string) (pkg, rest string, ok bool) {
 	return name[:i], name[i+1:], true
 }
 
-// lookup finds Name, or Type.Method, in a package.
-func lookup(pkg *types2.Package, rest string) bool {
-	name, method, isMethod := strings.Cut(rest, ".")
-	obj := pkg.Scope().Lookup(name)
-	if obj == nil {
-		return false
+// lookup finds Name, or Type.Method, in package pluto/pkg, as the
+// checked package has them for the hosted build: a top-level name in the
+// listing of pluto doc -all, a method of Type (declared, promoted, or of an
+// interface) by asking pluto doc for Type.Method, and a field of Type in
+// the declaration that pluto doc -all prints for Type.
+func (c *compiler) lookup(pkg, rest string) (bool, error) {
+	names, err := c.topLevel(pkg)
+	if err != nil {
+		return false, err
 	}
-	if !isMethod {
-		return true
+	name, member, isMember := strings.Cut(rest, ".")
+	if !names[name] {
+		return false, nil
 	}
-	tn, ok := obj.(*types2.TypeName)
+	if !isMember {
+		return true, nil
+	}
+	if _, err := c.run("", "", "doc", "pluto/"+pkg, rest); err == nil {
+		return true, nil
+	}
+	out, err := c.run("", "", "doc", "-all", "pluto/"+pkg, name)
+	if err != nil {
+		return false, fmt.Errorf("pluto doc %s: %v\n%s", name, err, out)
+	}
+	return hasField(out, name, member), nil
+}
+
+var (
+	listingMu    sync.Mutex
+	listingCache = map[string]map[string]bool{}
+	// topLevelRE matches the declaration that starts an entry of pluto
+	// doc: a function (not a method), type, constant or variable.
+	topLevelRE = regexp.MustCompile(`(?m)^(?:func|type|const|var) ([A-Za-z_][A-Za-z0-9_]*)`)
+)
+
+// topLevel returns the names that package pluto/pkg declares at top level.
+func (c *compiler) topLevel(pkg string) (map[string]bool, error) {
+	listingMu.Lock()
+	defer listingMu.Unlock()
+	if names, ok := listingCache[pkg]; ok {
+		return names, nil
+	}
+	out, err := c.run("", "", "doc", "-all", "pluto/"+pkg)
+	if err != nil {
+		return nil, fmt.Errorf("pluto doc: %v\n%s", err, out)
+	}
+	names := map[string]bool{}
+	for _, m := range topLevelRE.FindAllStringSubmatch(out, -1) {
+		names[m[1]] = true
+	}
+	listingCache[pkg] = names
+	return names, nil
+}
+
+// fieldRE matches a field line of a struct declaration as pluto doc prints
+// it: its names, or the type of an embedded field.
+var fieldRE = regexp.MustCompile(`^\t(?:([A-Za-z_][A-Za-z0-9_]*(?:, [A-Za-z_][A-Za-z0-9_]*)*)\s|\*?(?:[A-Za-z_][A-Za-z0-9_]*\.)?([A-Za-z_][A-Za-z0-9_]*)(?:\[|$|\s))`)
+
+// hasField reports whether the struct declaration of typ in the output of
+// pluto doc has a field named field.
+func hasField(doc, typ, field string) bool {
+	_, decl, ok := strings.Cut(doc, "\ntype "+typ+" ")
 	if !ok {
 		return false
 	}
-	t := types2.Unalias(tn.Type())
-	if !types2.IsInterface(t) {
-		t = types2.NewPointer(t)
+	decl, _, _ = strings.Cut(decl, "\n}")
+	for _, line := range strings.Split(decl, "\n") {
+		m := fieldRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		if m[2] == field {
+			return true
+		}
+		for _, n := range strings.Split(m[1], ", ") {
+			if n == field {
+				return true
+			}
+		}
 	}
-	f, _, _ := types2.LookupFieldOrMethod(t, true, pkg, method)
-	return f != nil
+	return false
 }
 
 func write(t *testing.T, dir, name, text string) {
@@ -275,25 +360,15 @@ func prepare(t *testing.T, dir string, b *Block) {
 	write(t, dir, "main.p", "package main\n\nimport _ \"skillcheck/pkg\"\n\nfunc main() {}\n")
 }
 
-// codesOf returns the codes of the diagnostics in err.
-func codesOf(err error) []diag.Code {
-	var codes []diag.Code
-	var walk func(error)
-	walk = func(e error) {
-		if d, ok := e.(*diag.Diagnostic); ok {
-			codes = append(codes, d.Code)
-			return
-		}
-		switch x := e.(type) {
-		case interface{ Unwrap() []error }:
-			for _, c := range x.Unwrap() {
-				walk(c)
-			}
-		case interface{ Unwrap() error }:
-			walk(x.Unwrap())
-		}
+// explainRE matches the line under a diagnostic that names its code.
+var explainRE = regexp.MustCompile(`\(run "pluto explain (E\d{4})" for a longer explanation\)|\(explained above; run "pluto explain (E\d{4})" for more\)`)
+
+// codesOf returns the codes of the diagnostics that pluto build printed.
+func codesOf(out string) []string {
+	var codes []string
+	for _, m := range explainRE.FindAllStringSubmatch(out, -1) {
+		codes = append(codes, m[1]+m[2])
 	}
-	walk(err)
 	return codes
 }
 
@@ -336,22 +411,14 @@ func trimLines(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-// checkTest runs the tests of the package in dir as pluto test does.
-func checkTest(t *testing.T, dir string) {
+// checkTest runs the tests of the package in dir with pluto test.
+func checkTest(t *testing.T, c *compiler, dir string) {
 	t.Helper()
-	out := filepath.Join(t.TempDir(), "test")
-	cfg := &build.Config{Dir: dir, Output: out, Stdlib: plutonium.Stdlib(), OptLevel: 1}
-	opts := &build.TestOptions{Verbose: true, Count: 1}
-	if _, err := build.BuildTest(cfg, dir, opts); err != nil {
-		t.Fatalf("build: %v", err)
-	}
-	cmd := exec.Command(out)
-	cmd.Dir = dir
-	got, err := cmd.CombinedOutput()
+	got, err := c.run(dir, "", "test", "-O", "1", "-v", "-count", "1", ".")
 	if err != nil {
 		t.Fatalf("tests failed: %v\n%s", err, got)
 	}
-	if !bytes.Contains(got, []byte("PASS")) {
+	if !strings.Contains(got, "PASS") {
 		t.Fatalf("no PASS in the test output:\n%s", got)
 	}
 }
@@ -455,13 +522,27 @@ var codeRE = regexp.MustCompile(`\bE\d{4}\b`)
 // TestSkillCodes checks that every error code the skill mentions is in the
 // compiler's catalog, so that no text names a code that does not exist.
 func TestSkillCodes(t *testing.T) {
+	pc := plutoCompiler(t)
+	list, err := pc.run("", "", "explain")
+	if err != nil {
+		t.Fatalf("pluto explain: %v\n%s", err, list)
+	}
+	known := map[string]bool{}
+	for _, line := range strings.Split(list, "\n") {
+		if f := strings.Fields(line); len(f) > 0 && codeRE.MatchString(f[0]) {
+			known[f[0]] = true
+		}
+	}
+	if len(known) == 0 {
+		t.Fatalf("pluto explain listed no codes:\n%s", list)
+	}
 	for _, f := range markdownFiles(t) {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, c := range codeRE.FindAllString(rangeRE.ReplaceAllString(string(data), ""), -1) {
-			if diag.Lookup(diag.Code(c)) == nil {
+			if !known[c] {
 				t.Errorf("%s mentions %s, which is not an error code", f, c)
 			}
 		}
@@ -551,14 +632,15 @@ func TestGeneratedFresh(t *testing.T) {
 	if err != nil {
 		t.Skip("no go command")
 	}
+	pc := plutoCompiler(t)
 	root, err := filepath.Abs("../..")
 	if err != nil {
 		t.Fatal(err)
 	}
 	out := t.TempDir()
 	for _, args := range [][]string{
-		{"run", "./skill/plutonium/tools/genstdlib", "-lib", filepath.Join(root, "lib"), "-out", out},
-		{"run", "./skill/plutonium/tools/gendiag", "-out", filepath.Join(out, "diagnostics.md")},
+		{"run", "./skill/plutonium/tools/genstdlib", "-pluto", pc.path, "-lib", filepath.Join(root, "lib"), "-out", out},
+		{"run", "./skill/plutonium/tools/gendiag", "-pluto", pc.path, "-out", filepath.Join(out, "diagnostics.md")},
 	} {
 		cmd := exec.Command(goBin, args...)
 		cmd.Dir = root
