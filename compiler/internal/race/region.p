@@ -844,6 +844,15 @@ func (a *analyzer) cpuAccessError(x *access, handlers []string) *diag.Diagnostic
 			intro = "Put the load and the store inside one region with interrupts disabled"
 		}
 	}
+	if u.task && u.dep != nil && u.dep.lit {
+		// The literal is the task: the fix moves the load into it.
+		open, end := "rt.DisablePreemption()", "rt.EnablePreemption()"
+		if len(handlers) > 0 {
+			open, end = "f := x86.SaveFlagsCli()", "x86.RestoreFlags(f)"
+		}
+		code = compat.Concat("task func() {\n\t", open, "\n\tx := ", name, "\n\t", name, " = x + 1\n\t", end, "\n}()")
+		intro = "Load and store inside the task, in one region where it cannot move"
+	}
 	d.Fix = pu.New(diag.Fix{Intro: intro, Code: code})
 	return d
 }

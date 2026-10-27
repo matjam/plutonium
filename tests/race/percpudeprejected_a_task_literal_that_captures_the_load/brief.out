@@ -1,0 +1,1 @@
+$DIR/main.p:32:7: a function literal that captures variables cannot be started with a task statement: x lives in the starting frame, which may be gone before the task runs (spec section 12.12); pass it as an argument instead: task func(x uint64) {...}(x)

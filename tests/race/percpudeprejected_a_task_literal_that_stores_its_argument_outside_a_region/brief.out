@@ -1,0 +1,1 @@
+$DIR/main.p:31:7: the task started with a function literal stores the per-CPU variable ticks in a task that runs later, from a value that depends on a load made here

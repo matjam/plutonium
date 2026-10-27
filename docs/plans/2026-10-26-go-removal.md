@@ -106,8 +106,9 @@ shared counter). Left in Go, with the reason:
 - lower closurestoredinfreshallocation (accepted half): its helpers return
   closures kept in fresh allocations, which escape rejects in a whole program.
 - race percpureviewrejected_task_literal_started_in_a_region: the capture rule
-  rejects the original first; passing x as an argument makes it accepted with
-  no E2022 (a race checker gap, below).
+  rejects the original first. Its argument form is now in the corpus as
+  `tests/race/percpudeprejected_a_task_literal_that_stores_its_argument`
+  (the race checker gap below, now fixed).
 - escape `//pu:resultholds` programs (9): the directive is allowed only in the
   standard library, so they have no CLI form.
 - API tests with no program form: types2 TestNestingLimit config knobs,
@@ -128,8 +129,12 @@ Known differences and bugs found:
   with `accepted_owner_type_arguments` and
   `rejected_index_a_generic_container_of_owners` beside it.
 - race: a task literal that takes its operand as an argument inside a
-  per-CPU region, `task func(x uint64) { ... }(x)`, is accepted with no E2022,
-  while the named-function form `task set(x + 1)` is reported.
+  per-CPU region, `task func(x uint64) { ... }(x)`, was accepted with no
+  E2022, while the named-function form `task set(x + 1)` was reported. Fixed:
+  the dependence analysis now reads a literal started as a task with the
+  arguments as its parameters, and a store in it that depends on the
+  starter's load is a store of the task statement, as for a named function.
+  Tests: `tests/race/percpudep*task*`.
 - The self-hosted compiler never set `types2.DeclPrinter`, so its E3202 fix
   showed `...` in place of the owner type declaration
   (`tests/diag/owners`). Fixed by `selfhost/internal/load/printhook.p`.

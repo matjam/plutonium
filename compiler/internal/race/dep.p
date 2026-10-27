@@ -191,6 +191,7 @@ type cpuDepSite struct {
 	opaque string // some dependence passes through this call, which cannot be seen
 	callee string // set when the site is a call of a function that stores v
 	task   bool   // the store is made by a task started here, which no region of the starter covers
+	lit    bool   // the task started is a function literal
 }
 
 func (s *cpuDepSite) add(loads []int, data bool, opaque string) {
@@ -701,6 +702,7 @@ type inlCtx struct {
 	lo, hi token.Pos
 	rets   taint
 	name   string
+	task   bool // the literal is started as a task by call
 }
 
 type depWalk struct {
@@ -1142,9 +1144,10 @@ func (d *depWalk) stmt(s ast.Stmt) {
 		d.ex(s.Call)
 		d.mode = modeCall
 	case *ast.TaskStmt:
+		saved := d.taskCall
 		d.mode, d.taskCall = modeTask, s.Call
 		d.ex(s.Call)
-		d.mode, d.taskCall = modeCall, nil
+		d.mode, d.taskCall = modeCall, saved
 	case *ast.SendStmt:
 		d.ex(s.Chan)
 		d.heapAdd(d.ex(s.Value).union(d.effPC()))
@@ -1524,8 +1527,9 @@ func (d *depWalk) site(v *types2.Var, loads []int, data bool, opaque string, pos
 			site = pu.New(cpuDepSite{v: v, callee: callee})
 			d.a.cpuDepCalls[e] = compat.Append(d.a.cpuDepCalls[e], site)
 		}
-		if e == d.taskCall {
+		if e == d.taskCall || d.inlTask(e) {
 			site.task = true
+			_, site.lit = ast.Unparen(e.Fun).(*ast.FuncLit)
 		}
 	} else {
 		k := depKey{pos, v}
@@ -1700,6 +1704,12 @@ func (d *depWalk) lit(l *ast.FuncLit) taint {
 // inlineCall reads a literal where it is called, with the arguments' taints
 // as its parameters and the variables' state at the call.
 func (d *depWalk) inlineCall(e *ast.CallExpr, l *ast.FuncLit, args []taint) taint {
+	return d.inlineCallAs(e, l, args, false)
+}
+
+// inlineCallAs is inlineCall; task says that the call starts the literal as a
+// task.
+func (d *depWalk) inlineCallAs(e *ast.CallExpr, l *ast.FuncLit, args []taint, task bool) taint {
 	var params []*types2.Var
 	if l.Type != nil && l.Type.Params != nil {
 		for _, f := range l.Type.Params.List {
@@ -1722,7 +1732,7 @@ func (d *depWalk) inlineCall(e *ast.CallExpr, l *ast.FuncLit, args []taint) tain
 		d.setVar(p, t, true)
 	}
 	savedPC, savedExit, savedBrk, savedMode := d.pc, d.exitPC, d.brk, d.mode
-	ctx := pu.New(inlCtx{call: e, lo: l.Pos(), hi: l.End(), name: "a function literal"})
+	ctx := pu.New(inlCtx{call: e, lo: l.Pos(), hi: l.End(), name: "a function literal", task: task})
 	if id, ok := ast.Unparen(e.Fun).(*ast.Ident); ok {
 		ctx.name = id.Name
 	}
@@ -1736,6 +1746,36 @@ func (d *depWalk) inlineCall(e *ast.CallExpr, l *ast.FuncLit, args []taint) tain
 	d.inls = d.inls[:len(d.inls)-1]
 	d.pc, d.exitPC, d.brk, d.mode = savedPC, savedExit, savedBrk, savedMode
 	return ctx.rets
+}
+
+// taskLit reads a literal started as a task, task func(x T) { ... }(y), with
+// the arguments' taints as its parameters. A store in it that depends on a
+// load the starter made is a store of the task statement, which no region of
+// the starter covers (section 20.9), as for a named function started as a
+// task. The task runs later, so the literal reads memory and the variables
+// around it as a literal that may run at any time does.
+func (d *depWalk) taskLit(e *ast.CallExpr, l *ast.FuncLit) taint {
+	args := d.argTaints(e)
+	var all taint
+	for _, t := range args {
+		all = all.union(t)
+	}
+	// The arguments cross into the task, which may keep them in memory.
+	d.heapAdd(all.union(d.effPC()))
+	d.lits = compat.Append(d.lits, l)
+	d.inlineCallAs(e, l, args, true)
+	d.lits = d.lits[:len(d.lits)-1]
+	return nil
+}
+
+// inlTask reports whether e starts a literal as a task that is being read.
+func (d *depWalk) inlTask(e *ast.CallExpr) bool {
+	for _, c := range d.inls {
+		if c.call == e && c.task {
+			return true
+		}
+	}
+	return false
 }
 
 // argTaints reads the arguments of a call.
@@ -1793,6 +1833,9 @@ func (d *depWalk) callTaint(e *ast.CallExpr) taint {
 			}
 			return t
 		}
+	}
+	if l, ok := fun.(*ast.FuncLit); ok && mode == modeTask {
+		return d.taskLit(e, l)
 	}
 	if mode == modeCall {
 		// A literal called where it is written, or held by a variable that is
