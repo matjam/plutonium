@@ -189,6 +189,10 @@ type funcJob struct {
 	setup goFn3
 	pos   token.Pos // for synthesized functions with a source extent
 	end   token.Pos
+
+	// adoptParams: the function's counted parameters own the references
+	// the caller passes, instead of borrowing them (taskEntry).
+	adoptParams bool
 }
 
 // Lower lowers a loaded program.
@@ -494,6 +498,19 @@ func (l *Lowerer) rawFuncSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 		l.internalf(token.NoPos, "no source for function %s", pu.Box(name))
 		return sym
 	}
+	sig, tm := l.instanceSig(fn, targs)
+	job := pu.New(funcJob{sym: sym, pkg: d.pkg, decl: d.decl, sig: sig, tmap: tm})
+	if !l.shutdownQueued && staticCleanupHook(fn) {
+		l.shutdownJobs = compat.Append(l.shutdownJobs, job)
+	} else {
+		l.queue = compat.Append(l.queue, job)
+	}
+	return sym
+}
+
+// instanceSig returns the signature of fn instantiated with targs, and the
+// substitution of its type parameters (nil when it has none).
+func (l *Lowerer) instanceSig(fn *types2.Func, targs []types2.Type) (*types2.Signature, *typeMap) {
 	sig := fn.Type().(*types2.Signature)
 	var tm *typeMap
 	if len(targs) > 0 {
@@ -504,13 +521,68 @@ func (l *Lowerer) rawFuncSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 			sig = tm.subst(sig).(*types2.Signature)
 		}
 	}
-	job := pu.New(funcJob{sym: sym, pkg: d.pkg, decl: d.decl, sig: sig, tmap: tm})
-	if !l.shutdownQueued && staticCleanupHook(fn) {
-		l.shutdownJobs = compat.Append(l.shutdownJobs, job)
-	} else {
-		l.queue = compat.Append(l.queue, job)
+	return sig, tm
+}
+
+// taskEntry returns the copy of fn that a task statement calls when fn
+// changes a counted parameter, or nil when the ordinary function will do.
+//
+// A task statement copies each argument into the new task as an argument
+// is assigned to a parameter (language spec section 12.12): the task holds
+// one reference per counted argument, and it is the parameter's. An
+// ordinary call borrows its counted arguments, and a function that
+// assigns to such a parameter, takes its address or captures it retains a
+// reference of its own (strcount.go). Called from the task's thunk, it
+// would leave the thunk's reference alive until it returns, so
+// overwriting the parameter would not release the object (section 18.7,
+// rule 2). The copy is the same body lowered with adoptParams: its counted
+// parameters take over the references the thunk passes and release them
+// when it returns, and the thunk releases none of them.
+func (l *Lowerer) taskEntry(fn *types2.Func, targs []types2.Type) *ssa.Sym {
+	fn = fn.Origin()
+	d := l.decls[fn]
+	if d == nil || d.decl.Body == nil || hasDirective(d.decl.Doc, "interrupt") {
+		return nil
 	}
-	return sym
+	sym := l.funcSym(fn, targs)
+	if sym != l.rawFuncSym(fn, targs) || sym.Kind != ssa.SymFunc {
+		return nil
+	}
+	sig, tm := l.instanceSig(fn, targs)
+	if regionSig(sig) {
+		return nil
+	}
+	name := compat.Concat(sym.Name, "·task")
+	if entry := l.funcs[name]; entry != nil {
+		return entry
+	}
+	declared := fn.Type().(*types2.Signature)
+	var params []*types2.Var
+	if declared.Recv() != nil {
+		params = compat.Append(params, declared.Recv())
+	}
+	for i := 0; i < declared.Params().Len(); i++ {
+		params = compat.Append(params, declared.Params().At(i))
+	}
+	facts := analyzeVars(d.decl.Body, d.pkg.Info)
+	owns := false
+	for _, v := range params {
+		T := v.Type()
+		if tm != nil {
+			T = tm.subst(T)
+		}
+		if f := facts[v]; f != nil && (f.assigned || f.addrTaken || f.captured) && l.counted(T) {
+			owns = true
+		}
+	}
+	if !owns {
+		return nil
+	}
+	entry := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = entry
+	l.symFuncs[entry] = fn
+	l.queue = compat.Append(l.queue, pu.New(funcJob{sym: entry, pkg: d.pkg, decl: d.decl, sig: sig, tmap: tm, adoptParams: true}))
+	return entry
 }
 
 // lowerExports queues every function marked //pu:export, which assembly or C

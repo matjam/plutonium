@@ -563,6 +563,9 @@ func (s *fnState) bindParams() {
 		paramVars = compat.Append(paramVars, sig.recv)
 	}
 	paramVars = compat.Append(paramVars, sig.params...)
+	// A task's entry (taskEntry) owns the references of its counted
+	// parameters: it takes none of its own and releases them on return.
+	adopt := s.job.adoptParams
 	for i, p := range s.abi.params {
 		v := paramVars[i]
 		if p.byRef {
@@ -572,7 +575,7 @@ func (s *fnState) bindParams() {
 				// region keeps a copy, and references, of its own.
 				addr := s.regionVar(p.typ)
 				s.move(addr, ptr, s.l.sizeof(p.typ))
-				if s.l.counted(p.typ) {
+				if s.l.counted(p.typ) && !adopt {
 					s.retainAt(addr, p.typ)
 				}
 				s.vars[v] = addr
@@ -580,13 +583,15 @@ func (s *fnState) bindParams() {
 			}
 			if v != nil {
 				s.vars[v] = ptr
-				if s.l.counted(p.typ) && s.ownsParam(v) {
+			}
+			if s.l.counted(p.typ) && (adopt || v != nil && s.ownsParam(v)) {
+				if !adopt {
 					// The caller's copy is borrowed; the function changes
 					// it, so it takes references of its own, released when
 					// it returns.
 					s.retainAt(ptr, p.typ)
-					s.ownedParams = compat.Append(s.ownedParams, countedSlot{base: ptr, T: p.typ})
 				}
+				s.ownedParams = compat.Append(s.ownedParams, countedSlot{base: ptr, T: p.typ})
 			}
 			continue
 		}
@@ -597,7 +602,7 @@ func (s *fnState) bindParams() {
 			for _, lf := range p.leaves {
 				s.store(lf.t, s.offPtr(addr, lf.off), s.abiToMemory(p.typ, nextArg(lf.t)))
 			}
-			if s.l.counted(p.typ) {
+			if s.l.counted(p.typ) && !adopt {
 				s.retainAt(addr, p.typ)
 			}
 			s.vars[v] = addr
@@ -616,9 +621,13 @@ func (s *fnState) bindParams() {
 		}
 		if v != nil {
 			s.vars[v] = addr
-			if s.l.counted(p.typ) && s.ownsParam(v) {
+		}
+		if s.l.counted(p.typ) && (adopt || v != nil && s.ownsParam(v)) {
+			if !adopt {
 				s.retainAt(addr, p.typ)
-				s.ownedParams = compat.Append(s.ownedParams, countedSlot{base: addr, T: p.typ})
+			}
+			s.ownedParams = compat.Append(s.ownedParams, countedSlot{base: addr, T: p.typ})
+			if v != nil {
 				s.ownedVars[v] = true
 			}
 		}

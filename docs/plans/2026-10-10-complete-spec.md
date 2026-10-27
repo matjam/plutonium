@@ -1544,6 +1544,7 @@ unverified proof boundaries are distinguished; none is closed by old suite passe
 | 40 | Each evaluation of `errors.New` returns a new error, without allocating (decision D11). Planned. | 16.3 | 106 |
 | 41 | Views of owners held in local variables, of counted references and of local arenas are bounded by the variable at compile time; the compiler leaves them to the generation checks (third adversarial review of the escape analysis, defect 7, *verified*). Planned. | 18.3, 18.7, 18.9 | 138 |
 | 42 | A loop made with `goto` gives each iteration variables of its own; a scoped task may not take a view of a block that ends before the scope waits (E3401) (third adversarial review, defect 8, *verified*). Planned. | 18.4, 19.4 | 139 |
+| 43 | A task statement's counted arguments belong to the parameters: overwriting one releases the task's reference there. Done for static functions, concrete methods and literals that capture nothing; a task started through an interface method or a func value that is not a literal still releases when the call returns. Partly done. | 12.12, 18.7 | 141 |
 
 Counted channels with their timers (`bdb7683`), 64 MiB lazily mapped hosted task stacks (`173c2f6`) and
 `sync.Scope` (`a7948f6`) and generation checks by default in hosted builds (`766837b`) landed before the

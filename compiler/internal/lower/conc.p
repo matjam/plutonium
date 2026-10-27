@@ -421,6 +421,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	sig := pu.Alloc[*types2.Signature]()
 	nlead := 0               // values before the arguments
 	boxRecv := pu.New(false) // the receiver is the owned or synced box itself (task p.Serve())
+	adopted := false          // the callee is a task entry, which owns the counted arguments (taskEntry)
 
 	if se, ok := fun.(*ast.SelectorExpr); ok {
 		if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
@@ -467,6 +468,12 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 						def = &defaultsOf{m, targs}
 					}
 					sym, full := s.l.methodFunc(m, targs, w, se.Sel.Pos(), "started by a task statement")
+					if w == nil {
+						if entry := s.l.taskEntry(m, targs); entry != nil {
+							sym = entry
+							adopted = true
+						}
+					}
 					noReturn := s.l.isNoReturn(m)
 					(*emit) = pu.New(goClosure_taskStmt_3{boxRecv: boxRecv, boxElem: boxElem, sym: sym, noReturn: noReturn, full: full})
 					vals = compat.Append(vals, s.callArgs(call, (*sig), def)...)
@@ -485,6 +492,10 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 				(*sig) = s.subst(funTV.Type).(*types2.Signature)
 				sym := s.l.funcSym(fn, targs)
 				s.checkNotHandler(sym, call.Pos(), "started by a task statement")
+				if entry := s.l.taskEntry(fn, targs); entry != nil {
+					sym = entry
+					adopted = true
+				}
 				noReturn := s.l.isNoReturn(fn)
 				(*emit) = pu.New(goClosure_taskStmt_4{sym: sym, noReturn: noReturn, sig: sig})
 				vals = s.callArgs(call, (*sig), &defaultsOf{fn, targs})
@@ -496,7 +507,17 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 		// closure record is not in this frame (spec section 18.3).
 		(*sig) = s.typeOf(call.Fun).Underlying().(*types2.Signature)
 		fT := s.typeOf(call.Fun)
-		fv := s.scalar(call.Fun)
+		var fv *ssa.Value
+		if lit, ok := fun.(*ast.FuncLit); ok && !regionSig(s.subst((*sig)).(*types2.Signature)) {
+			// A literal that captures nothing (one that captures is an
+			// error, above) runs only as this task, so it is lowered as a
+			// task entry: its counted parameters own the references the
+			// thunk passes (taskEntry).
+			fv = s.symAddr(s.l.closureRecord(s.closureJob(lit, nil, true)))
+			adopted = true
+		} else {
+			fv = s.scalar(call.Fun)
+		}
 		vals = compat.Append(vals, scalarValue(fv, fT))
 		(*emit) = pu.New(goClosure_taskStmt_5{sig: sig})
 		vals = compat.Append(vals, s.callArgs(call, (*sig), nil)...)
@@ -536,7 +557,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	block := s.tempSize((size+7)&^7, max(align, 8), "goargs")
 	// The new task owns a reference to every string in the block
 	// (language spec section 18.8), and its thunk drops them when the call
-	// returns.
+	// returns, unless the callee is a task entry that owns them (taskEntry).
 	var provisional []value
 	for _, a := range args {
 		dst := s.offPtr(block, a.off)
@@ -567,7 +588,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	unsafePtr := types2.Typ[types2.UnsafePointer]
 	tsig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(compat.Clone([]*types2.Var{types2.NewParam(token.NoPos, nil, "p", unsafePtr)})...), nil, false)
 	pos := call.Pos()
-	s.l.queue = compat.Append(s.l.queue, pu.New(funcJob{sym: thunk, pkg: s.pkg, sig: tsig, parent: s, build: pu.New(goClosure_taskStmt_6{tsig: tsig, args: args, varArr: varArr, varOff: varOff, boxRecv: boxRecv, emit: emit, pos: pos})}))
+	s.l.queue = compat.Append(s.l.queue, pu.New(funcJob{sym: thunk, pkg: s.pkg, sig: tsig, parent: s, build: pu.New(goClosure_taskStmt_6{tsig: tsig, args: args, varArr: varArr, varOff: varOff, boxRecv: boxRecv, adopted: adopted, emit: emit, pos: pos})}))
 
 	rec := s.symAddr(s.l.closureRecord(thunk))
 	// The bound argument is the stack the call is proven to need; 0 until
@@ -1001,6 +1022,7 @@ type goClosure_taskStmt_6 struct {
 	varArr  **types2.Array
 	varOff  *int64
 	boxRecv *bool
+	adopted bool // the callee releases the counted arguments
 	emit    *goFn1
 	pos     token.Pos
 }
@@ -1030,7 +1052,7 @@ func (goSelf *goClosure_taskStmt_6) Call(ts *fnState) {
 		if (*goSelf.boxRecv) && i == 0 {
 			continue
 		}
-		if ts.l.counted(a.v.T) {
+		if !goSelf.adopted && ts.l.counted(a.v.T) {
 			ts.releaseAt(ts.offPtr(p, a.off), a.v.T)
 		}
 	}

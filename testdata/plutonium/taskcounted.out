@@ -1,0 +1,22 @@
+drop res 1
+one: cleared
+drop res 2
+pair: a cleared
+drop res 3
+pair: cleared
+drop res 4
+addr: cleared
+drop res 5
+gen: cleared x
+kept: parameter cleared
+kept: copy holds 6
+drop res 6
+kept: copy cleared
+drop res 7
+method: receiver cleared
+drop res 8
+literal: cleared
+one: cleared
+main still holds 9
+drop res 9
+end

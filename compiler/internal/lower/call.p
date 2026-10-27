@@ -936,13 +936,19 @@ func (s *fnState) closureWith(lit *ast.FuncLit, captures []*types2.Var, sym *ssa
 
 // closureFunc queues the function of a literal with the given captures.
 func (s *fnState) closureFunc(lit *ast.FuncLit, captures []*types2.Var) *ssa.Sym {
+	return s.closureJob(lit, captures, false)
+}
+
+// closureJob queues the function of a literal with the given captures;
+// adoptParams makes it a task entry (taskEntry).
+func (s *fnState) closureJob(lit *ast.FuncLit, captures []*types2.Var, adoptParams bool) *ssa.Sym {
 	s.closures++
 	name := compat.Sprintfb("%s.func%d", compat.ArgS(s.f.Name), compat.ArgI(int64(s.closures)))
 	sym := s.l.out.Sym(name, ssa.SymFunc)
 	sig := s.subst(s.info.Types[lit].Type).(*types2.Signature)
 	s.l.funcValues[sym] = sig
 	s.l.queue = compat.Append(s.l.queue, pu.New(funcJob{
-		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, parent: s,
+		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, parent: s, adoptParams: adoptParams,
 	}))
 	return sym
 }
