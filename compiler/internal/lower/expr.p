@@ -358,6 +358,18 @@ func (s *fnState) indexRaw(e *ast.IndexExpr) lvalue {
 		var arr lvalue
 		if _, isPtr := asPointer(unwrap(xt).Underlying()).(*types2.Pointer); isPtr {
 			arr = s.deref(s.scalar(e.X), u, e.Pos())
+		} else if ix, ok := ast.Unparen(e.X).(*ast.IndexExpr); ok && (s.isMapIndex(ix) || s.isContainerIndex(ix)) {
+			// An element of a map or container (m[k][i]) has no address
+			// of its own (its lvalue is the lookup): index a copy, as a
+			// field of one is read (selector).
+			x := s.expr(e.X)
+			if !x.addr {
+				tmp := s.temp(xt, "tmp")
+				s.storeTo(tmp, x, xt)
+				arr = lvalue{ptr: tmp, T: xt}
+			} else {
+				arr = lvalue{ptr: x.v, T: xt, stable: stableFrom(x) != cntUnstable}
+			}
 		} else {
 			arr = s.lvRaw(e.X)
 		}
@@ -879,6 +891,11 @@ func (s *fnState) compare(op token.Token, xe, ye ast.Expr, pos token.Pos) *ssa.V
 		} else {
 			T = yT
 		}
+	} else if isInterface(xT) && !types2.Identical(xT, yT) && types2.AssignableTo(xT, yT) {
+		// Comparing interfaces of two types: compare in the one the other
+		// converts to. An Expr compared with a Node is compared as a Node;
+		// converting the Node to an Expr would assert that it is one.
+		T = yT
 	}
 	x := s.holdAcross(s.exprAs(xe, T), ye)
 	y := s.exprAs(ye, T)
