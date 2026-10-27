@@ -176,9 +176,10 @@ pass an arena for scratch memory (`vec.New[T](&a)`); an arena-allocated thing is
 
 ## Toolchain
 
-Build the compiler from the repository: `go build -o pluto ./cmd/pluto` (or `GOBIN=$HOME/go/bin go install
-./cmd/pluto`). The standard library is embedded; set `PLUTOROOT=$PWD/lib` to use the working tree's library
-instead (needed when you edit `lib/pluto`). Run with `unset GOROOT` if the Go toolchain complains about versions.
+The compiler is written in Plutonium. Build it with an existing `pluto`: `PLUTOROOT=$PWD/lib pluto build -O2
+--gencheck=false -o pluto ./compiler/cmd/pluto`; without one, `go run ./tools/bootstrap -stages 1 -work DIR`
+builds `DIR/pluto1`. The standard library is not embedded: a `pluto` at the repository root uses `lib/` beside
+it; elsewhere set `PLUTOROOT=$PWD/lib`. Run with `unset GOROOT` if the Go toolchain complains about versions.
 
 | Command | Use |
 |---|---|
@@ -259,9 +260,10 @@ Typical fixes:
 
 ## Repository map (when working on the compiler or library itself)
 
-`cmd/pluto` (driver) · `internal/{syntax,types2,load,moves,escape,race,scoped,lower,ssa,opt,arch,build,diag}`
+`compiler/cmd/pluto` (driver) ·
+`compiler/internal/{syntax,types2,load,moves,escape,escape2,race,scoped,lower,ssa,opt,arch,build,diag}`
 (pipeline; see `AGENTS.md`) · `lib/pluto` (standard library, Plutonium) · `docs/spec/language/` (specification,
 sections cited as "section 18.3") · `docs/decisions.md` (design decisions D1 to D35) · `docs/roadmap.md` · `examples/`
-and `testdata/run` (programs) · `tests/diag` (every diagnostic, full output) · `tools/go2pu` (compiler
-port helper) · `tools/skillcheck` (checks this skill). Regenerate the generated references with
+and `testdata/run` (programs) · `tests/` (the compiler's tests; `tests/diag` has every diagnostic, full output) ·
+`tools/bootstrap` (builds the compiler) · `tools/skillcheck` (checks this skill). Regenerate the generated references with
 `skill/plutonium/tools/regenerate.sh`.

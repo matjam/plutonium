@@ -23,10 +23,10 @@ skill/plutonium/
     idioms-types-memory.md    programs: lists, trees, enums, unions, Drop, generics, constructors, multimaps
     idioms-memory.md          programs: arenas, packed headers, counted boxes, weak parents
     idioms-concurrency.md     programs: pools, pipelines, timers, locks, partitioned work
-    go-to-plutonium.md        translating Go; what tools/go2pu does and does not do
+    go-to-plutonium.md        translating Go
     kernel-mode.md            freestanding builds, directives, volatile, packed, ring, per-CPU, interrupts
     known-gaps.md             where the compiler or library differs from the specification today
-    diagnostics.md            every error code (generated from internal/diag)
+    diagnostics.md            every error code (generated from compiler/internal/diag)
     library-cheatsheet.md     the calls programs use most, with the shapes that differ from Go
     stdlib*.md                every exported library name, one line each (generated from lib/pluto)
   tools/
@@ -79,6 +79,7 @@ checked fences to plain `go` fences.
 
 ```sh
 go test ./tools/skillcheck                # compiles and runs every marked example (about a minute)
+                                          # with $PLUTO_TEST_COMPILER, else pluto on PATH; skips without one
 skill/plutonium/tools/regenerate.sh       # after the library or the diagnostics catalog changes
 SKILLCHECK_FRESH=1 go test ./tools/skillcheck -run TestGeneratedFresh   # are the generated files up to date?
 ```

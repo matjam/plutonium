@@ -299,30 +299,7 @@ hé
 6 héllo
 ```
 
-## 5. `tools/go2pu`
-
-`go run ./tools/go2pu -out DIR -mod MODULE [-map from=to]... GODIR...` translates Go packages into Plutonium
-source. It exists to port the **compiler itself** (the self-hosting plan, `docs/plans/2026-10-09-self-hosting-plan.md`).
-It is not a general porting tool: it translates packages of the compiler's own Go module
-(`github.com/matjam/plutonium`), runs `go build -gcflags=-m` for escape information, and emits calls into the
-`selfhost/compat` and `selfhost/pu` helper packages.
-
-- **It rewrites:** maps to `hash.Map` calls; `append`, `make`, string concatenation, `string(b)`, `[]byte(s)`,
-  `fmt.Sprintf`, `strings.Builder`, `bytes.Buffer`, `strconv.Append*` to `compat` functions that keep Go's
-  semantics on an arena; heap-escaping variables to `pu.New`; a local `WaitGroup` used in the supported shapes to a
-  `sync.Scope`; `x, err := f(); if err != nil { return 0, err }` to `x := f() or return`; string slices;
-  `go` to `task`; `sort.Slice` with an index comparison to `sort.SortFunc`.
-- **It does not translate** (it marks the spot with a `go2pu:` comment and lists it on standard error): closures
-  and interface values that escape their frame, `recover`, reflection, goroutines and WaitGroups outside the
-  supported shapes, maps modified while ranged over, binary data in string literals, `encoding/binary`,
-  `iter` and range-over-func, `defer` in loops, packages with no counterpart.
-- **It does not** make the result idiomatic (it leans on `compat` and arenas), check ownership, or run the code.
-  After it, compile with `pluto build`, read each remaining error, and replace the `compat` calls with
-  `vec.Vec` and owners by hand.
-
-For an ordinary Go program, translate by hand with sections 1 to 4, which is usually a short edit.
-
-## 6. Mistakes to avoid when translating
+## 5. Mistakes to avoid when translating
 
 - Do not invent a `pluto/strings` function from Go habit: check section 2 and `stdlib.md` first.
 - Do not wrap every struct in `owner`: only a struct that **contains** an owner type needs it.

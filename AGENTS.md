@@ -11,29 +11,35 @@
 Plutonium is a systems programming language: Go-familiar, not Go-compatible,
 with no garbage collector, ownership visible in the types, and tasks and
 channels on a scheduler that only programs using them carry
-(`docs/spec/language.md`, chapter 1). The compiler is self-hosted: its source is
-`selfhost/` (Plutonium), and the Go implementation (`cmd/pluto`, `internal/`) is frozen
-at the `go-cutover` tag. See "Self-hosted compiler" below. The pipeline, by Go package
-(each has its port under `selfhost/internal/`, with the same names):
+(`docs/spec/language.md`, chapter 1). The compiler is written in Plutonium and
+builds itself: its source is `compiler/` (module `compiler`, imports
+`compiler/...`), and the driver is `compiler/cmd/pluto`. The Go implementation it
+was translated from was deleted in `15e6515d`; the `go-cutover` tag keeps it. See
+"Self-hosted compiler" below. The pipeline:
 
 | Stage | Package |
 |---|---|
-| scanner, parser, AST (forked from Go) | `internal/syntax/...` |
-| type checker (forked go/types + Plutonium types) | `internal/types2` |
-| package loading, build tags, `pluto.mod` | `internal/load` |
-| scoped tasks of `sync.Scope`, for the checks and lowering (spec 19.4) | `internal/scoped` |
-| move checker for owners (spec 18.5, 18.6) | `internal/moves` |
-| stack escape analysis (spec 18.3, 18.4, 11.5) | `internal/escape` |
-| data race check (spec 19.2, 19.3) | `internal/race` |
-| typed AST to SSA | `internal/lower` |
-| SSA IR, verifier, basic passes | `internal/ssa` |
-| optimiser pipeline | `internal/opt` |
-| x86-64 backend (isel, regalloc, encoder) | `internal/arch/amd64` |
-| ELF object writer | `internal/objfile` |
-| driver (assemble, link) | `internal/build`, `cmd/pluto` |
+| scanner, parser, AST (forked from Go) | `compiler/internal/syntax/...` |
+| type checker (forked go/types + Plutonium types) | `compiler/internal/types2` |
+| package loading, build tags, `pluto.mod` | `compiler/internal/load` |
+| scoped tasks of `sync.Scope`, for the checks and lowering (spec 19.4) | `compiler/internal/scoped` |
+| move checker for owners (spec 18.5, 18.6) | `compiler/internal/moves` |
+| stack escape analysis (spec 18.3, 18.4, 11.5) | `compiler/internal/escape2` (the default, `PLUTO_ESCAPE=new`); `compiler/internal/escape` (`PLUTO_ESCAPE=old`) |
+| data race check (spec 19.2, 19.3) | `compiler/internal/race` |
+| typed AST to SSA | `compiler/internal/lower` |
+| SSA IR, verifier, basic passes | `compiler/internal/ssa` |
+| optimiser pipeline | `compiler/internal/opt` |
+| x86-64 backend (isel, regalloc, encoder) | `compiler/internal/arch/amd64` |
+| ELF object writer | `compiler/internal/objfile` |
+| driver (assemble, link) | `compiler/internal/build`, `compiler/cmd/pluto` |
+| diagnostics and their catalog | `compiler/internal/diag` |
+| `pluto lsp`, `pluto doc` | `compiler/internal/lsp`, `compiler/internal/doc` |
 
-The standard library is Plutonium source under `lib/pluto/`, embedded in the
-compiler binary. Set `PLUTOROOT=$PWD/lib` to use the working tree instead.
+`compiler/compat` and `compiler/pu` are helpers the translation from Go left
+behind. The standard library is Plutonium source under `lib/pluto/`. The compiler
+does not embed it: it reads `$PLUTOROOT`, or else a `lib` directory beside its
+executable or one level above it. A `pluto` at the repository root finds `lib/`
+beside it; elsewhere set `PLUTOROOT=$PWD/lib`.
 
 ## The specification
 
@@ -45,11 +51,12 @@ plainly that it is historical.
 
 - Section numbers are unique across the specification. Cite them as
   "section 18.7" (comments, catalog entries, plans). The catalog's `Spec`
-  field is written with `pspec(section, title)`, and `TestSpecReferences`
-  (`go test ./internal/diag/`) guards the specification: every reference in
-  the catalog names a section that exists, under the title given; each
-  section is numbered once, in the file of its chapter; no `> **Open` block
-  remains.
+  field is written with `pspec(section, title)`. Known gap: no test guards
+  these references now. `TestSpecReferences`, which checked that every
+  reference in the catalog names a section that exists under the title given,
+  that each section is numbered once in the file of its chapter, and that no
+  `> **Open` block remains, went with the Go implementation. Check a citation
+  against its chapter by hand.
 - `docs/spec/abi.md` (binary interface), `memory-model.md`, `debugging.md`
   and `debug-allocator.md` refine the specification for implementers. They
   keep their section numbers, which the catalog, comments and tests cite, and
@@ -73,58 +80,74 @@ plainly that it is historical.
 
 ## Self-hosted compiler
 Since the `go-cutover` tag (2026-10-26, self-hosting plan section 6.4) the compiler's
-source is `selfhost/`, edited by hand. The Go compiler under `cmd/pluto` and `internal/`
-is frozen: do not change its compiler packages. It stays as stage 0, the bootstrap that
-builds the self-hosted compiler on a machine with a Go toolchain, until it is deleted
-(docs/plans/2026-10-26-go-removal.md). The self-hosted driver has every command
-(`build`, `run`, `version`, `explain`, `vet`, `test`, `fmt`, `doc`, `lsp`). go2pu no longer runs over the compiler
-(`TestTranslationsUpToDate` is retired); the first line of each translated file names
-the Go file it came from.
+source is `compiler/`, edited by hand. It was translated from the Go implementation by
+go2pu, and the first line of each translated file names the Go file it came from. The
+Go implementation and go2pu were deleted in `15e6515d`
+(`docs/plans/2026-10-26-go-removal.md`); the `go-cutover` tag keeps them. The driver has
+every command (`build`, `run`, `version`, `explain`, `vet`, `test`, `fmt`, `doc`, `lsp`).
 
-- Build the compiler (about 3 minutes and 5 GB for the Go-hosted build):
-  `go build -o /tmp/pluto0 ./cmd/pluto && PLUTOROOT=$PWD/lib /tmp/pluto0 build -O2 --gencheck=false -o pluto ./selfhost/cmd/pluto`.
-  A `pluto` at the repository root finds `lib/` beside it; elsewhere set `PLUTOROOT`.
-- Rebuild it with itself after a change to `selfhost/`:
-  `PLUTOROOT=$PWD/lib ./pluto build -O2 --gencheck=false -o /tmp/pluto2 ./selfhost/cmd/pluto`
-  (about 5 minutes, 7 GB). A change is checked by the fixpoint: the compiler built by
-  the new compiler builds itself byte for byte the same (`go run ./tools/bootstrap`,
-  stages 2 and 3, `-pluto1` to start from a compiler built before).
-- Run the end-to-end corpus with it: `PLUTO_TEST_COMPILER=$PWD/pluto go test -count=1 -timeout 60m ./internal/build`.
-- `tests/` holds the diagnostic corpus that only execs a compiler: each case is a
-  directory with a program and the output it must produce (format in
-  `tests/corpus_test.go`). `go test ./tests` uses `./pluto`, or `PLUTO_TEST_COMPILER`;
-  `-update` rewrites the expected output of failing cases.
-- The differential tests of `tools/go2pu` and `tools/bootstrap -corpus` compare the
-  self-hosted compiler with the frozen Go one. They hold until a change to `selfhost/`
-  deliberately changes the compiler's output; then that comparison is retired, and the
-  change is recorded in the commit.
+- Build the compiler with an existing `pluto`:
+  `PLUTOROOT=$PWD/lib pluto build -O2 --gencheck=false -o pluto ./compiler/cmd/pluto`
+  (about 15 minutes, about 7 GB).
+- Without one: `go run ./tools/bootstrap -stages 1 -work DIR` checks the `go-cutover` tag
+  out into a temporary worktree, builds its Go compiler there (stage 0), and builds
+  `DIR/pluto1` with it. `-pluto0 FILE` starts from a given compiler instead.
+- Self builds need `PLUTO_ESCAPE=new` in the environment. It is the default; an
+  inherited `PLUTO_ESCAPE=old` or `both` makes a self build need far more memory.
+- A change to `compiler/` is checked by the fixpoint:
+  `go run ./tools/bootstrap -pluto0 ./pluto -stages 3` builds pluto1 with the given
+  compiler, pluto2 with pluto1 and pluto3 with pluto2, and pluto2 and pluto3 must be the
+  same byte for byte. Every stage builds with `-flags` (default `-O2 --gencheck=false`,
+  unchecked); `-pluto1` starts from a stage 1 compiler built before. `-corpus` compares
+  pluto1 with stage 0 over the test corpus; that comparison holds only until a change
+  deliberately changes the compiler's output.
 
 ## Build & Test
-The commands below use the Go-hosted compiler (stage 0) unless they say otherwise.
-- Build compiler: `go build -o /tmp/pluto ./cmd/pluto/`
-- Run all tests: `go test -count=1 ./...`
-- Build and run a program: `PLUTOROOT=$PWD/lib /tmp/pluto run ./examples/07-hello/`
+- Run all tests: `PLUTO_TEST_COMPILER=$PWD/pluto go test -count=1 ./...`. The Go code
+  left is the test harness `tests/`, `tools/bootstrap`, `tools/difftest`,
+  `tools/mkunicode`, `tools/skillcheck`, the tests of `editors/vscode`, the skill's
+  generators (`skill/plutonium/tools/{gendiag,genstdlib}`) and `bench/run.go` (a module
+  of its own). None of it is a compiler: it execs one. `tests/` takes
+  `PLUTO_TEST_COMPILER`, else `./pluto`; `tools/skillcheck` and `editors/vscode` take
+  `PLUTO_TEST_COMPILER`, else `pluto` on `PATH`. Without a compiler they skip, so a run
+  that finds none passes without testing anything.
+- Build and run a program: `./pluto run ./examples/07-hello/`
 - Listing / SSA dumps: `pluto build -S - ./dir`, `pluto build --ssa=main.main ./dir`
-- Check SSA invariants after every pass: `PLUTO_SSACHECK=1 go test ./internal/build/`
+- Check SSA invariants after every pass: `PLUTO_SSACHECK=1` in the compiler's
+  environment (`PLUTO_SSACHECK=1 go test ./tests`; the harness passes its environment on).
 - Hosted builds have generation checks by default (`docs/spec/abi.md` section 1.3);
   `pluto build --gencheck=false` (and `pluto test -gencheck=false`) is the unchecked mode, and
-  `PLUTO_GENCHECK=0 go test ./internal/build/` runs the suite in it. Tests of code shapes the checks
-  add to build with `build.Config{NoGenCheck: true}` (`listFuncUnchecked`).
+  `PLUTO_GENCHECK=0 go test ./tests` runs the suite in it.
 - Format Plutonium source (gofmt's rules plus the Plutonium syntax):
   `pluto fmt -l <paths>` lists files that differ, `-w` rewrites them, `-d`
-  shows a diff. The formatter is `internal/syntax/printer` and
-  `internal/syntax/format`, forks of go/printer and go/format; plain Go must
-  format exactly as gofmt formats it (`TestSameAsGoFormat`).
-- Run Plutonium tests: `PLUTOROOT=$PWD/lib /tmp/pluto test pluto/strings pluto/sort`,
+  shows a diff. The formatter is `compiler/internal/syntax/printer` and
+  `compiler/internal/syntax/format`, forks of go/printer and go/format.
+- Run Plutonium tests: `pluto test pluto/strings pluto/sort`,
   or a directory (`pluto test ./lib/pluto/strings`, which uses that tree as
   the standard library), or `./...`. Flags: `-run`, `-bench`, `-v`, `-count`,
   `-O`, `-trimpath`. Tests are `func TestXxx(t *testing.T)` in `*_test.p` files of the
   package itself, using `pluto/testing`; the loader leaves `_test.p` files out
-  of every other build. `internal/build/test.go` generates the test main;
-  `cmd/pluto/test.go` runs it and prints go test's format.
+  of every other build. `compiler/internal/build/test.p` generates the test main;
+  `compiler/cmd/pluto/test.p` runs it and prints go test's format.
 
-End-to-end tests live in `tests` (`programs_test.go`), which runs the compiler as a binary
-(`./pluto`, or `$PLUTO_TEST_COMPILER`), and in `internal/build`:
+The compiler's tests are in `tests/`, a Go package that only execs the compiler
+(`harness_test.go`). `go test ./tests -update` rewrites the expected output of the cases
+and goldens that fail; read the diff before committing it.
+- Corpus (`corpus_test.go`, `TestCorpus`): each case is a directory under
+  `tests/<group>/` with a program and the output it must produce (format in
+  `tests/corpus_test.go`). The groups are `diag` (a program for every diagnostic, with
+  its full output) and `race`, `types2`, `escape`, `moves`, `lower` (the programs of the
+  Go packages' unit tests).
+- Programs (`programs_test.go`): `testdata/run`, `testdata/lib`, `testdata/plutonium`,
+  `testdata/trace`, `testdata/cabi`, `testdata/kernel` (under QEMU) and the examples.
+- Commands: `cli_test.go`, `vetdoc_test.go`, `fmt_test.go`, `plutotest_test.go` (build,
+  run, test, vet, doc, fmt, explain), with their fixtures in `tests/testdata`.
+- `escapereview_test.go` (the escape review programs, rejected under
+  `PLUTO_ESCAPE=new`), `audit_test.go` (`pluto vet -unsafe` goldens),
+  `directive_test.go` (directive diagnostics and the section 20.3 audit),
+  `parse_test.go` (parser errors and a parse of every source file of the repository).
+
+About the programs:
 - `testdata/run/*.p` are programs in the common subset of Go and Plutonium. Their
   expected output (`*.out`) comes from running them with Go:
   `go test ./tests -run TestRun -update`. Each runs at -O0 and -O2.
@@ -136,65 +159,36 @@ End-to-end tests live in `tests` (`programs_test.go`), which runs the compiler a
   `PC` for code addresses. Traces name files relative to the module root (`./main.p` for these
   programs, which have no `pluto.mod`) and the standard library (`pluto/fmt/print.p`), so builds are
   reproducible in any directory (`docs/spec/debugging.md` section 2.1). Each runs at -O0 and -O2 and must print the
-  same trace at both. DWARF output is checked by `internal/build/dwarf_test.go` (see
-  `docs/spec/debugging.md`).
+  same trace at both.
 - `examples/*/main.p` are checked against `examples/*/expected` (first line
   `exit N` for a non-zero exit status), and run again under `--alloc=debug`.
-- `testdata/cabi` and `testdata/kernel` (under QEMU) are built and run by `tests` too.
-- The tests in `internal/build` and their subtests call
-  `testguard.Parallel(t)` (`internal/testguard`, which calls `t.Parallel()`
-  and records the test as running); a new one should too. The exceptions are the scheduler, timer and poller
-  tests in `conc_test.go`, `timer_test.go` and `poll_test.go` whose
-  programs depend on timing: they build in parallel (`buildConcAll`) and
-  then run their programs one at a time, before the parallel tests start.
-- Profile a build with `PLUTO_CPUPROFILE=file`, `PLUTO_MEMPROFILE=file` (pprof) or
-  `PLUTO_STACKSAMPLE=file` (a text profile that samples goroutine stacks, for machines without the CPU
-  profiler's timer); `PLUTO_PROFILE_SECS=n` (or an interrupt) stops a build that does not finish and writes
-  them (`cmd/pluto/profile.go`). `go run ./tools/escapedigest` prints a digest of the diagnostics or object
-  bytes of every program of the test corpus; run it on `origin/main` and on a change that must not change what
-  the compiler does (`-compare file` checks), as for the escape analysis. `PLUTO_SCALE_TEST=1 go test
-  ./internal/escape -run Translated` holds the escape analysis of the translated type checker to its time and
-  memory bounds (it takes minutes); `PLUTO_ESCAPE_CHECK=1` makes the analysis check its fast ways against the
-  general ones as it goes (the escape tests always do).
-- Memory guard (`internal/testguard`, used by `TestMain` in `internal/build`
-  and `tools/go2pu`): unless `-parallel` is given, it lowers the parallelism
-  so that slots at `PLUTO_TEST_SLOT_MB` each (default 256; 0 turns this
-  off) fit in the memory available, and says so on stderr. The memory
-  available is the lesser of `MemAvailable` and the headroom under the
-  process's cgroup v2 limits (`memory.max`, `memory.high`, of its cgroup and
-  its ancestors), so a run under `systemd-run -p MemoryMax=11G` sizes itself
-  to 11 GB. A watchdog samples the memory of the run every second: the
-  resident memory of the test binary and the processes it started (the
-  programs the tests build and run), or, when the run has its cgroup to
-  itself (as under `bigjob.sh`), the cgroup's usage less reclaimable file
-  cache if that is more (files in a tmpfs `/tmp` count). Past
-  `PLUTO_TEST_RSS_MB` (default: 80% of the memory available at start, 95%
-  if that is a cgroup's headroom, at most 12288; 0 turns it off) it prints
-  the tests in flight and the largest processes and exits with status 2. A
-  run killed this way means a test, or a compiler change it exercises, uses
-  far more memory than before: fix that rather than raising the cap. A step
-  that needs far more than a slot (a build of a translated compiler, a run
-  of the translated back end) calls `testguard.Reserve(t, mb)` with its
-  measured peak first: reservations share a budget the size of the
-  watchdog's cap less the memory in use, and one of more than a third of
-  it runs alone, so two 4 GB builds do not start together in an 11 GB
-  cgroup. Linux only (`/proc`); elsewhere all of this does nothing. The
-  measurements behind the estimates are in
-  `docs/verification/2026-10-21-test-memory.md`.
-- `tools/go2pu` builds each translated demo once per test binary and keeps
-  the executables in a cache under the user cache directory
-  (`plutonium/go2pu-demos`), keyed by a hash of the test binary (which holds
-  the compiler and the embedded library), every file of `selfhost/`, the
-  `as`, `ld` and C compiler executables, the `PLUTO*` and `CC` environment
-  variables, the demo, the level and the generation checks; a run with the
-  same compiler and translations takes the demos from it.
-  `PLUTO_TEST_CACHE=0` turns it off (`=<dir>` moves it); entries unused for a
-  week are removed.
+- Profile a build with `PLUTO_CPUPROFILE=file` and `PLUTO_MEMPROFILE=file` (pprof, written when
+  the compiler finishes; the allocation profile needs `--gencheck=false`). `PLUTO_PHASES=1` names
+  each phase on standard error as it starts, and `PLUTO_PROFILE_PHASE=name` writes the profiles
+  and stops the build as that phase starts (`compiler/cmd/pluto/profile.p`).
+  `PLUTO_ESCAPE_CHECK=1` makes the old escape analysis (`compiler/internal/escape`) check its fast
+  ways against the general ones as it goes.
+
+Known gaps: these guards went with the Go implementation and have no replacement yet.
+- `TestSpecReferences`: the catalog's citations of the specification and its numbering.
+- `TestCatalogComplete` and `TestCatalogStyle`: every code has a catalog entry, written in
+  the catalog's style.
+- `TestSameAsGoFormat`: plain Go formats exactly as gofmt formats it.
+- `internal/build/dwarf_test.go`: the DWARF output (`docs/spec/debugging.md`).
+- The Go packages' API-level unit tests with no program form (opt, arch, ssa, escape2,
+  lsp, the `internal/build` units; list in the go-removal plan, "Phase 2 status"). Their
+  behaviour is covered by the corpus and the self-build fixpoint only.
+- Coverage: `tools/pkgcov` and the per-package floors measured the Go packages. Nothing
+  measures the coverage of `compiler/`.
+- The test memory guard (`internal/testguard`), `tools/escapedigest` (a digest of the
+  compiler's output over the corpus, for changes that must not change it) and the scale
+  test of the escape analysis (`PLUTO_SCALE_TEST`).
 
 ## The agent skill
 
 `skill/plutonium/` is an installable skill that teaches an LLM coding agent to write Plutonium (see its
-`README.md` for installation). Its examples are compiled and run by `go test ./tools/skillcheck`, so a compiler or
+`README.md` for installation). Its examples are compiled and run by `go test ./tools/skillcheck` (with the compiler
+named by `PLUTO_TEST_COMPILER`, or `pluto` on the `PATH`; without either it skips), so a compiler or
 library change that breaks an example fails that test: fix the text, or the compiler if it now disagrees with the
 specification. `references/stdlib*.md` and `references/diagnostics.md` are generated; after the library or the
 diagnostics catalog changes run `skill/plutonium/tools/regenerate.sh` (`SKILLCHECK_FRESH=1 go test ./tools/skillcheck
@@ -230,90 +224,71 @@ defines no others.
 - Update the list of directives in section 20.3 of the specification
   (`docs/spec/language/20-system-considerations.md`; a user decision comes
   first, as for any specification change) and the hover text in
-  `internal/lsp/hover.go` with any change.
+  `compiler/internal/lsp/hover.p` with any change.
 
 ## Diagnostics
 
-Every compile error is an `*diag.Diagnostic` (`internal/diag`): position,
+Every compile error is an `*diag.Diagnostic` (`compiler/internal/diag`): position,
 code, one-line message, and optionally an explanation of its own. `pluto`
 prints the message line unchanged (`file:line:col: message`, all that
 `--brief` or `PLUTO_BRIEF=1` prints), then an indented explanation, a fix,
 the spec section, and `run "pluto explain E1234"`. Codes and their ranges
-are listed in `internal/diag/diag.go`.
+are listed in `compiler/internal/diag/diag.p`.
 
 To add an error:
 1. Give it a code. Type checker errors: a constant at the end of a group in
-   `internal/types2/errors/plutonium.go` (E2000-E2499), then `go generate`
-   in that directory. Anything else: a constant in `internal/diag/codes.go`
-   (ownership and escape errors use E3000-E3999).
-2. Add a catalog entry (`internal/diag/catalog_pluto.go`, or
-   `catalog_build.go`): `Text` in plain words, `Why` when Plutonium differs
+   `compiler/internal/types2/errors/plutonium.p` (E2000-E2499). Then add its
+   name to `code_string.p` in that directory by hand: append the name to
+   `_Code_name` and add a `_Code_map` entry for the new value (there is no
+   `go generate` now; only `Code.String` reads these). Anything else: a
+   constant in `compiler/internal/diag/codes.p` (ownership and escape errors
+   use E3000-E3999).
+2. Add a catalog entry (`compiler/internal/diag/catalog_pluto.p`, or
+   `catalog_build.p`): `Text` in plain words, `Why` when Plutonium differs
    from Go (no hidden allocation, no GC, kernel safety), `Spec` (the section
    of the language specification that states the rule, `pspec("18.3",
-   "Views")`; `TestSpecReferences` fails on a section that does not exist or
-   a title that does not match), and a
+   "Views")`), and a
    `Fix` or `Example`/`Fixed`. Short sentences, no jargon without a
    definition, no em dashes, and American spelling, as in the go/types
-   text the catalog builds on. `TestCatalogComplete` and `TestCatalogStyle`
-   fail without it.
+   text the catalog builds on. No test checks the entry now (see "Known
+   gaps"): check the section and title against the specification and run
+   `pluto explain` on the new code.
 3. Report it: `check.errorf(at, Code, ...)` in the checker;
-   `l.errorf(pos, diag.Code, ...)` in `internal/lower`, or `l.report(pos, d)`
+   `l.errorf(pos, diag.Code, ...)` in `compiler/internal/lower`, or `l.report(pos, d)`
    with `d.Text`/`d.Fix` filled in from what is known at the error (names,
    lines); `diag.New` elsewhere. Type checker errors are specialised by
-   code in `internal/diag/typecheck.go`.
+   code in `compiler/internal/diag/typecheck.p`.
 4. Test the full output, not a substring: add a program under
    `tests/diag/` and run
-   `PLUTO_TEST_COMPILER=/tmp/pluto go test ./tests -run TestCorpus/diag -update`
+   `PLUTO_TEST_COMPILER=$PWD/pluto go test ./tests -run TestCorpus/diag -update`
    with the compiler that reports it, then read the diff of
    `default.out` and `brief.out`. Tests that match only the first line keep
    passing, and that line must not change without reason.
 
 Go's codes (E0001-E0999) take their text from go/types' documentation
-(`catalog_go.go`, `go generate` in `internal/diag`) unless `goPlain` in
-`catalog_go_plain.go` has a hand-written entry.
+(`catalog_go.p`, generated once and now edited by hand) unless `goPlain` in
+`catalog_go_plain.p` has a hand-written entry.
 
 ## Verification Checklist (before considering work complete)
 
 Every change must pass ALL of these before committing:
 
-1. **Tests**: `go test -count=1 ./...` — all packages must pass. This builds and
-   runs every example and every `testdata/run` program. It includes
-   `TestSpecReferences` (`internal/diag`), which guards the specification's
-   numbering and the catalog's citations of it. It also checks that
-   every `.p` file under `lib`, `examples`, `testdata` and `bench` is
-   `pluto fmt` clean (`TestRepoFormatted` in `internal/syntax/format`); fix a
-   failure with `pluto fmt -w lib testdata examples bench`. A file that must
-   stay unformatted goes in that test's `unformattedAllowed` list with a reason.
-2. **Lint**: `golangci-lint run ./...` — must report 0 issues.
+1. **Tests**: `PLUTO_TEST_COMPILER=$PWD/pluto go test -count=1 ./...` with a compiler
+   built from the change; all packages must pass, and a run that skips for want of a
+   compiler does not count. This builds and runs every example and every `testdata/run`
+   program, and runs the corpus. It also checks that every `.p` file under `lib`,
+   `examples`, `testdata` and `bench` is `pluto fmt` clean (`TestFmtRepoFormatted` in
+   `tests/fmt_test.go`); fix a failure with `pluto fmt -w lib testdata examples bench`.
+2. **Fixpoint**: a change to `compiler/` must reach the fixpoint
+   (`go run ./tools/bootstrap -pluto0 ./pluto -stages 3`, "Self-hosted compiler").
+3. **Lint**: `golangci-lint run ./...`: must report 0 issues.
    Fix all errcheck, staticcheck, and unused warnings before committing.
    Lint includes the `gofmt` formatter (`.golangci.yml`), so unformatted Go
    files fail it; fix them with `gofmt -w <file>`.
-3. **Coverage**: coverage must not decrease. Measure across packages, since the
-   end-to-end tests exercise most of the compiler:
-   ```
-   go test -count=1 -coverpkg=./internal/... -coverprofile=/tmp/cover.out ./...
-   go run ./tools/pkgcov /tmp/cover.out
-   ```
-   Current minimum coverage targets:
-   - `internal/arch/amd64`: ≥86%
-   - `internal/lower`: ≥85%
-   - `internal/opt`: ≥90%
-   - `internal/ssa`: ≥79%
-   - `internal/load`: ≥71%
-   - `internal/objfile`: ≥95%
-   - `internal/syntax/parser`: ≥70%
-   - `internal/syntax/printer`: ≥94%
-   - `internal/syntax/format`: ≥91%
-   - `internal/diff`: ≥98%
-   - `internal/types2`: ≥56%
-   - `internal/escape`: ≥90%
-   - `internal/moves`: ≥80%
-   - `internal/race`: ≥90%
-   - `internal/lsp`: ≥85%
-
-   New code paths need tests: a `testdata/run` program for language features,
-   a unit test for passes and backend details.
-4. **No silent failures**: unsupported constructs must produce a compile error,
+4. **New tests**: new code paths need tests: a `testdata/run` program for language
+   features, a corpus case under `tests/<group>/` for a diagnostic or a pass. Nothing
+   measures coverage now (see "Known gaps").
+5. **No silent failures**: unsupported constructs must produce a compile error,
    never wrong code. Grep new code for `TODO` and placeholder values.
 
 ## Status and next steps
@@ -333,24 +308,22 @@ all fixed. `skill/plutonium/` is an installable skill for LLM agents; `tools/ski
 example in it on each `go test ./...`.
 
 Work that remains, in order:
-1. Item 122 (decision D36), specified and not built: the `os` name API with `*os.NameError`. Update
-   `skill/plutonium` and `tools/go2pu` with the `os` change. Items 123 to 127 (D37, D38: the dependent-store check
-   in `internal/race`, typed `x86.Gate`, `InterruptGate` and `TrapGate`, the `//pu:interrupt trap` form, `x86.Sti`
-   ending a handler's region, the hover text and the directive audit) are built.
-2. The self-hosted port (`docs/plans/2026-10-09-self-hosting-plan.md` section 8): the back end and the syntax
-   packages (`token`, `scanner`, `ast`, `parser`; `TestParseCheck` parses every `.p` and `.go` file of the
-   repository with both versions and compares dumps) are translated and differentially tested in
-   `selfhost/`; the constant package (`internal/constant`, `constdemo` differential) is translated too; the SSA text form and the Plutonium back end (`selfhost/demo/ssaback`, `TestMixedPipeline`: object bytes equal the Go back end's over the test corpus at -O0 and -O2, which must not run under `ulimit -v`) are done (phase 3). go2pu converts closures that outlive their frame (`tools/go2pu/closures.go`), and the compiler packages use `internal/constant`; the translated front end (`types2`, `diag`, `load`, `escape`, `moves`, `race`, `lower`) builds and matches the Go one: `GO2PU_SLOW=1 go test ./tools/go2pu -run 'TestDifferential|TestTypeCheck|TestLower'` (plan, "Update (2026-10-20)"; building `lowerdemo` takes about 15 minutes and 15 GB, `TestLower` needs `PLUTO_TEST_RSS_MB=22000`). Re-run the translations after any
-   library change (`TestTranslationsUpToDate`).
+1. Item 122 (decision D36), the `os` name API with `*os.NameError`, is done. Items 123 to 127 (D37, D38: the
+   dependent-store check in `compiler/internal/race`, typed `x86.Gate`, `InterruptGate` and `TrapGate`, the
+   `//pu:interrupt trap` form, `x86.Sti` ending a handler's region, the hover text and the directive audit) are built.
+2. The self-hosted port is done. The compiler builds itself since the `go-cutover` tag, and the Go
+   implementation is gone (`15e6515d` deleted it, `9ea1540f` renamed `selfhost/` to `compiler/`;
+   `docs/plans/2026-10-26-go-removal.md`). What remains is the list of known gaps under "Build & Test": the
+   guards that went with the Go code.
 3. Loose ends from item 132: `hash.Set` takes no owner keys (spec 7.10) and `vec.Fixed` owns nothing; a
    copy-method error on a container of owners (E3306) points at the library line, not the call; E3309 is
    masked by E3306; generic ranges over owner containers see `*T` in the generic form.
-4. Known: `internal/objfile` (94.0%) and `internal/syntax/format` (90.1%) sit below their coverage floors,
-   unchanged since before 2026-10-17; the debug-allocator tests that join with a `WaitGroup` or channel retry
-   a run that took the abandon path (D31); `go test` with coverage needs `-timeout 60m`.
+4. Known: the debug-allocator tests that join with a `WaitGroup` or channel retry a run that took the abandon
+   path (D31).
 
 Environment: run `unset GOROOT` first (a stale exported `GOROOT` from an older mise Go breaks builds); put
-`ulimit -v 6000000` on `go build` and `go test` commands only, never on an agent process.
+`ulimit -v 6000000` on `go test` commands only, never on an agent process or a self build (which needs about
+7 GB).
 
 Current checkpoint, 2026-10-14: the approved safe-arena split is landed at
 `408dd2ab`. D6 orderly normal shutdown passes native source gates (all-package
@@ -384,8 +357,9 @@ order.
   A follow-up to item 58 preserves `rt.ExitTask` cleanup through bound scheduler and late runtime
   hooks, including custom stack allocation. Full native gates pass; see the
   [verification record](docs/verification/2026-10-12-goexit-hooks.md). Item 96 remains unfinished.
-- `~/go/bin/pluto` is the installed compiler; reinstall it after each landing with
-  `GOBIN=$HOME/go/bin go install ./cmd/pluto`.
+- `~/go/bin/pluto` was the installed compiler, reinstalled after each landing with
+  `go install ./cmd/pluto` (historical: the Go driver is gone; build `pluto` as in
+  "Self-hosted compiler").
 
 ### Next steps
 

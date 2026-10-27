@@ -1,6 +1,6 @@
 # Plutonium roadmap
 
-**Updated:** 2026-10-17
+**Updated:** 2026-10-27 (paths; the compiler is self-hosted and the Go implementation removed)
 
 Every known gap between the specification and the compiler and standard library, in priority order. The
 specification ([language.md](spec/language.md), version 0.3, with the binary interface in
@@ -31,7 +31,7 @@ rows remain evidence for their stated scope; they do not certify the whole compi
 against the corrected specification. The immediate implementation order is:
 
 101. **Ordinary kernel lifetime protection** (planned; sections 1.2, 18.11, 21.5).
-     `internal/build/build.go` currently forces generation checks off for kernel and
+     `compiler/internal/build/build.p` currently forces generation checks off for kernel and
      freestanding builds and rejects enabling them. Replace that blanket policy with
      static proof, available automatic protection, or rejection of unsupported unproved
      operations. Keep deliberate unchecked execution distinct. A kernel checking
@@ -486,7 +486,7 @@ compiler (2026-10-11).
 
 73. **Order of evaluation** (done, gap 1, `f74c4a4`; section 11.26): calls, method calls, receives and
     logical operations are evaluated first, left to right, then the other operands, so `[]int{a, f()}` with
-    an `f` that changes `a` gives `[2 2]`. Open: survey the rest of `internal/lower` and add `testdata/run`
+    an `f` that changes `a` gives `[2 2]`. Open: survey the rest of `compiler/internal/lower` and add `testdata/run`
     and difftest cases (assignments, `x[i] = f()`, operands of operators); every difference from the
     specified order is a false friend and is fixed.
 78. **A pointer-receiver method on an owner temporary** (done, gap 2, `04d7cf95`; sections 11.14 and 12.4):
@@ -698,7 +698,7 @@ compiler (2026-10-11).
 57. **Counted strings** (done, `a0e0987`, `70a2ebf`, `a433e5e`; sections 7.3 and 18.8, abi.md section 1.1,
     memory-model.md section 3.7): an immutable, valid-UTF-8, reference-counted value with elided counts
     (`opt.ElideStringHolds`). Open: interface boxes hold their string until the function returns;
-    `(string, error)` returns through memory; Linux file names that are not UTF-8 are decided (D36, item 122); `tools/go2pu` and `selfhost/compat` can drop helpers for what is native.
+    `(string, error)` returns through memory; Linux file names that are not UTF-8 are decided (D36, item 122); `compiler/compat` can drop helpers for what is native.
 60. **Counted `map[K]V`** (done, gap 21, `7867af2`, `8fd4ab7`, `0f8bc1b`, `c491a67`, `3c094e3`; sections 7.10,
     12.10, 13.3, 13.5, 13.7 and 19.3, abi.md section 1.4): one word, a counted reference to a
     `pluto/rt.MapTable`; `make(map[K]V, n, a)` takes an allocator and a literal allocates from the current
@@ -754,8 +754,8 @@ compiler (2026-10-11).
 
 ## Tooling
 
-30. **`pluto fmt`** (done, `9015b55`): the formatter, from the forked printer; `TestRepoFormatted` keeps the
-    repository clean.
+30. **`pluto fmt`** (done, `9015b55`): the formatter, from the forked printer; `TestFmtRepoFormatted`
+    (`tests/fmt_test.go`) keeps the repository clean.
 31. **`pluto test`** (done, `9015b55`): `Test` and `Benchmark` functions in `*_test.p` files, in `go test`'s
     output format.
 32. **Differential testing** (in progress, `89b29d9`, `c9390db`; section 1.2 rule 4): generated programs in
@@ -766,7 +766,8 @@ compiler (2026-10-11).
     every build compiles the whole program today.
 76. **The complete specification** (done, `131ac9e` to `b05a0b6`, `68b7efb`;
     [plan](plans/2026-10-10-complete-spec.md)): 21 chapters and 7 appendices in `docs/spec/language/`,
-    guarded by `TestSpecReferences`; the companion documents, plans and README agree with it. Open
+    guarded by `TestSpecReferences` until the Go implementation was removed (no test guards the
+    references now); the companion documents, plans and README agree with it. Open
     questions stay in the plan's section 6.5, which is the implementation brief.
 93. **`pluto doc`** (done; sections 1.1, 18.1 and F): documents source packages without running or linking
     them, with exact type labels (`value`, `view`, `owner (moves)`, `counted`). Optional symbols and
@@ -778,7 +779,7 @@ compiler (2026-10-11).
 ## Platforms and formats
 
 36. **arm64** (planned; section 20.5): `aarch64-linux` and `aarch64-none` targets, a second backend under
-    `internal/arch`, with the instruction mapping of memory-model.md section 5.3.
+    `compiler/internal/arch`, with the instruction mapping of memory-model.md section 5.3.
 37. **PE32+ for UEFI** (planned; section 20.5, abi.md section 7): `--format pe32+`, which needs a
     position-independent code mode without `R_X86_64_32S`. The flag is documented and rejected today.
 38. **Position-independent code** (planned; abi.md section 7): for PE32+, PIE and KASLR outside the top
@@ -810,10 +811,11 @@ compiler (2026-10-11).
 51. **Owner types in the library** (in progress; sections 7.18 and 18.10): `vec.Vec`, `hash.Map`,
     `hash.Set`, `strings.Builder`, `bytes.Buffer`, `heap.Heap`, `flag.FlagSet`, `os.DirEntries`,
     `exec.Cmd`, `arena.Chunked`, `sync.Scope` and `os.File` (item 134) are owners with `Drop`.
-52. **The `pu` mirror package for self-hosting** (done, `de6aa50`; migrating the compiler to it is not
-    started; [plan](plans/2026-10-09-self-hosting-plan.md)): a Go package `pu` with the library owners,
-    which go2pu maps one to one. A Go `map` translates to the built-in map unchanged (item 60).
-56. **Self-hosting prerequisites** (in progress; [plan](plans/2026-10-09-self-hosting-plan.md)): done are
+52. **The `pu` mirror package for self-hosting** (done, `de6aa50`;
+    [plan](plans/2026-10-09-self-hosting-plan.md)): a Go package `pu` with the library owners,
+    which go2pu mapped one to one. The Go package went with the Go implementation; the translated
+    compiler uses `compiler/pu`. A Go `map` translates to the built-in map unchanged (item 60).
+56. **Self-hosting prerequisites** (done: the compiler builds itself since the `go-cutover` tag; [plan](plans/2026-10-09-self-hosting-plan.md)): done are
     single-pointer structs in an interface's data word (`bcfe96f`, section 7.9), itab lookup by hash
     (`79a4326`, abi.md section 5), `//pu:stack` for `main` (`b951dd2`, section 20.3), growable arenas
     (`56d1d39`), the OS and process layer (`e5128d3`), `internal/constant` (`dee6b7d`), and the phase 1

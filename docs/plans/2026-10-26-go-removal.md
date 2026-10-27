@@ -1,6 +1,6 @@
 # Removing the Go implementation
 
-Status: in progress (2026-10-26). Supersedes the "stage 0 stays" paragraph of
+Status: done (2026-10-27): phase 3 is `15e6515d`, phase 4 is `9ea1540f`. Supersedes the "stage 0 stays" paragraph of
 AGENTS.md "Self-hosted compiler" once phase 4 lands.
 
 The compiler is self-hosted since the `go-cutover` tag. The Go implementation
@@ -43,7 +43,7 @@ centre of the repository.
    (`PLUTO_TEST_COMPILER` everywhere, default the self-hosted build); in-process
    `build.Build` helpers become CLI calls; inline-program error tests become
    corpus entries.
-3. Delete: `cmd/pluto` (Go), `internal/`, `stdlib.go`, go2pu, the escape
+3. (done, `15e6515d`) Delete: `cmd/pluto` (Go), `internal/`, `stdlib.go`, go2pu, the escape
    comparison tools, `internal/pu`, `selfhost/demo` (only go2pu tests use it).
    Rework `tools/bootstrap` (stage 0 from the tag), `tools/difftest`,
    `bench/run.go`, `skill/` generators and `editors/vscode` tests to exec a binary.
@@ -53,7 +53,7 @@ centre of the repository.
    keep `tools/mkunicode` (pure Go, reads the Go toolchain's tables). Done
    ahead of the deletion: `tools/bootstrap` builds stage 0 at `go-cutover` or
    takes `-pluto0`; `tools/difftest` defaults to `pluto` on `$PATH`.
-4. Rename `selfhost/` to `compiler/`; update AGENTS.md, README, skill docs,
+4. (done, `9ea1540f`) Rename `selfhost/` to `compiler/`; update AGENTS.md, README, skill docs,
    .gitignore, .golangci.yml.
 
 ## Phase 2 status (2026-10-26)

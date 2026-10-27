@@ -93,7 +93,8 @@ of:
 2. `pluto` on the editor's `PATH`.
 3. Where `go install` puts it: `$GOBIN/pluto`, `bin/pluto` under each `$GOPATH` entry, and
    `~/go/bin/pluto` (Go's default `GOPATH`). An editor started from a desktop launcher often has
-   a `PATH` without `~/go/bin`, so `go install ./cmd/pluto` in the repository is enough.
+   a `PATH` without `~/go/bin`, so a `pluto` copied there is found too. Build `pluto` as
+   `AGENTS.md` says ("Self-hosted compiler").
 
 Only executable regular files count. The *Plutonium* output logs the one in use (`Using pluto at
 /home/you/go/bin/pluto`); if none is found, the error lists the places searched. The search is
@@ -107,7 +108,7 @@ The extension is plain JavaScript with no build step. It depends on `vscode-lang
 not committed. To package and install it:
 
 ```sh
-go install ./cmd/pluto                     # the language server is pluto lsp
+# build pluto first (AGENTS.md); the language server is pluto lsp
 cd editors/vscode
 npm ci                                     # install the locked dependencies
 npm run package                            # writes plutonium-<version>.vsix
@@ -127,8 +128,8 @@ For development, run `npm ci`, then the editor with
 `go test ./editors/vscode/` (part of the repository's `go test ./...`) checks that:
 
 - `package.json`, the language configuration and the grammar parse, and refer to files that exist;
-- every keyword of `internal/syntax/token` is highlighted, and every predeclared name of
-  `internal/types2` (less the removed complex and map builtins) is highlighted as a builtin type,
+- every keyword of `compiler/internal/syntax/token` is highlighted, and every predeclared name of
+  `compiler/internal/types2` (less the removed complex and map builtins) is highlighted as a builtin type,
   function, constant or type constructor, so a new keyword or builtin cannot be forgotten;
 - every regex compiles (`test/grammar-check.js regexps`). TextMate grammars use Oniguruma, which
   Go's `regexp` cannot parse (no lookaround), so the check uses JavaScript's `RegExp` with the `u`
@@ -141,8 +142,8 @@ For development, run `npm ci`, then the editor with
   so it also compiles every regex with real Oniguruma; set `PLUTONIUM_TEXTMATE_MODULES` to a
   `node_modules` directory holding both if yours is elsewhere. The test is skipped when none is
   found.
-- the formatter, run through `extension.js` against a stand-in for the `vscode` module and a pluto
-  built for the test, formats, leaves formatted text alone, reports syntax errors as diagnostics
+- the formatter, run through `extension.js` against a stand-in for the `vscode` module and the pluto
+  named by `PLUTO_TEST_COMPILER` (else `pluto` on `PATH`), formats, leaves formatted text alone, reports syntax errors as diagnostics
   without touching the buffer, copes with a missing `pluto`, and finds `pluto` in `~/go/bin` (a
   fake `HOME`) when the setting is unset and `PATH` lacks it (`test/format-check.js`).
 - the language server client, run through `extension.js` against stand-ins for `vscode` and
@@ -157,7 +158,7 @@ For development, run `npm ci`, then the editor with
   a missing one is not replaced), `PATH` wins over the Go locations, then `$GOBIN`, `$GOPATH`,
   `~/go/bin` (a fake `HOME`), directories and non-executable files are passed over, the not
   found message lists the places searched, and a restart searches again.
-- a freshly built `pluto lsp` and `vscode-jsonrpc` (the library under `vscode-languageclient`)
+- that `pluto lsp` and `vscode-jsonrpc` (the library under `vscode-languageclient`)
   agree on the protocol: handshake, diagnostics after an edit, hover, definition into the standard
   library, formatting and shutdown (`test/lsp-protocol-check.js`); and the extension starts and
   stops that `pluto lsp` through the installed `vscode-languageclient`, with the server's log at
@@ -168,8 +169,9 @@ For development, run `npm ci`, then the editor with
   PATH=/usr/bin node test/lsp-client-check.js --search`) to check that the installed `pluto` is
   found the way an editor started from a desktop launcher would find it.
 
-The node-based checks are skipped when `node` is not installed. The language server itself is
-tested in Go, in `internal/lsp`.
+The node-based checks are skipped when `node` is not installed, and the checks that run `pluto`
+are skipped when there is none. The language server's own unit tests went with the Go
+implementation; `test/lsp-protocol-check.js` is what tests it now.
 `node test/grammar-check.js dump file.p` prints the scopes of every token of a file.
 
 Assertions in `test/sample.p` are comment lines under the line they check: carets mark columns,

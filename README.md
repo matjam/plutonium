@@ -110,25 +110,28 @@ More programs are in `examples/`.
 
 ## Building and running
 
-The compiler is written in Plutonium (`selfhost/`) and builds itself. On a new machine it is bootstrapped
-with the frozen Go implementation (Go 1.27 or later, `cmd/pluto`, tag `go-cutover`); the standard library is
-Plutonium source under `lib/pluto/`, which the compiler finds beside its executable or in `PLUTOROOT`.
+The compiler is written in Plutonium (`compiler/`) and builds itself. The standard library is Plutonium
+source under `lib/pluto/`, which the compiler finds in a `lib` directory beside its executable (or one level
+above it), or in `PLUTOROOT`.
 
 ```bash
-go build -o /tmp/pluto0 ./cmd/pluto/                                        # stage 0, the Go-hosted compiler
-PLUTOROOT=$PWD/lib /tmp/pluto0 build -O2 --gencheck=false -o pluto ./selfhost/cmd/pluto
+# with a pluto already built (about 15 minutes, about 7 GB)
+PLUTOROOT=$PWD/lib pluto build -O2 --gencheck=false -o pluto ./compiler/cmd/pluto
 
-pluto run ./examples/07-hello/              # build a hosted program and run it
-pluto build -o hello ./examples/07-hello/   # build a linked binary
-pluto build -S - ./examples/07-hello/       # print the listing instead
-pluto explain E3001                         # explain a compile error
+# without one: builds the Go compiler of the go-cutover tag (Go 1.27 or later), then DIR/pluto1 with it
+go run ./tools/bootstrap -stages 1 -work DIR
+
+./pluto run ./examples/07-hello/              # build a hosted program and run it
+./pluto build -o hello ./examples/07-hello/   # build a linked binary
+./pluto build -S - ./examples/07-hello/       # print the listing instead
+./pluto explain E3001                         # explain a compile error
 ```
 
-Set `PLUTOROOT=$PWD/lib` to use the library in the working tree instead of the embedded one. `pluto build
---help` lists the flags: target and mode (`hosted`, `freestanding`, `kernel`), build tags, the allocator,
-optimization level and debug information.
+A `pluto` at the root of the repository uses `lib/` beside it; elsewhere set `PLUTOROOT=$PWD/lib`. `pluto
+build --help` lists the flags: target and mode (`hosted`, `freestanding`, `kernel`), build tags, the
+allocator, optimization level and debug information.
 
-Other commands (provided by the Go-hosted `pluto0` until they are ported):
+Other commands:
 
 - `pluto doc [package-or-directory] [symbol[.method]]` shows package documentation and source
   declarations, with each type labeled `value`, `view`, `owner (moves)` or `counted`. The package defaults
@@ -148,11 +151,11 @@ Other commands (provided by the Go-hosted `pluto0` until they are ported):
 | `docs/roadmap.md` | Every known gap between the specification and the compiler, in priority order |
 | `docs/plans/` | Working documents with a Status block that says what the specification supersedes; `archive/` holds the superseded March prototype plans |
 | `AGENTS.md` | Contributor guide: pipeline, build and test commands, verification checklist |
-| `selfhost/` | The compiler: syntax, type checker, ownership and escape analyses, SSA, optimizer, x86-64 backend, ELF writer, driver |
-| `cmd/pluto/`, `internal/` | The Go implementation, frozen at `go-cutover`: the bootstrap compiler, the language server and the other tool commands |
+| `compiler/` | The compiler: syntax, type checker, ownership and escape analyses, SSA, optimizer, x86-64 backend, ELF writer, driver, language server and the other commands. The Go implementation it was translated from is kept by the `go-cutover` tag |
 | `lib/pluto/` | The standard library |
-| `examples/`, `bench/`, `testdata/` | Example programs, benchmarks against C, Rust and Go, end-to-end tests |
-| `tools/` | Development tools (`go2pu` translated the compiler to Plutonium; `bootstrap` checks the self-build) |
+| `examples/`, `bench/`, `testdata/` | Example programs, benchmarks against C, Rust and Go, end-to-end test programs |
+| `tests/` | The compiler's tests: a Go harness that runs `pluto` over the corpus and the test programs |
+| `tools/` | Development tools (`bootstrap` builds the compiler and checks the self-build; `difftest`, `mkunicode`, `skillcheck`) |
 
 ## Status
 
@@ -160,7 +163,7 @@ The specification (version 0.3) is the single source of truth: it defines the wh
 fall back on Go's specification. The compiler implements most of it and runs on `x86_64-linux` (hosted) and
 `x86_64-none` (freestanding and kernel). The places where the compiler still differs from the specification
 are listed in [`docs/roadmap.md`](docs/roadmap.md), each with the section of the specification it implements.
-Long-term, the compiler is meant to compile itself.
+The compiler compiles itself.
 
 The specification adapts text from The Go Programming Language Specification under CC BY 4.0; appendix G of
 the specification and `docs/spec/LICENSE-go` say what the licenses require.
