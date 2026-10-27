@@ -17,16 +17,16 @@
 //
 // Each stage's build is timed, and its resident memory is sampled every
 // second; a build past -limit-mb is killed and reported with the numbers.
-// Every stage builds with the same flags (-flags, default "-O2"). The
-// unchecked mode ("-O2 --gencheck=false") makes the compilers of stages 2
-// and 3 about nine times faster: a checked build looks up every heap access
+// Every stage builds with the same flags (-flags, default
+// "-O2 --gencheck=false"). The unchecked mode makes the compilers of stages
+// 2 and 3 about nine times faster than a checked build ("-O2"): a checked build looks up every heap access
 // in the generation directory, whose cost grows with the heap, and the
 // compiler's arena is never freed. -pluto1 starts from a stage 1 compiler
 // built before.
 //
 // Usage:
 //
-//	go run ./tools/bootstrap [-pluto0 file] [-stages 3] [-corpus] [-work dir] [-limit-mb 24000] [-flags "-O2"] [-pluto1 file] [-lib-every 3] [-j 8]
+//	go run ./tools/bootstrap [-pluto0 file] [-stages 3] [-corpus] [-work dir] [-limit-mb 24000] [-flags "-O2 --gencheck=false"] [-pluto1 file] [-lib-every 3] [-j 8]
 //
 // Run it from the repository root. PLUTOROOT is set to ./lib for every
 // stage, so that all of them compile the same standard library.
@@ -48,7 +48,7 @@ func main() {
 	corpus := flag.Bool("corpus", false, "check pluto1 (and pluto2) against the Go-hosted compiler over the test corpus")
 	work := flag.String("work", "", "directory for the compilers and the corpus builds (default: a temporary directory)")
 	limit := flag.Int("limit-mb", 24000, "kill a stage's build past this resident size, in MB")
-	flags := flag.String("flags", "-O2", "flags of every stage's build of selfhost/cmd/pluto")
+	flags := flag.String("flags", "-O2 --gencheck=false", "flags of every stage's build of selfhost/cmd/pluto")
 	libEvery := flag.Int("lib-every", 3, "check one in every n programs of testdata/lib")
 	jobs := flag.Int("j", 8, "corpus builds to run at once")
 	zero := flag.String("pluto0", "", "start from this compiler instead of building the go-cutover tag's")
