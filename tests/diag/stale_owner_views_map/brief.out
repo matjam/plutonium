@@ -1,0 +1,2 @@
+$DIR/main.p:20:7: p1 holds a view of m1 (m1.Ptr("a"), line 16), which may have been moved into takeMap (its parameter takes a pluto/hash.Map[string, int] by value) at line 18, so p1 cannot be used here
+$DIR/main.p:27:7: p2 holds a view of m2 (m2.Ptr("b"), line 25), which was dropped by m2.Drop() at line 26, so p2 can no longer be used here

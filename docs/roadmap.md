@@ -325,7 +325,7 @@ against the corrected specification. The immediate implementation order is:
      (E3001): `func mk() (func() int, *int) { x := 1; g := func() int { return x }; return g, &x }`. The
      analysis must treat such an address as a view of the caller's frame at that call, kept from the next
      run of the call (section 11.5, "Refilling"), and the variable must live in the region.
-138. **Views of local owners, counted references and arenas bounded at compile time** (planned; sections
+138. **Views of local owners, counted references and arenas bounded at compile time** (in progress; sections
      18.3 "A local owner's memory" with E3001, E3002, E3313 and E3314, 18.7 rule 5, 18.9; found by the third
      adversarial review of the escape analysis, defect 7). A view obtained from an owner held in a local
      variable is bounded by that variable and follows the frame rules, but the analysis takes what a local
@@ -344,7 +344,14 @@ against the corrected specification. The immediate implementation order is:
      a local arena's allocations are views of the arena (as `lkArena` is for `alloc.Use` windows); the move
      checker's view tracking (E3313, E3314) then follows them, and `Reset`/`Release` of a local arena end
      its views. This changes what every call on a local owner returns, so the translated compiler, which
-     holds views of local vectors in locals, must be checked for each step.
+     holds views of local vectors in locals, must be checked for each step. Done: the move checker's part.
+     A call result that loads, through a heap-only field, a pointer or slice of a type the owner holds is a
+     view of the local owner, so `v.Slice()`, `v.Ptr(i)`, `m.Ptr(k)`, a user owner's methods and a local
+     arena's `Alloc` used after the owner moved, was dropped or got a new value are E3313 (tests
+     `diag/stale_owner_views`, `diag/stale_owner_views_map`, `diag/stale_arena_view`). Open: the escape
+     part (returning or storing such a view: o03, c19, c20, o26, ar01, ar04), views captured by a closure
+     (o24), views through a replaced `shared` reference (o25), and `Reset`/`Release` of a local arena
+     ending its views (ar02, ar03, ar07).
 139. **Loops made with `goto` and the blocks a scoped task outlives** (done; sections 18.4, 11.5, 12.17 and
      19.4; found by the third adversarial review, defect 8). A loop made with `goto` (l05: `top: v := n;
      ps[i] = &v; ...; goto top`) shares one variable across its iterations. Sections 11.5 and 12.17 count a

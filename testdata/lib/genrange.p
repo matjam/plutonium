@@ -65,7 +65,9 @@ func main() {
 
 	// Arena allocations are registrations of their own over a chunk the
 	// arena took from the heap: the check also validates that backing.
-	ar := arena.NewChunked(4096)
+	// ar is a package variable: a local arena's allocations are views of it
+	// (spec 18.3), and the probe of x after Drop would not compile.
+	ar = arena.NewChunked(4096)
 	x := ar.Alloc(40, 8)
 	m := ar.Mark()
 	y := ar.Alloc(24, 8)
@@ -81,7 +83,8 @@ func main() {
 	probe("arena reused", x, 300)
 	probe("arena reused stale", y, 100)
 	_ = w
-	ar.Drop()
+	dead := take(&ar)
+	dead.Drop()
 	probe("arena dropped", x, 100)
 
 	heap.Free(a, 48, 16)
@@ -93,6 +96,8 @@ func main() {
 }
 
 var checked bool
+
+var ar arena.Chunked
 var wrong int
 
 // expect checks, in a checked build, that the n bytes at p are live or
@@ -125,7 +130,7 @@ func oracle() {
 	checked = !rt.GenRegisteredLive(s)
 
 	const n = 300
-	ar := arena.NewChunked()
+	ar = arena.NewChunked() // the package variable, as in main
 	var first, second [n]unsafe.Pointer
 	for i := range first[:n/2] {
 		first[i] = ar.Alloc(16, 8)
@@ -156,7 +161,8 @@ func oracle() {
 		wrong++
 		println("wrong: an extent across the trimmed end is live")
 	}
-	ar.Drop()
+	dead := take(&ar)
+	dead.Drop()
 	for i := range first {
 		expect("dropped", i, first[i], 16, false)
 	}

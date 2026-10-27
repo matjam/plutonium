@@ -1,1 +1,2 @@
 $DIR/main.p:30:6: s holds a view of b (b.b, line 27), which was moved by the call b.Consume() (Consume has a value receiver) at line 29, so s can no longer be used here
+$DIR/main.p:31:6: t holds a view of b (b.Bytes(), line 28), which was moved by the call b.Consume() (Consume has a value receiver) at line 29, so t can no longer be used here

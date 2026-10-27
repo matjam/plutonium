@@ -159,11 +159,16 @@ dst := alloc.New[[1]shared[Retirer]](&outer)[:]
 dst[0] = alloc.Shared[Retirer]()
 var src [1]shared[Retirer]
 copy(dst, src[:])`, "use of memory from an arena", 2},
-		{"large arena drop", "", `
-a := arena.NewChunked(200000)
+		{"large arena drop", `
+// A package variable, not a local one: a local arena's allocations are
+// views of it (spec 18.3), and their use after Drop does not compile.
+var a arena.Chunked
+`, `
+a = arena.NewChunked(200000)
 p := (*byte)(a.Alloc(150000, 16))
 *p = 34
-a.Drop()
+dead := take(&a)
+dead.Drop()
 println(*p)`, "use of memory from an arena", 2},
 		{"large counted string", "", `
 a := arena.NewChunked()

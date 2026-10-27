@@ -169,7 +169,8 @@ type checker struct {
 
 	scoped     *scoped.Info // the scoped tasks of sync.Scope (scope.go)
 	taskBodies map[*ast.BlockStmt]*ast.FuncLit
-	calls      *Calls // what calls keep of their arguments (views.go)
+	calls      *Calls                   // what calls keep of their arguments (views.go)
+	owned      map[string][]types2.Type // ownedLeaves, by owner type
 }
 
 // report records an error once per position and code.

@@ -1,0 +1,28 @@
+$DIR/main.p:20:7: p1 holds a view of m1 (m1.Ptr("a"), line 16), which may have been moved into takeMap (its parameter takes a pluto/hash.Map[string, int] by value) at line 18, so p1 cannot be used here
+    p1 looks at memory that m1 owns, without owning it: the view was made by
+    m1.Ptr("a") at line 16. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. At line
+    18 m1 was moved into takeMap (its parameter takes a pluto/hash.Map[string,
+    int] by value) on some paths to this point, so the view may look at memory
+    that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use p1 before line 18, or move m1 only after the last use of p1
+    Or move a copy at line 18, so that m1 keeps its value:
+        m1.Clone()
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:27:7: p2 holds a view of m2 (m2.Ptr("b"), line 25), which was dropped by m2.Drop() at line 26, so p2 can no longer be used here
+    p2 looks at memory that m2 owns, without owning it: the view was made by
+    m2.Ptr("b") at line 25. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. At line
+    26 m2 was dropped by m2.Drop(), so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use p2 before line 26, or drop m2 only after the last use of p2
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

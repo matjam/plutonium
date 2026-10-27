@@ -23,7 +23,8 @@ import (
 // empty.go). Moving an owner, or giving it a new value, makes every view of
 // it stale, and reading a stale view is error E3313. Copies follow the
 // views along: assignments, composite literals, call results that the
-// escape analysis says derive from an argument, and stores a callee makes
+// escape analysis says derive from an argument or that may hold memory an
+// owner passed by address holds (loadsOwned), and stores a callee makes
 // into memory another argument points to.
 //
 // A view stored where the walk cannot follow it (through a pointer, into a
@@ -415,6 +416,11 @@ func (f *fn) viewsTo(e ast.Expr, T types2.Type) []view {
 func (f *fn) callViews(call *ast.CallExpr) []view {
 	tv := f.c.types[call.Fun]
 	if tv.IsType() {
+		// A conversion to a type that holds no reference, such as a
+		// uintptr, is no longer followed (section 18.3).
+		if !mayView(tv.Type) {
+			return nil
+		}
 		var out []view
 		for _, a := range call.Args {
 			out = compat.Append(out, f.viewsTo(a, tv.Type)...)
@@ -436,10 +442,13 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 	}
 	f.eachArg(call, func(key, val ast.Expr, T types2.Type) {
 		af := f.c.calls.Arg(key)
-		if af != nil && !af.Returned {
-			return
-		}
 		for _, w := range whole(f.viewsTo(val, T)) {
+			if af != nil && !af.Returned {
+				if !f.loadsOwned(call, w) {
+					continue
+				}
+				w.inHeap = true
+			}
 			if call.Pos() <= w.pos && w.pos < call.End() {
 				// Made by this call (c.Slice() takes &c): name the call. A
 				// result loaded through the argument looks at what the
@@ -450,6 +459,137 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 			out = compat.Append(out, w)
 		}
 	})
+	return out
+}
+
+// loadsOwned reports whether the result of call may look at memory that
+// the owner of view w holds, though the escape analysis says no result
+// derives from the argument that passes w. The escape analysis follows
+// pointers for the frame rules only: a load of a field that holds nothing
+// but heap memory yields heap memory, whoever owns it (section 18.3, the
+// heap-only fields). For an owner that memory is its own, released when it
+// is moved or dropped, so v.Slice() is a view of v even when v's buffer
+// field is heap-only. The call passes the owner's own storage (w is not of
+// its heap), and the result holds a pointer or slice of a type the owner
+// may hold, other than an owner (a new value, not a view).
+func (f *fn) loadsOwned(call *ast.CallExpr, w view) bool {
+	if w.inHeap || w.of == nil {
+		return false
+	}
+	res := resultLeaves(f.c.typeOf(call), 0)
+	if len(res) == 0 {
+		return false
+	}
+	owned := f.c.ownedLeaves(w.of.Type())
+	for _, r := range res {
+		if b, ok := r.Underlying().(*types2.Basic); ok && b.Kind() == types2.UnsafePointer && len(owned) > 0 {
+			return true
+		}
+		for _, o := range owned {
+			if types2.Identical(r, o) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// resultLeaves returns the pointer, slice and unsafe.Pointer types a value
+// of type T holds by value (in its fields, elements or results), leaving
+// out owners, interfaces, func values, boxes and counted values.
+func resultLeaves(T types2.Type, depth int) []types2.Type {
+	T = types2.Unalias(T)
+	if T == nil || depth > 8 || isOwner(T) {
+		return nil
+	}
+	if _, ok := T.(*types2.TypeParam); ok {
+		return compat.Clone([]types2.Type{T})
+	}
+	var out []types2.Type
+	switch u := T.Underlying().(type) {
+	case *types2.Basic:
+		if u.Kind() == types2.UnsafePointer {
+			out = compat.Append(out, T)
+		}
+	case *types2.Pointer, *types2.Slice:
+		out = compat.Append(out, T)
+	case *types2.Array:
+		out = resultLeaves(u.Elem(), depth+1)
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			out = compat.Append(out, resultLeaves(u.Field(i).Type(), depth+1)...)
+		}
+	case *types2.Tuple:
+		for i := 0; i < u.Len(); i++ {
+			out = compat.Append(out, resultLeaves(u.At(i).Type(), depth+1)...)
+		}
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() {
+				out = compat.Append(out, resultLeaves(v.Payload(), depth+1)...)
+			}
+		}
+	}
+	return out
+}
+
+// ownedLeaves returns the pointer and slice types by which a value can
+// point into memory reached from an owner of type T: the pointer and slice
+// fields it holds, at any depth through what they point to, and pointers to
+// every part of the objects reached (&v.data[i].val), slices of their
+// arrays, and the type parameters they hold.
+func (c *checker) ownedLeaves(T types2.Type) []types2.Type {
+	key := types2.TypeString(T, nil)
+	if ls, ok := c.owned[key]; ok {
+		return ls
+	}
+	var out []types2.Type
+	seen := map[string]bool{}
+	var obj func(X types2.Type)
+	obj = func(X types2.Type) {
+		X = types2.Unalias(X)
+		if X == nil {
+			return
+		}
+		k := types2.TypeString(X, nil)
+		if seen[k] {
+			return
+		}
+		seen[k] = true
+		out = compat.Append(out, types2.Type(types2.NewPointer(X)))
+		if _, ok := X.(*types2.TypeParam); ok {
+			out = compat.Append(out, X)
+			return
+		}
+		switch u := X.Underlying().(type) {
+		case *types2.Pointer:
+			out = compat.Append(out, X)
+			obj(u.Elem())
+		case *types2.Slice:
+			out = compat.Append(out, X)
+			obj(u.Elem())
+		case *types2.Array:
+			out = compat.Append(out, types2.Type(types2.NewSlice(u.Elem())))
+			obj(u.Elem())
+		case *types2.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				obj(u.Field(i).Type())
+			}
+		case *types2.Wrapper:
+			obj(u.Elem())
+		case *types2.TaggedUnion:
+			for i := 0; i < u.NumVariants(); i++ {
+				if v := u.Variant(i); v.HasPayload() {
+					obj(v.Payload())
+				}
+			}
+		}
+	}
+	obj(T)
+	if c.owned == nil {
+		c.owned = map[string][]types2.Type{}
+	}
+	c.owned[key] = out
 	return out
 }
 

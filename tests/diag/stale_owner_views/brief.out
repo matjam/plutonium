@@ -1,0 +1,7 @@
+$DIR/main.p:35:6: s1 holds a view of v1 (v1.Slice(), line 32), which was moved to w1 at line 33, so s1 can no longer be used here
+$DIR/main.p:41:6: s2 holds a view of v2 (v2.Slice(), line 39), which was moved into takeVec (its parameter takes a pluto/vec.Vec[int] by value) at line 40, so s2 can no longer be used here
+$DIR/main.p:47:6: s3 holds a view of v3 (v3.Slice(), line 45), which was dropped by v3.Drop() at line 46, so s3 can no longer be used here
+$DIR/main.p:54:7: p4 holds a view of v4 (v4.Ptr(0), line 52), which was given a new value at line 53, so p4 can no longer be used here
+$DIR/main.p:60:6: s6 holds a view of b6 (b6.Slice(), line 58), which was moved into takeBuf (its parameter takes a Buf by value) at line 59, so s6 can no longer be used here
+$DIR/main.p:67:6: s7 holds a view of b7 (b7.Slice(), line 64), which was moved to w7 at line 65, so s7 can no longer be used here
+$DIR/main.p:73:7: p8 holds a view of b8 (b8.First(), line 71), which was moved into takeGBuf (its parameter takes a GBuf[string] by value) at line 72, so p8 can no longer be used here

@@ -1,0 +1,2 @@
+$DIR/main.p:17:7: p1 holds a view of a1 (a1.Alloc(8, 8), line 15), which was dropped by a1.Drop() at line 16, so p1 can no longer be used here
+$DIR/main.p:22:6: p2 holds a view of a2 (a2.Alloc(16, 8), line 20), which was moved into takeArena (its parameter takes a pluto/arena.Chunked by value) at line 21, so p2 can no longer be used here
