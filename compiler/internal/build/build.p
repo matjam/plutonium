@@ -222,7 +222,7 @@ func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		overlaps, raceErr = race.AnalyzeWith(prog, info)
 	}
 	phase("lower")
-	sp := runLower(pu.New(lower.Config{
+	sp, lowerErr := runLower(pu.New(lower.Config{
 		Overlaps:     overlaps,
 		Freestanding: cfg.Freestanding || cfg.Kernel,
 		Kernel:       cfg.Kernel,
@@ -230,7 +230,20 @@ func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 		NoFieldNames: !cfg.fieldNames(),
 		GenCheck:     cfg.genCheck(),
 		Moves:        info,
-	}), prog) or return
+	}), prog)
+	if lowerErr != nil {
+		// The move errors come first. Lowering can fail on what a move
+		// error already explains: x[k] on a container of owners (spec
+		// section 11.11) also asks the library for a copy of an owner,
+		// which lowering reports as E3306 at the library's line. So with
+		// move errors, the copy errors of lowering are left out. The
+		// escape errors are dropped, as that analysis assumes a program
+		// that lowers.
+		if moveErr != nil {
+			return nil, joinLifetimeErrors(moveErr, withoutCode(lowerErr, diag.CopyOwners))
+		}
+		return nil, lowerErr
+	}
 	if lifetimeErr != nil {
 		return nil, lifetimeErr
 	}
@@ -456,6 +469,22 @@ func joinLifetimeErrors(errs ...error) error {
 		}
 	}
 	return all.Err()
+}
+
+// withoutCode returns err without its diagnostics of the given code, or
+// err itself when it is not a list of diagnostics.
+func withoutCode(err error, code diag.Code) error {
+	l, ok := err.(*diag.List)
+	if !ok {
+		return err
+	}
+	rest := pu.Alloc[diag.List]()
+	for _, d := range *l {
+		if d.Code != code {
+			(*rest) = diag.List(compat.Append((*rest), d))
+		}
+	}
+	return rest.Err()
 }
 
 func internal(err error) error {

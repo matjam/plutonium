@@ -1,0 +1,1 @@
+$DIR/main.p:11:7: cannot read vv[0]: the elements of vv are owners, and vv[0] would be a copy

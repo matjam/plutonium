@@ -1,1 +1,2 @@
+$DIR/main.p:14:3: p was moved to q at line 12, so it can no longer be used here
 $DIR/main.p:14:9: cannot keep the closure mk(i) returns past this iteration of the loop: it is stored in p, declared outside the loop (main.p:11)

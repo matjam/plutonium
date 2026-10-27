@@ -326,8 +326,8 @@ Work that remains, in order:
    `docs/plans/2026-10-26-go-removal.md`). What remains is the list of known gaps under "Build & Test": the
    guards that went with the Go code.
 3. Loose ends from item 132: `hash.Set` takes no owner keys (spec 7.10) and `vec.Fixed` owns nothing; a
-   copy-method error on a container of owners (E3306) points at the library line, not the call; E3309 is
-   masked by E3306; generic ranges over owner containers see `*T` in the generic form.
+   call of a copy method such as `At` on a container of owners (E3306) points at the library line, not the
+   call; generic ranges over owner containers see `*T` in the generic form.
 4. Known: the debug-allocator tests that join with a `WaitGroup` or channel retry a run that took the abandon
    path (D31).
 

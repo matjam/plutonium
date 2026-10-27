@@ -72,7 +72,7 @@ its original Go assertion:
 | race   | 291   | `internal/race` check, checkKernel (kernel cases add a `//pu:panic` loop) |
 | types2 | 369   | `internal/types2` checkSrc, checkWithRT, TestUnionErrors, TestOrValid, TestOrErrors, enum/union/owner two-package tests (`pluto vet`) |
 | escape | 603   | `internal/escape` check, review2/3 (80 set `PLUTO_ESCAPE=old`) |
-| moves  | 105   | `internal/moves` check (one knownfail fixed, below) |
+| moves  | 106   | `internal/moves` check (one knownfail fixed, below) |
 | lower  | 161   | `internal/lower` lowerError, lowerModeError |
 | diag   | 156   | `cmd/pluto/testdata/diag` |
 
@@ -128,6 +128,13 @@ Known differences and bugs found:
   for reads `x[k]`, 11.11). `tests/moves/type_argument_of_owner_vec` passes,
   with `accepted_owner_type_arguments` and
   `rejected_index_a_generic_container_of_owners` beside it.
+- With `vv` a `vec.Vec[vec.Vec[int]]`, `w := vv[0]` showed only E3306 at
+  the library line, as lowering errors were reported before move errors.
+  Fixed in the self-hosted compiler: move errors come first, and lowering's
+  E3306 is left out when there are move errors. The user sees E3309 at
+  `vv[0]` (`tests/moves/rejected_index_a_vec_of_vecs`).
+  `tests/diag/review_q06_fresh_alias_before_store` now also shows the move
+  of `p` that E3101 hid.
 - race: a task literal that takes its operand as an argument inside a
   per-CPU region, `task func(x uint64) { ... }(x)`, was accepted with no
   E2022, while the named-function form `task set(x + 1)` was reported. Fixed:
