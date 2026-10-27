@@ -4083,34 +4083,42 @@ package pluto/rt
     pluto/rt/prof_linux.p:108:25: unsafe.Pointer
     pluto/rt/prof_linux.p:108:31: unsafe.Pointer
     pluto/rt/prof_linux.p:108:42: unsafe.Pointer
-    pluto/rt/prof_linux.p:114:21: unsafe.Add
-    pluto/rt/prof_linux.p:114:32: unsafe.Pointer
-    pluto/rt/prof_linux.p:115:21: unsafe.Add
-    pluto/rt/prof_linux.p:115:32: unsafe.Pointer
-    pluto/rt/prof_linux.p:116:21: unsafe.Add
-    pluto/rt/prof_linux.p:116:32: unsafe.Pointer
-    pluto/rt/prof_linux.p:119:3: unsafe.Pointer
-    pluto/rt/prof_linux.p:120:15: unsafe.Pointer
-    pluto/rt/prof_linux.p:128:13: unsafe.Pointer
-  safe pluto/rt.profStackTop pluto/rt/prof_linux.p:141:1
+    pluto/rt/prof_linux.p:120:18: unsafe.Add
+    pluto/rt/prof_linux.p:120:29: unsafe.Pointer
+    pluto/rt/prof_linux.p:120:69: unsafe.Pointer
+    pluto/rt/prof_linux.p:120:85: unsafe.Pointer
+    pluto/rt/prof_linux.p:121:4: unsafe.Pointer
+    pluto/rt/prof_linux.p:121:20: unsafe.Pointer
+    pluto/rt/prof_linux.p:121:29: unsafe.Add
+    pluto/rt/prof_linux.p:121:40: unsafe.Pointer
+    pluto/rt/prof_linux.p:123:21: unsafe.Add
+    pluto/rt/prof_linux.p:123:32: unsafe.Pointer
+    pluto/rt/prof_linux.p:124:21: unsafe.Add
+    pluto/rt/prof_linux.p:124:32: unsafe.Pointer
+    pluto/rt/prof_linux.p:125:21: unsafe.Add
+    pluto/rt/prof_linux.p:125:32: unsafe.Pointer
+    pluto/rt/prof_linux.p:128:3: unsafe.Pointer
+    pluto/rt/prof_linux.p:129:15: unsafe.Pointer
+    pluto/rt/prof_linux.p:137:13: unsafe.Pointer
+  safe pluto/rt.profStackTop pluto/rt/prof_linux.p:150:1
     calls pluto/rt.getg
-      pluto/rt/prof_linux.p:143:11: call pluto/rt.getg
-  unsafe pluto/rt.IndexFuncs pluto/rt/prof_linux.p:157:1
-    pluto/rt/prof_linux.p:161:2: unsafe.Pointer
-    pluto/rt/prof_linux.p:162:22: unsafe.Pointer
-    pluto/rt/prof_linux.p:165:24: unsafe.Add
-    pluto/rt/prof_linux.p:165:35: unsafe.Pointer
-    pluto/rt/prof_linux.p:166:16: unsafe.Add
-    pluto/rt/prof_linux.p:166:27: unsafe.Pointer
-    pluto/rt/prof_linux.p:169:3: unsafe.Pointer
-    pluto/rt/prof_linux.p:171:14: unsafe.Pointer
-    pluto/rt/prof_linux.p:171:23: unsafe.Add
-    pluto/rt/prof_linux.p:171:34: unsafe.Pointer
-    pluto/rt/prof_linux.p:171:47: unsafe.Add
-    pluto/rt/prof_linux.p:171:58: unsafe.Pointer
-    pluto/rt/prof_linux.p:173:17: unsafe.Pointer
-    pluto/rt/prof_linux.p:174:3: unsafe.Pointer
-    pluto/rt/prof_linux.p:174:15: unsafe.Pointer
+      pluto/rt/prof_linux.p:152:11: call pluto/rt.getg
+  unsafe pluto/rt.IndexFuncs pluto/rt/prof_linux.p:166:1
+    pluto/rt/prof_linux.p:170:2: unsafe.Pointer
+    pluto/rt/prof_linux.p:171:22: unsafe.Pointer
+    pluto/rt/prof_linux.p:174:24: unsafe.Add
+    pluto/rt/prof_linux.p:174:35: unsafe.Pointer
+    pluto/rt/prof_linux.p:175:16: unsafe.Add
+    pluto/rt/prof_linux.p:175:27: unsafe.Pointer
+    pluto/rt/prof_linux.p:178:3: unsafe.Pointer
+    pluto/rt/prof_linux.p:180:14: unsafe.Pointer
+    pluto/rt/prof_linux.p:180:23: unsafe.Add
+    pluto/rt/prof_linux.p:180:34: unsafe.Pointer
+    pluto/rt/prof_linux.p:180:47: unsafe.Add
+    pluto/rt/prof_linux.p:180:58: unsafe.Pointer
+    pluto/rt/prof_linux.p:182:17: unsafe.Pointer
+    pluto/rt/prof_linux.p:183:3: unsafe.Pointer
+    pluto/rt/prof_linux.p:183:15: unsafe.Pointer
   unsafe pluto/rt.itabTable pluto/rt/rt.p:57:1
     pluto/rt/rt.p:56:1: //pu:extern
     pluto/rt/rt.p:57:1: function without a body
