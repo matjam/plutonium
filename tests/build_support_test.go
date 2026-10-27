@@ -104,6 +104,13 @@ func runFiles(t *testing.T, files map[string]string, level int, flags ...string)
 	return runExe(t, exe, true)
 }
 
+// buildDebugAlloc builds src with --alloc=debug at -O level and returns the
+// executable's path.
+func buildDebugAlloc(t *testing.T, src string, level int, flags ...string) string {
+	t.Helper()
+	return mustBuild(t, single(src), append([]string{optFlag(level), "--alloc=debug"}, flags...)...)
+}
+
 // runExeEnv runs exe with env added to its environment and returns its
 // output (stdout, then stderr) and exit status. A death by signal fails the
 // test.
