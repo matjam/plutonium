@@ -766,8 +766,7 @@ compiler (2026-10-11).
     every build compiles the whole program today.
 76. **The complete specification** (done, `131ac9e` to `b05a0b6`, `68b7efb`;
     [plan](plans/2026-10-10-complete-spec.md)): 21 chapters and 7 appendices in `docs/spec/language/`,
-    guarded by `TestSpecReferences` until the Go implementation was removed (no test guards the
-    references now); the companion documents, plans and README agree with it. Open
+    guarded by `TestSpecReferences` (`tests/spec_test.go`); the companion documents, plans and README agree with it. Open
     questions stay in the plan's section 6.5, which is the implementation brief.
 93. **`pluto doc`** (done; sections 1.1, 18.1 and F): documents source packages without running or linking
     them, with exact type labels (`value`, `view`, `owner (moves)`, `counted`). Optional symbols and

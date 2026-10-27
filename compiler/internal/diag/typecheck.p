@@ -560,7 +560,7 @@ func (s *spec) explainImplements(src string, V, T types2.Type, method string, po
 
 // explainConsumes explains why an owner V does not satisfy the interface T:
 // its method has a value receiver, which consumes the owner (language spec
-// section 6.4).
+// section 8.6).
 func (s *spec) explainConsumes(src string, V, T types2.Type, method string) {
 	recv := s.str(V)
 	r := strings.ToLower(strings.Slice(recv, 0, 1))

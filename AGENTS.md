@@ -51,12 +51,12 @@ plainly that it is historical.
 
 - Section numbers are unique across the specification. Cite them as
   "section 18.7" (comments, catalog entries, plans). The catalog's `Spec`
-  field is written with `pspec(section, title)`. Known gap: no test guards
-  these references now. `TestSpecReferences`, which checked that every
-  reference in the catalog names a section that exists under the title given,
-  that each section is numbered once in the file of its chapter, and that no
-  `> **Open` block remains, went with the Go implementation. Check a citation
-  against its chapter by hand.
+  field is written with `pspec(section, title)`, and `TestSpecReferences`
+  (`tests/spec_test.go`, no compiler needed) guards the specification: every
+  reference in the catalog names a section that exists, under the title given;
+  every section number mentioned in `compiler/internal/diag` and
+  `compiler/internal/types2/errors/plutonium.p` exists; each section is
+  numbered once, in the file of its chapter; no `> **Open` block remains.
 - `docs/spec/abi.md` (binary interface), `memory-model.md`, `debugging.md`
   and `debug-allocator.md` refine the specification for implementers. They
   keep their section numbers, which the catalog, comments and tests cite, and
@@ -121,7 +121,10 @@ every command (`build`, `run`, `version`, `explain`, `vet`, `test`, `fmt`, `doc`
 - Format Plutonium source (gofmt's rules plus the Plutonium syntax):
   `pluto fmt -l <paths>` lists files that differ, `-w` rewrites them, `-d`
   shows a diff. The formatter is `compiler/internal/syntax/printer` and
-  `compiler/internal/syntax/format`, forks of go/printer and go/format.
+  `compiler/internal/syntax/format`, forks of go/printer and go/format; plain Go
+  must format exactly as gofmt formats it (`TestSameAsGoFormat` in
+  `tests/gofmt_test.go`, over Go's go/... sources and gofmt test data and the
+  repository's Go files).
 - Run Plutonium tests: `pluto test pluto/strings pluto/sort`,
   or a directory (`pluto test ./lib/pluto/strings`, which uses that tree as
   the standard library), or `./...`. Flags: `-run`, `-bench`, `-v`, `-count`,
@@ -170,10 +173,6 @@ About the programs:
   ways against the general ones as it goes.
 
 Known gaps: these guards went with the Go implementation and have no replacement yet.
-- `TestSpecReferences`: the catalog's citations of the specification and its numbering.
-- `TestCatalogComplete` and `TestCatalogStyle`: every code has a catalog entry, written in
-  the catalog's style.
-- `TestSameAsGoFormat`: plain Go formats exactly as gofmt formats it.
 - `internal/build/dwarf_test.go`: the DWARF output (`docs/spec/debugging.md`).
 - The Go packages' API-level unit tests with no program form (opt, arch, ssa, escape2,
   lsp, the `internal/build` units; list in the go-removal plan, "Phase 2 status"). Their
@@ -250,9 +249,9 @@ To add an error:
    "Views")`), and a
    `Fix` or `Example`/`Fixed`. Short sentences, no jargon without a
    definition, no em dashes, and American spelling, as in the go/types
-   text the catalog builds on. No test checks the entry now (see "Known
-   gaps"): check the section and title against the specification and run
-   `pluto explain` on the new code.
+   text the catalog builds on. `TestCatalogComplete` and `TestCatalogStyle`
+   (`tests/catalog_test.go`) fail without it; they read the catalog from the
+   sources, so they need no compiler. Run `pluto explain` on the new code.
 3. Report it: `check.errorf(at, Code, ...)` in the checker;
    `l.errorf(pos, diag.Code, ...)` in `compiler/internal/lower`, or `l.report(pos, d)`
    with `d.Text`/`d.Fix` filled in from what is known at the error (names,

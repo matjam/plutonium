@@ -4,7 +4,8 @@ package diag
 
 // The codes of errors found outside the type checker. The type checker's
 // codes are in internal/types2/errors and become Codes with CheckerCode.
-// Every code needs a catalog entry; TestCatalogComplete checks.
+// Every code needs a catalog entry; TestCatalogComplete in
+// tests/catalog_test.go checks.
 
 // Syntax errors, found by the parser and scanner.
 const (

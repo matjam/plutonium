@@ -11,7 +11,7 @@ import (
 const whyOwners = "Go copies such values freely and its garbage collector frees what they refer to when nothing refers to it any more. Plutonium has no garbage collector: an owner frees what it owns when it is dropped, so there must be exactly one."
 
 // The explanations of the ownership and lifetime rules (language spec
-// section 6). The errors themselves carry explanations specialised to the
+// section 18). The errors themselves carry explanations specialised to the
 // code at fault, built where they are found; these texts are what pluto
 // explain prints, and what an error prints without one of its own.
 

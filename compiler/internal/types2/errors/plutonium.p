@@ -5,8 +5,9 @@ package errors
 // Error codes for the rules Plutonium adds to Go's, checked by the type
 // checker. They are numbered from 2000 so that they never collide with the
 // codes of go/types; the compiler shows a code as "E" and four digits
-// (E2001). Each has an explanation in internal/diag (catalog_pluto.go),
-// and TestCatalogComplete fails for a code without one.
+// (E2001). Each has an explanation in compiler/internal/diag
+// (catalog_pluto.p), and TestCatalogComplete (tests/catalog_test.go) fails
+// for a code without one.
 //
 // Add new codes at the end of a group; never renumber one.
 const (
@@ -189,7 +190,7 @@ const (
 
 // Ownership (language spec section 7.18). Ownership and lifetime errors are
 // E3000-E3999; the type checker's, about where owner may and must appear,
-// start at 3200, and the others are in internal/diag/codes.go.
+// start at 3200, and the others are in compiler/internal/diag/codes.p.
 const (
 	_ Code = 3200 + iota
 
