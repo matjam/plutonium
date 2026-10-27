@@ -10,8 +10,8 @@ import (
 
 // The programs of the adversarial reviews of the escape analysis: each of
 // review2, review3 and review4 (testdata/escape) keeps, returns or stores a
-// pointer into a frame that is gone, and must be rejected by the analysis
-// of internal/escape2 (PLUTO_ESCAPE=new); the controls (want.txt
+// pointer into a frame that is gone, and must be rejected by the escape
+// analysis (internal/escape2); the controls (want.txt
 // "accepted") must be accepted. The fourth review's programs have no
 // controls beyond those its want.txt names.
 //
@@ -130,7 +130,7 @@ func TestEscapeReviews(t *testing.T) {
 					if out, status := runPluto(t, pkg, nil, "doc", "-brief"); status != 0 {
 						t.Skipf("load: %s", out)
 					}
-					out, _ := runPluto(t, pkg, []string{"PLUTO_ESCAPE=new"}, "build", "-o", filepath.Join(t.TempDir(), "a.out"), ".")
+					out, _ := runPluto(t, pkg, nil, "build", "-o", filepath.Join(t.TempDir(), "a.out"), ".")
 					if strings.Contains(out, "internal compiler error") {
 						t.Fatalf("internal error: %s", out)
 					}

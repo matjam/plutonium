@@ -24,7 +24,7 @@ was translated from was deleted in `15e6515d`; the `go-cutover` tag keeps it. Se
 | package loading, build tags, `pluto.mod` | `compiler/internal/load` |
 | scoped tasks of `sync.Scope`, for the checks and lowering (spec 19.4) | `compiler/internal/scoped` |
 | move checker for owners (spec 18.5, 18.6) | `compiler/internal/moves` |
-| stack escape analysis (spec 18.3, 18.4, 11.5) | `compiler/internal/escape2` (the default, `PLUTO_ESCAPE=new`); `compiler/internal/escape` (`PLUTO_ESCAPE=old`) |
+| stack escape analysis (spec 18.3, 18.4, 11.5) | `compiler/internal/escape2` |
 | data race check (spec 19.2, 19.3) | `compiler/internal/race` |
 | typed AST to SSA | `compiler/internal/lower` |
 | SSA IR, verifier, basic passes | `compiler/internal/ssa` |
@@ -94,8 +94,6 @@ every command (`build`, `run`, `version`, `explain`, `vet`, `test`, `fmt`, `doc`
   against its SHA-256) and builds `DIR/pluto1` with it. `-pluto0 FILE` starts from a given
   compiler instead; `-pluto0 go-cutover` builds the Go compiler of that tag in a temporary
   worktree and starts from it.
-- Self builds need `PLUTO_ESCAPE=new` in the environment. It is the default; an
-  inherited `PLUTO_ESCAPE=old` or `both` makes a self build need far more memory.
 - A change to `compiler/` is checked by the fixpoint:
   `go run ./tools/bootstrap -pluto0 ./pluto -stages 3` builds pluto1 with the given
   compiler, pluto2 with pluto1 and pluto3 with pluto2, and pluto2 and pluto3 must be the
@@ -154,8 +152,8 @@ and goldens that fail; read the diff before committing it.
 - `dwarf_test.go`: the DWARF and call frame information of `docs/spec/debugging.md`
   (sections 2.1, 3 and 4) read with `debug/dwarf`, `-g=false` and `-s`, and gdb's
   breakpoints and backtraces (skipped without gdb).
-- `escapereview_test.go` (the escape review programs, rejected under
-  `PLUTO_ESCAPE=new`), `audit_test.go` (`pluto vet -unsafe` goldens),
+- `escapereview_test.go` (the escape review programs, rejected by the escape
+  analysis), `audit_test.go` (`pluto vet -unsafe` goldens),
   `directive_test.go` (directive diagnostics and the section 20.3 audit),
   `parse_test.go` (parser errors and a parse of every source file of the repository).
 
@@ -178,8 +176,6 @@ About the programs:
   the compiler finishes; the allocation profile needs `--gencheck=false`). `PLUTO_PHASES=1` names
   each phase on standard error as it starts, and `PLUTO_PROFILE_PHASE=name` writes the profiles
   and stops the build as that phase starts (`compiler/cmd/pluto/profile.p`).
-  `PLUTO_ESCAPE_CHECK=1` makes the old escape analysis (`compiler/internal/escape`) check its fast
-  ways against the general ones as it goes.
 - `go run ./tools/escapedigest` prints a digest of what a compiler makes of every program of
   the corpus (the object file, or the status and diagnostics) at -O0 and -O2. For a change that
   must not change the output, digest the old compiler (`-pluto old/pluto > before.txt`) and

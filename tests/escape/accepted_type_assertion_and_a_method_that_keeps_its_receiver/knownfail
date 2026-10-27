@@ -1,0 +1,1 @@
+escape2 rejects this: at s.String() it applies (*Named).String, which keeps its receiver, to the Wide box too, though a Wide never reaches it (roadmap item 142).

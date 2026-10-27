@@ -92,6 +92,7 @@ func (c *Cache) writeFuncRef(h *hasher, id eir.FuncID) {
 	h.int(int64(len(f.Inputs)))
 	h.int(int64(f.Results))
 	h.bool(f.Bodyless)
+	h.bool(f.NoEscape)
 	h.bool(f.External)
 }
 
@@ -118,6 +119,7 @@ func (c *Cache) eirDigest(id eir.FuncID) digest {
 	h.str(c.idOrName(id))
 	h.bool(f.External)
 	h.bool(f.Bodyless)
+	h.bool(f.NoEscape)
 	h.int(int64(f.Results))
 	h.int(int64(len(f.Inputs)))
 	for _, in := range f.Inputs {

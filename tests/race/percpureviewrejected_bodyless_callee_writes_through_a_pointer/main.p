@@ -11,6 +11,7 @@ var _ = rt.DisablePreemption
 var ticks uint64
 
 //pu:extern ext_put
+//pu:noescape
 func ext_put(p *uint64, x uint64)
 
 func main() {

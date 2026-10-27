@@ -1,6 +1,6 @@
-$DIR/main.p:16:1: cannot return r, which points into x, a local variable of g
-    r points into x. x is a local variable of g (declared at main.p:13). Its
-    memory is reclaimed when g returns, so r would point at memory that no
+$DIR/main.p:15:9: cannot return R{}, which points into x, a local variable of g
+    R{} points into x. x is a local variable of g (declared at main.p:13). Its
+    memory is reclaimed when g returns, so R{} would point at memory that no
     longer holds x.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the

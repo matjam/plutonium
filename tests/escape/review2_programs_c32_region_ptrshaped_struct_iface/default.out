@@ -1,15 +1,14 @@
-$DIR/main.p:17:12: cannot return P{...}, which points into arr, a local array of mk
-    P{...} points into arr. arr is a local array of mk (declared at main.p:14).
-    Its memory is reclaimed when mk returns, so P{...} would point at memory
-    that no longer holds arr.
+$DIR/main.p:15:2: cannot store the function literal in arr[0], which outlives x
+    A function literal that uses variables of the function around it refers to
+    those variables where they live, in mk's frame (x is declared at main.p:13).
+    When mk returns, x's memory is reclaimed, but arr[0] may be on the heap and
+    live longer, so it would be left pointing at reclaimed memory.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    Return values instead of views of arr, or allocate arr and return its owner,
-    an owned[[1]func() int]:
-        arr := new([1]func() int)
-        ...
-        return arr
+    Store a value that carries its own state instead of the function literal,
+    such as a struct with a method, or make x a package variable if it must
+    outlive mk.
     (see "Views" in the Plutonium spec, section 18.3)
-    (run "pluto explain E3001" for a longer explanation)
+    (run "pluto explain E3002" for a longer explanation)

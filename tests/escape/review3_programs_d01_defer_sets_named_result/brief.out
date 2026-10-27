@@ -1,1 +1,1 @@
-$DIR/main.p:14:1: cannot return p, which points into x, a local variable of g
+$DIR/main.p:13:9: cannot return nil, which points into x, a local variable of g

@@ -1,1 +1,1 @@
-$DIR/main.p:17:12: cannot return P{...}, which points into arr, a local array of mk
+$DIR/main.p:15:2: cannot store the function literal in arr[0], which outlives x

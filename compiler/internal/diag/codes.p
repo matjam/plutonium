@@ -118,7 +118,7 @@ const (
 )
 
 // Ownership and lifetimes: E3000-E3999. Views of a frame that outlive it
-// (internal/escape) are E3001-E3099; closures and their records are
+// (internal/escape2) are E3001-E3099; closures and their records are
 // E3100-E3199; the type checker's own ownership errors are in
 // internal/types2/errors from E3200; the move checker's are E3300-E3399.
 const (
@@ -154,7 +154,7 @@ const (
 )
 
 // Scoped tasks (sync.Scope, language spec section 19.4): what their
-// tasks may use (internal/escape, internal/moves) and how they share the
+// tasks may use (internal/escape2, internal/moves) and how they share the
 // frame (internal/race).
 const (
 	ScopeOutlivesVar    Code = "E3401" // a running scoped task holds a view of storage that ends before its join

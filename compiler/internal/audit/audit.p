@@ -10,7 +10,7 @@ import (
 	"pluto/strings"
 	"compiler/compat"
 	"compiler/internal/directive"
-	"compiler/internal/escape"
+	"compiler/internal/escape2"
 	"compiler/internal/load"
 	"compiler/internal/moves"
 	"compiler/internal/race"
@@ -69,7 +69,7 @@ func Write(w io.Writer, prog *load.Program) error {
 // WriteSelected limits the report to selected packages, retaining dependencies
 // in the graph so a package pattern does not repeat their reports.
 func WriteSelected(w io.Writer, prog *load.Program, selected []*load.Package) error {
-	calls, escErr := escape.Analyze(prog)
+	calls, escErr := escape2.CheckCalls(prog)
 	mv, moveErr := moves.AnalyzeWith(prog, calls)
 	if escErr != nil {
 		return escErr

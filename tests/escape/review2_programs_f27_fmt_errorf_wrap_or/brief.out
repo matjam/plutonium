@@ -1,2 +1,1 @@
-$DIR/main.p:32:8: cannot pass &ev to fmt.Errorf, which keeps it after returning
-$DIR/main.p:32:8: cannot pass &in to fmt.Errorf, which keeps it after returning
+$DIR/main.p:32:8: cannot pass "wrapped: %w" to fmt.Errorf, which keeps it after returning

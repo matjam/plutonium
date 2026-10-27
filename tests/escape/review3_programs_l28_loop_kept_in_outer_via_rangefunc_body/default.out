@@ -1,17 +1,15 @@
-$DIR/main.p:20:3: cannot keep &w in keepP after this iteration: the loop at line 18 reuses w in every iteration
-    &w is a pointer to w. w lives in f's frame, where every iteration of the
-    loop at line 18 reuses the same memory for it. When the next iteration
-    starts, keepP would see that iteration's w, not this one's.
-    Go gives each iteration of a loop its own variables, so a function literal
-    made in one iteration keeps that iteration's values. Plutonium keeps
-    variables in the function's frame, which has room for one copy of each;
-    giving every iteration its own copy would need memory for each iteration,
-    allocated behind the program's back.
-    If keepP is needed only in this iteration, use it before the iteration ends.
-    To use the value later, keep the value instead of a view of it:
-        var saved int // declared before the loop
-        ...
-        saved = w
-    (see "Loop iterations reuse their storage" in the Plutonium spec, section
-    18.4)
-    (run "pluto explain E3006" for a longer explanation)
+$DIR/main.p:20:3: cannot store &w in keepP, which outlives w
+    &w is a pointer to w. w is a local variable of f (declared at main.p:19).
+    When f returns, w's memory is reclaimed, but keepP may be on the heap and
+    live longer, so it would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value instead of a pointer to it, changing the type of keepP to
+    match. This copies w, or moves it if it is an owner:
+        keepP = w
+    Or allocate w and store its owner, an owned[int], which moves into keepP:
+        keepP = new(int)
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

@@ -358,8 +358,8 @@ against the corrected specification. The immediate implementation order is:
      records the innermost block where the task is joined (`Task.JoinBlock`); the task's values also go to a
      holder object whose `Ends` lists the variables declared in any block other than that one and those around it, and
      the solver reports a view of one of them stored there. The analysis is flow-insensitive for memory, so a
-     shared variable that holds such a view only after the join is still rejected. The old escape analysis
-     (`PLUTO_ESCAPE=old`) is unchanged. Tests: `tests/escape/gotoloop_*` (five rejected, among them a loop
+     shared variable that holds such a view only after the join is still rejected. The old escape analysis,
+     since removed (item 142), was not changed. Tests: `tests/escape/gotoloop_*` (five rejected, among them a loop
      entered in the middle and a nested one, and five accepted), `scopeblock_*` (seven rejected, six
      accepted) and the review programs l05, b16 and b23.
 140. **Memory allocated from a shared allocator, for the race check** (planned; sections 19.4 "Memory reached
@@ -414,6 +414,33 @@ against the corrected specification. The immediate implementation order is:
      and owns a counted parameter, and calls that function's task variant; any other code borrows, and the
      dispatcher releases the references when it returns. Tests: `taskcounted`, `taskdynamic`. A task that calls an
      allocator's method through an interface (`AllocMethod`) is not dispatched and still borrows.
+142. **One escape analysis** (in progress; sections 11.5, 16.5 to 16.7, 18.3, 20.3). The old analysis
+     (`internal/escape`) and `PLUTO_ESCAPE` are gone; `internal/escape2` is the only one. Before the
+     removal, `tools/escapedigest -compare` over the corpus listed the cases where the two disagreed.
+     Fixed in escape2 with the removal: a function without a body now keeps every pointer argument
+     unless it has `//pu:noescape`, which keeps none but still stores one argument where another points
+     (it used to keep nothing at all); a box held in a temporary that is a field or element of a call's
+     result is a view of that temporary; a task statement's packed variadic arguments are checked as
+     the task's; `//pu:resultholds` outside the standard library and on a name that is not a parameter
+     is reported (E3007, E3008). Still open, each a corpus case marked `knownfail`:
+     - A box passed by value through a type parameter (`save[T Getter](g T)` called with
+       `sharedHolder().p`): escape2 analyses a generic body once, so it misses the view of the
+       temporary. Nine `temporaryboxviews` cases.
+     - Counted errors: an error loaded from heap memory, or returned by a function without a body,
+       is not taken as counted, so the `Unwrap` borrow check misses it. Eight `countederrorborrows`
+       cases.
+     - A closure region result followed back through a function literal's frame
+       (`closureborrowedstringresult`, `closureresultfieldseparation_p`).
+     - fmt calling a pointer method of a struct field inside a box
+       (`rejected_fmt_calls_a_pointer_method_of_a_struct_field_inside_a_box`).
+     - Two false rejections: a method that keeps its receiver applied to a box the type assertion
+       rules out, and a value method that keeps a pointer the value holds counted as keeping the box.
+     - `rejected_address_of_a_variable_a_returned_closure_captures`, which item 137 decides. Related:
+       escape2 accepts returning the address from the caller,
+       `func h(k int) *int { _, p := f(k); return p }`, which the spec rejects (E3001).
+     Many messages also changed with the switch and are weaker in places, for example a store of
+     `[1]*int{&x}` into a local `src` reported in place of the `copy` into a package vector's slice,
+     and a format string reported in place of `&in` (`review2_programs_f26`, `f27`).
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
@@ -483,7 +510,8 @@ compiler (2026-10-11).
    System V classification; signatures with no C equivalent are compile errors.
 5. **Escape errors for frame views** (done, `70f2401`, `052c091`, `2a27f12`, `af28ec6`; sections 18.3, 18.4
    and 11.5): returning, storing or sending a view of a frame is a compile error (E3001 to E3008, closures
-   in regions E3100 to E3102), by a whole-program analysis (`internal/escape`) with explanatory messages.
+   in regions E3100 to E3102), by a whole-program analysis (`internal/escape`, replaced by `internal/escape2`, item 142) with
+   explanatory messages.
    The run-time half is item 71.
 
    The two known escape bugs are fixed and verified on native amd64 (2026-10-12). Closure result

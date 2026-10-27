@@ -1,1 +1,1 @@
-$DIR/main.p:7:45: cannot pass inner to yield (which may call the loop body at main.p:10), which keeps it after returning
+$DIR/main.p:10:17: cannot pass gen(3) to the function value (which may call the loop body at main.p:10), which keeps it after returning

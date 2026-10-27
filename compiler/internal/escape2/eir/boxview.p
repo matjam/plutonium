@@ -59,12 +59,57 @@ func (fb *fnb) pointee(x ast.Expr) Reg {
 			return fb.objAddr(owner, owner.boxViewObj(v, pointerElem(xt), whole))
 		}
 	}
-	if call, ok := ast.Unparen(x).(*ast.CallExpr); ok {
-		// A box a call returns, which the statement holds.
-		o := fb.newObj(Object{Kind: ObjBoxView, Type: pointerElem(xt), Life: LifeStmt, Name: "the object of a temporary box", Pos: call.Pos()})
+	if root := fb.tempRoot(x); root != nil {
+		// A box held in a temporary, which the statement drops: one a
+		// call returns, or one in a field or element of such a value.
+		o := fb.newObj(Object{Kind: ObjBoxView, Type: pointerElem(xt), Life: LifeStmt, Name: "the object of a temporary box", Pos: root.Pos()})
 		return fb.addr(o)
 	}
 	return r
+}
+
+// tempRoot returns the temporary value whose storage holds the box x, or
+// whose boxes own it: x itself when it is a value a call or another
+// expression makes (an owner, a box, a struct or an array), or the root of
+// x.f, x[i] on an array and *x on a box, through boxes and values but not
+// through a pointer. nil for a variable or memory reached through a
+// pointer.
+func (fb *fnb) tempRoot(x ast.Expr) ast.Expr {
+	switch e := ast.Unparen(x).(type) {
+	case *ast.Ident:
+		return nil
+	case *ast.SelectorExpr:
+		sel := fb.b.selections[e]
+		if sel == nil || sel.Kind() != types2.FieldVal {
+			return nil
+		}
+		if xt := fb.typeOf(e.X); pointerElem(xt) == nil || isBox(xt) {
+			return fb.tempRoot(e.X)
+		}
+		return nil
+	case *ast.IndexExpr:
+		if _, ok := coreType(unwrap(fb.typeOf(e.X))).(*types2.Array); ok {
+			return fb.tempRoot(e.X)
+		}
+		return nil
+	case *ast.StarExpr:
+		if isBox(fb.typeOf(e.X)) {
+			return fb.tempRoot(e.X)
+		}
+		return nil
+	}
+	T := fb.typeOf(x)
+	if T == nil {
+		return nil
+	}
+	if types2.IsOwner(T) || isBox(T) {
+		return x
+	}
+	switch coreType(unwrap(T)).(type) {
+	case *types2.Struct, *types2.Array:
+		return x
+	}
+	return nil
 }
 
 // boxRoot returns the local variable whose storage holds the box x, reached

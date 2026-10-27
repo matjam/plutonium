@@ -479,19 +479,16 @@ func siteCall(f *eir.Func, site eir.SiteID) *eir.Call {
 func (s *solver) applyBound(in *eir.Instr, cand eir.FuncID, bind []uint64, skip int) {
 	bodyless := cand == eir.NoFunc
 	var sum *summary.Summary
-	if !bodyless {
-		if int(cand) < len(s.prog.Funcs) {
-			bodyless = s.prog.Funcs[cand].Bodyless
-		}
-		sum = s.env.Summary(cand)
+	if !bodyless && int(cand) < len(s.prog.Funcs) {
+		bodyless = s.prog.Funcs[cand].Bodyless
 	}
-	if !bodyless {
-		s.applied = compat.Append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum, skip: skip, fb: s.fbDepth > 0})
+	if bodyless {
+		s.applyBodyless(in, bind, cand)
+		return
 	}
+	sum = s.env.Summary(cand)
+	s.applied = compat.Append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum, skip: skip, fb: s.fbDepth > 0})
 	if sum == nil {
-		if bodyless {
-			s.applyDefault(in, bind, cand)
-		}
 		return
 	}
 	s.applySkip(in, bind, sum, cand, skip)

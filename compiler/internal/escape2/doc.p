@@ -1,13 +1,10 @@
 // Translated by go2pu from internal/escape2/doc.go at the go-cutover tag; edited by hand since.
 
-// Package escape2 is the escape analysis rebuilt beside internal/escape, by
-// the plan of docs/plans/2026-10-20-escape-redesign.md. It checks the same
-// rules (language spec sections 18.3, 18.4 and 11.5): no pointer into a stack
-// frame outlives the frame.
-//
-// It is the default; PLUTO_ESCAPE=old runs internal/escape instead, and
-// PLUTO_ESCAPE=both runs the two and reports where they differ (plan
-// section (g)).
+// Package escape2 is the compiler's escape analysis, by the plan of
+// docs/plans/2026-10-20-escape-redesign.md. It checks the rules of language
+// spec sections 18.3, 18.4 and 11.5: no pointer into a stack frame outlives
+// the frame. It replaced an older analysis, internal/escape, whose messages
+// it keeps.
 //
 // The packages under it, and who builds on what:
 //

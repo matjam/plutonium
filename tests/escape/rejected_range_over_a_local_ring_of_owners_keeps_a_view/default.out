@@ -1,13 +1,13 @@
-$DIR/main.p:9:17: cannot pass an element of r to the loop body, which keeps it after returning
-    an element of r points into r. r is a local variable of f (declared at
-    main.p:7). the loop body stores c in package variable kept (main.p:10), so
-    an element of r would outlive r.
+$DIR/main.p:9:17: cannot pass &r to the loop body at main.p:9, which keeps it after returning
+    &r points into r. r is a local variable of f (declared at main.p:7). the
+    loop body at main.p:9 stores argument 1 in package variable kept
+    (main.p:10), so &r would outlive r.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    If the loop body should keep its own copy of r, change it to take the value,
-    not a pointer, or an owner it can keep: an owned[ring[Conn, 4]] from new, a
-    shared[ring[Conn, 4]], or a library owner such as a vec.Vec.
+    If the loop body at main.p:9 should keep its own copy of r, change it to
+    take the value, not a pointer, or an owner it can keep: an owned[ring[Conn,
+    4]] from new, a shared[ring[Conn, 4]], or a library owner such as a vec.Vec.
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3003" for a longer explanation)

@@ -1,12 +1,11 @@
 $DIR/main.p:13:14: cannot convert b.String() to an interface: it points into memory allocated from ar, a local arena of f, which is gone before the interface's copy is released
     b.String() points into memory allocated from ar, a local arena of f. ar (a
-    local arena of f, declared at main.p:9) was given as an allocator to a call
-    that returns a string, or to a value that returns one, and such text may
-    have been allocated from the arena. What lives in the arena is gone when the
-    arena is. Converting b.String() to an interface puts a copy of it in f's
-    frame, and the copy holds a reference to the text until f returns. That is
-    after the arena ar is dropped, and releasing the reference would write into
-    the arena's memory.
+    local arena of f, declared at main.p:9) is given as an allocator to
+    b.Init(&ar) (at main.p:11), so what is allocated from it lives in the arena,
+    and is gone when the arena is. Converting b.String() to an interface puts a
+    copy of it in f's frame, and the copy holds a reference to the text until f
+    returns. That is after the arena ar is dropped, and releasing the reference
+    would write into the arena's memory.
     Go keeps memory alive for as long as any pointer refers to it. Plutonium has
     no garbage collector: an owner releases its memory when it is dropped, so a
     view must not be used after the value it looks at has gone.

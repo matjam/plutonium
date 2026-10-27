@@ -1,18 +1,14 @@
-$DIR/main.p:5:15: cannot pass the variadic arguments of keep to a task statement: the new task may outlive main's frame
+$DIR/main.p:5:20: cannot pass the variadic arguments of keep to keep, which keeps it after returning
     the variadic arguments of keep points into the variadic arguments of a call,
     in main's frame. A call with variadic arguments (at main.p:5) passes them in
-    an array in main's frame, and the function gets a slice of that array. The
-    task started here runs on its own, and may still be running after main
-    returns and main's frame's memory is reclaimed.
+    an array in main's frame, and the function gets a slice of that array. keep
+    stores xs in package variable kept (main.p:4), so the variadic arguments of
+    keep would outlive main's frame.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    Pass a value, which is copied, or an owner, which moves, instead of a view
-    of the frame.
-    Or start it with a sync.Scope, which waits for its tasks before its block
-    ends, so that they may use main's variables:
-        var s sync.Scope
-        s.Task(func() { keep(1, 2) })
+    Change keep to take a value or an owner, which it can keep: an owned[T] from
+    new, a shared[T], or a library owner such as a vec.Vec.
     (see "Views" in the Plutonium spec, section 18.3)
-    (run "pluto explain E3004" for a longer explanation)
+    (run "pluto explain E3003" for a longer explanation)

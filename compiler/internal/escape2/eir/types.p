@@ -195,6 +195,9 @@ type Func struct {
 	// Bodyless: no body (assembly, C, //pu:extern); its effects come from
 	// the contract table or the default for bodyless functions.
 	Bodyless bool
+	// NoEscape: a bodyless function's //pu:noescape. It keeps no pointer
+	// argument, except by storing one where another points (section 20.3).
+	NoEscape bool
 	// ResultHolds are the inputs a standard library function's
 	// //pu:resultholds names (section 20.3): it keeps each only in its
 	// result, so what it does with them otherwise is no escape.

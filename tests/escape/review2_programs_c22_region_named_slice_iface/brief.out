@@ -1,1 +1,2 @@
+$DIR/main.p:12:2: cannot store the function literal in arr[0], which outlives x
 $DIR/main.p:14:12: cannot return FS(arr[:]) as an interface: the interface would hold a copy of it in mk's frame

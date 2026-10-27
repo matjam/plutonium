@@ -1,1 +1,1 @@
-$DIR/main.p:28:3: cannot pass &in to fmt.Printf, which keeps it after returning
+$DIR/main.p:28:3: cannot pass "%v\n" to fmt.Printf, which keeps it after returning

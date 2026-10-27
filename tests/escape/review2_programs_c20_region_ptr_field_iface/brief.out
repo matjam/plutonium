@@ -1,1 +1,1 @@
-$DIR/main.p:22:12: cannot return &v, a pointer to a local variable
+$DIR/main.p:20:2: cannot store the function literal in v.f, which outlives v

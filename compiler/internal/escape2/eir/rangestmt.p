@@ -70,9 +70,11 @@ func (fb *fnb) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 	}
 	xt := unwrap(fb.typeOf(st.X))
 	core := coreType(xt)
-	if p, ok := core.(*types2.Pointer); ok {
-		if _, isArr := unwrap(p.Elem()).Underlying().(*types2.Array); isArr {
-			core = p
+	// A pointer to an array, or an owned, shared or synced one, ranges over
+	// the array it points to.
+	if el := pointerElem(xt); el != nil {
+		if _, isArr := unwrap(el).Underlying().(*types2.Array); isArr {
+			core = types2.NewPointer(el)
 		}
 	}
 	switch u := core.(type) {

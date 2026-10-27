@@ -1,10 +1,1 @@
-$PLUTOROOT/pluto/vec/vec.p:109:50: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
-$PLUTOROOT/pluto/vec/vec.p:117:55: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
-$PLUTOROOT/pluto/vec/vec.p:139:2: cannot pass &zero to main.(*O).Drop (called when zero is dropped), which keeps it after returning
-$PLUTOROOT/pluto/vec/vec.p:153:1: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
-$PLUTOROOT/pluto/vec/vec.p:174:2: cannot pass &zero to main.(*O).Drop (called when zero is dropped), which keeps it after returning
-$PLUTOROOT/pluto/vec/vec.p:178:1: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
-$PLUTOROOT/pluto/vec/vec.p:243:1: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
-$PLUTOROOT/pluto/vec/vec.p:256:1: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
-$PLUTOROOT/pluto/vec/vec.p:379:2: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
-$DIR/main.p:20:1: cannot pass &o to (*O).Drop (called when o is dropped), which keeps it after returning
+$PLUTOROOT/pluto/vec/vec.p:380:1: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning

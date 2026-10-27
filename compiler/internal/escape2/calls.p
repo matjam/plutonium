@@ -4,13 +4,13 @@ package escape2
 
 import (
 	"compiler/compat"
-	"compiler/internal/escape"
 	"compiler/internal/escape2/contract"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/sched"
 	"compiler/internal/escape2/solve"
 	"compiler/internal/escape2/summary"
+	"compiler/internal/moves"
 	"compiler/internal/syntax/ast"
 	"compiler/pu"
 )
@@ -19,7 +19,7 @@ import (
 // argument expression of a call the program writes, whether the callee may
 // keep a pointer to what the argument points to past the call (Self), may
 // return pointers derived from it (Returned), and into which other
-// arguments' memory it may store them (Into), as escape.ArgFacts states
+// arguments' memory it may store them (Into), as moves.ArgFacts states
 // them. They are read off the final summaries of every function the call
 // may reach, bound to the call's arguments as the solver binds them
 // (solve/call.go, binding), so they say no less than the summaries the
@@ -34,8 +34,8 @@ import (
 
 // CallFacts returns the facts about the calls of the program p, which the
 // analysis's result res is of.
-func CallFacts(p *eir.Program, res *sched.Result) *escape.Calls {
-	calls := escape.NewCalls()
+func CallFacts(p *eir.Program, res *sched.Result) *moves.Calls {
+	calls := moves.NewCalls()
 	if p == nil || res == nil || res.Env == nil {
 		return calls
 	}
@@ -43,7 +43,7 @@ func CallFacts(p *eir.Program, res *sched.Result) *escape.Calls {
 	ps := env.Paths()
 	for _, e := range p.NoCalls {
 		if se := funSelector(e.Fun); se != nil {
-			calls.Add(se.X, &escape.ArgFacts{}) // a drop that runs nothing keeps nothing
+			calls.Add(se.X, &moves.ArgFacts{}) // a drop that runs nothing keeps nothing
 		}
 	}
 	for _, f := range p.Funcs {
@@ -201,7 +201,7 @@ func funSelector(fun ast.Expr) *ast.SelectorExpr {
 }
 
 // noteCall records the facts about the arguments of call c of f.
-func noteCall(calls *escape.Calls, env solve.Env, ps domain.Paths, f *eir.Func, c *eir.Call) {
+func noteCall(calls *moves.Calls, env solve.Env, ps domain.Paths, f *eir.Func, c *eir.Call) {
 	sl := slots(c)
 	if len(sl) == 0 {
 		return
@@ -212,7 +212,7 @@ func noteCall(calls *escape.Calls, env solve.Env, ps domain.Paths, f *eir.Func, 
 		if s == nil {
 			continue
 		}
-		af := &escape.ArgFacts{}
+		af := &moves.ArgFacts{}
 		for _, cd := range cands {
 			merge(af, argFacts(ps, cd, sl, i))
 		}
@@ -223,7 +223,7 @@ func noteCall(calls *escape.Calls, env solve.Env, ps domain.Paths, f *eir.Func, 
 }
 
 // merge adds what o says to af.
-func merge(af, o *escape.ArgFacts) {
+func merge(af, o *moves.ArgFacts) {
 	af.Self = af.Self || o.Self
 	af.Returned = af.Returned || o.Returned
 	af.Into = compat.Append(af.Into, o.Into...)
@@ -231,13 +231,13 @@ func merge(af, o *escape.ArgFacts) {
 
 // argFacts returns what callee cd's summary says of its input i, given the
 // call's slots.
-func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *escape.ArgFacts {
-	af := pu.New(escape.ArgFacts{})
+func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *moves.ArgFacts {
+	af := pu.New(moves.ArgFacts{})
 	if cd.sum == nil || i >= cd.inputs {
 		// Nothing is known of the callee, or the input is one it does
 		// not have (a candidate of another arity): the worst.
 		af.Self, af.Returned = true, true
-		af.Into = compat.Append(af.Into, escape.Into{})
+		af.Into = compat.Append(af.Into, moves.Into{})
 		return af
 	}
 	s := sl[i]
@@ -266,7 +266,7 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *escape.ArgFacts {
 			dst = sl[j].exprs[0]
 			direct = sl[j].exact && ps.Loads(st.Dst.Path()) == 0 && !st.Dst.Deep() && !st.Dst.GE()
 		}
-		af.Into = compat.Append(af.Into, escape.Into{Arg: dst, Direct: direct})
+		af.Into = compat.Append(af.Into, moves.Into{Arg: dst, Direct: direct})
 	}
 	for _, r := range sum.Res {
 		for _, rk := range r.From {
@@ -301,7 +301,7 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *escape.ArgFacts {
 			}
 		}
 		if passed {
-			af.Into = compat.Append(af.Into, escape.Into{})
+			af.Into = compat.Append(af.Into, moves.Into{})
 		}
 		if fn || passed {
 			af.Returned = true

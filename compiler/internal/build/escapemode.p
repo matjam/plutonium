@@ -5,27 +5,17 @@ package build
 import (
 	"compiler/compat"
 	"compiler/internal/diag"
-	"compiler/internal/escape"
 	"compiler/internal/escape2"
 	"compiler/internal/load"
+	"compiler/internal/moves"
 	"compiler/internal/scratch"
 	"compiler/pu"
 )
 
-// analyzeEscapes runs the escape analysis that PLUTO_ESCAPE selects
-// (docs/plans/2026-10-20-escape-redesign.md, section (g)): the analysis in
-// internal/escape2 when it is unset or "new", internal/escape for "old",
-// and both for "both", which keeps the old verdict and reports
-// every program and error site where the two differ (on standard error,
-// and appended to the file PLUTO_ESCAPE_DIFF names). The self-hosted
-// compiler links both, from go2pu's translation of this file.
-func analyzeEscapes(prog *load.Program) (*escape.Calls, error) {
-	mode, err := escape2.ModeFromEnv()
-	if err != nil {
-		calls, _ := escape.Analyze(prog)
-		return calls, err
-	}
-	return escape2.Analyze(prog, mode)
+// analyzeEscapes runs the escape analysis (internal/escape2): its errors,
+// and what it found about calls for the move checker.
+func analyzeEscapes(prog *load.Program) (*moves.Calls, error) {
+	return escape2.CheckCalls(prog)
 }
 
 // escapeStep runs the escape analysis as a scratch step: its program
@@ -33,7 +23,7 @@ func analyzeEscapes(prog *load.Program) (*escape.Calls, error) {
 // found about calls and its errors are kept.
 type escapeStep struct {
 	prog  *load.Program
-	calls *escape.Calls
+	calls *moves.Calls
 	err   error
 }
 
@@ -58,7 +48,7 @@ func keepError(err error) error {
 }
 
 // runEscapes is analyzeEscapes in a scratch step of its own.
-func runEscapes(prog *load.Program) (*escape.Calls, error) {
+func runEscapes(prog *load.Program) (*moves.Calls, error) {
 	s := pu.New(escapeStep{prog: prog})
 	scratch.Do(s)
 	scratch.Trim()

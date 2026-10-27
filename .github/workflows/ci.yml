@@ -63,7 +63,6 @@ jobs:
     timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
-      PLUTO_ESCAPE: new
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -94,7 +93,6 @@ jobs:
     timeout-minutes: 90
     env:
       GH_TOKEN: ${{ github.token }}
-      PLUTO_ESCAPE: new
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

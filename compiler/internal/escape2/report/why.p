@@ -147,6 +147,13 @@ func (r *reporter) dropped(fn *eir.Func, in *eir.Instr) (string, token.Pos) {
 func (r *reporter) why(callee eir.FuncID, entry int, from *types2.Package, depth int) string {
 	const keeps = "may keep it after it returns"
 	callee, entry = r.through(callee, entry)
+	if callee != eir.NoFunc && int(callee) < len(r.p.Funcs) && r.p.Funcs[callee].Bodyless {
+		// The default of a bodyless function, or its //pu:noescape.
+		if r.p.Funcs[callee].NoEscape {
+			return "may store it into memory another argument points to"
+		}
+		return "is implemented outside Plutonium and may keep it"
+	}
 	if callee == eir.NoFunc || entry < 0 {
 		return keeps
 	}
@@ -166,9 +173,6 @@ func (r *reporter) why(callee eir.FuncID, entry int, from *types2.Package, depth
 		return keeps
 	}
 	g := r.p.Funcs[callee]
-	if g.Bodyless {
-		return "is implemented outside Plutonium and may keep it"
-	}
 	var key domain.Key
 	store := entry >= len(sum.Esc)
 	if store {

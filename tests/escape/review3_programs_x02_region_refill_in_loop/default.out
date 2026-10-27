@@ -1,18 +1,13 @@
-$DIR/main.p:9:34: cannot return &c, a pointer to a local variable
-    &c is a pointer to c. c is a local variable of mk (declared at main.p:8).
-    Its memory is reclaimed when mk returns, so &c would point at memory that no
-    longer holds c.
-    Go would move this memory to the heap, and its garbage collector would free
-    it later. Plutonium has no garbage collector and never moves memory to the
-    heap behind the program's back, so that every allocation is visible in the
-    code.
-    To give the value to the caller, return it instead. This copies it, or moves
-    it if it is an owner:
-        return c
-    To keep it at a fixed address after mk returns, allocate it and return its
-    owner, an owned[int]:
-        c := new(int)
-        ...
-        return c
-    (see "Views" in the Plutonium spec, section 18.3)
-    (run "pluto explain E3001" for a longer explanation)
+$DIR/main.p:16:11: cannot keep the closure mk(42 + i) returns past this iteration of the loop: it is stored in first, declared outside the loop (main.p:14)
+    A function that returns a closure builds it in a region its caller provides
+    (spec section 11.5). The region of a call in a loop is part of this frame,
+    and the call uses the same region on every iteration, so the closure mk(42 +
+    i) returns on one iteration is overwritten on the next. Keeping it past the
+    iteration, in first, declared outside the loop (main.p:14), would leave it
+    changing under you.
+    Use the closure within the iteration, or declare the variable that holds it
+    inside the loop.
+    Go allocates each closure on the heap. Plutonium builds it in the caller's
+    frame, which has room for one closure per call site.
+    (see "Closures and their regions" in the Plutonium spec, section 11.5)
+    (run "pluto explain E3101" for a longer explanation)

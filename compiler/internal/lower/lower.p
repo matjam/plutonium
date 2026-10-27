@@ -253,8 +253,9 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 	}
 	if l.moves == nil {
 		// Its errors are the build's to report; lowering needs only the
-		// account of moves.
-		l.moves, _ = moves.Analyze(prog)
+		// account of moves. Without the escape analysis's facts about
+		// calls every call is taken at its worst.
+		l.moves, _ = moves.AnalyzeWith(prog, nil)
 	}
 	l.scoped = scoped.Analyze(prog)
 	for _, p := range prog.Packages {

@@ -1,1 +1,2 @@
-$DIR/main.p:18:7: cannot send unsafe.Pointer(&x) on got: the receiver may outlive x
+$DIR/main.p:16:2: cannot pass the function literal to the function literal at main.p:16, which keeps it after returning
+$DIR/main.p:20:2: cannot store s in package variable gs, which outlives x

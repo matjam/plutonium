@@ -1,0 +1,1 @@
+escape2 does not follow a closure region result back through a function literal's frame (roadmap item 142).

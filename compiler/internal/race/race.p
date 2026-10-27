@@ -79,16 +79,10 @@ var debug = compat.Getenv("PLUTO_RACE_DEBUG") != ""
 // analyzing is held while a program is analysed (AnalyzeWith).
 var analyzing compat.Mutex
 
-// Check analyses a loaded program that passed the escape analysis and
-// returns the races it finds, as a diag.List, or nil.
-func Check(prog *load.Program) error {
-	mv, _ := moves.Analyze(prog)
-	return CheckWith(prog, mv)
-}
-
-// CheckWith is Check, given the move checker's account of moves, which
-// tells where the code that starts scoped tasks moves or drops a variable
-// they may use (scope.go).
+// CheckWith analyses a loaded program that passed the escape analysis and
+// returns the races it finds, as a diag.List, or nil. mv is the move
+// checker's account of moves, which tells where the code that starts
+// scoped tasks moves or drops a variable they may use (scope.go).
 func CheckWith(prog *load.Program, mv *moves.Info) error {
 	_, err := AnalyzeWith(prog, mv)
 	return err

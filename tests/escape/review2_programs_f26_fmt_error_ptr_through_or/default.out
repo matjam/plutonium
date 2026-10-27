@@ -1,12 +1,11 @@
-$DIR/main.p:28:3: cannot pass &in to fmt.Printf, which keeps it after returning
-    &in points into in. in is a local variable of f (declared at main.p:25).
-    fmt.Printf passes a pointer loaded from args[i] to Fprintf
-    (print_linux.p:9), which passes a pointer loaded from args[i] to
-    (*printer).doPrintf (fmt.p:929), which passes a pointer loaded from args[i]
-    to (*printer).printArg (fmt.p:880), which passes arg to
-    (*printer).handleMethods (fmt.p:746), which passes arg to v.Error (which may
-    call main.(E).Error) (fmt.p:774), which stores e in package variable keep
-    (main.p:16), so &in would outlive in.
+$DIR/main.p:28:3: cannot pass "%v\n" to fmt.Printf, which keeps it after returning
+    "%v\n" points into in. in is a local variable of f (declared at main.p:25).
+    fmt.Printf passes a pointer reachable from args to Fprintf
+    (print_linux.p:9), which passes a pointer reachable from args to
+    (*printer).doPrintf (fmt.p:929), which passes a pointer reachable from args
+    to (*printer).printArg (fmt.p:880), which passes arg to a formatting method
+    of what it walks (which may call main.(E).Error) (fmt.p:671), which stores e
+    in package variable keep (main.p:16), so "%v\n" would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the

@@ -21,7 +21,6 @@ import (
 	"pluto/sort"
 	"compiler/compat"
 	"compiler/internal/diag"
-	"compiler/internal/escape"
 	"compiler/internal/load"
 	"compiler/internal/scoped"
 	"compiler/internal/syntax/ast"
@@ -85,25 +84,12 @@ type Held struct {
 // not known.
 type Path []string
 
-// Check runs the move checker over a loaded program and returns its errors
-// as a diag.List, or nil.
-func Check(prog *load.Program) error {
-	_, err := Analyze(prog)
-	return err
-}
-
-// Analyze runs the move checker and returns what lowering needs, and the
-// errors as a diag.List, or nil. It runs the escape analysis for what it
-// knows of calls, and leaves its errors to escape.Check.
-func Analyze(prog *load.Program) (*Info, error) {
-	calls, _ := escape.Analyze(prog)
-	return AnalyzeWith(prog, calls)
-}
-
-// AnalyzeWith is Analyze, given what the escape analysis found about calls
-// (escape.Analyze): which views of a local owner a call keeps past its
-// return (views.go).
-func AnalyzeWith(prog *load.Program, calls *escape.Calls) (*Info, error) {
+// AnalyzeWith runs the move checker and returns what lowering needs, and
+// the errors as a diag.List, or nil. calls is what the escape analysis
+// found about calls (internal/escape2, CallFacts): which views of a local
+// owner a call keeps past its return (views.go). With calls nil every call
+// is taken at its worst.
+func AnalyzeWith(prog *load.Program, calls *Calls) (*Info, error) {
 	c := pu.New(checker{
 		calls: calls,
 		info: pu.New(Info{Moves: map[*ast.Ident]bool{}, Temps: map[ast.Expr]bool{}, DeferredDrops: map[*ast.CallExpr]bool{},
@@ -183,7 +169,7 @@ type checker struct {
 
 	scoped     *scoped.Info // the scoped tasks of sync.Scope (scope.go)
 	taskBodies map[*ast.BlockStmt]*ast.FuncLit
-	calls      *escape.Calls // what calls keep of their arguments (views.go)
+	calls      *Calls // what calls keep of their arguments (views.go)
 }
 
 // report records an error once per position and code.

@@ -179,6 +179,7 @@ func (b *builder) declare() {
 				f.External = isExternalDecl(fd) || (p == b.prog.Main && obj.Name() == "main" && fd.Recv == nil)
 				if fd.Body == nil {
 					f.Bodyless = true
+					f.NoEscape = hasDirective(fd, "//pu:noescape")
 				}
 				if strings.HasPrefix(b.fset.Position(fd.Pos()).Filename, load.StdPrefix) {
 					f.ResultHolds = resultHolds(fd, obj.Type().(*types2.Signature))
@@ -277,9 +278,22 @@ func isExternalDecl(fd *ast.FuncDecl) bool {
 	return false
 }
 
+// hasDirective reports whether fd's doc comment has directive d.
+func hasDirective(fd *ast.FuncDecl, d string) bool {
+	if fd.Doc == nil {
+		return false
+	}
+	for _, c := range fd.Doc.List {
+		if c.Text == d || strings.HasPrefix(c.Text, compat.Concat(d, " ")) {
+			return true
+		}
+	}
+	return false
+}
+
 // resultHolds returns the inputs fd's //pu:resultholds directives name
-// (the receiver is input 0). internal/escape reports a directive outside
-// the standard library or one that names no parameter.
+// (the receiver is input 0). escape2/directives.p reports one outside the
+// standard library or one that names no parameter.
 func resultHolds(fd *ast.FuncDecl, sig *types2.Signature) []int {
 	if fd.Doc == nil {
 		return nil

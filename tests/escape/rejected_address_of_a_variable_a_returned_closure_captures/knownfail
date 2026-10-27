@@ -1,0 +1,1 @@
+escape2 accepts this. Section 11.5 (Refilling) lets f return &n of a captured variable as a view of the caller's frame, so the spec may allow it; decide under roadmap item 137 (item 142).

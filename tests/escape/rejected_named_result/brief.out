@@ -1,1 +1,1 @@
-$DIR/main.p:7:1: cannot return p, which points into x, a local variable of f
+$DIR/main.p:6:2: cannot return &x, which points into x, a local variable of f

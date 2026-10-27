@@ -1,2 +1,1 @@
-$DIR/main.p:15:2: cannot store ap.Load() in package variable keep, which outlives ap
 $DIR/main.p:15:2: cannot store ap.Load() in package variable keep, which outlives x

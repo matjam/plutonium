@@ -65,7 +65,9 @@ func (s *solver) applyCandidateRec(in *eir.Instr, cand eir.FuncID, rec uint32) {
 		fn := s.prog.Funcs[cand]
 		inputs = len(fn.Inputs)
 		bodyless = fn.Bodyless
-		sum = s.env.Summary(cand)
+		if !bodyless {
+			sum = s.env.Summary(cand)
+		}
 	default:
 		// A virtual function, defined by its summary alone (rules.go,
 		// OpCall): a rule for dynamic calls plugs in this way.
@@ -83,10 +85,11 @@ func (s *solver) applyCandidateRec(in *eir.Instr, cand eir.FuncID, rec uint32) {
 		// A resumed solve applies what this summary gains (State.Resume).
 		s.applied = compat.Append(s.applied, application{in: in, cand: cand, bind: bind, sum: sum, skip: -1})
 	}
+	if bodyless {
+		s.applyBodyless(in, bind, cand)
+		return
+	}
 	if sum == nil {
-		if bodyless {
-			s.applyDefault(in, bind, cand)
-		}
 		return // the bottom summary of a function of this SCC not yet solved
 	}
 	s.apply(in, bind, sum, cand)
@@ -458,6 +461,45 @@ func (s *solver) fieldPath(f domain.PathID, ge bool) (domain.PathID, bool) {
 		return domain.Root, true
 	}
 	return f, ge
+}
+
+// applyBodyless applies the effects of a bodyless function: those its
+// //pu:noescape states, or the default.
+func (s *solver) applyBodyless(in *eir.Instr, bind []uint64, cand eir.FuncID) {
+	if cand != eir.NoFunc && s.prog.Funcs[cand].NoEscape {
+		s.apply(in, bind, noEscapeSummary(s.ps, s.prog.Funcs[cand]), cand)
+		return
+	}
+	s.applyDefault(in, bind, cand)
+}
+
+// noEscapeSummary is the summary //pu:noescape states for bodyless function
+// f (section 20.3): it keeps no input, may store each input into memory
+// another one points to, and its results may hold what the inputs point to
+// (atomic.LoadPointer returns *addr) and heap memory, but no input itself.
+func noEscapeSummary(ps domain.Paths, f *eir.Func) *summary.Summary {
+	n := len(f.Inputs)
+	sum := pu.New(summary.Summary{Inputs: n})
+	key := func(i int) domain.Key { return domain.MakeKey(i, domain.Root, domain.KeyFlags{GE: true}) }
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if i != j {
+				sum.Store = compat.Append(sum.Store, summary.StorePair{Src: key(i), Dst: key(j)})
+			}
+		}
+	}
+	if f.Results > 0 {
+		sum.Res = compat.Make[summary.Result](f.Results)
+	}
+	for r := range sum.Res {
+		for i := 0; i < n; i++ {
+			deep := domain.MakeKey(i, domain.Root, domain.KeyFlags{Deep: true})
+			sum.Res[r].From = compat.Append(sum.Res[r].From, summary.ResultKey{Key: deep, Field: domain.Root})
+		}
+		sum.Res[r].Heap = compat.Clone([]domain.PathID{domain.Root})
+	}
+	summary.Widen(ps, sum)
+	return sum
 }
 
 // applyDefault applies the default of a bodyless function without a

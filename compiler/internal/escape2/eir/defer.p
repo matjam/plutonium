@@ -261,14 +261,13 @@ func (fb *fnb) taskStmt(st *ast.TaskStmt) {
 	for i, a := range args {
 		if packed_ && i == len(args)-1 {
 			// Packed variadic arguments are copied into the new task with
-			// their array (section 12.12): each element crosses, not the
-			// array in this frame.
+			// their array (section 12.12): each element crosses. The copy
+			// of the array is on the new task's stack, which ends with the
+			// call, so the callee may not keep it: the array of this frame
+			// stands for it.
 			et := sliceElem(c.Sig.Params().At(c.Sig.Params().Len() - 1).Type())
 			v := fb.load(fb.elem(a), et)
 			fb.sink(SinkTask, v, 0, call.Pos())
-			copied := fb.heap(HeapAlloc)
-			fb.store(fb.elem(copied), v, et)
-			args[i] = copied
 			continue
 		}
 		fb.sink(SinkTask, a, 0, call.Pos())

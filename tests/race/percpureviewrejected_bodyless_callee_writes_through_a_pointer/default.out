@@ -1,6 +1,6 @@
-$DIR/main.p:19:2: ticks = ... uses the per-CPU variable ticks outside a region where the task cannot move to another processor
+$DIR/main.p:20:2: ticks = ... uses the per-CPU variable ticks outside a region where the task cannot move to another processor
     ticks has one copy for each processor. This is a store of a value that
-    depends on the load of ticks at main.p:18, so the task could move to another
+    depends on the load of ticks at main.p:19, so the task could move to another
     processor in the middle of it and read one processor's copy and write
     another's. It must be inside a region where the task cannot move: preemption
     disabled (rt.DisablePreemption to rt.EnablePreemption), maskable interrupts

@@ -1,13 +1,27 @@
-$DIR/main.p:8:20: cannot pass an element of r to the loop body, which keeps it after returning
-    an element of r points into x. x is a local variable of f (declared at
-    main.p:5). the loop body stores v in package variable kept (main.p:9), so an
-    element of r would outlive x.
+$DIR/main.p:8:20: cannot pass &r to the loop body at main.p:8, which keeps it after returning
+    &r points into r. r is a local variable of f (declared at main.p:6). the
+    loop body at main.p:8 stores argument 2 in package variable kept (main.p:9),
+    so &r would outlive r.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    If the loop body should keep its own copy of x, change it to take the value,
-    not a pointer, or an owner it can keep: an owned[int] from new, a
-    shared[int], or a library owner such as a vec.Vec.
+    If the loop body at main.p:8 should keep its own copy of r, change it to
+    take the value, not a pointer, or an owner it can keep: an owned[ring[*int,
+    4]] from new, a shared[ring[*int, 4]], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:8:20: cannot pass &x to the loop body at main.p:8, which keeps it after returning
+    &x points into x. x is a local variable of f (declared at main.p:5). the
+    loop body at main.p:8 stores argument 2 in package variable kept (main.p:9),
+    so &x would outlive x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If the loop body at main.p:8 should keep its own copy of x, change it to
+    take the value, not a pointer, or an owner it can keep: an owned[int] from
+    new, a shared[int], or a library owner such as a vec.Vec.
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3003" for a longer explanation)

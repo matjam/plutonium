@@ -1,1 +1,1 @@
-$DIR/main.p:6:2: cannot store &x in package variable r, which outlives x
+$DIR/main.p:6:2: cannot pass &x to Push, which keeps it after returning

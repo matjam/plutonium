@@ -1,1 +1,1 @@
-$DIR/main.p:20:3: cannot keep &w in keepP after this iteration: the loop at line 18 reuses w in every iteration
+$DIR/main.p:20:3: cannot store &w in keepP, which outlives w

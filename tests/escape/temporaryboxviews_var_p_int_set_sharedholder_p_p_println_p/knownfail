@@ -1,0 +1,1 @@
+escape2 analyses a generic body once for every instantiation, so a box passed by value through a type parameter is not seen as a view of a temporary (roadmap item 142).

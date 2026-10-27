@@ -1,7 +1,7 @@
-$DIR/main.p:11:7: cannot pass &i to yield (which may call the loop body at main.p:20), which keeps it after returning
-    &i is a pointer to i. i is a local variable of seq (declared at main.p:10).
-    yield (which may call the loop body at main.p:20) returns p from g
-    (main.p:23), so &i would outlive i.
+$DIR/main.p:11:7: cannot pass i to yield (which may call the loop body at main.p:20), which keeps it after returning
+    i points into i. i is a local variable of seq (declared at main.p:10). yield
+    (which may call the loop body at main.p:20) stores it in last (main.p:21),
+    so i would outlive i.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
