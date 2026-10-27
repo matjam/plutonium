@@ -1,0 +1,1 @@
+$DIR/main.p:8:1: onPanic is the panic handler, so it must never return

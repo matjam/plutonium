@@ -1,0 +1,1 @@
+$DIR/main.p:59:10: cannot keep the closure pickStore(alloc.New[W](), &p, one) returns past this iteration of the loop: it is stored in keep, declared outside the loop (main.p:57)
