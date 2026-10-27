@@ -58,31 +58,63 @@ centre of the repository.
 
 ## Phase 2 status (2026-10-26)
 
-Converted to `tests/<group>/` (each case checked against its original Go
-assertion by running the test with its helper building through the CLI, then
-run against both the Go-built and the self-hosted compiler; all pass on both):
+Phase 2 is done except for `tools/skillcheck`, which is reworked separately.
+Everything below runs through an external `pluto` (`PLUTO_TEST_COMPILER`,
+default `./pluto`) and passes against both the Go-built and the self-hosted
+compiler, except where noted.
+
+Corpus cases in `tests/<group>/`, run by TestCorpus. Each was checked against
+its original Go assertion:
 
 | Group  | Cases | Source |
 |--------|-------|--------|
-| race   | 272   | `internal/race` check, checkKernel (kernel cases add a `//pu:panic` loop) |
-| types2 | 338   | `internal/types2` checkSrc, checkWithRT, TestUnionErrors (`pluto vet`) |
-| escape | 601   | `internal/escape` check, review2/3 (78 set `PLUTO_ESCAPE=old`) |
-| moves  | 102   | `internal/moves` check |
-| lower  | 144   | `internal/lower` lowerError, lowerModeError |
+| race   | 291   | `internal/race` check, checkKernel (kernel cases add a `//pu:panic` loop) |
+| types2 | 369   | `internal/types2` checkSrc, checkWithRT, TestUnionErrors, TestOrValid, TestOrErrors, enum/union/owner two-package tests (`pluto vet`) |
+| escape | 603   | `internal/escape` check, review2/3 (80 set `PLUTO_ESCAPE=old`) |
+| moves  | 103   | `internal/moves` check (1 knownfail, below) |
+| lower  | 161   | `internal/lower` lowerError, lowerModeError |
+| diag   | 156   | `cmd/pluto/testdata/diag` |
 
-Left in Go, because the program fails an earlier pass through the CLI or the
-test asserts on Go values: race 20 tests (no scheduler bound, escape errors
-first) plus overlap and reach facts; lower 22 tests plus about 17 on SSA; escape
-14 tests plus 9 `//pu:resultholds` programs (no CLI form); types2 TestOrValid
-and TestOrErrors (error lists by code), the two-package tests (enum, union,
-box), TestNestingLimit (checker config) and info/predicate tests; moves
-TestEmptyFacts.
+Other tests moved to `tests/`:
+- `cli_test.go`, `vetdoc_test.go`, `fmt_test.go`, `plutotest_test.go`: the
+  command-line tests of `cmd/pluto` (build, run, test, vet, doc, fmt, explain),
+  with their fixtures in `tests/testdata`.
+- `programs_test.go`, `goprog_test.go`: the program runners of `internal/build`
+  (testdata/run, lib, plutonium, trace, cabi, kernel, examples).
+- `escapereview_test.go`: the escape review programs (review2/3/4) with their
+  gap and control lists, built with `PLUTO_ESCAPE=new`.
+- `audit_test.go`, `directive_test.go`, `parse_test.go`: `pluto vet -unsafe`
+  goldens, directive diagnostics and the spec 20.3 audit, parser error cases
+  and the repository parse check.
 
-Still to do in phase 2:
-- `cmd/pluto/testdata/diag` (156 cases) and the CLI tests in `cmd/pluto` move
-  to `tests/` (references: `internal/directive`, `internal/escape2` tests,
-  `tools/bootstrap/corpus.go`, `tools/escape2diff`, AGENTS.md, the skill).
-- `internal/build` corpus tests (they already honour `PLUTO_TEST_COMPILER`)
-  move out of the package that phase 3 deletes.
-- `internal/escape2` solve reviews (review2/3/4 with xfail maps), `internal/audit`,
-  `internal/directive`, `internal/syntax` parse errors, `tools/skillcheck`.
+Programs that failed an earlier pass through the CLI were made whole with a
+small edit that keeps the check under test (package variables for values
+tasks keep, assembly bodies for bodyless functions, a lock-free variant of a
+shared counter). Left in Go, with the reason:
+- lower goframeclosure (6 cases: address_taken, assigned_again, field,
+  method_on_var, range_assigns, var_without_value): the escape check rejects
+  the task statement by design, and moving the captured variable out of the
+  frame would remove what the test checks.
+- lower closurestoredinfreshallocation (accepted half): its helpers return
+  closures kept in fresh allocations, which escape rejects in a whole program.
+- race percpureviewrejected_task_literal_started_in_a_region: the capture rule
+  rejects the original first; passing x as an argument makes it accepted with
+  no E2022 (a race checker gap, below).
+- escape `//pu:resultholds` programs (9): the directive is allowed only in the
+  standard library, so they have no CLI form.
+- API tests with no program form: types2 TestNestingLimit config knobs,
+  PointerShaped, IndexesByMethod, RangesByMethod, the TestOrValid Implicits
+  info; directive TestTree; the parser AST tests; the audit failed-writer
+  test; `internal/build` unit tests; escape2 unit tests; lower SSA tests;
+  moves TestEmptyFacts; `cmd/pluto` TestBuildModes and TestGenCheckFlag.
+  They go with their packages in phase 3.
+
+Known differences and bugs found:
+- `pluto fmt --harness` exists only in the self-hosted compiler; its goldens
+  fail on pluto0.
+- moves misreads an explicit type argument that is itself an instantiation,
+  `vec.New[vec.Vec[int]]()`, as an index expression (E3309), on both
+  compilers: `tests/moves/type_argument_of_owner_vec` (knownfail).
+- race: a task literal that takes its operand as an argument inside a
+  per-CPU region, `task func(x uint64) { ... }(x)`, is accepted with no E2022,
+  while the named-function form `task set(x + 1)` is reported.
