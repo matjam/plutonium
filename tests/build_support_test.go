@@ -229,15 +229,20 @@ func testPanicHandler(p *rt.Panic) {
 // listing and, if the build failed, the diagnostics (one line each).
 func kernelCompile(t *testing.T, src string, level int) (listing, errs string) {
 	t.Helper()
-	return modeCompile(t, src, level, "kernel")
+	return modeCompile(t, src, level, "kernel", true)
 }
 
-// modeCompile is kernelCompile for --mode mode.
-func modeCompile(t *testing.T, src string, level int, mode string) (listing, errs string) {
+// modeCompile is kernelCompile for --mode mode, with the diagnostics in the
+// brief form (one line each) or in full, with their explanations.
+func modeCompile(t *testing.T, src string, level int, mode string, brief bool) (listing, errs string) {
 	t.Helper()
 	dir := writeTree(t, map[string]string{"main.p": src, "panic_handler.p": panicHandlerSource})
 	asm := filepath.Join(t.TempDir(), "listing.s")
-	r := tryBuildDir(t, dir, optFlag(level), "--mode", mode, "-c", "-S", asm, "--brief")
+	flags := []string{optFlag(level), "--mode", mode, "-c", "-S", asm}
+	if brief {
+		flags = append(flags, "--brief")
+	}
+	r := tryBuildDir(t, dir, flags...)
 	if r.status != 0 {
 		return "", r.out
 	}
