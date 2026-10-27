@@ -82,7 +82,11 @@ Other tests moved to `tests/`:
 - `programs_test.go`, `goprog_test.go`: the program runners of `internal/build`
   (testdata/run, lib, plutonium, trace, cabi, kernel, examples).
 - `escapereview_test.go`: the escape review programs (review2/3/4) with their
-  gap and control lists, built with `PLUTO_ESCAPE=new`.
+  gap and control lists, built with `PLUTO_ESCAPE=new`. Twelve review3
+  programs are rejected by the lowering's closure and scope rules (E2594,
+  E3100, E3101, E3401) before escape2 runs, so its own verdict on them is not
+  visible through pluto; the test requires those codes instead
+  (`rejectedBeforeEscape`).
 - `audit_test.go`, `directive_test.go`, `parse_test.go`: `pluto vet -unsafe`
   goldens, directive diagnostics and the spec 20.3 audit, parser error cases
   and the repository parse check.
@@ -118,3 +122,6 @@ Known differences and bugs found:
 - race: a task literal that takes its operand as an argument inside a
   per-CPU region, `task func(x uint64) { ... }(x)`, is accepted with no E2022,
   while the named-function form `task set(x + 1)` is reported.
+- The self-hosted compiler never set `types2.DeclPrinter`, so its E3202 fix
+  showed `...` in place of the owner type declaration
+  (`tests/diag/owners`). Fixed by `selfhost/internal/load/printhook.p`.
