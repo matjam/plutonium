@@ -151,6 +151,9 @@ and goldens that fail; read the diff before committing it.
   `testdata/trace`, `testdata/cabi`, `testdata/kernel` (under QEMU) and the examples.
 - Commands: `cli_test.go`, `vetdoc_test.go`, `fmt_test.go`, `plutotest_test.go` (build,
   run, test, vet, doc, fmt, explain), with their fixtures in `tests/testdata`.
+- `dwarf_test.go`: the DWARF and call frame information of `docs/spec/debugging.md`
+  (sections 2.1, 3 and 4) read with `debug/dwarf`, `-g=false` and `-s`, and gdb's
+  breakpoints and backtraces (skipped without gdb).
 - `escapereview_test.go` (the escape review programs, rejected under
   `PLUTO_ESCAPE=new`), `audit_test.go` (`pluto vet -unsafe` goldens),
   `directive_test.go` (directive diagnostics and the section 20.3 audit),
@@ -177,17 +180,19 @@ About the programs:
   and stops the build as that phase starts (`compiler/cmd/pluto/profile.p`).
   `PLUTO_ESCAPE_CHECK=1` makes the old escape analysis (`compiler/internal/escape`) check its fast
   ways against the general ones as it goes.
+- `go run ./tools/escapedigest` prints a digest of what a compiler makes of every program of
+  the corpus (the object file, or the status and diagnostics) at -O0 and -O2. For a change that
+  must not change the output, digest the old compiler (`-pluto old/pluto > before.txt`) and
+  compare the new one (`-compare before.txt`).
 
 Known gaps: these guards went with the Go implementation and have no replacement yet.
-- `internal/build/dwarf_test.go`: the DWARF output (`docs/spec/debugging.md`).
 - The Go packages' API-level unit tests with no program form (opt, arch, ssa, escape2,
   lsp, the `internal/build` units; list in the go-removal plan, "Phase 2 status"). Their
   behaviour is covered by the corpus and the self-build fixpoint only.
 - Coverage: `tools/pkgcov` and the per-package floors measured the Go packages. Nothing
   measures the coverage of `compiler/`.
-- The test memory guard (`internal/testguard`), `tools/escapedigest` (a digest of the
-  compiler's output over the corpus, for changes that must not change it) and the scale
-  test of the escape analysis (`PLUTO_SCALE_TEST`).
+- The test memory guard (`internal/testguard`) and the scale test of the escape analysis
+  (`PLUTO_SCALE_TEST`).
 
 ## The agent skill
 

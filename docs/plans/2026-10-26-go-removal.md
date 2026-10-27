@@ -49,7 +49,8 @@ centre of the repository.
    `bench/run.go`, `skill/` generators and `editors/vscode` tests to exec a binary.
    The tools in full: delete `tools/go2pu`, `tools/escapeoracle`,
    `tools/escape2diff`, `tools/escapedigest`, `tools/escapescc` (they read the
-   Go compiler's escape analysis) and `tools/pkgcov` (coverage of `internal/`);
+   Go compiler's escape analysis) and `tools/pkgcov` (coverage of `internal/`;
+   `tools/escapedigest` was later restored as a driver of the `pluto` binary);
    keep `tools/mkunicode` (pure Go, reads the Go toolchain's tables). Done
    ahead of the deletion: `tools/bootstrap` builds stage 0 at `go-cutover` or
    takes `-pluto0`; `tools/difftest` defaults to `pluto` on `$PATH`.
@@ -90,6 +91,9 @@ Other tests moved to `tests/`:
 - `audit_test.go`, `directive_test.go`, `parse_test.go`: `pluto vet -unsafe`
   goldens, directive diagnostics and the spec 20.3 audit, parser error cases
   and the repository parse check.
+- `dwarf_test.go` (restored after phase 3): `internal/build/dwarf_test.go`,
+  the DWARF, call frame information and gdb checks of `docs/spec/debugging.md`,
+  on programs built by the binary.
 
 Programs that failed an earlier pass through the CLI were made whole with a
 small edit that keeps the check under test (package variables for values

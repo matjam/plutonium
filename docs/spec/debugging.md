@@ -141,7 +141,7 @@ have (language spec section 21.7).
 
 ### What works
 
-With `gdb` (tested with gdb 17 by `internal/build/dwarf_test.go`, at -O0 and -O2, run from the module
+With `gdb` (tested with gdb 18 by `tests/dwarf_test.go`, at -O0 and -O2, run from the module
 root, and with `--trimpath=false` from elsewhere):
 
 - `break main.p:12` and `break main.f` (after the prologue, and at each copy of `main.f` inlined
