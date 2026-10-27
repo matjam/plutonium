@@ -37,7 +37,7 @@ func runTimerCases(t *testing.T, cases []progCase, flags ...string) {
 // scheduler's timers, and that deadlock detection waits for armed timers.
 func TestTimers(t *testing.T) {
 	cases := []progCase{
-		{name: "sleeporder", want: "in order true\nconcurrent true\nnever early true\n", src: `package main
+		{name: "sleeporder", want: "on time true\nconcurrent true\nnever early true\n", src: `package main
 
 import (
 	"pluto/sync"
@@ -46,20 +46,20 @@ import (
 )
 
 var (
-	mu    sync.Mutex
-	order [20]int
-	n     int
+	start time.Time
 	wg    sync.WaitGroup
 	early atomic.Int64
 )
 
-// sleeper i sleeps (i+1)*10ms: started in reverse, they wake in order.
+// sleeper i sleeps (i+1)*10ms, started in reverse. Sleep promises only
+// that it waits at least d (spec section 19.6), not the order in which
+// tasks that wake close together run, so each checks its own deadline.
 func sleeper(i int) {
-	time.Sleep(time.Duration(i+1) * 10 * time.Millisecond)
-	mu.Lock()
-	order[n] = i
-	n++
-	mu.Unlock()
+	d := time.Duration(i+1) * 10 * time.Millisecond
+	time.Sleep(d)
+	if time.Since(start) < d {
+		early.Add(1)
+	}
 	wg.Done()
 }
 
@@ -74,20 +74,14 @@ func many(d time.Duration) {
 }
 
 func main() {
-	start := time.Now()
+	start = time.Now()
 	wg.Add(20)
 	for i := 19; i >= 0; i-- {
 		task sleeper(i)
 	}
 	wg.Wait()
 	el := time.Since(start)
-	sorted := true
-	mu.Lock() // mu guards order
-	for i := range order {
-		sorted = sorted && order[i] == i
-	}
-	mu.Unlock()
-	println("in order", sorted)
+	println("on time", early.Load() == 0)
 	println("concurrent", el >= 200*time.Millisecond && el < 2*time.Second)
 
 	wg.Add(1000)
