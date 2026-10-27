@@ -52,7 +52,7 @@ the harness one at a time from a private module.
 | C | `gcc -std=c11 -O2 -ffp-contract=off -march=x86-64 -o bin main.c -lm` |
 | Rust | `rustc -C opt-level=3 --edition 2021 -o bin main.rs` |
 | Go | `go build -o bin .` with `GOAMD64=v1` |
-| Plutonium | `pluto build -o bin ./bench/<name>/pu/` (with `PLUTONIUM_ROOT` set to the repo root unless already set) |
+| Plutonium | `pluto build -o bin ./bench/<name>/pu/` (with `PLUTOROOT` set to the repo's `lib` unless already set) |
 
 ## Fairness rules
 

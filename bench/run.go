@@ -295,8 +295,8 @@ func build(opts options, langKey, srcDir, outDir, bin, repoRoot, plutoBin string
 		return command(modDir, env, "go", "build", "-o", bin, ".")
 	case "pu":
 		env := []string{}
-		if os.Getenv("PLUTONIUM_ROOT") == "" {
-			env = append(env, "PLUTONIUM_ROOT="+repoRoot)
+		if os.Getenv("PLUTOROOT") == "" {
+			env = append(env, "PLUTOROOT="+filepath.Join(repoRoot, "lib"))
 		}
 		return command(repoRoot, env, plutoBin, "build", "-o", bin, filepath.Join(srcDir, "pu"))
 	}
