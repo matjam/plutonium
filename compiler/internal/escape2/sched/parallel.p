@@ -42,6 +42,9 @@ import (
 // at most as many as fit in PLUTO_ESCAPE2_MEM_MB (default 6144) at
 // workerMB each.
 func jobs() int {
+	if testJobs > 0 {
+		return testJobs
+	}
 	if n, err := strconv.Atoi(compat.Getenv("PLUTO_ESCAPE2_JOBS")); err == nil && n > 0 {
 		return n
 	}
@@ -58,6 +61,11 @@ func jobs() int {
 	}
 	return n
 }
+
+// testJobs, when above 0, is the number of workers in place of
+// PLUTO_ESCAPE2_JOBS: the unit tests set it, having no way to set the
+// variable for the process (the Go tests' t.Setenv).
+var testJobs int
 
 // workerMB is what a worker is expected to hold: its workspace between
 // solves (a workspace past bigWorkspace is dropped after its solve) and
