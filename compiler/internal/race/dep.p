@@ -191,7 +191,7 @@ type cpuDepSite struct {
 	opaque string // some dependence passes through this call, which cannot be seen
 	callee string // set when the site is a call of a function that stores v
 	task   bool   // the store is made by a task started here, which no region of the starter covers
-	lit    bool   // the task started is a function literal
+	lit    bool   // the site is a call of a function literal written there
 }
 
 func (s *cpuDepSite) add(loads []int, data bool, opaque string) {
@@ -1527,9 +1527,9 @@ func (d *depWalk) site(v *types2.Var, loads []int, data bool, opaque string, pos
 			site = pu.New(cpuDepSite{v: v, callee: callee})
 			d.a.cpuDepCalls[e] = compat.Append(d.a.cpuDepCalls[e], site)
 		}
+		_, site.lit = ast.Unparen(e.Fun).(*ast.FuncLit)
 		if e == d.taskCall || d.inlTask(e) {
 			site.task = true
-			_, site.lit = ast.Unparen(e.Fun).(*ast.FuncLit)
 		}
 	} else {
 		k := depKey{pos, v}
@@ -1768,6 +1768,20 @@ func (d *depWalk) taskLit(e *ast.CallExpr, l *ast.FuncLit) taint {
 	return nil
 }
 
+// deferLit reads a deferred literal, defer func(x T) { ... }(y), with the
+// arguments' taints as its parameters. A store in it that depends on a load
+// made before the defer statement is a store of the deferred call, which runs
+// where the function returns, with the regions held there, as for a deferred
+// named function (section 12.19). The literal runs later, so it reads the
+// variables around it as a literal that may run at any time does.
+func (d *depWalk) deferLit(e *ast.CallExpr, l *ast.FuncLit) taint {
+	args := d.argTaints(e)
+	d.lits = compat.Append(d.lits, l)
+	d.inlineCallAs(e, l, args, false)
+	d.lits = d.lits[:len(d.lits)-1]
+	return nil
+}
+
 // inlTask reports whether e starts a literal as a task that is being read.
 func (d *depWalk) inlTask(e *ast.CallExpr) bool {
 	for _, c := range d.inls {
@@ -1836,6 +1850,9 @@ func (d *depWalk) callTaint(e *ast.CallExpr) taint {
 	}
 	if l, ok := fun.(*ast.FuncLit); ok && mode == modeTask {
 		return d.taskLit(e, l)
+	}
+	if l, ok := fun.(*ast.FuncLit); ok && mode == modeDefer {
+		return d.deferLit(e, l)
 	}
 	if mode == modeCall {
 		// A literal called where it is written, or held by a variable that is

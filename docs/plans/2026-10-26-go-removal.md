@@ -134,7 +134,18 @@ Known differences and bugs found:
   the dependence analysis now reads a literal started as a task with the
   arguments as its parameters, and a store in it that depends on the
   starter's load is a store of the task statement, as for a named function.
-  Tests: `tests/race/percpudep*task*`.
+  Tests: `tests/race/percpudep*task*`. A deferred literal had the same gap,
+  `defer func(y uint64) { ticks = y }(x + 1)` with the region ended before
+  the return, and a deferred literal that captured the load was rejected even
+  when the region was still held where it ran. Fixed: a deferred literal is
+  read at its defer statement with the arguments as its parameters, and its
+  store is a store of the deferred call, checked where the function returns,
+  as for a named function. Tests: `tests/race/percpudep*deferred*`. The E2022
+  of `percpureviewrejected_deferred_literal` is now at the defer statement, not
+  at the store in the literal. A task of
+  a `sync.Scope` and a literal given to `time.AfterFunc` take no arguments,
+  so a load reaches them only by capture, which the checks already catch:
+  `tests/race/percpudep*scope_task*` and `tests/race/percpudep*afterfunc*`.
 - The self-hosted compiler never set `types2.DeclPrinter`, so its E3202 fix
   showed `...` in place of the owner type declaration
   (`tests/diag/owners`). Fixed by `selfhost/internal/load/printhook.p`.

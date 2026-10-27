@@ -1,0 +1,1 @@
+$DIR/main.p:35:9: cannot pass f to s.Task, which starts a task with it: it holds a function literal that captures x (main.p:33), whose closure record lives in the starting frame (spec section 12.12)

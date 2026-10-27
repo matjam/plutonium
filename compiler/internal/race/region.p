@@ -827,7 +827,7 @@ func (a *analyzer) cpuAccessError(x *access, handlers []string) *diag.Diagnostic
 	intro := "Put the access inside a region where the task cannot move"
 	if u.dep != nil {
 		switch {
-		case u.dep.callee != "":
+		case u.dep.callee != "" && !u.dep.lit:
 			stmt = compat.Concat("x := ", name, "\n", u.dep.callee, "(x)")
 		case !u.dep.data:
 			stmt = compat.Concat("if ", name, " == old {\n\t", name, " = new\n}")

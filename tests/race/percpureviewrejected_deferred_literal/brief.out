@@ -1,1 +1,1 @@
-$DIR/main.p:15:17: ticks = ... uses the per-CPU variable ticks outside a region where the task cannot move to another processor
+$DIR/main.p:15:8: the call of a function literal uses the per-CPU variable ticks outside a region where the task cannot move to another processor
