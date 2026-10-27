@@ -89,9 +89,11 @@ every command (`build`, `run`, `version`, `explain`, `vet`, `test`, `fmt`, `doc`
 - Build the compiler with an existing `pluto`:
   `PLUTOROOT=$PWD/lib pluto build -O2 --gencheck=false -o pluto ./compiler/cmd/pluto`
   (about 15 minutes, about 7 GB).
-- Without one: `go run ./tools/bootstrap -stages 1 -work DIR` checks the `go-cutover` tag
-  out into a temporary worktree, builds its Go compiler there (stage 0), and builds
-  `DIR/pluto1` with it. `-pluto0 FILE` starts from a given compiler instead.
+- Without one: download `pluto-x86_64-linux` from the `bootstrap-20261027` GitHub release,
+  or run `go run ./tools/bootstrap -stages 1 -work DIR`, which downloads it (stage 0, checked
+  against its SHA-256) and builds `DIR/pluto1` with it. `-pluto0 FILE` starts from a given
+  compiler instead; `-pluto0 go-cutover` builds the Go compiler of that tag in a temporary
+  worktree and starts from it.
 - Self builds need `PLUTO_ESCAPE=new` in the environment. It is the default; an
   inherited `PLUTO_ESCAPE=old` or `both` makes a self build need far more memory.
 - A change to `compiler/` is checked by the fixpoint:

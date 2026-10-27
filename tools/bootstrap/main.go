@@ -1,10 +1,11 @@
 // Command bootstrap runs the stages of the self-hosting plan (section 6.1)
 // and checks them:
 //
-//   - stage 0: a compiler to start from: -pluto0, or else the Go-hosted
-//     compiler of the go-cutover tag, checked out into a temporary worktree
-//     and built there with go build (the Go sources are gone from the
-//     current tree);
+//   - stage 0: a compiler to start from: -pluto0 FILE; by default the
+//     release compiler (releaseTag), downloaded from GitHub and checked
+//     against its SHA-256; with -pluto0 go-cutover, the Go-hosted compiler
+//     of that tag, checked out into a temporary worktree and built there
+//     with go build (the Go sources are gone from the current tree);
 //   - stage 1: stage 0 builds compiler/cmd/pluto, the driver and compiler
 //     translated to Plutonium, into pluto1;
 //   - with -corpus, pluto1 and stage 0 build the programs of the test corpus
@@ -34,8 +35,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +56,7 @@ func main() {
 	flags := flag.String("flags", "-O2 --gencheck=false", "flags of every stage's build of compiler/cmd/pluto")
 	libEvery := flag.Int("lib-every", 3, "check one in every n programs of testdata/lib")
 	jobs := flag.Int("j", 8, "corpus builds to run at once")
-	zero := flag.String("pluto0", "", "start from this compiler instead of building the go-cutover tag's")
+	zero := flag.String("pluto0", "", "start from this compiler instead of the release one (\"go-cutover\": build that tag's Go-hosted compiler)")
 	from := flag.String("pluto1", "", "start from this stage 1 compiler instead of building one (stage 2 onwards)")
 	only := flag.String("only", "", "check only the corpus programs whose names contain one of these comma-separated strings")
 	flag.Parse()
@@ -93,12 +98,18 @@ func run(o *options) error {
 	}
 	lib := filepath.Join(root, "lib")
 	pluto0 := o.pluto0
-	if pluto0 == "" {
+	switch pluto0 {
+	case "":
+		pluto0 = filepath.Join(o.work, "pluto0")
+		if err := downloadStage0(pluto0); err != nil {
+			return fmt.Errorf("stage 0: %w", err)
+		}
+	case stage0Tag:
 		pluto0 = filepath.Join(o.work, "pluto0")
 		if err := buildStage0(root, o.work, pluto0); err != nil {
 			return fmt.Errorf("stage 0: %w", err)
 		}
-	} else {
+	default:
 		fmt.Printf("stage 0: %s\n", pluto0)
 	}
 	prev := pluto0
@@ -139,6 +150,56 @@ func run(o *options) error {
 		fmt.Printf("pluto2 and pluto3 are identical (%d bytes)\n", len(a))
 	}
 	return nil
+}
+
+// The release compiler that stage 0 starts from by default.
+const (
+	releaseRepo   = "matjam/plutonium"
+	releaseTag    = "bootstrap-20261027"
+	releaseAsset  = "pluto-x86_64-linux"
+	releaseURL    = "https://github.com/" + releaseRepo + "/releases/download/" + releaseTag + "/" + releaseAsset
+	releaseSHA256 = "cbb4171302b0e0a0d446a01f10fb93653ae4c28f6b6b759529f46f7526895c18"
+)
+
+// downloadStage0 downloads the release compiler into out and checks its
+// SHA-256. It uses gh when it is installed, which also works while the
+// repository is private, and plain HTTP otherwise.
+func downloadStage0(out string) error {
+	data, err := fetchRelease()
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256(data)
+	if got := hex.EncodeToString(sum[:]); got != releaseSHA256 {
+		return fmt.Errorf("%s: SHA-256 %s, want %s", releaseURL, got, releaseSHA256)
+	}
+	return os.WriteFile(out, data, 0o755)
+}
+
+func fetchRelease() ([]byte, error) {
+	if _, err := exec.LookPath("gh"); err == nil {
+		fmt.Printf("stage 0: gh release download %s\n", releaseTag)
+		cmd := exec.Command("gh", "release", "download", releaseTag, "--repo", releaseRepo,
+			"--pattern", releaseAsset, "--output", "-")
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		data, err := cmd.Output()
+		if err == nil {
+			return data, nil
+		}
+		fmt.Printf("stage 0: gh failed (%v: %s), trying %s\n", err, strings.TrimSpace(stderr.String()), releaseURL)
+	} else {
+		fmt.Printf("stage 0: %s\n", releaseURL)
+	}
+	resp, err := http.Get(releaseURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s: %s", releaseURL, resp.Status)
+	}
+	return io.ReadAll(resp.Body)
 }
 
 // stage0Tag is the last commit with the Go-hosted compiler.

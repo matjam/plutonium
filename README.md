@@ -108,24 +108,37 @@ func main() {
 
 More programs are in `examples/`.
 
-## Building and running
+## Getting started
 
-The compiler is written in Plutonium (`compiler/`) and builds itself. The standard library is Plutonium
-source under `lib/pluto/`, which the compiler finds in a `lib` directory beside its executable (or one level
-above it), or in `PLUTOROOT`.
+The compiler is written in Plutonium (`compiler/`) and builds itself. It runs on x86-64 Linux. The standard
+library is Plutonium source under `lib/pluto/`, which the compiler finds in a `lib` directory beside its
+executable (or one level above it), or in `PLUTOROOT`. So the easiest setup is a prebuilt compiler at the
+root of a clone:
 
 ```bash
-# with a pluto already built (about 15 minutes, about 7 GB)
-PLUTOROOT=$PWD/lib pluto build -O2 --gencheck=false -o pluto ./compiler/cmd/pluto
-
-# without one: builds the Go compiler of the go-cutover tag (Go 1.27 or later), then DIR/pluto1 with it
-go run ./tools/bootstrap -stages 1 -work DIR
+git clone https://github.com/matjam/plutonium && cd plutonium
+gh release download bootstrap-20261027 --pattern pluto-x86_64-linux --output pluto && chmod +x pluto
 
 ./pluto run ./examples/07-hello/              # build a hosted program and run it
 ./pluto build -o hello ./examples/07-hello/   # build a linked binary
 ./pluto build -S - ./examples/07-hello/       # print the listing instead
 ./pluto explain E3001                         # explain a compile error
 ```
+
+The linker is the system `ld` (binutils).
+
+### Building the compiler
+
+```bash
+# with a pluto already built (about 15 minutes, about 7 GB of memory)
+PLUTOROOT=$PWD/lib ./pluto build -O2 --gencheck=false -o pluto.new ./compiler/cmd/pluto
+
+# check that the compiler reproduces itself (needs Go): pluto1, pluto2 and pluto3, the last two identical
+go run ./tools/bootstrap -pluto0 ./pluto -stages 3 -work DIR
+```
+
+Without `-pluto0`, the bootstrap tool downloads the release compiler and checks its SHA-256.
+`-pluto0 go-cutover` builds the original Go implementation from that tag instead.
 
 A `pluto` at the root of the repository uses `lib/` beside it; elsewhere set `PLUTOROOT=$PWD/lib`. `pluto
 build --help` lists the flags: target and mode (`hosted`, `freestanding`, `kernel`), build tags, the
