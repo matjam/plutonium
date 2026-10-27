@@ -98,7 +98,8 @@ The compiler writes DWARF version 4 into its object file; the linker concatenate
   no package (`pluto.main`, method wrappers) are in a unit named `pluto`.
 - **Subprograms**: one per function, named by its symbol (`main.f`, `main.(*T).M`, `pluto/fmt.Printf`),
   with `DW_AT_low_pc`, `DW_AT_high_pc`, `DW_AT_decl_file` and `DW_AT_decl_line`, and the CFA as
-  `DW_AT_frame_base`.
+  `DW_AT_frame_base`. A generated function with no declaration in the source (a package initializer such
+  as `main.init·pkg`, `pluto.main`, a method wrapper) has no `DW_AT_decl_file` and no `DW_AT_decl_line`.
 - **Inlined calls**: a `DW_TAG_inlined_subroutine` for each inlined call, nested as the calls were, with
   the code that came from it (`DW_AT_low_pc` and `DW_AT_high_pc` if it is contiguous, otherwise
   `DW_AT_ranges`) and the call's `DW_AT_call_file`, `DW_AT_call_line` and `DW_AT_call_column`. Its
