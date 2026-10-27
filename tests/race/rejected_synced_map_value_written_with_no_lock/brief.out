@@ -1,0 +1,2 @@
+$DIR/main.p:17:2: the field balance of a synced[Account] is written here with no lock that guards it, while another task may use it
+$DIR/main.p:17:2: b.accs.balance is written by the tasks started at main.p:25 at the same time as each other

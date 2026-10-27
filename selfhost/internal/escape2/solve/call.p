@@ -304,6 +304,9 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 		}
 		dst, ok1 := dstVal(p.Dst)
 		src, ok2 := val(p.Src)
+		if ok2 && p.Src.Borrowed() && p.Dst.Input() == 1 && p.Dst.Path() == domain.Root && !p.Dst.GE() && !p.Dst.FieldsGE() && !p.Dst.Deep() && asCopies(s.prog, c, cand, false) {
+			src = s.keyNodeCopied(uint32(bind[p.Src.Input()]), p.Src)
+		}
 		if ok1 && ok2 {
 			if p.Dst.FieldsGE() {
 				src = s.retagNode(src)
@@ -333,6 +336,9 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 				continue
 			}
 			if v, ok := val(rk.Key); ok {
+				if r == 0 && rk.Key.Borrowed() && asCopies(s.prog, c, cand, true) {
+					v = s.keyNodeCopied(uint32(bind[rk.Key.Input()]), rk.Key)
+				}
 				f, ge := s.fieldPath(rk.Field, rk.FieldGE)
 				s.addEdge(v, dst, xw(xPre, f, ge), 0)
 			}
@@ -368,6 +374,68 @@ func (s *solver) applySkip(in *eir.Instr, bind []uint64, sum *summary.Summary, c
 		reg := s.region(c)
 		s.addTok(uint32(c.Results[r]), tok{kind: tObj, base: reg, ge: true, tagGE: true})
 	}
+}
+
+// asCopies reports whether call c of candidate cand is a call of errors.As
+// whose target (result false) or of errors.AsType whose result (result
+// true) is of a type that holds no view of a counted error's object: at
+// this call, E is neither a pointer, nor an interface, nor a box or an
+// owner, or it is a counted error or box, a reference of its own (section
+// 16.6: the error found is stored, a copy; only a *T target borrows the
+// object of a counted shared[T] or synced[T] error, and an interface that
+// does not count lends, section 16.7). The matched error then has E as its
+// dynamic type, which is not counted, so no holder keeps it alive: what it
+// holds is what it was made with, which outlives it (section 16.3), or
+// heap memory reached through a pointer, which generation checks guard
+// (section 18.3). One body serves every instance of As, so its summary
+// gives the target the view of the error's holder that a *T instance
+// needs (RecountsInst); the call knows its instance and leaves the view
+// out.
+func asCopies(p *eir.Program, c *eir.Call, cand eir.FuncID, result bool) bool {
+	if c == nil || c.Kind != eir.CallStatic || c.Sig == nil || cand == eir.NoFunc || int(cand) >= len(p.Funcs) {
+		return false
+	}
+	fn := p.Funcs[cand].Key.Obj
+	if fn == nil || fn.Pkg() == nil || fn.Pkg().Path() != "pluto/errors" {
+		return false
+	}
+	var E types2.Type
+	switch {
+	case !result && fn.Name() == "As" && c.Sig.Params().Len() == 2:
+		pt, ok := types2.Unalias(c.Sig.Params().At(1).Type()).(*types2.Pointer)
+		if !ok {
+			return false
+		}
+		E = pt.Elem()
+	case result && fn.Name() == "AsType" && c.Sig.Results().Len() == 2:
+		E = c.Sig.Results().At(0).Type()
+	default:
+		return false
+	}
+	if E == nil || mentionsTypeParam(E, nil) {
+		return false
+	}
+	if ownReference(E) {
+		return true
+	}
+	if types2.IsOwner(E) {
+		return false
+	}
+	switch E.Underlying().(type) {
+	case *types2.Pointer, *types2.Interface, *types2.Wrapper:
+		return false
+	}
+	return true
+}
+
+// keyNodeCopied is keyNode for a Borrowed key k of a counted error lent at
+// base whose value a call copies out (asCopies): the In tokens are lent as
+// keyNode lends them, and the view of the error's holder is left out.
+func (s *solver) keyNodeCopied(base uint32, k domain.Key) uint32 {
+	if !s.lent[base] {
+		return s.keyNode(base, k)
+	}
+	return s.derivedNode(dLend, s.keyNodeOf(s.derivedNode(dNoHolder, base, xNoHolder), k), xLend)
 }
 
 // retagNode is node n with every tag made (Root, GE): stored through a

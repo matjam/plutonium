@@ -137,11 +137,24 @@ func (v vpath) extend(step string) vpath {
 
 // extendN is extend for a path with nl loads and ns steps; it returns the
 // new path's counts.
+//
+// The object of a counted reference ($N: a synced[T]'s object, a map's
+// contents) is never cut away. A # stands for everything reachable except
+// such objects, and the rules for them (checkSynced, checkMaps) find their
+// accesses by the $N step, so an access cut to P# would escape them. A $N
+// step is therefore not held to the bound on loads, only to the bound on
+// steps; past that, and after a #, it is kept as P#$N: the object of some
+// counted reference reachable from P, P being the path before its first #.
+// Paths stay bounded: the steps after a # follow the same bounds.
 func (v vpath) extendN(step string, nl, ns int) (vpath, int, int) {
+	counted := step[0] == '$'
 	if strings.HasSuffix(v.path, "#") {
-		return v, nl, ns
+		if !counted {
+			return v, nl, ns
+		}
+		return v.keepCounted(step)
 	}
-	load := step == "*" || step == "%" || step[0] == '$'
+	load := step == "*" || step == "%" || counted
 	if load && strings.HasSuffix(v.path, "&") {
 		// The memory a pointer to P points to is P.
 		v.path = strings.Slice(v.path, 0, len(v.path)-1)
@@ -151,12 +164,26 @@ func (v vpath) extendN(step string, nl, ns int) (vpath, int, int) {
 	if load {
 		sl = 1
 	}
-	if nl+sl > loadLimit || ns+1 > maxSteps {
+	if counted && ns+1 > maxSteps {
+		return v.keepCounted(step)
+	}
+	if (load && !counted && nl+1 > loadLimit) || ns+1 > maxSteps {
 		v.path = compat.Concat(v.path, "#")
 		return v, nl, ns + 1
 	}
 	v.path = compat.Concat(v.path, step)
 	return v, nl + sl, ns + 1
+}
+
+// keepCounted cuts v before the counted-reference step step: P#step, P
+// being v's path up to its first #.
+func (v vpath) keepCounted(step string) (vpath, int, int) {
+	p := v.path
+	if i := strings.IndexByte(p, '#'); i >= 0 {
+		p = strings.Slice(p, 0, i)
+	}
+	v.path = compat.Concat(p, "#", step)
+	return v, loads(v.path), countSteps(v.path)
 }
 
 // addr returns a pointer to the place v.
