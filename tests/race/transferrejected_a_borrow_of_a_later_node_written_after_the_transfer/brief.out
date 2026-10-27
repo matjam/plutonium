@@ -1,0 +1,1 @@
+$DIR/main.p:51:2: p holds a view of l (l.head, line 49), which was moved to the task started at line 50, so p can no longer be used here

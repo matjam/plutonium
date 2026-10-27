@@ -1,0 +1,1 @@
+$DIR/main.p:53:11: l is moved to the task started here, but a view of what it holds (l.head, line 52) was passed to stash, which may keep it at line 52, where the compiler cannot check its uses

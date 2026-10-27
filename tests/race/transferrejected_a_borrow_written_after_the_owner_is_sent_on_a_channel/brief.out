@@ -1,0 +1,1 @@
+$DIR/main.p:56:2: p holds a view of l (l.head, line 54), which was moved by the send on ch at line 55, so p can no longer be used here

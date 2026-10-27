@@ -1,0 +1,2 @@
+$DIR/main.p:55:5: l.head is a view of node that may change while another task uses it, so it cannot be sent on a channel
+$DIR/main.p:56:2: the field head of l is a view of node that may change while another task uses it, so l cannot be passed to a new task

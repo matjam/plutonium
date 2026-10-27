@@ -1,0 +1,1 @@
+Item 102 limitation: an owner passed by pointer to a helper that hands a view of its memory to a call that keeps it is not followed (neither the moves checker nor the race checker's leak pass looks through calls). When it is caught, regenerate default.out and brief.out (they hold PLACEHOLDER) and remove this note.

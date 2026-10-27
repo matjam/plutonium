@@ -48,6 +48,10 @@ type view struct {
 	// has; maybe says it did so on some paths only.
 	stale *move
 	maybe bool
+	// part is the part of the owner the view looks at or into (h.l for
+	// h.l.head), nil for all of it: take(&h.l) makes only the views of
+	// that part stale.
+	part Path
 }
 
 // A pinMark records that a view of an owner went where the walk cannot
@@ -219,9 +223,18 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 	}
 	out = compat.Append(out, whole(f.held(v, path))...)
 	if o := f.ownerVar(v); o != nil {
-		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), inHeap: box})
+		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), inHeap: box, part: path})
 	}
 	return out
+}
+
+// partOf returns the part of an owner a view made at path looks at: none
+// in particular (all of it) when the view looks into an owned box.
+func partOf(path Path, box bool) Path {
+	if box {
+		return nil
+	}
+	return path
 }
 
 // baseOf strips the field selections, indexing and dereferences of a place
@@ -320,6 +333,11 @@ func (f *fn) viewsOf(e ast.Expr) []view {
 func (f *fn) partViews(x ast.Expr) []view {
 	v, path, box, ok := f.placePath(x)
 	if !ok {
+		if se, isSel := ast.Unparen(x).(*ast.SelectorExpr); isSel {
+			// A field read through a pointer (l.head.next) looks at
+			// memory that pointer reaches: the views it holds.
+			return f.viewsOf(se.X)
+		}
 		return f.viewsOf(baseOf(x))
 	}
 	var out []view
@@ -329,7 +347,7 @@ func (f *fn) partViews(x ast.Expr) []view {
 		out = f.held(v, path)
 	}
 	if o := f.ownerVar(v); o != nil {
-		out = compat.Append(out, view{of: o, pos: x.Pos(), text: exprText(x), inHeap: true})
+		out = compat.Append(out, view{of: o, pos: x.Pos(), text: exprText(x), inHeap: true, part: partOf(path, box)})
 	}
 	return out
 }
@@ -555,6 +573,30 @@ func (f *fn) pin(vs []view, where token.Pos, how string) {
 	}
 }
 
+// heapPin records that a call may keep the views vs of what owners hold on
+// the heap. Moving such an owner is no error, since a move does not
+// release that memory, but moving it to another task is: the kept view
+// would let this task use memory the other task now owns (section 8.8).
+func (f *fn) heapPin(vs []view, where token.Pos, how string) {
+	for _, w := range vs {
+		s, ok := f.env[w.of]
+		if ok && s.hpin != nil || !w.inHeap {
+			continue
+		}
+		s.hpin = pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how})
+		f.setState(w.of, s)
+	}
+}
+
+// crosses reports whether a move gives the value to another task.
+func crosses(mv move) bool {
+	switch mv.kind {
+	case mvSend, mvGo, mvGoRecv, mvTask:
+		return true
+	}
+	return false
+}
+
 // An argView is the views a call argument holds that the callee may store
 // into the memory of other arguments.
 type argView struct {
@@ -569,9 +611,14 @@ type argView struct {
 func (f *fn) callStores(args []argView) {
 	for _, a := range args {
 		af := f.c.calls.Arg(a.key)
+		how := compat.Concat("passed to ", exprText(a.call.Fun), ", which may keep it")
 		if af == nil {
-			f.pin(a.views, a.call.Pos(), compat.Concat("passed to ", exprText(a.call.Fun), ", which may keep it"))
+			f.pin(a.views, a.call.Pos(), how)
+			f.heapPin(a.views, a.call.Pos(), how)
 			continue
+		}
+		if af.Self {
+			f.heapPin(a.views, a.call.Pos(), how)
 		}
 		for _, in := range af.Into {
 			if in.Arg == a.key {
@@ -598,7 +645,7 @@ func (f *fn) argViews(call *ast.CallExpr) []argView {
 		if af == nil && key == call.Fun {
 			return // a func value no method value reaches: it stores nothing
 		}
-		if af != nil && len(af.Into) == 0 {
+		if af != nil && len(af.Into) == 0 && !af.Self {
 			return
 		}
 		if vs := f.viewsTo(val, T); len(vs) > 0 {
@@ -620,11 +667,28 @@ func (f *fn) invalidate(v *types2.Var, mv move) {
 	}
 	if p := f.env[v].pin; p != nil && f.report {
 		f.c.report(f.c.pinnedDiag(v, p, mv))
+	} else if p := f.env[v].hpin; p != nil && crosses(mv) && f.report {
+		f.c.report(f.c.heapPinnedDiag(v, p, mv))
 	}
+	f.staleViews(v, nil, mv)
+}
+
+// invalidatePart records that the part of the owner v at path lost its
+// value, as take(&v.part) does: the views of that part are stale.
+func (f *fn) invalidatePart(v *types2.Var, path Path, mv move) {
+	if f.env == nil || !isOwner(v.Type()) || !f.vars[v] {
+		return
+	}
+	f.staleViews(v, path, mv)
+}
+
+// staleViews makes the views of v that look at or into the part at path
+// (all of v for a nil path) stale.
+func (f *fn) staleViews(v *types2.Var, path Path, mv move) {
 	for h, s := range f.env {
 		var out []view // the views slice is shared with other paths' states
 		for i, w := range s.views {
-			if w.of == v && (w.stale == nil || w.maybe) {
+			if w.of == v && (w.stale == nil || w.maybe) && overlap(w.part, path) {
 				if out == nil {
 					out = compat.Clone(s.views)
 				}

@@ -191,6 +191,16 @@ func (c *checker) pinnedDiag(v *types2.Var, p *pinMark, mv move) *diag.Diagnosti
 	return d
 }
 
+// heapPinnedDiag explains moving v to another task while a view of what it
+// holds on the heap may be kept by a call.
+func (c *checker) heapPinnedDiag(v *types2.Var, p *pinMark, mv move) *diag.Diagnostic {
+	owner := v.Name()
+	d := c.newDiag(mv.pos, diag.LostView, "%s %s here, but a view of what it holds (%s, line %d) was %s at line %d, where the compiler cannot check its uses", pu.Box(owner), pu.Box(c.lostVerb(mv)), pu.Box(p.text), c.line(p.pos), pu.Box(p.how), c.line(p.where))
+	d.Text = compat.Sprintfb("An owner may move to another task only when no other alias of the memory it holds is left behind (language spec section 8.8). The view of %s made by %s at line %d went into memory the compiler does not follow, so this task could still use it while the task that receives %s does.", compat.ArgS(owner), compat.ArgS(p.text), compat.ArgI(int64(c.line(p.pos))), compat.ArgS(owner))
+	d.Fix = pu.New(diag.Fix{Intro: "Keep the view in a local variable or a field of one, where the compiler follows it, or do not hand it to a call that keeps it"})
+	return d
+}
+
 // lostVerbBase says what the program does to an owner, for a fix: "move
 // c", "give c a new value".
 func (c *checker) lostVerbBase(mv move) string {

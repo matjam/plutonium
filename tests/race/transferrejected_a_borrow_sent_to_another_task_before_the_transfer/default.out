@@ -1,0 +1,47 @@
+$DIR/main.p:55:5: l.head is a view of node that may change while another task uses it, so it cannot be sent on a channel
+    The value sent on ch gives another task l.head, a *node: after this, both
+    tasks can reach the same node. A node is changed through a pointer at
+    main.p:47 (its field v, in poke) without a lock of the same node held, so
+    the compiler cannot tell that this one stays the same while the other task
+    uses it.
+    A view may cross to another task only if what it points to cannot change
+    while both may use it, or every change is synchronized: a package variable
+    that is not written once tasks run, a struct whose fields are never changed
+    once it is shared or are used only under a lock of the same struct or
+    atomically, memory of a pluto/sync type, or the object of a synced[T].
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Pass a copy of the value instead of a pointer to it, or move an owner (such
+    as a vec.Vec) to the task so that only it has the memory.
+    To share changing data between tasks, put it in a synced[T] and hold a
+    sync.Mutex in it at every access, or use a package variable guarded by a
+    lock.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3501" for a longer explanation)
+
+$DIR/main.p:56:2: the field head of l is a view of node that may change while another task uses it, so l cannot be passed to a new task
+    The argument l of task sum gives another task the field head of l, a *node:
+    after this, both tasks can reach the same node. A node is changed through a
+    pointer at main.p:47 (its field v, in poke) without a lock of the same node
+    held, so the compiler cannot tell that this one stays the same while the
+    other task uses it.
+    A view may cross to another task only if what it points to cannot change
+    while both may use it, or every change is synchronized: a package variable
+    that is not written once tasks run, a struct whose fields are never changed
+    once it is shared or are used only under a lock of the same struct or
+    atomically, memory of a pluto/sync type, or the object of a synced[T].
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Pass a copy of the value instead of a pointer to it, or move an owner (such
+    as a vec.Vec) to the task so that only it has the memory.
+    To share changing data between tasks, put it in a synced[T] and hold a
+    sync.Mutex in it at every access, or use a package variable guarded by a
+    lock.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3501" for a longer explanation)

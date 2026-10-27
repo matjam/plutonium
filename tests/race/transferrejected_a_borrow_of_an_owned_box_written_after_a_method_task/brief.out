@@ -1,0 +1,1 @@
+$DIR/main.p:15:3: p holds a view of c (&c.n, line 13), which was moved to the task started by task c.bump() at line 14, so p can no longer be used here

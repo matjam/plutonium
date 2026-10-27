@@ -17,7 +17,8 @@ import (
 // declares the owner, is nil, a fresh allocation, the memory of the same
 // field (a reslice, v.data = v.data[:n]), or a load of another view field
 // that only holds such memory (an arena's c.prev); and its address is never
-// taken, so nothing else writes it. That memory moves with the owner, so
+// taken, so nothing else writes it; and no alias of that memory is kept
+// beyond the owner (leak.p). That memory moves with the owner, so
 // only what it holds is checked where the owner crosses; this is how
 // vec.Vec, hash.Map and strings.Builder cross. Any other view field is
 // checked as any view is.
@@ -62,6 +63,17 @@ type ownedViews struct {
 	// cross is set while scanning a function that makes a value cross to
 	// another task (crosses).
 	cross bool
+	// leaked holds the view fields of owners some of whose memory may be
+	// kept beyond the owner (leak.p): such memory does not move with it.
+	leaked map[*types2.Var]bool
+	// intoOwner holds the local variables stored in a view field of an
+	// owner: the memory they hold is the owner's.
+	intoOwner map[*types2.Var]bool
+	// derived maps the local variables that may hold memory of owned view
+	// fields to those fields, and derivedIn to the declaration holding
+	// each (leak.p).
+	derived   map[*types2.Var][]*types2.Var
+	derivedIn map[*types2.Var]ast.Node
 }
 
 // A fieldStore is a value stored in a field or variable: expression e, or
@@ -89,7 +101,7 @@ func (a *analyzer) ownedView(f *types2.Var) bool {
 		return true // assumed while it is being decided
 	}
 	ov.busy[f] = true
-	r := !ov.bad[f]
+	r := !ov.bad[f] && !ov.leaked[f]
 	for _, s := range ov.stores[f] {
 		if !r {
 			break
@@ -122,6 +134,8 @@ func (ov *ownedViews) scan(a *analyzer) {
 	ov.addrd = map[*types2.Var]bool{}
 	ov.kept = map[*types2.Var]bool{}
 	ov.returned = map[*types2.Var]bool{}
+	ov.intoOwner = map[*types2.Var]bool{}
+	defer ov.findLeaks()
 	for _, p := range a.prog.Packages {
 		for _, file := range p.Files {
 			// The functions around the node being visited, and whether
@@ -230,6 +244,9 @@ func (ov *ownedViews) store(pkg *types2.Package, l ast.Expr, s fieldStore) {
 		}
 		if f.Pkg() != pkg {
 			ov.bad[f] = true
+		}
+		if v := ov.rootVar(s.e); v != nil && ov.ownerField(x) {
+			ov.intoOwner[v] = true
 		}
 		if root, ok := ast.Unparen(x.X).(*ast.Ident); ok {
 			if v := ov.varOf(root); v != nil && isPackageVar(v) {
@@ -498,9 +515,9 @@ func (ov *ownedViews) freshCall(x *ast.CallExpr, i int) bool {
 			fn, _ = a.uses[f.Sel].(*types2.Func)
 		}
 	case *ast.IndexExpr:
-		if id, ok := ast.Unparen(f.X).(*ast.Ident); ok {
-			fn, _ = a.uses[id].(*types2.Func)
-		}
+		fn = ov.genericFunc(f.X)
+	case *ast.IndexListExpr:
+		fn = ov.genericFunc(f.X)
 	}
 	if fn == nil {
 		return false
@@ -510,6 +527,23 @@ func (ov *ownedViews) freshCall(x *ast.CallExpr, i int) bool {
 		return true
 	}
 	return ov.freshResult(fn, i)
+}
+
+// genericFunc returns the function x names in an instantiation x[T]:
+// New[T] or alloc.New[T]. It returns nil for a method value.
+func (ov *ownedViews) genericFunc(x ast.Expr) *types2.Func {
+	switch f := ast.Unparen(x).(type) {
+	case *ast.Ident:
+		fn, _ := ov.a.uses[f].(*types2.Func)
+		return fn
+	case *ast.SelectorExpr:
+		if ov.a.selections[f] != nil {
+			return nil
+		}
+		fn, _ := ov.a.uses[f.Sel].(*types2.Func)
+		return fn
+	}
+	return nil
 }
 
 // freshResult reports whether every return statement of fn, a function

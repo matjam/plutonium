@@ -1,0 +1,12 @@
+$DIR/main.p:50:2: m.head holds a view of l (l.head, line 48), which was moved to the task started at line 49, so m.head can no longer be used here
+    m.head, part of m, looks at memory that l owns, without owning it: the view
+    was made by l.head at line 48. A view of an owner held in a local variable
+    may be used only while the variable keeps the value the view was made from.
+    At line 49 l was moved to the task started, so the view may look at memory
+    that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use m.head before line 49, or move l only after the last use of m.head
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

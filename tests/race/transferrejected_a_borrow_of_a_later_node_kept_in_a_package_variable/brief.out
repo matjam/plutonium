@@ -1,0 +1,1 @@
+$DIR/main.p:52:2: the field head of l is a view of node that may change while another task uses it, so l cannot be passed to a new task

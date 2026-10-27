@@ -391,6 +391,10 @@ func (f *fn) builtin(e *ast.CallExpr) {
 					// what it held are stale (views.go).
 					f.invalidate(v, move{kind: mvTake, pos: id.Pos(), to: exprText(e)})
 				}
+			} else if v, path, box, ok := f.placePath(amp.X); ok && !box && v != nil && !f.captured(v) {
+				// take(&h.l) empties the part h.l: the views of it are
+				// stale.
+				f.invalidatePart(v, path, move{kind: mvTake, pos: amp.X.Pos(), to: exprText(e)})
 			}
 			return
 		}

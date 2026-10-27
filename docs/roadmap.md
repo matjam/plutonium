@@ -37,11 +37,23 @@ against the corrected specification. The immediate implementation order is:
      operations. Keep deliberate unchecked execution distinct. A kernel checking
      representation has not been selected; hosted pointer tags cannot simply be assumed
      suitable. This is a confirmed source-policy gap.
-102. **Outstanding aliases during owner transfer** (audit pending; sections 8.8, 19.3).
-     Verify a borrow through an owner field/helper followed by `take`, transfer to a
-     task and conflicting access. Pair it with last-use-before-transfer acceptance.
-     Existing local-owner and backing-provenance analyses are present; composition at
-     this boundary remains unverified. No accepted exploit has been demonstrated.
+102. **Outstanding aliases during owner transfer** (audited; sections 8.8, 19.3; the cases that need a
+     method's result to be a view of a local owner wait on item 138). Probes in `tests/race/transfer*`
+     (nine accepted, 24 rejected) borrow an owner's memory through a field or a helper, then move the
+     owner by `take`, a task or a channel send, then use the borrow. A borrow kept in a local variable, a
+     copy of it or a field of a local struct is E3313 at the conflicting use, and its last use before the
+     transfer is accepted. The audit found and fixed four gaps. The race checker missed `alloc.New[T]()`
+     written with its package name as a fresh allocation, so an owned view field such as a list's head did
+     not own its nodes and any write through the list before a transfer was E3501 (a false positive). Memory
+     an owned view field holds moved with the owner even when an alias of it was kept in a package variable,
+     a heap object, a map, a channel or another task: `race/leak.p` follows each load of such a field and
+     the locals it reaches, and a field whose memory leaks no longer owns it, so the transfer is E3501. A
+     view of what a local owner holds, passed to a call that may keep it, is E3314 when the owner then
+     crosses to another task (`moves/views.p`, `heapPin`). `take(&h.l)` did not make the views of `h.l`
+     stale, and a node reached through another (`l.head.next`) was not a view of `l`. Known failures, each
+     marked `knownfail`: a borrow returned by a method of a local owner (`List.First`, `vec.Vec.Ptr`,
+     `vec.Vec.Slice`; seven cases, item 138), and an owner passed by pointer to a helper that hands a view
+     of its memory to a call that keeps it (one case: neither checker follows a view through calls there).
 103. **Nonconsuming owner indexing and length receivers** (planned; sections 11.11,
      13.6). Visible Index/IndexOk/SetIndex and Len validators lack the owner
      value-receiver prohibition. Confirm whole-pipeline rejection and add the missing
@@ -445,7 +457,7 @@ The implementation gaps of
 | 32 | Package initialization starts no task (done, D2) | 100 | 15.2, 15.3, 19.1, 19.3 |
 | 33 | `clear` of a slice of owners drops each element (done) | 75 | 13.3 |
 | 34 | Ordinary kernel lifetime protection (planned) | 101 | 1.2, 18.11, 21.5 |
-| 35 | Outstanding aliases across owner transfer (audit pending) | 102 | 8.8, 19.3 |
+| 35 | Outstanding aliases across owner transfer (audited; parts wait on item 138) | 102 | 8.8, 19.3 |
 | 36 | Nonconsuming owner indexing/length receivers (planned) | 103 | 11.11, 13.6 |
 | 37 | Bounded task-stack inference (planned) | 18 | 19.1 |
 | 38 | A string is cut with `strings.Slice`, E2019 (done, D9) | 104, 74 | 7.3, 11.12, F.6 |
