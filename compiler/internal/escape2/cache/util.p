@@ -3,8 +3,8 @@
 package cache
 
 import (
-	"pluto/slices"
 	"compiler/compat"
+	"pluto/slices"
 )
 
 func sortStrings(s []string) { slices.Sort(s) }

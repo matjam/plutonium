@@ -312,4 +312,3 @@ func main() { println(f(&T{1}, T{2}, T{3})()) }
 		t.Errorf("w is not a frame object, though w.ptr() takes its address\n%s", root)
 	}
 }
-
