@@ -81,6 +81,8 @@ type MapTable[K comparable, V owner any] owner struct { _ unexported }  [owner (
   func (t *MapTable[K, V]) Slot(i int) (*K, *V, bool)
   func (t *MapTable[K, V]) Slots() int
   func (t *MapTable[K, V]) Upsert(k K) (*V, bool)
+type PCFrame struct { Func string; File string; Line int }  [counted]
+  // A PCFrame names a place in the source: a function, and the file and line of the code.
 type Panic struct { Message string; Value any; Fault Fault; CPU int; Task uint64; During *Panic; _      unexported }  [view]
   // A Panic describes a panic to the panic handler.
   func (p *Panic) Print[W Writer](w W)
@@ -90,6 +92,11 @@ type PollDesc struct { _ unexported }  [view]
   func (pd *PollDesc) Evict()
   func (pd *PollDesc) Release()
   func (pd *PollDesc) Wait(write bool) int
+type ProfTable struct { Dropped uint64; _       unexported }  [view]
+  // A ProfTable counts stacks: for each distinct stack added, two sums (a CPU profile's sample count and time, an allocation profil...
+  func (t *ProfTable) Add(stk []uintptr, v0, v1 int64) bool
+  func (t *ProfTable) Entry(i int) ([]uintptr, int64, int64, bool)
+  func (t *ProfTable) Len() int
 type Scheduler interface { NewTask(req StackRequest) *Task; FreeTask(t *Task); Spawn(t *Task); Park(t *Task); Wake(t *Task); Yield(t *Task) }  [view]
   // A Scheduler is the backend that runs tasks.
 type StackRequest struct { Size   uintptr; Proven bool; Unsized bool; Alloc Allocator }  [view]
@@ -142,6 +149,8 @@ func BoxCounts(obj unsafe.Pointer) (strong, weak int)
 func CallbackBegin() bool
 func CallbackEnd()
 func CallerPC() uintptr
+func CallerPCs(skip int, out []uintptr) int
+func CallerStack(out []unsafe.Pointer) int
 func CatchAllocFree(a Allocator, p unsafe.Pointer, size, align uintptr) bool
 func CatchExitTask(f func()) bool
 func ChanTimer(p unsafe.Pointer, f func(arg unsafe.Pointer, now int64)) *Timer
@@ -153,6 +162,7 @@ func CurrentTask() *Task
 func DefaultAllocator() Allocator
 func DieFromSigpipe()
 func DisablePreemption()
+func Discard(p unsafe.Pointer, n uintptr)
 func DispatchTimerFunc(f func(), handedOff *bool) bool
 func EnablePreemption()
 func EnterSyscall()
@@ -162,6 +172,8 @@ func Exit(code int)
 func ExitSyscall()
 func ExitTask()
 func FloatHash(bits uint64, size uintptr, seed uint64) uint64
+func FuncName(fn unsafe.Pointer) string
+func FuncStart(pc uintptr) uintptr
 func GenAfterCustomFree(p unsafe.Pointer, size uintptr)
 func GenArenaExhausted(p unsafe.Pointer, size uintptr) uintptr
 func GenCheckArenaFree(p unsafe.Pointer, size uintptr)
@@ -184,6 +196,8 @@ func GenUnregister(token uintptr)
 func Go(f func(), size uintptr, a Allocator = defaultAllocator)
 func GoService(f func())
 func HoldsStrings[T owner any]() bool
+func IndexFuncs()
+func InitProfTable(t *ProfTable, mem unsafe.Pointer, size uintptr)
 func InitValue[T owner any](p *T, x T)
 func JoinRunning(j *Join) int
 func JoinWait(j *Join)
@@ -205,6 +219,7 @@ func NewBox(a Allocator, counted bool, size, align uintptr) unsafe.Pointer
 func NewEpoch() uint16
 func NewStringBuffer(n int, a Allocator) (*byte, uintptr)
 func Now() int64
+func PCFrames(pc uintptr, out []PCFrame) int
 func PanicFault(kind FaultKind, addr, pc, sp, bp uintptr)
 func Park()
 func ParkReason(r WaitReason)
@@ -219,6 +234,7 @@ func ProcUnpin()
 func Ready(t *Task)
 func ReleaseString(ctl uintptr)
 func ReleaseValues[T owner any](p *T, n int)
+func ResumeAllocFreeExit()
 func RetainString(ctl uintptr)
 func RetainSynced(obj unsafe.Pointer)
 func RetainValues[T owner any](p *T, n int)
@@ -238,6 +254,8 @@ func SliceBytewise(s string, lo, hi int) string
 func SpinWait(n int)
 func StackBounds() (lo, hi uintptr)
 func StackLeft() uintptr
+func StartCPUProfile(hz int, tableBytes uintptr) bool
+func StopCPUProfile() *ProfTable
 func StringControl(s string) uintptr
 func StringFromBytes(p *byte, n int, a Allocator) string
 func StringFromSlice(b []byte, a Allocator) string

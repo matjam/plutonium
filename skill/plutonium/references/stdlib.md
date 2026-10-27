@@ -15,7 +15,7 @@ consumes the receiver.
 | File | Packages |
 |---|---|
 | `stdlib.md` | `pluto/fmt`, `pluto/errors`, `pluto/strings`, `pluto/strconv`, `pluto/unicode`, `pluto/unicode/utf8`, `pluto/bytes`, `pluto/io` |
-| `stdlib-os-time-math.md` | `pluto/os`, `pluto/os/exec`, `pluto/path/filepath`, `pluto/flag`, `pluto/time`, `pluto/math`, `pluto/bits`, `pluto/cmp`, `pluto/testing` |
+| `stdlib-os-time-math.md` | `pluto/os`, `pluto/os/exec`, `pluto/path/filepath`, `pluto/flag`, `pluto/time`, `pluto/math`, `pluto/bits`, `pluto/cmp`, `pluto/testing`, `pluto/prof` |
 | `stdlib-memory-concurrency.md` | `pluto/alloc`, `pluto/alloc/debug`, `pluto/arena`, `pluto/vec`, `pluto/hash`, `pluto/container`, `pluto/container/heap`, `pluto/slices`, `pluto/sort`, `pluto/iter`, `pluto/sync`, `pluto/sync/atomic` |
 | `stdlib-system.md` | `pluto/rt`, `pluto/syscall`, `pluto/arch/x86` |
 

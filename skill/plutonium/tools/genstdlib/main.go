@@ -43,8 +43,8 @@ var groups = []group{
 	},
 	{
 		"stdlib-os-time-math.md", "Standard library: files, flags, time, math and tests",
-		"Files and processes, command-line flags, time, math, bit tricks and the test package.",
-		[]string{"os", "os/exec", "path/filepath", "flag", "time", "math", "bits", "cmp", "testing"},
+		"Files and processes, command-line flags, time, math, bit tricks, the test package and the profiler.",
+		[]string{"os", "os/exec", "path/filepath", "flag", "time", "math", "bits", "cmp", "testing", "prof"},
 	},
 	{
 		"stdlib-memory-concurrency.md", "Standard library: memory, containers and concurrency",
