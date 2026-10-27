@@ -130,7 +130,7 @@ func (m *M) Benchmark(name string, f func(*B)) {
 	b.m = m
 	b.setName(nil, name)
 	m.ran = true
-	fmt.Printf("=== RUN   %s\n", b.Name())
+	writeOut("=== RUN   ", b.Name(), "\n")
 	b.start = nanotime()
 	n := 1
 	ok := b.runN(f, n)
@@ -148,7 +148,8 @@ func (m *M) Benchmark(name string, f func(*B)) {
 		ok = b.runN(f, n)
 	}
 	if ok {
-		fmt.Printf("%-*s\t%8d\t", m.nameWidth, b.Name(), b.N)
+		writePadded(b.Name(), m.nameWidth)
+		fmt.Printf("\t%8d\t", b.N)
 		printNsPerOp(float64(b.elapsed) / float64(b.N))
 	}
 	b.report()
@@ -370,7 +371,34 @@ func (c *common) report() {
 		status = "SKIP"
 	}
 	secs := float64(nanotime()-c.start) / 1e9
-	fmt.Printf("--- %s: %s (%.2fs)\n", status, c.Name(), secs)
+	writeOut("--- ", status, ": ", c.Name())
+	fmt.Printf(" (%.2fs)\n", secs)
+}
+
+// writeOut writes parts to standard output in one write. The runner
+// writes test names this way, not with fmt: a name is a view of the test's
+// state in a caller's frame, and in a program where some formatting method
+// keeps a pointer from its receiver, fmt.Printf is taken to keep what it
+// is given, which would reject that view (spec section 18.3).
+func writeOut(parts ...string) {
+	var buf [maxName + 64]byte
+	out := vec.NewFixed(buf[:])
+	for _, p := range parts {
+		vec.AppendString(&out, p)
+	}
+	os.Stdout.Write(out.Slice())
+}
+
+// writePadded writes name followed by spaces up to width bytes, as
+// fmt's %-*s does.
+func writePadded(name string, width int) {
+	var buf [maxName + 64]byte
+	out := vec.NewFixed(buf[:])
+	vec.AppendString(&out, name)
+	for n := len(name); n < width && out.Len() < len(buf); n++ {
+		out.Push(' ')
+	}
+	os.Stdout.Write(out.Slice())
 }
 
 // T is the state of one test or subtest.
@@ -381,7 +409,7 @@ type T struct {
 // run runs f as the test t, announcing it first so that a crash is
 // attributed to it.
 func (t *T) run(f func(*T)) {
-	fmt.Printf("=== RUN   %s\n", t.Name())
+	writeOut("=== RUN   ", t.Name(), "\n")
 	t.start = nanotime()
 	rt.CatchExitTask(func() { f(t) })
 	t.report()
