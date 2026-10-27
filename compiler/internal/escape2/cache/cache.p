@@ -206,7 +206,7 @@ func (c *Cache) context(v sched.CacheView, comp []eir.FuncID, id eir.FuncID) dig
 	for _, m := range comp {
 		in[m] = true
 		d := c.eirDigest(m)
-		members = compat.Append(members, compat.Concat(c.idOrName(m), compat.String(d[:])))
+		members = compat.Append(members, compat.Concat(c.idOrName(m), hexDigest(d)))
 	}
 	sortStrings(members)
 	h.int(int64(len(members)))

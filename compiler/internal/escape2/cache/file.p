@@ -80,7 +80,10 @@ func encodeFile(pkg string, entries []entry) []byte {
 		b = compat.AppendPlain(b, e.eir[:]...)
 		b = compat.AppendPlain(b, e.ctx[:]...)
 		b = compat.AppendPlain(b, e.read[:]...)
-		b = appendString(b, compat.String(e.sum))
+		// The summary is bytes, not text: compat.String would turn each
+		// byte that is not UTF-8 into U+FFFD.
+		b = compat.AppendUvarint(b, uint64(len(e.sum)))
+		b = compat.AppendPlain(b, e.sum...)
 	}
 	sum := compat.Sum256(b)
 	return compat.AppendPlain(b, sum[:32]...)
