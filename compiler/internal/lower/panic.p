@@ -1,0 +1,241 @@
+// Translated by go2pu from internal/lower/panic.go at the go-cutover tag; edited by hand since.
+
+package lower
+
+import (
+	"pluto/path/filepath"
+	"compiler/compat"
+	"compiler/internal/diag"
+	"compiler/internal/ssa"
+	"compiler/internal/syntax/ast"
+	"compiler/internal/syntax/token"
+	"compiler/internal/types2"
+	"compiler/pu"
+)
+
+// The panic handler (language spec, "Panics in freestanding programs"). A
+// program marks one function //pu:panic, with the signature
+// func(p *rt.Panic); freestanding and kernel builds must, while hosted
+// builds fall back to the runtime's defaultPanic. The runtime calls it
+// through callPanicHandler, a body-less function whose every call lowering
+// replaces with a direct call to the handler, so there is no function
+// pointer to set up or to corrupt. The handler must never return
+// (checkPanicHandler).
+
+const (
+	panicHook      = "callPanicHandler" // in pluto/rt
+	defaultHandler = "defaultPanic"     // in pluto/rt, hosted builds only
+)
+
+// findPanicHandler finds the program's panic handler and checks its
+// declaration.
+func (l *Lowerer) findPanicHandler() {
+	var found []*funcDecl
+	for _, p := range l.prog.Packages {
+		for _, f := range p.Files {
+			for _, d := range f.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || !hasDirective(fd.Doc, "panic") {
+					continue
+				}
+				fn, _ := p.Info.Defs[fd.Name].(*types2.Func)
+				if fn == nil {
+					continue
+				}
+				if l.checkPanicDecl(fd, fn) {
+					found = compat.Append(found, l.decls[fn])
+				}
+			}
+		}
+	}
+	switch {
+	case len(found) == 1:
+		// Lowered even if nothing can panic, so that it is checked.
+		l.panicFn = found[0].obj
+		l.funcSym(l.panicFn, nil)
+	case len(found) > 1:
+		first := found[0]
+		for _, d := range found[1:] {
+			l.report(d.decl.Name.Pos(), pu.New(diag.Diagnostic{Code: diag.DupPanicHandler,
+				Msg: compat.Sprintfb("%s is a second panic handler", compat.ArgS(d.obj.Name())),
+				Text: compat.Sprintfb("A program has exactly one panic handler, and %s (%s) is already marked //pu:panic. "+
+					"Remove //pu:panic from all but one of them.", compat.ArgS(first.obj.Name()), compat.ArgS(l.shortPos(first.decl.Name.Pos())))}))
+		}
+	case l.cfg.Freestanding:
+		mode, what := "freestanding", "A freestanding build"
+		if l.cfg.Kernel {
+			mode, what = "kernel", "A kernel build"
+		}
+		l.report(token.NoPos, pu.New(diag.Diagnostic{Code: diag.NoPanicHandler,
+			Msg:  compat.Concat(mode, ": no panic handler is defined"),
+			Text: compat.Concat(what, " has no operating system to report a crash to, so the program itself must say ", "what happens when it panics (print to a serial port or screen, then halt)."),
+			Fix:  pu.New(diag.Fix{Intro: "Mark one function with //pu:panic", Code: "//pu:panic\nfunc onPanic(p *rt.Panic) { ... }"})}))
+	default:
+		l.panicFn = l.rtFunc(defaultHandler)
+	}
+}
+
+// checkPanicDecl reports why fn cannot be the panic handler, if it cannot.
+func (l *Lowerer) checkPanicDecl(fd *ast.FuncDecl, fn *types2.Func) bool {
+	sig := fn.Type().(*types2.Signature)
+	name := fn.Name()
+	var why string
+	switch {
+	case fd.Body == nil:
+		why = "it has no body"
+	case sig.Recv() != nil:
+		why = "it is a method"
+	case sig.TypeParams().Len() > 0:
+		why = "it is generic"
+	case hasDirective(fd.Doc, "interrupt"):
+		why = "it is also an interrupt handler"
+	case sig.Results().Len() > 0 || sig.Params().Len() != 1 || sig.Variadic() || !isPanicPointer(sig.Params().At(0).Type()):
+		why = compat.Concat("its signature is ", types2.TypeString(sig, func(p *types2.Package) string { return p.Name() }))
+	default:
+		return true
+	}
+	l.report(fd.Name.Pos(), pu.New(diag.Diagnostic{Code: diag.PanicHandlerDecl,
+		Msg: compat.Sprintfb("%s cannot be the panic handler: %s", compat.ArgS(name), compat.ArgS(why)),
+		Text: "The runtime calls the panic handler, the function marked //pu:panic, with a description of the " +
+			"panic, and never expects it to return. It is a plain function with a body, not a method, not " +
+			"generic and not also an interrupt handler, that takes a *rt.Panic and returns nothing.",
+		Fix: pu.New(diag.Fix{Intro: "Declare it", Code: compat.Concat("//pu:panic\nfunc ", name, "(p *rt.Panic) { ... }")})}))
+	return false
+}
+
+// isPanicPointer reports whether T is *rt.Panic.
+func isPanicPointer(T types2.Type) bool {
+	p, ok := types2.Unalias(T).(*types2.Pointer)
+	if !ok {
+		return false
+	}
+	n, ok := types2.Unalias(p.Elem()).(*types2.Named)
+	return ok && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "pluto/rt" && n.Obj().Name() == "Panic"
+}
+
+// isPanicHook reports whether fn is the runtime's callPanicHandler.
+func (l *Lowerer) isPanicHook(fn *types2.Func) bool {
+	return fn.Name() == panicHook && fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt"
+}
+
+// callPanicHandler lowers the runtime's call of callPanicHandler: a direct
+// call of the panic handler, which never returns.
+func (s *fnState) callPanicHandler(e *ast.CallExpr) []value {
+	sig := s.typeOf(e.Fun).Underlying().(*types2.Signature)
+	args := s.callArgs(e, sig, nil)
+	if s.l.panicFn == nil {
+		return nil // reported by findPanicHandler
+	}
+	sym := s.l.funcSym(s.l.panicFn, nil)
+	return s.emitCall(callee{sym: sym, noReturn: true, site: pu.New(callSite{desc: s.l.panicFn.Name()})}, sig, nil, args, e.Pos())
+}
+
+// shortPos formats pos as file:line with the file's base name, as the
+// explanatory errors name places.
+func (l *Lowerer) shortPos(pos token.Pos) string {
+	p := l.fset.Position(pos)
+	return compat.Sprintfb("%s:%d", compat.ArgS(filepath.Base(p.Filename)), compat.ArgI(int64(p.Line)))
+}
+
+// checkPanicHandler checks that the panic handler cannot return: every
+// path through it must end in an endless loop or in a call of a function
+// that never returns (noreturn.go), or itself ending every path that way.
+func (l *Lowerer) checkPanicHandler() {
+	if l.panicFn == nil {
+		return
+	}
+	sym := l.funcs[funcSymName(l.panicFn, nil)]
+	if sym == nil {
+		return // never called: nothing panics
+	}
+	funcs := l.funcsBySym()
+	nr := &noReturnInfo{funcs: funcs, state: map[*ssa.Sym]int{}, ret: map[*ssa.Sym]token.Pos{}}
+	if !nr.returns(sym) {
+		return
+	}
+	pos := nr.ret[sym]
+	if !pos.IsValid() {
+		pos = funcs[sym].Pos
+	}
+	name := l.panicFn.Name()
+	l.report(pos, pu.New(diag.Diagnostic{Code: diag.PanicHandlerRet,
+		Msg: compat.Sprintfb("%s is the panic handler, so it must never return", compat.ArgS(name)),
+		Text: compat.Concat("A panic stops the program: it does not unwind, so there is nothing for the handler to return to. "+
+			"Every path through it must end in an endless loop, or in a call of a function that never returns, "+
+			"such as os.Exit, or a function whose every path ends the same way. "+
+			"A call through a func value or an interface, and recursion, count as returning.\n", name, " can return here (", l.shortPos(pos), ")."),
+		Fix: pu.New(diag.Fix{Intro: "End it by halting", Code: "for {\n\tx86.Cli()\n\tx86.Hlt()\n}"})}))
+}
+
+// funcsBySym maps the symbol of every lowered function to its code.
+func (l *Lowerer) funcsBySym() map[*ssa.Sym]*ssa.Func {
+	m := make(map[*ssa.Sym]*ssa.Func, len(l.out.Funcs))
+	for _, f := range l.out.Funcs {
+		m[f.Sym] = f
+	}
+	return m
+}
+
+// noReturnInfo infers which functions never return.
+type noReturnInfo struct {
+	funcs map[*ssa.Sym]*ssa.Func
+	state map[*ssa.Sym]int       // 1 while being computed, 2 returns, 3 never returns
+	ret   map[*ssa.Sym]token.Pos // a return a function can reach
+}
+
+// returns reports whether the function sym can return. Calls of
+// functions that never return end a path; a call of a function still being
+// computed (recursion) counts as returning, so the answer errs towards
+// "can return".
+func (nr *noReturnInfo) returns(sym *ssa.Sym) bool {
+	switch nr.state[sym] {
+	case 1, 2:
+		return true
+	case 3:
+		return false
+	}
+	f := nr.funcs[sym]
+	if f == nil {
+		return true // assembly or C: only //pu:noreturn says otherwise
+	}
+	nr.state[sym] = 1
+	seen := map[*ssa.Block]bool{f.Entry: true}
+	work := []*ssa.Block{f.Entry}
+	result := 3
+	for len(work) > 0 && result == 3 {
+		b := work[0]
+		work = work[1:]
+		if nr.blockEnds(b) {
+			continue
+		}
+		if b.Kind == ssa.BlockRet {
+			result = 2
+			nr.ret[sym] = b.Pos
+			break
+		}
+		for _, e := range b.Succs {
+			if !seen[e.B] {
+				seen[e.B] = true
+				work = compat.Append(work, e.B)
+			}
+		}
+	}
+	nr.state[sym] = result
+	return result == 2
+}
+
+// blockEnds reports whether b calls a function that never returns.
+func (nr *noReturnInfo) blockEnds(b *ssa.Block) bool {
+	for _, v := range b.Values {
+		if v.Op != ssa.OpCall {
+			continue
+		}
+		if v.Call != nil && v.Call.NoReturn {
+			return true
+		}
+		if callee, ok := v.Aux.(*ssa.Sym); ok && !nr.returns(callee) {
+			return true
+		}
+	}
+	return false
+}

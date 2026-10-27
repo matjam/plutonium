@@ -4,7 +4,7 @@
 //
 // The list of codes and their names comes from `pluto explain` with no
 // arguments. The explanation and the usual fix of each code come from the
-// catalog's source under selfhost/internal/diag, because pluto explain
+// catalog's source under compiler/internal/diag, because pluto explain
 // prints them merged with the reason Plutonium differs from Go and leaves
 // out the fix's introduction when the entry has a corrected example.
 //
@@ -68,7 +68,7 @@ type entry struct {
 
 func main() {
 	pluto := flag.String("pluto", "pluto", "the pluto compiler")
-	diagDir := flag.String("diag", "selfhost/internal/diag", "source directory of the diagnostics catalog")
+	diagDir := flag.String("diag", "compiler/internal/diag", "source directory of the diagnostics catalog")
 	out := flag.String("out", "skill/plutonium/references/diagnostics.md", "file to write")
 	flag.Parse()
 	if err := run(*pluto, *diagDir, *out); err != nil {

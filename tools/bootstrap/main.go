@@ -5,12 +5,12 @@
 //     compiler of the go-cutover tag, checked out into a temporary worktree
 //     and built there with go build (the Go sources are gone from the
 //     current tree);
-//   - stage 1: stage 0 builds selfhost/cmd/pluto, the driver and compiler
+//   - stage 1: stage 0 builds compiler/cmd/pluto, the driver and compiler
 //     translated to Plutonium, into pluto1;
 //   - with -corpus, pluto1 and stage 0 build the programs of the test corpus
 //     (corpus.go) at -O0 and -O2, and every executable (or object file),
 //     diagnostic and exit status must be byte-identical;
-//   - stage 2: pluto1 builds selfhost/cmd/pluto into pluto2;
+//   - stage 2: pluto1 builds compiler/cmd/pluto into pluto2;
 //   - stage 3: pluto2 builds it into pluto3, which must equal pluto2 byte for
 //     byte (both are built from the same source by compilers that behave
 //     identically); with -corpus, pluto2 is checked against stage 0 too.
@@ -48,7 +48,7 @@ func main() {
 	corpus := flag.Bool("corpus", false, "check pluto1 (and pluto2) against the Go-hosted compiler over the test corpus")
 	work := flag.String("work", "", "directory for the compilers and the corpus builds (default: a temporary directory)")
 	limit := flag.Int("limit-mb", 24000, "kill a stage's build past this resident size, in MB")
-	flags := flag.String("flags", "-O2 --gencheck=false", "flags of every stage's build of selfhost/cmd/pluto")
+	flags := flag.String("flags", "-O2 --gencheck=false", "flags of every stage's build of compiler/cmd/pluto")
 	libEvery := flag.Int("lib-every", 3, "check one in every n programs of testdata/lib")
 	jobs := flag.Int("j", 8, "corpus builds to run at once")
 	zero := flag.String("pluto0", "", "start from this compiler instead of building the go-cutover tag's")
@@ -80,7 +80,7 @@ func run(o *options) error {
 	if err != nil {
 		return err
 	}
-	if _, err := os.Stat(filepath.Join(root, "selfhost", "cmd", "pluto")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, "compiler", "cmd", "pluto")); err != nil {
 		return fmt.Errorf("run from the repository root: %w", err)
 	}
 	if o.work == "" {
@@ -186,10 +186,10 @@ func (m measure) String() string {
 	return s
 }
 
-// buildStage builds selfhost/cmd/pluto with compiler into out, sampling its
+// buildStage builds compiler/cmd/pluto with compiler into out, sampling its
 // resident size every second and killing it past limitMB.
 func buildStage(root, lib, compiler, out string, flags []string, limitMB int) (measure, error) {
-	args := append(append([]string{"build"}, flags...), "-o", out, "./selfhost/cmd/pluto")
+	args := append(append([]string{"build"}, flags...), "-o", out, "./compiler/cmd/pluto")
 	cmd := exec.Command(compiler, args...)
 	cmd.Dir = root
 	cmd.Env = append(os.Environ(), "PLUTOROOT="+lib)

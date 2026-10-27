@@ -1,0 +1,38 @@
+// Translated by go2pu from internal/lower/shutdown_static.go at the go-cutover tag; edited by hand since.
+
+package lower
+
+import (
+	"compiler/compat"
+	"compiler/internal/ssa"
+	"compiler/internal/types2"
+	"compiler/pu"
+)
+
+// Static copies have a single typed obligation, even when their containing
+// method record also has an unowned code word.
+func (l *Lowerer) recordStaticCleanupAt(sym *ssa.Sym, off int64, T types2.Type, transferred bool) {
+	if l.cleanupAnchor != nil && (l.needsDrop(T) || l.counted(T)) {
+		l.cleanupStatics = compat.Append(l.cleanupStatics, staticCleanupObject{
+			sym: sym, T: T, off: off, anchor: l.cleanupAnchor, metadataOnly: transferred,
+		})
+	}
+}
+
+func (l *Lowerer) staticCleanupSize(obj staticCleanupObject) int64 {
+	if obj.region != nil {
+		size, _ := l.keySize(*obj.region)
+		return max(size, 1)
+	}
+	return max(l.sizeof(obj.T), 1)
+}
+
+func (l *Lowerer) recordStaticRegion(sym *ssa.Sym, gokey regionKey) {
+	key := pu.New(gokey)
+
+	if l.cleanupAnchor != nil {
+		l.cleanupStatics = compat.Append(l.cleanupStatics, staticCleanupObject{
+			sym: sym, region: key, anchor: l.cleanupAnchor,
+		})
+	}
+}

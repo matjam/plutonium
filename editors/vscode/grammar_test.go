@@ -1,7 +1,7 @@
 // Package vscode holds the tests of the Plutonium extension for VS Code
 // (editors/vscode). They keep the grammar in step with the compiler: every
-// keyword of selfhost/internal/syntax/token and every predeclared name of
-// selfhost/internal/types2 must be highlighted. The checks that need a JavaScript or
+// keyword of compiler/internal/syntax/token and every predeclared name of
+// compiler/internal/types2 must be highlighted. The checks that need a JavaScript or
 // Oniguruma regex engine run test/grammar-check.js and test/format-check.js
 // with node, and are skipped when node is not installed.
 package vscode
@@ -120,11 +120,11 @@ func words(t *testing.T, key string) map[string]string {
 }
 
 // sourceFile parses a source file of the self-hosted compiler, named
-// relative to selfhost/internal. The files read here use only syntax that
+// relative to compiler/internal. The files read here use only syntax that
 // Plutonium shares with Go, so go/parser reads them.
 func sourceFile(t *testing.T, name string) *ast.File {
 	t.Helper()
-	path := filepath.Join("..", "..", "selfhost", "internal", filepath.FromSlash(name))
+	path := filepath.Join("..", "..", "compiler", "internal", filepath.FromSlash(name))
 	f, err := parser.ParseFile(gotoken.NewFileSet(), path, nil, parser.SkipObjectResolution)
 	if err != nil {
 		t.Fatal(err)
@@ -208,7 +208,7 @@ func keyName(t *testing.T, e ast.Expr) string {
 	return ""
 }
 
-// keywords returns the keywords of selfhost/internal/syntax/token, as
+// keywords returns the keywords of compiler/internal/syntax/token, as
 // Token.IsKeyword defines them: the tokens declared between keyword_beg and
 // keyword_end, and the ones it compares against besides. They are spelled
 // as in the tokens table.
@@ -293,7 +293,7 @@ func TestKeywords(t *testing.T) {
 		}
 	}
 	if len(all) < 27 {
-		t.Errorf("found only %d keywords in selfhost/internal/syntax/token", len(all))
+		t.Errorf("found only %d keywords in compiler/internal/syntax/token", len(all))
 	}
 
 	// Words that are keywords only in context are matched by other rules;
@@ -309,7 +309,7 @@ func TestKeywords(t *testing.T) {
 	}
 }
 
-// universe lists the predeclared names of selfhost/internal/types2, read
+// universe lists the predeclared names of compiler/internal/types2, read
 // from the tables its universe scope is built from.
 type universe struct {
 	types, consts, funcs, ctors []string
@@ -407,7 +407,7 @@ func readUniverse(t *testing.T) universe {
 	}
 
 	if len(u.types) < 20 || len(u.consts) < 4 || len(u.funcs) < 12 || len(u.ctors) < 7 {
-		t.Fatalf("read too few predeclared names from selfhost/internal/types2: %+v", u)
+		t.Fatalf("read too few predeclared names from compiler/internal/types2: %+v", u)
 	}
 	return u
 }

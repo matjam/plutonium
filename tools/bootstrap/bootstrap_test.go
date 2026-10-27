@@ -41,7 +41,7 @@ func TestFirstDifference(t *testing.T) {
 }
 
 // TestStage1 runs stage 1 of the bootstrap (the Go-hosted compiler builds
-// selfhost/cmd/pluto into pluto1) and checks pluto1 against the Go-hosted
+// compiler/cmd/pluto into pluto1) and checks pluto1 against the Go-hosted
 // compiler over the corpus: the same executables, diagnostics and exit
 // statuses at -O0 and -O2. Building pluto1 takes about 20 minutes and 20
 // GB, and the corpus hours of CPU time, so it runs only with GO2PU_SLOW=1;

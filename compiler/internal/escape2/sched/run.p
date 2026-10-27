@@ -1,0 +1,621 @@
+// Translated by go2pu from internal/escape2/sched/run.go at the go-cutover tag; edited by hand since.
+
+package sched
+
+import (
+	"pluto/sort"
+	"compiler/compat"
+	"compiler/internal/escape2/domain"
+	"compiler/internal/escape2/eir"
+	"compiler/internal/escape2/solve"
+	"compiler/internal/escape2/summary"
+	"compiler/internal/types2"
+	"compiler/pu"
+)
+
+// The parts of other packages the driver calls, as variables so that the
+// driver's tests can run it with stand-ins.
+var (
+	solveFunc = solve.Solve
+	leq       = summary.Leq
+	joinSums  = summary.Join
+	newPaths  = domain.NewPaths
+	newArena  = domain.NewArena
+	newSets   = domain.NewSets
+)
+
+// facts is the stage B implementation of Facts.
+type facts struct {
+	p    *eir.Program
+	tt   *typeTable
+	inst *instClosure
+	c    *cands
+	ho   *heapOnly
+	rule dispatchRule
+	def  *deferral // D49's deferred calls; nil while the solver defers none
+	rt   *retypes
+}
+
+// deferralOn turns D49's deferred calls on: Env.Deferred names them to the
+// solver, and the callers of a function with one depend on what they pass
+// where it is deferred. It is the default (decided 2026-10-23: on the
+// translated compiler it removes about 70% of the findings, and with the
+// deferred calls bounded it costs a few times the analysis without it);
+// PLUTO_ESCAPE2_DEFER=0 turns it off.
+var deferralOn = compat.Getenv("PLUTO_ESCAPE2_DEFER") != "0"
+
+// sequential (PLUTO_ESCAPE2_SEQUENTIAL=1) analyses the SCCs one after the
+// other with a worklist in each, on one thread, resuming kept solver
+// states: the driver before the parallel one (parallel.go), for
+// comparisons and as a way around a fault of it. With a summary cache the
+// sequential driver is always used. A variable for the tests.
+var sequential = compat.Getenv("PLUTO_ESCAPE2_SEQUENTIAL") != ""
+
+// traceSolve, when set (by a debugging test), is called after each solve
+// in an SCC's iteration with the previous and the new summary, and whether
+// the previous covers the new.
+var traceSolve func(paths domain.Paths, comp []eir.FuncID, id eir.FuncID, prev, next *summary.Summary, covered bool)
+
+// StageB computes the whole-program facts of p.
+func StageB(p *eir.Program) Facts {
+	return stageB(p)
+}
+
+func stageB(p *eir.Program) *facts {
+	tt := newTypeTable()
+	inst := newInstClosure(tt)
+	inst.run(p)
+	c := newCands(p, tt, inst)
+	fl := newFuncFlow(p, c)
+	fl.run()
+	c.flow = fl
+	f := pu.New(facts{p: p, tt: tt, inst: inst, c: c, rule: unionRule{c}})
+	f.ho = newHeapOnly(p, tt, inst, c)
+	f.rt = newRetypes(p, tt)
+	if deferralOn {
+		f.def = newDeferral(p, c, fl)
+	}
+	return f
+}
+
+// Candidates are the functions a dynamic call in f may reach, by the
+// dispatch rule in force (union over the candidate set in stage 2).
+func (f *facts) Candidates(fn *eir.Func, c *eir.Call) []eir.FuncID {
+	return f.rule.callees(fn, c)
+}
+
+// HeapOnly reports whether field index field of struct type T holds only
+// heap pointers (plan invariant I6).
+func (f *facts) HeapOnly(T types2.Type, field int) bool {
+	return f.ho.heapOnly(T, field)
+}
+
+// Instantiated reports the type arguments a type parameter is instantiated
+// with anywhere in the program, and whether the set is known: false for an
+// open type parameter, which may be instantiated with any type.
+func (f *facts) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
+	return f.inst.instantiated(tp)
+}
+
+// Run analyses p: stage B, then the SCCs callees first.
+func Run(p *eir.Program) *Result {
+	return RunWith(p, Options{})
+}
+
+// maxSolvesPerFunc bounds the solves of one function within its SCC. The
+// domain is finite and the transfer monotone, so the bound is never reached
+// by a correct solver; reaching it is an internal compiler error, never a
+// silent stop.
+const maxSolvesPerFunc = 10000
+
+// RunWith is Run with options.
+func RunWith(p *eir.Program, opts Options) *Result {
+	f := stageB(p)
+	g := buildGraphD(p, f.rule, f.def)
+	comps := g.sccs()
+
+	env := pu.New(env{
+		p:       p,
+		paths:   newPaths(),
+		facts:   f,
+		sums:    compat.Make[*summary.Summary](len(p.Funcs)),
+		inSCC:   compat.Make[int32](len(p.Funcs)),
+		opts:    opts,
+		current: -1,
+		g:       g,
+		solving: eir.NoFunc,
+	})
+	env.virt = newVirtuals(p, env.paths)
+	if env.opts.Contract == nil {
+		// The table itself, not its method value: the self-hosted
+		// compiler would make the method value in this frame.
+		env.contracts = newContractSummaries(env.paths)
+	}
+	for i := range env.inSCC {
+		env.inSCC[i] = -1
+	}
+	arena := newArena()
+	ws := pu.New(solve.Workspace{Arena: arena, Sets: newSets(arena)})
+
+	res := pu.New(Result{Summaries: env.sums})
+	res.Stats.Funcs = len(p.Funcs)
+	res.Stats.SCCs = len(comps)
+
+	// readBy[g] are the members of g's SCC whose solves have read g's
+	// summary: they are solved again when it grows. These are the reads
+	// the solves made, not the call graph's deps, which are a superset (a
+	// deferred call's fallback candidates, say, are deps but are read only
+	// where it falls back). A solve's result depends only on the summaries
+	// it read, so the others need not be solved again. The sets only grow
+	// in an SCC: a kept state (incr.go) depends on all it read.
+	readBy := map[eir.FuncID][]eir.FuncID{}
+	readSeen := map[[2]eir.FuncID]bool{}
+	noteReads := func(id eir.FuncID, reads []eir.FuncID) {
+		for _, g := range reads {
+			if k := [2]eir.FuncID{g, id}; !readSeen[k] {
+				readSeen[k] = true
+				readBy[g] = compat.AppendPlain(readBy[g], id)
+			}
+		}
+	}
+	findings := compat.Make[[]solve.Finding](len(p.Funcs))
+
+	// solveOne solves one function against the current summaries, with its
+	// reads recorded for the cache when there is one.
+	solveOne := func(id eir.FuncID) (solve.Result, Recorder) {
+		env.solving = id
+		if opts.Cache == nil {
+			return solveGuarded(p.Funcs[id], env, ws), nil
+		}
+		rec := opts.Cache.Recorder(id)
+		return solveGuarded(p.Funcs[id], pu.Box(recordingEnv{env, rec}).(solve.Env), ws), rec
+	}
+	// measure notes the workspace a solve used and resets it.
+	measure := func(st *SCCStats) {
+		if b := arena.Bytes(); b > st.ArenaBytes {
+			st.ArenaBytes = b
+		}
+		if b := ws.Sets.Bytes(); b > st.SetBytes {
+			st.SetBytes = b
+		}
+		ws.Sets.Reset()
+		arena.Reset()
+	}
+
+	// iterate solves an SCC from bottom to a post-fixed point.
+	ret := newRetained()
+	iterate := func(comp []eir.FuncID, st *SCCStats) {
+		work := newSCCWork(comp, func(id eir.FuncID) []eir.FuncID { return g.deps[id] })
+		solves := map[eir.FuncID]int{}
+		// Members of an SCC are solved again as their callees grow: keep
+		// their states to resume (incr.go), released when the SCC is final.
+		keep := solveKeepFunc != nil && !noKeep && len(comp) > 1 && opts.Cache == nil
+		defer func() {
+			st.RetainedPeak = ret.peak
+			st.Resumes = ret.resumes
+			ret.release()
+		}()
+		defer func() {
+			// The summaries are final: a solve of each member against them
+			// gives its findings and well-founded reasons (reasons.go).
+			iterated := len(comp) > 1
+			for _, n := range solves {
+				iterated = iterated || n > 1
+			}
+			if !iterated || opts.Cache != nil {
+				return
+			}
+			st.Unfounded = wellFounded(comp, env, func(id eir.FuncID) solve.Result {
+				env.solving = id
+				r := solveDerivsFunc(p.Funcs[id], env, ws)
+				st.Solves++
+				measure(st)
+				if r.Limit != nil {
+					r = limitResult(p.Funcs[id], env)
+				}
+				return r
+			}, findings)
+		}()
+		for !work.empty() {
+			id := work.pop()
+			solves[id]++
+			if solves[id] > maxSolvesPerFunc {
+				panic(pu.Box(compat.Sprintfb("internal compiler error: escape2: %s did not converge in its SCC of %d functions", compat.ArgS(p.Funcs[id].Name), compat.ArgI(int64(len(comp))))))
+			}
+			var r solve.Result
+			var rec Recorder
+			env.beginReads()
+			if keep {
+				env.solving = id
+				r = ret.solve(p.Funcs[id], env, ws)
+			} else {
+				r, rec = solveOne(id)
+			}
+			noteReads(id, env.endReads())
+			if rec != nil {
+				opts.Cache.Solved(id, rec)
+			}
+			st.Solves++
+			findings[id] = r.Findings
+			prev := env.sums[id]
+			// Nothing a solve builds outlives it but its result: copy the
+			// summary out and reset the workspace, so that memory is that
+			// of the largest solve, not the sum of an SCC's iterations.
+			// The new summary is joined with the previous one: solving is
+			// not monotone in the summaries it reads where paths are cut
+			// (summary.Join), and the join makes the iteration climb, so it
+			// stops at a post-fixed point.
+			//
+			// A new summary the previous one covers leaves the previous one
+			// in place, unchanged: the readers are not solved again, and
+			// the reasons they hold name entries of the summary they read
+			// by index, which a join, though it covers the same, may number
+			// differently.
+			if traceSolve != nil {
+				traceSolve(env.paths, comp, id, prev, r.Summary, prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev))
+			}
+			if prev != nil && r.Summary != nil && leq(env.paths, r.Summary, prev) {
+				measure(st)
+				continue
+			}
+			if prev == nil {
+				env.sums[id] = clone(r.Summary)
+			} else {
+				env.sums[id] = joinSums(env.paths, prev, r.Summary)
+			}
+			env.virt.changedFunc(id)
+			measure(st)
+			for _, rd := range readBy[id] {
+				work.push(rd)
+			}
+		}
+	}
+
+	// check solves each function of an SCC once against summaries loaded
+	// from the cache, installed as the SCC's, and reports whether they are
+	// a post-fixed point read from unchanged inputs (D44). The findings
+	// are those of the checking solves.
+	check := func(comp []eir.FuncID, loaded []*summary.Summary, st *SCCStats) bool {
+		for i, id := range comp {
+			env.sums[id] = loaded[i]
+		}
+		env.virt.changed()
+		ok := true
+		for i, id := range comp {
+			// A loaded summary the decoder accepted may still be one no
+			// solver makes; if solving against it fails, the check fails
+			// (solving from bottom then shows whether the solver itself
+			// does).
+			if !solvesWithoutPanic(func() {
+				r, rec := solveOne(id)
+				findings[id] = r.Findings
+				if !leq(env.paths, r.Summary, loaded[i]) || !opts.Cache.Matches(id, rec) {
+					ok = false
+					return
+				}
+				opts.Cache.Solved(id, rec)
+			}) {
+				ok = false
+			}
+			st.Solves++
+			measure(st)
+			if !ok {
+				break
+			}
+		}
+		if !ok {
+			for _, id := range comp {
+				env.sums[id] = nil
+				findings[id] = nil
+			}
+			env.virt.changed()
+		}
+		return ok
+	}
+
+	view := cacheView{env: env, g: g}
+	// fromFile[ci]: SCC ci was accepted from the cache.
+	var fromFile []bool
+	if opts.Cache != nil {
+		fromFile = compat.Make[bool](len(comps))
+	}
+	finish := func(comp []eir.FuncID, st *SCCStats) {
+		res.Stats.Iterations += st.Solves
+		if b := st.ArenaBytes + st.SetBytes; b > res.Stats.PeakArena {
+			res.Stats.PeakArena = b
+		}
+		if opts.OnSCC != nil {
+			opts.OnSCC(comp, *st)
+		}
+	}
+	for _, comp := range comps {
+		if len(comp) > res.Stats.LargestSCC {
+			res.Stats.LargestSCC = len(comp)
+		}
+	}
+	seqComps := comps
+	if opts.Cache == nil && !sequential {
+		runParallel(p, env, g, comps, findings, finish)
+		seqComps = nil // done
+	}
+	for ci, comp := range seqComps {
+		for _, id := range comp {
+			env.inSCC[id] = int32(ci)
+		}
+		readBy = map[eir.FuncID][]eir.FuncID{}
+		readSeen = map[[2]eir.FuncID]bool{}
+		env.current = int32(ci)
+
+		var st SCCStats
+		st.Funcs = len(comp)
+		if opts.Cache != nil {
+			loaded := opts.Cache.Begin(pu.Box(view).(CacheView), comp, true)
+			switch {
+			case loaded == nil:
+				st.Cache = CacheMissed
+				res.Stats.CacheMissed++
+			case check(comp, loaded, &st):
+				st.Cache = CacheAccepted
+				res.Stats.CacheAccepted++
+				fromFile[ci] = true
+			default:
+				st.Cache = CacheRejected
+				res.Stats.CacheRejected++
+			}
+		}
+		if st.Cache != CacheAccepted {
+			iterate(comp, &st)
+		}
+		finish(comp, &st)
+	}
+	if opts.Cache != nil {
+		for _, ci := range redoSCCs(comps, g, env.inSCC, fromFile, findings) {
+			comp := comps[ci]
+			env.current = int32(ci)
+			for _, id := range comp {
+				env.sums[id] = nil
+				findings[id] = nil
+			}
+			env.virt.changed()
+			opts.Cache.Begin(pu.Box(view).(CacheView), comp, false)
+			st := SCCStats{Funcs: len(comp), Cache: CacheRedone}
+			res.Stats.CacheRedone++
+			iterate(comp, &st)
+			finish(comp, &st)
+		}
+		env.current = int32(len(comps) - 1)
+	}
+	canonicalFilters(env, findings)
+	for id := range findings {
+		findings[id] = dedupFindings(findings[id])
+	}
+	for _, comp := range comps {
+		for _, id := range comp {
+			res.Findings = compat.Append(res.Findings, findings[id]...)
+			res.Stats.SummaryBytes += summaryBytes(env.sums[id])
+		}
+	}
+	sort.SortStableFunc(res.Findings, func(goA, goB solve.Finding) bool {
+		a, b := goA, goB
+		if a.Pos != b.Pos {
+			return a.Pos < b.Pos
+		}
+		if a.Func != b.Func {
+			return a.Func < b.Func
+		}
+		return a.Code < b.Code
+	})
+	res.Env = env
+	return res
+}
+
+// env is what the solver reads of the rest of the program (solve.Env).
+type env struct {
+	p       *eir.Program
+	paths   domain.Paths
+	facts   *facts
+	sums    []*summary.Summary
+	inSCC   []int32
+	current int32
+	opts    Options
+	// contracts is the contract table's summaries when opts.Contract is
+	// nil: internal/escape2/contract's.
+	contracts *contractSummaries
+	virt      *virtuals
+	g         *callGraph
+	// solving is the function being solved (NoFunc: none known).
+	solving eir.FuncID
+	// reads are the members of the current SCC whose summaries the solve
+	// being recorded read (readMark[id] == readStamp: id is in reads).
+	recording bool
+	reads     []eir.FuncID
+	readMark  []uint32
+	readStamp uint32
+}
+
+// beginReads starts recording the current SCC's summaries a solve reads.
+func (e *env) beginReads() {
+	if e.readMark == nil {
+		e.readMark = compat.Make[uint32](len(e.sums))
+	}
+	e.readStamp++
+	e.reads = e.reads[:0]
+	e.recording = true
+}
+
+// endReads stops recording and returns what was read.
+func (e *env) endReads() []eir.FuncID {
+	e.recording = false
+	return e.reads
+}
+
+func (e *env) noteRead(id eir.FuncID) {
+	if e.recording && int(id) < len(e.sums) && e.inSCC[id] == e.current && e.readMark[id] != e.readStamp {
+		e.readMark[id] = e.readStamp
+		e.reads = compat.AppendPlain(e.reads, id)
+	}
+}
+
+func (e *env) Program() *eir.Program { return e.p }
+func (e *env) Paths() domain.Paths   { return e.paths }
+
+// Previous implements solve.PreviousEnv: a function's latest iterate, not
+// recorded as a read.
+func (e *env) Previous(id eir.FuncID) *summary.Summary {
+	if int(id) >= len(e.sums) {
+		return nil
+	}
+	return e.sums[id]
+}
+
+// Summary is the current summary of a callee: final for earlier SCCs, the
+// latest iterate in the current one, nil (bottom) before the first.
+func (e *env) Summary(id eir.FuncID) *summary.Summary {
+	if e.virt.isVirtual(id) {
+		// The join may come from its cache without reading its members:
+		// they are read all the same.
+		for _, m := range e.virt.sets[int(id)-len(e.p.Funcs)] {
+			e.noteRead(m)
+		}
+		return e.virt.summary(id, e.Summary)
+	}
+	if int(id) >= len(e.sums) {
+		panic(pu.Box(compat.Sprintfb("internal compiler error: escape2: the summary of function %d, which the program does not have, was read", compat.ArgU(uint64(id)))))
+	}
+	if e.inSCC[id] < 0 || e.inSCC[id] > e.current {
+		// Not scheduled before the current SCC: the graph has no edge to
+		// it, so the solver must not depend on it.
+		panic(pu.Box(compat.Sprintfb("internal compiler error: escape2: the summary of %s was read before it was scheduled", compat.ArgS(e.p.Funcs[id].Name))))
+	}
+	e.noteRead(id)
+	return e.sums[id]
+}
+
+// Candidates are the candidates the solver applies at a dynamic call: the
+// virtual function whose summary joins the candidate set (join.go).
+func (e *env) Candidates(f *eir.Func, c *eir.Call) []eir.FuncID {
+	return e.virt.of(e.facts.Candidates(f, c), c.Kind == eir.CallIface)
+}
+
+func (e *env) Contract(name string) (*summary.Summary, bool) {
+	if e.opts.Contract != nil {
+		return e.opts.Contract(name)
+	}
+	if e.contracts != nil {
+		return e.contracts.lookup(name)
+	}
+	return nil, false
+}
+
+// CanRead reports whether the solve of f may read the summary of id: id is
+// final (of an earlier SCC) or a member of the current one, whose reads the
+// driver records (a member is solved again when a summary it read grows);
+// a virtual function when all its members may be read. A function of a
+// later SCC may not be read: it is not solved yet. The solver asks before
+// each read that resolves a deferred entry (D49), and where it may not,
+// applies the conservative default instead.
+func (e *env) CanRead(f *eir.Func, id eir.FuncID) bool {
+	if e.virt.isVirtual(id) {
+		for _, m := range e.virt.sets[int(id)-len(e.p.Funcs)] {
+			if !e.CanRead(f, m) {
+				return false
+			}
+		}
+		return true
+	}
+	if int(id) >= len(e.sums) || e.inSCC[id] < 0 || e.inSCC[id] > e.current {
+		return false
+	}
+	return true
+}
+
+// Methods are the functions an interface call of method m may run on a
+// value of dynamic type t (cands.methodsOf): for a call resolved by the
+// dynamic type of a box the caller knows (D49 for the interface calls of
+// fmt's walk). They depend on the whole program (its adapters and
+// wrappers), so the cache records them.
+func (e *env) Methods(t types2.Type, m *types2.Func) []eir.FuncID {
+	if t == nil || m == nil {
+		return nil
+	}
+	set := map[eir.FuncID]bool{}
+	e.facts.c.methodsOf(t, m, set, true)
+	return setIDs(set)
+}
+
+// PointerWrappers are the dynamic types whose interface data word may be a
+// pointer to a u, other than *u: structs and arrays of one word holding
+// one (cands.pointerWrappers); known is false when the dynamic types are
+// open. For the interface calls of fmt's walk on a word that is a pointer
+// to a frame object (D49b). The cache records them.
+func (e *env) PointerWrappers(u types2.Type) ([]types2.Type, bool) {
+	return e.facts.c.pointerWrappers(u)
+}
+
+// Deferred reports whether call c of f is deferred to f's callers (D49):
+// the solver resolves no candidate of it in f.
+func (e *env) Deferred(f *eir.Func, c *eir.Call) bool {
+	return e.facts.def != nil && e.facts.def.deferred(f, c)
+}
+
+func (e *env) HeapOnly(T types2.Type, field int) bool { return e.facts.HeapOnly(T, field) }
+
+// Retyped implements solve.Env: stage B's pointer conversions.
+func (e *env) Retyped(u, v types2.Type) bool { return e.facts.rt.viewedAs(u, v) }
+
+// Instantiated implements solve.Env: stage B's instantiation sets.
+func (e *env) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
+	return e.facts.Instantiated(tp)
+}
+
+// clone copies a summary into memory of its own, sharing nothing with the
+// solver's workspace.
+func clone(s *summary.Summary) *summary.Summary {
+	if s == nil {
+		return nil
+	}
+	c := pu.New(summary.Summary{
+		Inputs:    s.Inputs,
+		Esc:       compat.AppendPlain([]domain.Key(nil), s.Esc...),
+		Store:     compat.Append([]summary.StorePair(nil), s.Store...),
+		HeapStore: compat.AppendPlain([]domain.Key(nil), s.HeapStore...),
+		Region: summary.Region{
+			Builds:       s.Region.Builds,
+			Self:         s.Region.Self,
+			OuterResults: compat.AppendPlain([]int(nil), s.Region.OuterResults...),
+			Lits:         compat.AppendPlain([]eir.FuncID(nil), s.Region.Lits...),
+		},
+		Reasons:  compat.Append([]summary.Reason(nil), s.Reasons...),
+		Deferred: compat.Append([]summary.Deferred(nil), s.Deferred...),
+	})
+	for i := range c.Deferred {
+		d := &c.Deferred[i]
+		d.Args = compat.Append([]summary.DeferredArg(nil), d.Args...)
+		for j := range d.Args {
+			d.Args[j].Keys = compat.AppendPlain([]domain.Key(nil), d.Args[j].Keys...)
+		}
+	}
+	if s.Res != nil {
+		c.Res = compat.Make[summary.Result](len(s.Res))
+		for i, r := range s.Res {
+			c.Res[i] = summary.Result{
+				From:        compat.Append([]summary.ResultKey(nil), r.From...),
+				Heap:        compat.AppendPlain([]domain.PathID(nil), r.Heap...),
+				CountedHeap: compat.AppendPlain([]domain.PathID(nil), r.CountedHeap...),
+			}
+		}
+	}
+	return c
+}
+
+// summaryBytes estimates the memory a summary holds.
+func summaryBytes(s *summary.Summary) int {
+	if s == nil {
+		return 0
+	}
+	n := 128 + 8*len(s.Esc) + 16*len(s.Store) + 8*len(s.HeapStore) + 8*len(s.Region.OuterResults) + 12*len(s.Reasons)
+	for _, r := range s.Res {
+		n += 56 + 16*len(r.From) + 4*len(r.Heap) + 4*len(r.CountedHeap)
+	}
+	return n
+}

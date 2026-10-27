@@ -1,0 +1,975 @@
+// Translated by go2pu from internal/ssatext/read.go at the go-cutover tag; edited by hand since.
+
+// Package ssatext reads the textual form of an SSA program, which
+// internal/ssawrite writes: the join between a front end and a back end
+// that cannot share a process (self-hosting plan, sections 6.3 and 8,
+// phase 3). The Go front end lowers a program and writes it; the back end,
+// built from the Plutonium translation of this package, the optimiser, the
+// code generator and the object writer, reads it and writes the object file.
+//
+// The text holds everything the back end reads of a program, exactly:
+// value, block and slot numbers (with their gaps), the order of every list,
+// the identity of types and symbols, the positions with the files they lie
+// in, and the use counts. A program read back is optimised and compiled to
+// the same bytes as the original.
+//
+// The form is line oriented. A line is a record: a tag, then fields
+// separated by single spaces. A field is a number, a word, or a string in
+// double quotes with Go's escapes; lists are a count and the elements, and a
+// count of -1 stands for a nil slice. References are numbers: a symbol is its
+// index in the symbol list, a type is its name or "#n" for the nth entry
+// of the type list, a value, block and slot its ID in the function.
+//
+//	ssatext 1
+//	types N                             N lines, each "type" tuple n T... or "type" vec size n T...
+//	files N                             N lines "file base size name nlines off... ninfos (off name line col)..."
+//	syms N                              N lines "sym kind percpu name"
+//	datas N                             N lines "data sym size align readonly local section bytes nrelocs (off sym addend)..."
+//	funcs N                             N functions, each
+//	    func name sym abi pragmas section pos end pkg nosse values blocks slots fpos
+//	         genpanic genrangepanic genlive genrange deferrunner deferrecord entry
+//	    exports n name...
+//	    params n T...
+//	    results n T...
+//	    paramonstack n bool...
+//	    genowner n int...
+//	    inlines N                       N lines "inline parent func pos start end"
+//	    slots N                         N lines "slot id name size align offset closure leaves pads parts"
+//	    strholds N                      N lines "strhold nR id... nL id... nC id..."
+//	    blocks N                        N blocks, each
+//	        block id kind likely pos inl ncontrols id... nsuccs (block index)... npreds (block index)... nvalues
+//	        nvalues lines "v id op type auxint aux pos inl uses nargs id... call"
+//	    detached N                      N value lines, of values no block holds but a string hold uses
+//	    endfunc
+//
+// A value's aux is "-", "s<sym>", "l<slot>", "t<type>" or "i<string>". Its
+// call is "0" or "1 abi variadic noreturn implicit alloc nresults T...
+// nonstack n bool...". The bytes of a datum are hexadecimal, "-" for nil.
+package ssatext
+
+import (
+	"pluto/strconv"
+	"compiler/compat"
+	"compiler/internal/ssa"
+	"compiler/internal/syntax/token"
+	"compiler/pu"
+)
+
+// Version is the version of the text form, on its first line.
+const Version = 1
+
+// A reader scans the text of a program.
+type reader struct {
+	data []byte
+	pos  int
+	line int
+	err  error
+
+	types []*ssa.Type
+	syms  []*ssa.Sym
+	prog  *ssa.Program
+	fset  *token.FileSet
+}
+
+// Read parses the text of a program. It returns the program and the file
+// set of its positions.
+func Read(data []byte) (*ssa.Program, *token.FileSet, error) {
+	r := &reader{data: data, line: 1, prog: ssa.NewProgram(), fset: token.NewFileSet()}
+	r.program()
+	if r.err != nil {
+		return nil, nil, r.err
+	}
+	return r.prog, r.fset, nil
+}
+
+// fail records the first error, with the line it is on.
+func (r *reader) fail(format string, args ...any) {
+	if r.err == nil {
+		r.err = compat.NewError(compat.Sprintfb("ssatext: line %d: %s", compat.ArgI(int64(r.line)), compat.ArgS(compat.Sprintf(format, args...))))
+	}
+}
+
+// atEnd reports whether all the input is read.
+func (r *reader) atEnd() bool { return r.pos >= len(r.data) }
+
+// word returns the next field of the line: the bytes up to a space or the
+// end of the line, or a quoted string with its quotes. It returns nil at
+// the end of the line.
+func (r *reader) word() []byte {
+	if r.err != nil {
+		return nil
+	}
+	for r.pos < len(r.data) && r.data[r.pos] == ' ' {
+		r.pos++
+	}
+	start := r.pos
+	if r.pos >= len(r.data) || r.data[r.pos] == '\n' {
+		r.fail("unexpected end of line")
+		return nil
+	}
+	if r.data[r.pos] == '"' {
+		r.pos++
+		for r.pos < len(r.data) && r.data[r.pos] != '"' {
+			if r.data[r.pos] == '\\' {
+				r.pos++
+			}
+			if r.pos < len(r.data) && r.data[r.pos] == '\n' {
+				break
+			}
+			r.pos++
+		}
+		if r.pos >= len(r.data) || r.data[r.pos] != '"' {
+			r.fail("unterminated string")
+			return nil
+		}
+		r.pos++
+		return r.data[start:r.pos]
+	}
+	for r.pos < len(r.data) && r.data[r.pos] != ' ' && r.data[r.pos] != '\n' {
+		r.pos++
+	}
+	return r.data[start:r.pos]
+}
+
+// endLine consumes the end of the line.
+func (r *reader) endLine() {
+	if r.err != nil {
+		return
+	}
+	for r.pos < len(r.data) && r.data[r.pos] == ' ' {
+		r.pos++
+	}
+	if r.pos >= len(r.data) || r.data[r.pos] != '\n' {
+		r.fail("unexpected text at the end of the line")
+		return
+	}
+	r.pos++
+	r.line++
+}
+
+// tag reads the tag of a record and checks it.
+func (r *reader) tag(want string) {
+	w := r.word()
+	if r.err == nil && !eq(w, want) {
+		r.fail("want %q, have %q", pu.Box(want), pu.Box(compat.String(w)))
+	}
+}
+
+// eq reports whether w holds the bytes of s.
+func eq(w []byte, s string) bool {
+	if len(w) != len(s) {
+		return false
+	}
+	for i := range w {
+		if w[i] != s[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// int reads a decimal number.
+func (r *reader) int() int64 {
+	w := r.word()
+	if r.err != nil {
+		return 0
+	}
+	neg := false
+	i := 0
+	if len(w) > 0 && w[0] == '-' {
+		neg = true
+		i = 1
+	}
+	if i >= len(w) {
+		r.fail("bad number %q", pu.Box(compat.String(w)))
+		return 0
+	}
+	var n uint64
+	for ; i < len(w); i++ {
+		c := w[i]
+		if c < '0' || c > '9' {
+			r.fail("bad number %q", pu.Box(compat.String(w)))
+			return 0
+		}
+		n = n*10 + uint64(c-'0')
+	}
+	if neg {
+		return -int64(n)
+	}
+	return int64(n)
+}
+
+// uint reads a decimal number that is not negative, as an int.
+func (r *reader) count() int {
+	n := r.int()
+	if n < -1 || n > 1<<31 {
+		r.fail("bad count %d", n)
+		return 0
+	}
+	return int(n)
+}
+
+// str reads a quoted string.
+func (r *reader) str() string {
+	w := r.word()
+	if r.err != nil {
+		return ""
+	}
+	s, err := strconv.Unquote(compat.String(w))
+	if err != nil {
+		r.fail("bad string %s", pu.Box(compat.String(w)))
+		return ""
+	}
+	return s
+}
+
+// bool reads 0 or 1.
+func (r *reader) bool() bool {
+	switch n := r.int(); n {
+	case 0:
+		return false
+	case 1:
+		return true
+	default:
+		r.fail("bad boolean %d", n)
+		return false
+	}
+}
+
+// typeNames are the predeclared types, which the text names.
+var typeNames = [...]string{"void", "mem", "bool", "i8", "i16", "i32", "i64", "f32", "f64", "ptr", "flags", "f64x2"}
+
+func predeclared(i int) *ssa.Type {
+	switch i {
+	case 0:
+		return ssa.TVoid
+	case 1:
+		return ssa.TMem
+	case 2:
+		return ssa.TBool
+	case 3:
+		return ssa.TI8
+	case 4:
+		return ssa.TI16
+	case 5:
+		return ssa.TI32
+	case 6:
+		return ssa.TI64
+	case 7:
+		return ssa.TF32
+	case 8:
+		return ssa.TF64
+	case 9:
+		return ssa.TPtr
+	case 10:
+		return ssa.TFlags
+	}
+	return ssa.TF64x2
+}
+
+// typeRef reads a type: its name, or #n for a type of the list.
+func (r *reader) typeRef() *ssa.Type {
+	return r.typeOf(r.word())
+}
+
+// typeOf is the type a word names.
+func (r *reader) typeOf(w []byte) *ssa.Type {
+	if r.err != nil {
+		return nil
+	}
+	if len(w) >= 2 && w[0] == '#' {
+		n, ok := atoi(w[1:])
+		if !ok || n >= len(r.types) || r.types[n] == nil {
+			r.fail("type %s is not defined", pu.Box(compat.String(w)))
+			return nil
+		}
+		return r.types[n]
+	}
+	for i, name := range typeNames {
+		if eq(w, name) {
+			return predeclared(i)
+		}
+	}
+	r.fail("bad type %q", pu.Box(compat.String(w)))
+	return nil
+}
+
+// typeList reads a count and that many types; nil for a count of -1.
+func (r *reader) typeList() []*ssa.Type {
+	n := r.count()
+	if n < 0 || r.err != nil {
+		return nil
+	}
+	out := compat.Make[*ssa.Type](n)
+	for i := range out {
+		out[i] = r.typeRef()
+	}
+	return out
+}
+
+// symRef reads a symbol: its index, or -1 for none.
+func (r *reader) symRef() *ssa.Sym {
+	n := r.int()
+	if r.err != nil || n < 0 {
+		return nil
+	}
+	if n >= int64(len(r.syms)) {
+		r.fail("symbol %d is not defined", n)
+		return nil
+	}
+	return r.syms[n]
+}
+
+func (r *reader) program() {
+	r.tag("ssatext")
+	if v := r.int(); v != Version {
+		r.fail("version %d is not supported", v)
+	}
+	r.endLine()
+	r.opTable()
+	r.typeTable()
+	r.fileTable()
+	r.symTable()
+	r.dataTable()
+	r.tag("funcs")
+	n := r.count()
+	r.endLine()
+	for i := 0; i < n && r.err == nil; i++ {
+		r.prog.Funcs = compat.Append(r.prog.Funcs, r.function())
+	}
+	if r.err == nil && !r.atEnd() {
+		r.fail("text after the last function")
+	}
+}
+
+func (r *reader) typeTable() {
+	r.tag("types")
+	n := r.count()
+	r.endLine()
+	r.types = compat.Make[*ssa.Type](n)
+	for i := 0; i < n && r.err == nil; i++ {
+		r.tag("type")
+		kind := r.word()
+		switch compat.String(kind) {
+		case "tuple":
+			r.types[i] = pu.New(ssa.Type{Kind: ssa.KTuple, Elems: r.typeList()})
+		case "vec":
+			size := r.int()
+			elems := r.typeList()
+			r.types[i] = pu.New(ssa.Type{Kind: ssa.KVec, Size: size, Elems: elems})
+		default:
+			r.fail("bad type kind %q", pu.Box(compat.String(kind)))
+		}
+		r.endLine()
+	}
+}
+
+func (r *reader) fileTable() {
+	r.tag("files")
+	n := r.count()
+	r.endLine()
+	for i := 0; i < n && r.err == nil; i++ {
+		r.tag("file")
+		base := int(r.int())
+		size := int(r.int())
+		name := r.str()
+		nlines := r.count()
+		if r.err != nil {
+			return
+		}
+		if base < r.fset.Base() || size < 0 || nlines < 0 {
+			r.fail("bad file")
+			return
+		}
+		f := r.fset.AddFile(name, base, size)
+		lines := compat.Make[int](nlines)
+		for j := range lines {
+			lines[j] = int(r.int())
+		}
+		if r.err == nil && nlines > 0 && !f.SetLines(lines) {
+			r.fail("bad line table")
+		}
+		ninfos := r.count()
+		for j := 0; j < ninfos && r.err == nil; j++ {
+			off := int(r.int())
+			fname := r.str()
+			line := int(r.int())
+			col := int(r.int())
+			f.AddLineColumnInfo(off, fname, line, col)
+		}
+		r.endLine()
+	}
+}
+
+func (r *reader) symTable() {
+	r.tag("syms")
+	n := r.count()
+	r.endLine()
+	r.syms = compat.Make[*ssa.Sym](n)
+	for i := 0; i < n && r.err == nil; i++ {
+		r.tag("sym")
+		kind := ssa.SymKind(r.int())
+		percpu := r.bool()
+		name := r.str()
+		r.endLine()
+		if r.err != nil {
+			return
+		}
+		if r.prog.LookupSym(name) != nil {
+			r.fail("symbol %q twice", pu.Box(name))
+			return
+		}
+		s := r.prog.Sym(name, kind)
+		s.PerCPU = percpu
+		r.syms[i] = s
+	}
+}
+
+func (r *reader) dataTable() {
+	r.tag("datas")
+	n := r.count()
+	r.endLine()
+	for i := 0; i < n && r.err == nil; i++ {
+		r.tag("data")
+		d := pu.New(ssa.Data{})
+		d.Sym = r.symRef()
+		d.Size = r.int()
+		d.Align = r.int()
+		d.ReadOnly = r.bool()
+		d.Local = r.bool()
+		d.Section = r.str()
+		d.Bytes = r.hex()
+		nrel := r.count()
+		for j := 0; j < nrel && r.err == nil; j++ {
+			off := r.int()
+			sym := r.symRef()
+			add := r.int()
+			d.Relocs = compat.Append(d.Relocs, ssa.DataReloc{Off: off, Sym: sym, Addend: add})
+		}
+		r.endLine()
+		r.prog.Data = compat.Append(r.prog.Data, d)
+	}
+}
+
+// hex reads bytes in hexadecimal; "-" is nil, "=" is empty but not nil.
+func (r *reader) hex() []byte {
+	w := r.word()
+	if r.err != nil {
+		return nil
+	}
+	if len(w) == 1 && w[0] == '-' {
+		return nil
+	}
+	if len(w) == 1 && w[0] == '=' {
+		return compat.Clone([]byte{})
+	}
+	if len(w)%2 != 0 {
+		r.fail("odd hex string")
+		return nil
+	}
+	out := compat.Make[byte](len(w) / 2)
+	for i := range out {
+		hi, lo := hexDigit(w[2*i]), hexDigit(w[2*i+1])
+		if hi < 0 || lo < 0 {
+			r.fail("bad hex digit")
+			return nil
+		}
+		out[i] = byte(hi<<4 | lo)
+	}
+	return out
+}
+
+func hexDigit(c byte) int {
+	switch {
+	case '0' <= c && c <= '9':
+		return int(c - '0')
+	case 'a' <= c && c <= 'f':
+		return int(c-'a') + 10
+	}
+	return -1
+}
+
+// opTable reads the table of ops, which the text gives by number and name,
+// and checks it against the ops of this build.
+func (r *reader) opTable() {
+	r.tag("ops")
+	n := r.count()
+	r.endLine()
+	if r.err == nil && n != int(ssa.OpGenericEnd) {
+		r.fail("the text has %d ops, this build %d", n, int(ssa.OpGenericEnd))
+		return
+	}
+	for i := 0; i < n && r.err == nil; i++ {
+		r.tag("op")
+		num := r.int()
+		name := r.word()
+		r.endLine()
+		if r.err == nil && (num != int64(i) || !eq(name, ssa.Op(i).String())) {
+			r.fail("op %d is %q here and %q in the text", i, pu.Box(ssa.Op(i).String()), pu.Box(compat.String(name)))
+		}
+	}
+}
+
+// A pending holds the references of a function that are resolved when all
+// its values, blocks and slots exist.
+type pending struct {
+	f      *ssa.Func
+	values []*ssa.Value
+	blocks []*ssa.Block
+	slots  []*ssa.Slot
+}
+
+func (p *pending) value(r *reader, id int64) *ssa.Value {
+	if id < 0 || id >= int64(len(p.values)) || p.values[id] == nil {
+		r.fail("value v%d is not defined", id)
+		return nil
+	}
+	return p.values[id]
+}
+
+func (p *pending) block(r *reader, id int64) *ssa.Block {
+	if id < 0 || id >= int64(len(p.blocks)) || p.blocks[id] == nil {
+		r.fail("block b%d is not defined", id)
+		return nil
+	}
+	return p.blocks[id]
+}
+
+func (p *pending) slot(r *reader, id int64) *ssa.Slot {
+	if id < 0 || id >= int64(len(p.slots)) || p.slots[id] == nil {
+		r.fail("slot %d is not defined", id)
+		return nil
+	}
+	return p.slots[id]
+}
+
+// A valueRefs holds the references of one value, resolved at the end.
+type valueRefs struct {
+	v    *ssa.Value
+	args []int64
+	aux  int64 // slot ID, if the aux is a slot
+}
+
+// A holdRefs holds the references of a StrHold.
+type holdRefs struct {
+	retains, releases, covered []int64
+}
+
+// idList reads a count and that many numbers.
+func (r *reader) idList() []int64 {
+	n := r.count()
+	var out []int64
+	for i := 0; i < n && r.err == nil; i++ {
+		out = compat.AppendPlain(out, r.int())
+	}
+	return out
+}
+
+// A blockRefs holds the references of one block, resolved at the end.
+type blockRefs struct {
+	b        *ssa.Block
+	controls []int64
+	succs    []ssa.Edge // B is set from succIDs
+	succIDs  []int64
+	preds    []ssa.Edge
+	predIDs  []int64
+}
+
+func (r *reader) function() *ssa.Func {
+	r.tag("func")
+	f := pu.New(ssa.Func{})
+	f.Name = r.str()
+	f.Sym = r.symRef()
+	f.ABI = ssa.ABI(r.int())
+	f.Pragmas = ssa.Pragma(r.int())
+	f.Section = r.str()
+	f.Pos = token.Pos(r.int())
+	f.End = token.Pos(r.int())
+	f.Pkg = r.str()
+	f.NoSSE = r.bool()
+	nvalues := int(r.int())
+	nblocks := int(r.int())
+	nslots := int(r.int())
+	fpos := token.Pos(r.int())
+	f.GenPanic = r.symRef()
+	f.GenRangePanic = r.symRef()
+	f.GenLive = r.symRef()
+	f.GenRange = r.symRef()
+	deferRunner := r.symRef()
+	deferRecord := r.int()
+	entry := r.int()
+	r.endLine()
+	if r.err != nil {
+		return f
+	}
+	if nvalues < 0 || nblocks < 0 || nslots < 0 || nvalues > 1<<28 || nblocks > 1<<28 || nslots > 1<<28 {
+		r.fail("bad numbering")
+		return f
+	}
+	f.DeferRunner = deferRunner
+	p := &pending{f: f, values: compat.Make[*ssa.Value](nvalues), blocks: compat.Make[*ssa.Block](nblocks), slots: compat.Make[*ssa.Slot](nslots)}
+
+	r.tag("exports")
+	if n := r.count(); n >= 0 {
+		f.Exports = compat.Make[string](n)
+		for i := range f.Exports {
+			f.Exports[i] = r.str()
+		}
+	}
+	r.endLine()
+	r.tag("params")
+	f.Params = r.typeList()
+	r.endLine()
+	r.tag("results")
+	f.Results = r.typeList()
+	r.endLine()
+	r.tag("paramonstack")
+	if n := r.count(); n >= 0 {
+		f.ParamOnStack = compat.Make[bool](n)
+		for i := range f.ParamOnStack {
+			f.ParamOnStack[i] = r.bool()
+		}
+	}
+	r.endLine()
+	r.tag("genowner")
+	if n := r.count(); n >= 0 {
+		f.GenOwnerArgs = compat.Make[int64](n)
+		for i := range f.GenOwnerArgs {
+			f.GenOwnerArgs[i] = r.int()
+		}
+	}
+	r.endLine()
+
+	r.tag("inlines")
+	n := r.count()
+	r.endLine()
+	for i := 0; i < n && r.err == nil; i++ {
+		r.tag("inline")
+		var s ssa.InlineSite
+		s.Parent = int32(r.int())
+		s.Func = r.str()
+		s.Pos = token.Pos(r.int())
+		s.Start = token.Pos(r.int())
+		s.End = token.Pos(r.int())
+		r.endLine()
+		f.Inlines = compat.Append(f.Inlines, s)
+	}
+
+	r.tag("slots")
+	n = r.count()
+	r.endLine()
+	for i := 0; i < n && r.err == nil; i++ {
+		s := r.slot()
+		if r.err != nil {
+			break
+		}
+		if s.ID < 0 || s.ID >= nslots || p.slots[s.ID] != nil {
+			r.fail("bad slot ID %d", s.ID)
+			break
+		}
+		p.slots[s.ID] = s
+		f.Slots = compat.Append(f.Slots, s)
+	}
+
+	r.tag("strholds")
+	var holds []holdRefs
+	n = r.count()
+	r.endLine()
+	for i := 0; i < n && r.err == nil; i++ {
+		r.tag("strhold")
+		var h holdRefs
+		h.retains = r.idList()
+		h.releases = r.idList()
+		h.covered = r.idList()
+		r.endLine()
+		holds = compat.Append(holds, h)
+	}
+
+	r.tag("blocks")
+	n = r.count()
+	r.endLine()
+	var brefs []blockRefs
+	var vrefs []valueRefs
+	for i := 0; i < n && r.err == nil; i++ {
+		br := r.block(f, p)
+		brefs = compat.Append(brefs, br)
+		nv := int(r.int())
+		r.endLine()
+		for j := 0; j < nv && r.err == nil; j++ {
+			vrefs = compat.Append(vrefs, r.value(br.b, p))
+		}
+	}
+	r.tag("detached")
+	n = r.count()
+	r.endLine()
+	for i := 0; i < n && r.err == nil; i++ {
+		vrefs = compat.Append(vrefs, r.value(nil, p))
+	}
+	r.tag("endfunc")
+	r.endLine()
+	if r.err != nil {
+		return f
+	}
+
+	// Resolve the references.
+	for _, vr := range vrefs {
+		v := vr.v
+		for _, id := range vr.args {
+			a := p.value(r, id)
+			v.Args = compat.Append(v.Args, a)
+		}
+		if _, ok := v.Aux.(*ssa.Slot); ok {
+			v.Aux = p.slot(r, vr.aux)
+		}
+	}
+	for _, br := range brefs {
+		b := br.b
+		for _, id := range br.controls {
+			b.Controls = compat.Append(b.Controls, p.value(r, id))
+		}
+		for i, id := range br.succIDs {
+			e := br.succs[i]
+			e.B = p.block(r, id)
+			b.Succs = compat.Append(b.Succs, e)
+		}
+		for i, id := range br.predIDs {
+			e := br.preds[i]
+			e.B = p.block(r, id)
+			b.Preds = compat.Append(b.Preds, e)
+		}
+	}
+	for _, h := range holds {
+		var sh ssa.StrHold
+		for _, id := range h.retains {
+			sh.Retains = compat.Append(sh.Retains, p.value(r, id))
+		}
+		for _, id := range h.releases {
+			sh.Releases = compat.Append(sh.Releases, p.value(r, id))
+		}
+		for _, id := range h.covered {
+			sh.Covered = compat.Append(sh.Covered, p.value(r, id))
+		}
+		f.StrHolds = compat.Append(f.StrHolds, sh)
+	}
+	if deferRecord >= 0 {
+		f.DeferRecord = p.slot(r, deferRecord)
+	}
+	f.Entry = p.block(r, entry)
+	f.SetNumbering(nvalues, nblocks, nslots)
+	f.SetPos(fpos)
+	return f
+}
+
+func (r *reader) slot() *ssa.Slot {
+	r.tag("slot")
+	s := pu.New(ssa.Slot{})
+	s.ID = int(r.int())
+	s.Name = r.str()
+	s.Size = r.int()
+	s.Align = r.int()
+	s.Offset = r.int()
+	s.Closure = r.bool()
+	s.Leaves = r.leaves()
+	s.Pads = r.pads()
+	s.Parts = r.parts()
+	r.endLine()
+	return s
+}
+
+func (r *reader) leaves() []ssa.Leaf {
+	n := r.count()
+	if n < 0 || r.err != nil {
+		return nil
+	}
+	out := compat.Make[ssa.Leaf](n)
+	for i := range out {
+		out[i].Off = r.int()
+		out[i].Type = r.typeRef()
+	}
+	return out
+}
+
+func (r *reader) pads() []ssa.Pad {
+	n := r.count()
+	if n < 0 || r.err != nil {
+		return nil
+	}
+	out := compat.Make[ssa.Pad](n)
+	for i := range out {
+		out[i].Off = r.int()
+		out[i].Size = r.int()
+	}
+	return out
+}
+
+func (r *reader) parts() []ssa.Part {
+	n := r.count()
+	if n < 0 || r.err != nil {
+		return nil
+	}
+	out := compat.Make[ssa.Part](n)
+	for i := range out {
+		pt := &out[i]
+		pt.Off = r.int()
+		pt.Size = r.int()
+		pt.Align = r.int()
+		pt.Closure = r.bool()
+		pt.Region = r.bool()
+		pt.Leaves = r.leaves()
+		pt.Pads = r.pads()
+		pt.Parts = r.parts()
+	}
+	return out
+}
+
+// block reads a block record and adds the block to f.
+func (r *reader) block(f *ssa.Func, p *pending) blockRefs {
+	r.tag("block")
+	b := pu.New(ssa.Block{Func: f})
+	id := r.int()
+	b.Kind = ssa.BlockKind(r.int())
+	b.Likely = int8(r.int())
+	b.Pos = token.Pos(r.int())
+	b.Inl = int32(r.int())
+	var br blockRefs
+	br.b = b
+	n := r.count()
+	for i := 0; i < n && r.err == nil; i++ {
+		br.controls = compat.AppendPlain(br.controls, r.int())
+	}
+	n = r.count()
+	for i := 0; i < n && r.err == nil; i++ {
+		br.succIDs = compat.AppendPlain(br.succIDs, r.int())
+		br.succs = compat.Append(br.succs, ssa.Edge{I: int(r.int())})
+	}
+	n = r.count()
+	for i := 0; i < n && r.err == nil; i++ {
+		br.predIDs = compat.AppendPlain(br.predIDs, r.int())
+		br.preds = compat.Append(br.preds, ssa.Edge{I: int(r.int())})
+	}
+	if r.err != nil {
+		return br
+	}
+	if id < 0 || id >= int64(len(p.blocks)) || p.blocks[id] != nil {
+		r.fail("bad block ID %d", id)
+		return br
+	}
+	b.ID = int(id)
+	p.blocks[id] = b
+	f.Blocks = compat.Append(f.Blocks, b)
+	return br
+}
+
+// value reads a value record and adds the value to b.
+func (r *reader) value(b *ssa.Block, p *pending) valueRefs {
+	r.tag("v")
+	v := pu.New(ssa.Value{Block: b})
+	id := r.int()
+	op := r.int()
+	if r.err == nil && (op <= 0 || op >= int64(ssa.OpGenericEnd)) {
+		r.fail("bad op %d", op)
+	}
+	v.Op = ssa.Op(op)
+	v.Type = r.typeRef()
+	v.AuxInt = r.int()
+	var vr valueRefs
+	vr.v = v
+	r.aux(&vr)
+	v.Pos = token.Pos(r.int())
+	v.Inl = int32(r.int())
+	v.Uses = int32(r.int())
+	n := r.count()
+	for i := 0; i < n && r.err == nil; i++ {
+		vr.args = compat.AppendPlain(vr.args, r.int())
+	}
+	if r.bool() {
+		ci := pu.New(ssa.CallInfo{})
+		ci.ABI = ssa.ABI(r.int())
+		ci.Variadic = r.bool()
+		ci.NoReturn = r.bool()
+		ci.Implicit = r.bool()
+		ci.Alloc = ssa.AllocMethod(r.int())
+		ci.Results = r.typeList()
+		if m := r.count(); m >= 0 && r.err == nil {
+			ci.OnStack = compat.Make[bool](m)
+			for i := range ci.OnStack {
+				ci.OnStack[i] = r.bool()
+			}
+		}
+		v.Call = ci
+	}
+	r.endLine()
+	if r.err != nil {
+		return vr
+	}
+	if id < 0 || id >= int64(len(p.values)) || p.values[id] != nil {
+		r.fail("bad value ID %d", id)
+		return vr
+	}
+	v.ID = int(id)
+	p.values[id] = v
+	if b != nil {
+		b.Values = compat.Append(b.Values, v)
+	}
+	return vr
+}
+
+// aux reads the aux field of a value. A slot is a placeholder resolved
+// when all the function's slots are known; vr.aux is its ID.
+func (r *reader) aux(vr *valueRefs) {
+	w := r.word()
+	if r.err != nil {
+		return
+	}
+	if len(w) == 1 && w[0] == '-' {
+		return
+	}
+	if len(w) < 2 {
+		r.fail("bad aux %q", pu.Box(compat.String(w)))
+		return
+	}
+	rest := w[1:]
+	switch w[0] {
+	case 's':
+		n, ok := atoi(rest)
+		if !ok || n >= len(r.syms) {
+			r.fail("bad aux %q", pu.Box(compat.String(w)))
+			return
+		}
+		vr.v.Aux = r.syms[n]
+	case 'l':
+		n, ok := atoi(rest)
+		if !ok {
+			r.fail("bad aux %q", pu.Box(compat.String(w)))
+			return
+		}
+		vr.v.Aux = pu.New(ssa.Slot{})
+		vr.aux = int64(n)
+	case 't':
+		vr.v.Aux = r.typeOf(rest)
+	case 'i':
+		s, err := strconv.Unquote(compat.String(rest))
+		if err != nil {
+			r.fail("bad aux %q", pu.Box(compat.String(w)))
+			return
+		}
+		vr.v.Aux = ssa.NewIntrinsic(s)
+	default:
+		r.fail("bad aux %q", pu.Box(compat.String(w)))
+	}
+}
+
+// atoi parses a decimal number without a sign.
+func atoi(w []byte) (int, bool) {
+	if len(w) == 0 || len(w) > 9 {
+		return 0, false
+	}
+	n := 0
+	for _, c := range w {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, true
+}

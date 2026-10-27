@@ -1,0 +1,377 @@
+// Translated by go2pu from internal/types2/indexing.go at the go-cutover tag; edited by hand since.
+
+package types2
+
+// The indexing interface (language spec section 11.11). Library containers
+// such as vec.Vec and hash.Map are structs, so the built-in index
+// expression does not apply to them. Instead, on an operand whose type is
+// not a string, array, pointer to array, slice or map:
+//
+//	x[k]         calls x.Index(k), a value
+//	x[k] = v     calls x.SetIndex(k, v)
+//	v, ok := x[k] calls x.IndexOk(k)
+//	x[k] op= v   calls x.Index(k), then x.SetIndex(k, result); x and k are evaluated once
+//	len(x)       calls x.Len()
+//
+// The result of x[k] is a value, never a variable: &x[k] and assigning to
+// a field or element of x[k] are errors, since the methods return copies.
+
+import (
+	"compiler/internal/syntax/ast"
+	. "compiler/internal/types2/errors"
+	"compiler/pu"
+)
+
+// The names of the indexing methods.
+const (
+	IndexMethodName    = "Index"
+	SetIndexMethodName = "SetIndex"
+	IndexOkMethodName  = "IndexOk"
+	LenMethodName      = "Len"
+)
+
+// IndexesByMethod reports whether an index expression whose operand has
+// type T calls T's indexing methods rather than indexing a built-in type.
+// T is the operand's type as the checker recorded it: in a generic
+// function, before instantiation, so that the choice is the same for
+// every instance.
+func IndexesByMethod(T Type) bool {
+	if _, ok := T.Underlying().(*Signature); ok {
+		return false // a function instantiation, f[int]
+	}
+	return !underIs(T, builtinIndexable)
+}
+
+// LenByMethod reports whether len(x) for an x of type T calls x.Len.
+// As for IndexesByMethod, T is the type the checker recorded.
+func LenByMethod(T Type) bool {
+	return !underIs(T, builtinLen)
+}
+
+// builtinIndexable reports whether the index expression is built in for
+// the underlying type u (nil for a type parameter without specific types).
+func builtinIndexable(u Type) bool {
+	switch u := u.(type) {
+	case *Basic:
+		return isString(u)
+	case *Array, *Slice, *Map:
+		return true
+	case *Pointer:
+		_, ok := u.base.Underlying().(*Array)
+		return ok
+	case *Wrapper:
+		if u.IsPointer() {
+			return builtinIndexable(boxAsPointer(u))
+		}
+		return u.isTransparent() && builtinIndexable(u.elem.Underlying())
+	}
+	return false
+}
+
+// builtinLen reports whether len is built in for the underlying type u.
+func builtinLen(u Type) bool {
+	switch u := u.(type) {
+	case *Basic:
+		return isString(u)
+	case *Array, *Slice, *Map, *Chan:
+		return true
+	case *Pointer:
+		_, ok := u.base.Underlying().(*Array)
+		return ok
+	case *Wrapper:
+		// A ring is not built in for len: len(r) calls its Len method,
+		// as for a container (language spec section 13.6).
+		if u.IsPointer() {
+			return builtinLen(boxAsPointer(u))
+		}
+		return u.isTransparent() && builtinLen(u.elem.Underlying())
+	}
+	return false
+}
+
+// indexMethod looks up the indexing method name of x. It returns its
+// signature, or nil if x has no such method. needPtr reports that the
+// method exists but has a pointer receiver and x is not addressable.
+func (check *Checker) indexMethod(x *operand, name string) (sig *Signature, needPtr bool) {
+	obj, _, indirect := lookupFieldOrMethod(x.typ(), x.mode() == variable, check.pkg, name, false)
+	if obj == nil {
+		return nil, indirect
+	}
+	fn, ok := obj.(*Func)
+	if !ok {
+		return nil, false
+	}
+	return fn.Signature(), false
+}
+
+// indexSig checks the signature of an indexing method and reports a
+// BadIndexMethod error if it has the wrong shape. It returns the key type
+// and the element type the method uses.
+func (check *Checker) indexSig(at positioner, T Type, name string, sig *Signature) (key, elem Type, ok bool) {
+	params, results := sig.Params(), sig.Results()
+	want := ""
+	switch {
+	case sig.TypeParams().Len() > 0 || sig.Variadic():
+		want = "may not be generic or variadic"
+	case name == IndexMethodName && (params.Len() != 1 || results.Len() != 1):
+		want = "must have the form Index(k K) V"
+	case name == SetIndexMethodName && (params.Len() != 2 || results.Len() != 0):
+		want = "must have the form SetIndex(k K, v V)"
+	case name == IndexOkMethodName && (params.Len() != 1 || results.Len() != 2 || !isBoolean(results.At(1).Type())):
+		want = "must have the form IndexOk(k K) (V, bool)"
+	}
+	if want != "" {
+		check.errorf(at, BadIndexMethod, "cannot index %s: method %s %s", T, pu.Box(name), pu.Box(want))
+		return nil, nil, false
+	}
+	key = params.At(0).Type()
+	if name == SetIndexMethodName {
+		elem = params.At(1).Type()
+	} else {
+		elem = results.At(0).Type()
+	}
+	return key, elem, true
+}
+
+// containerIndex checks e, an index expression whose operand x has a type
+// that is not indexable by the language (IndexesByMethod), as a use of
+// x's indexing methods: Index to read, SetIndex as the target of an
+// assignment, IndexOk in a comma-ok assignment. It reports false, having
+// reported nothing, if x has none of these methods, so that the caller
+// reports that x cannot be indexed.
+func (check *Checker) containerIndex(x *operand, e *indexedExpr) bool {
+	T := x.typ()
+	if _, ok := T.Underlying().(*Wrapper); ok {
+		return false // ring, owned and the other wrappers have no indexing methods
+	}
+	names := [...]string{IndexMethodName, SetIndexMethodName, IndexOkMethodName}
+	var sigs [len(names)]*Signature
+	found, needPtr := false, false
+	for i, name := range names {
+		var np bool
+		sigs[i], np = check.indexMethod(x, name)
+		found = found || sigs[i] != nil
+		needPtr = needPtr || np
+	}
+	if !found && !needPtr {
+		return false
+	}
+
+	index := check.singleIndex(e)
+	if index == nil {
+		x.invalidate()
+		return true
+	}
+
+	use, verb := 0, "read"
+	switch ast.Expr(e.orig) {
+	case check.lhsExpr:
+		use, verb = 1, "assign to"
+	case check.commaOkExpr:
+		use, verb = 2, "use comma-ok on"
+	}
+	name := names[use]
+	if sigs[use] == nil {
+		check.use(index)
+		_, np := check.indexMethod(x, name)
+		if np {
+			check.errorf(x, UnaddressableContainer, "cannot %s %s: method %s of %s has a pointer receiver, and %s is not addressable", pu.Box(verb), pu.Box(ExprString(e.orig)), pu.Box(name), T, x.expr)
+		} else {
+			check.errorf(x, MissingIndexMethod, "cannot %s %s: %s has no method %s", pu.Box(verb), pu.Box(ExprString(e.orig)), T, pu.Box(name))
+		}
+		x.invalidate()
+		return true
+	}
+
+	// The methods present must agree on the key and element types.
+	var key, elem Type
+	first := ""
+	for i, sig := range sigs {
+		if sig == nil {
+			continue
+		}
+		k, el, ok := check.indexSig(x, T, names[i], sig)
+		if !ok {
+			check.use(index)
+			x.invalidate()
+			return true
+		}
+		if key == nil {
+			key, elem, first = k, el, names[i]
+			continue
+		}
+		if !Identical(k, key) || !Identical(el, elem) {
+			check.errorf(x, IndexMethodMismatch, "cannot index %s: methods %s and %s use different key or element types", T, pu.Box(first), pu.Box(names[i]))
+			check.use(index)
+			x.invalidate()
+			return true
+		}
+	}
+
+	k := pu.Alloc[operand]()
+	check.expr(nil, k, index)
+	check.assignment(k, key, "index")
+
+	if check.containerIndexes == nil {
+		check.containerIndexes = make(map[ast.Expr]Type)
+	}
+	check.containerIndexes[e.orig] = T
+
+	switch use {
+	case 0:
+		x.mode_ = value
+	case 1:
+		x.mode_ = mapindex // assignable, like a map element in Go
+	case 2:
+		x.mode_ = commaok
+	}
+	x.typ_ = elem
+	x.expr = e.orig
+	return true
+}
+
+// containerLen checks len(x) for an x whose type has a Len() int method
+// (LenByMethod). It reports whether x has one.
+func (check *Checker) containerLen(x *operand) bool {
+	if w, ok := x.typ().Underlying().(*Wrapper); ok && w.kind != WrapRing {
+		return false
+	}
+	sig, _ := check.indexMethod(x, LenMethodName)
+	if sig == nil || sig.TypeParams().Len() > 0 || sig.Params().Len() != 0 || sig.Results().Len() != 1 ||
+		!Identical(sig.Results().At(0).Type(), Typ[Int]) {
+		return false
+	}
+	return true
+}
+
+// lenCapHint explains why len(x) or cap(x) is invalid for an x whose type
+// has methods for it (language spec section 13.6), or returns "".
+func (check *Checker) lenCapHint(x *operand, id builtinId) string {
+	if id == _Len {
+		if !LenByMethod(x.typ()) {
+			return ""
+		}
+		if w, ok := x.typ().Underlying().(*Wrapper); ok && w.kind != WrapRing {
+			return ""
+		}
+		if _, needPtr := check.indexMethod(x, LenMethodName); needPtr {
+			return "len calls its Len method, which has a pointer receiver, so the operand must be addressable or a pointer"
+		}
+		return ""
+	}
+	obj, _, _ := lookupFieldOrMethod(x.typ(), true, check.pkg, "Cap", false)
+	if _, ok := obj.(*Func); ok {
+		return "cap does not call methods; call its Cap method"
+	}
+	return ""
+}
+
+// containerPart returns the container index expression that e is a part
+// of (a field or array element of it, through no pointer), or nil.
+func (check *Checker) containerPart(e ast.Expr) ast.Expr {
+	for {
+		switch x := ast.Unparen(e).(type) {
+		case *ast.SelectorExpr:
+			e = x.X
+			continue
+		case *ast.IndexExpr:
+			if check.containerIndexes[x] != nil {
+				return x
+			}
+			e = x.X
+			continue
+		}
+		return nil
+	}
+}
+
+// containerOf returns the type of the operand of the container index
+// expression e, for messages.
+func (check *Checker) containerOf(e ast.Expr) Type {
+	return check.containerIndexes[ast.Unparen(e)]
+}
+
+// isContainerIndex reports whether e is an index expression that calls a
+// container's indexing methods.
+func (check *Checker) isContainerIndex(e ast.Expr) bool {
+	return check.containerIndexes[ast.Unparen(e)] != nil
+}
+
+// hasIndexMethod reports whether x has an Index method, for explaining
+// why a range over it is rejected.
+func (check *Checker) hasIndexMethod(x *operand) bool {
+	sig, needPtr := check.indexMethod(x, IndexMethodName)
+	return sig != nil || needPtr
+}
+
+// RangeMethodName is the method a range over a container calls.
+const RangeMethodName = "All"
+
+// RangesByMethod reports whether a range over an operand of type T ranges
+// over the iterator its All method returns rather than over a built-in
+// type. As for IndexesByMethod, T is the type the checker recorded, so
+// that in generic code the choice is made from the constraint.
+func RangesByMethod(T Type) bool {
+	return !underIs(T, builtinRangeable)
+}
+
+// builtinRangeable reports whether range is built in for the underlying
+// type u (nil for a type parameter without specific types).
+func builtinRangeable(u Type) bool {
+	switch u := u.(type) {
+	case *Basic:
+		return isString(u) || isInteger(u)
+	case *Wrapper:
+		return u.kind != WrapRing // a ring ranges over its All method
+	case *Array, *Slice, *Map, *Chan, *Signature:
+		return true
+	case *Pointer:
+		_, ok := u.base.Underlying().(*Array)
+		return ok
+	}
+	return false
+}
+
+// rangeMethod checks a range over x, whose type is not rangeable by the
+// language (RangesByMethod), as a range over x.All(), and returns the key
+// and value types of the iterator All returns. reported is set if it
+// reported an error; neither is set if x has no All method and is not a
+// container or other struct, so that the caller reports that x cannot be
+// ranged over as Go does.
+func (check *Checker) rangeMethod(x *operand) (key, val Type, ok, reported bool) {
+	T := x.typ()
+	sig, needPtr := check.indexMethod(x, RangeMethodName)
+	switch {
+	case needPtr:
+		check.softErrorf(x, UnaddressableRange, "cannot range over %s: method %s of %s has a pointer receiver, and %s is not addressable", x.expr, RangeMethodName, T, x.expr)
+		return nil, nil, false, true
+	case sig == nil:
+		if !check.hasIndexMethod(x) && !isStructOrPtr(T) {
+			return nil, nil, false, false
+		}
+		check.softErrorf(x, RangeOverContainer, "cannot range over %s: %s has no method %s returning an iterator", x, T, RangeMethodName)
+		return nil, nil, false, true
+	}
+	var R Type
+	if sig.TypeParams().Len() == 0 && !sig.Variadic() && sig.Params().Len() == 0 && sig.Results().Len() == 1 {
+		R = sig.Results().At(0).Type()
+	}
+	if R != nil {
+		if _, isFunc := R.Underlying().(*Signature); isFunc {
+			if k, v, _, ok := rangeKeyVal(check, R, nil); ok {
+				return k, v, true, false
+			}
+		}
+	}
+	check.softErrorf(x, BadRangeMethod, "cannot range over %s: method %s of %s must have the form %s() iter.Seq[V] or %s() iter.Seq2[K, V]", x.expr, RangeMethodName, T, RangeMethodName, RangeMethodName)
+	return nil, nil, false, true
+}
+
+// isStructOrPtr reports whether T is a struct or a pointer to one.
+func isStructOrPtr(T Type) bool {
+	if p, ok := T.Underlying().(*Pointer); ok {
+		T = p.base
+	}
+	_, ok := T.Underlying().(*Struct)
+	return ok
+}

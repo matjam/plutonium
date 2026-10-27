@@ -1,0 +1,675 @@
+// Translated by go2pu from internal/race/path.go at the go-cutover tag; edited by hand since.
+
+package race
+
+import (
+	"pluto/strconv"
+	"pluto/strings"
+	"compiler/compat"
+	"compiler/internal/syntax/ast"
+	"compiler/internal/syntax/token"
+	"compiler/internal/types2"
+)
+
+// Paths. A value or a place is a root followed by a path of steps:
+//
+//	.name  a field of a struct
+//	[]     an element of an array (all elements are one place)
+//	*      the memory a pointer points to
+//	%      the elements of a slice
+//	$N     the object a synced[T] refers to, T being the analyzer's type N
+//	&      the address of what the path before it names
+//	#      everything reachable from the place before it, through any
+//	       number of pointers: memory an owner owns through its views, what
+//	       dropping a value frees (a write of P# is a drop of the value at
+//	       P), or the rest of a path cut short; the steps after it are not
+//	       told apart
+//	@P     after [] or %: the part P of those elements, which an index or
+//	       slice expression selects (scope.go): @c3 is element 3; the
+//	       others are told apart only by the check of scoped tasks
+//
+// A path that ends in & is a pointer to the place the path before it names;
+// any other path names the value stored at that place. Dereferencing a
+// pointer to P gives P; dereferencing the value at P gives P followed by *.
+// Places are compared by prefix: a write of a struct writes all its fields.
+
+// maxLoads and maxSteps bound a path; a longer one is cut short with #,
+// which stands for everything below it.
+const (
+	maxLoads = 2
+	maxSteps = 8
+)
+
+// loadLimit is the bound on loads in force: maxLoads, or fewer while run
+// widens the summaries of a group of functions that is slow to settle.
+var loadLimit = maxLoads
+
+// widenPass is the pass of a group of functions after which run widens it.
+const widenPass = 4
+
+// A rootKind says what a path starts from.
+type rootKind uint8
+
+const (
+	rGlobal  rootKind = iota // a package variable
+	rParam                   // a parameter of the function being summarised (receiver first)
+	rLocal                   // a local variable: frame memory, used only as a lock base
+	rFresh                   // memory allocated at a site in this function
+	rFunc                    // a declared function used as a value
+	rLit                     // a function literal used as a value
+	rUnknown                 // memory a pointer the analysis cannot follow points to
+	rRegion                  // a region of code (region.go): preemption or interrupts disabled, a runtime lock held
+)
+
+// A root is where a path starts.
+type root struct {
+	kind rootKind
+	v    *types2.Var  // rGlobal, rLocal
+	idx  int          // rParam
+	node ast.Node     // rFresh: the allocation; rLit: the *ast.FuncLit
+	fn   *types2.Func // rFunc
+	pos  token.Pos    // rUnknown: where the pointer was used, when v is nil; rRegion: the call that opened it
+}
+
+// A vpath is a value or a place: a root and a path from it.
+type vpath struct {
+	root root
+	path string
+}
+
+func isDelim(c byte) bool {
+	return c == '.' || c == '*' || c == '%' || c == '[' || c == '&' || c == '$' || c == '#' || c == '@'
+}
+
+// steps splits a path into its steps.
+func steps(p string) []string {
+	var out []string
+	for i := 0; i < len(p); {
+		j := stepEnd(p, i)
+		out = compat.Append(out, strings.Slice(p, i, j))
+		i = j
+	}
+	return out
+}
+
+// stepEnd returns where the step of p that starts at i ends.
+func stepEnd(p string, i int) int {
+	j := i + 1
+	switch p[i] {
+	case '.', '@':
+		for j < len(p) && !isDelim(p[j]) {
+			j++
+		}
+	case '[':
+		j = i + 2
+	case '$':
+		for j < len(p) && p[j] >= '0' && p[j] <= '9' {
+			j++
+		}
+	}
+	return j
+}
+
+// countSteps returns how many steps p has.
+func countSteps(p string) int {
+	n := 0
+	for i := 0; i < len(p); i = stepEnd(p, i) {
+		n++
+	}
+	return n
+}
+
+func loads(p string) int {
+	n := 0
+	for i := 0; i < len(p); i++ {
+		if c := p[i]; c == '*' || c == '%' || c == '$' {
+			n++
+		}
+	}
+	return n
+}
+
+// extend appends a step to v's path, keeping it within the bounds.
+func (v vpath) extend(step string) vpath {
+	v, _, _ = v.extendN(step, loads(v.path), countSteps(v.path))
+	return v
+}
+
+// extendN is extend for a path with nl loads and ns steps; it returns the
+// new path's counts.
+//
+// The object of a counted reference ($N: a synced[T]'s object, a map's
+// contents) is never cut away. A # stands for everything reachable except
+// such objects, and the rules for them (checkSynced, checkMaps) find their
+// accesses by the $N step, so an access cut to P# would escape them. A $N
+// step is therefore not held to the bound on loads, only to the bound on
+// steps; past that, and after a #, it is kept as P#$N: the object of some
+// counted reference reachable from P, P being the path before its first #.
+// Paths stay bounded: the steps after a # follow the same bounds.
+func (v vpath) extendN(step string, nl, ns int) (vpath, int, int) {
+	counted := step[0] == '$'
+	if strings.HasSuffix(v.path, "#") {
+		if !counted {
+			return v, nl, ns
+		}
+		return v.keepCounted(step)
+	}
+	load := step == "*" || step == "%" || counted
+	if load && strings.HasSuffix(v.path, "&") {
+		// The memory a pointer to P points to is P.
+		v.path = strings.Slice(v.path, 0, len(v.path)-1)
+		return v, nl, ns - 1
+	}
+	sl := 0
+	if load {
+		sl = 1
+	}
+	if counted && ns+1 > maxSteps {
+		return v.keepCounted(step)
+	}
+	if (load && !counted && nl+1 > loadLimit) || ns+1 > maxSteps {
+		v.path = compat.Concat(v.path, "#")
+		return v, nl, ns + 1
+	}
+	v.path = compat.Concat(v.path, step)
+	return v, nl + sl, ns + 1
+}
+
+// keepCounted cuts v before the counted-reference step step: P#step, P
+// being v's path up to its first #.
+func (v vpath) keepCounted(step string) (vpath, int, int) {
+	p := v.path
+	if i := strings.IndexByte(p, '#'); i >= 0 {
+		p = strings.Slice(p, 0, i)
+	}
+	v.path = compat.Concat(p, "#", step)
+	return v, loads(v.path), countSteps(v.path)
+}
+
+// addr returns a pointer to the place v.
+func (v vpath) addr() vpath {
+	if strings.HasSuffix(v.path, "#") {
+		return v
+	}
+	v.path = compat.Concat(v.path, "&")
+	return v
+}
+
+// isAddr reports whether v is a pointer to a place rather than a value.
+func (v vpath) isAddr() bool { return strings.HasSuffix(v.path, "&") }
+
+// key returns a string that identifies v.
+func (v vpath) key() string {
+	return compat.Concat(v.root.key(), v.path)
+}
+
+func (r root) key() string {
+	switch r.kind {
+	case rGlobal:
+		if r.v.Pkg() != nil {
+			return compat.Concat(r.v.Pkg().Path(), ".", r.v.Name())
+		}
+		return r.v.Name()
+	case rParam:
+		return compat.Concat("param", strconv.Itoa(r.idx))
+	case rLocal:
+		return compat.Concat("local(", r.v.Name(), "@", strconv.Itoa(int(r.v.Pos())), ")")
+	case rFresh:
+		return compat.Concat("new@", strconv.Itoa(int(r.node.Pos())))
+	case rFunc:
+		return compat.Concat("func ", r.fn.FullName())
+	case rLit:
+		return compat.Sprintfb("lit@%d", compat.ArgI(int64(r.node.Pos())))
+	case rRegion:
+		return compat.Sprintfb("region%d@%d", compat.ArgI(int64(r.idx)), compat.ArgI(int64(r.pos)))
+	case rUnknown:
+		if r.v != nil {
+			return compat.Sprintfb("unknown(%s@%d)", compat.ArgS(r.v.Name()), compat.ArgI(int64(r.v.Pos())))
+		}
+		return compat.Sprintfb("unknown@%d.%d", compat.ArgI(int64(r.pos)), compat.ArgI(int64(r.idx)))
+	}
+	return "?"
+}
+
+// stripOwned drops a trailing # for prefix comparisons.
+func stripOwned(p string) string { return strings.TrimSuffix(p, "#") }
+
+// overlaps reports whether places a and b share memory: one is within the
+// other, and no part of elements they select is known to be another's.
+func overlaps(a, b vpath) bool {
+	if a.root != b.root {
+		return false
+	}
+	pa, pb := stripOwned(a.path), stripOwned(b.path)
+	if !contains(a.path, b.path) && !contains(b.path, a.path) {
+		return false
+	}
+	return !partsDisjoint(pa, pb, nil)
+}
+
+// contains reports whether place p, with its parts ignored, holds place q:
+// q is within p's own storage, or anywhere below p when p ends in #, which
+// stands for everything reachable from it, except the objects of counted
+// references ($N), which their other references keep.
+func contains(p, q string) bool {
+	sp, sq := stripParts(stripOwned(p)), stripParts(stripOwned(q))
+	if strings.HasSuffix(p, "#") {
+		return prefixOf(sp, sq) && !strings.Contains(strings.SliceFrom(sq, len(sp)), "$")
+	}
+	return within(sp, sq)
+}
+
+// stripParts removes the part steps of a path.
+func stripParts(p string) string {
+	if strings.IndexByte(p, '@') < 0 {
+		return p
+	}
+	var b compat.Builder
+	for i := 0; i < len(p); {
+		j := stepEnd(p, i)
+		if p[i] != '@' {
+			b.WriteString(strings.Slice(p, i, j))
+		}
+		i = j
+	}
+	return b.String()
+}
+
+// A part step is an element part (@c, a constant index; @t, the index
+// variable of a scoped task; @e, the variable of a split) or a window part (@k, @w: a window of a
+// scoped task; @lo, @hi: the two sides of a split), which moves the base
+// of the indexes after it.
+func elemPart(s string) bool { return len(s) > 1 && (s[1] == 'c' || s[1] == 't' || s[1] == 'e') }
+
+// lastLoad returns the index of the last step of ss that follows a
+// pointer, or -1.
+func lastLoad(ss []string) int {
+	n := -1
+	for k, s := range ss {
+		if s == "*" || s == "%" || s[0] == '$' || s == "#" {
+			n = k
+		}
+	}
+	return n
+}
+
+// alignParts walks the steps of two paths that overlap without their
+// parts, pairing the part steps after the last pointer each follows, and
+// calls pair for each pair (with "" for a part only one has). It stops,
+// returning false, where the parts make the rest incomparable: different
+// windows, or a window on one side only. Parts before a pointer is
+// followed say only which pointer was loaded, not where it points.
+func alignParts(pa, pb string, pair func(x, y string) bool) bool {
+	as, bs := steps(pa), steps(pb)
+	la, lb := lastLoad(as), lastLoad(bs)
+	i, j := 0, 0
+	for i < len(as) && j < len(bs) {
+		x, y := as[i], bs[j]
+		px, py := x[0] == '@', y[0] == '@'
+		after := i > la && j > lb
+		switch {
+		case px && py:
+			if after {
+				if pair(x, y) {
+					return true
+				}
+				if x != y && (!elemPart(x) || !elemPart(y)) {
+					return false
+				}
+			}
+			i++
+			j++
+		case px:
+			if after && !elemPart(x) {
+				return false
+			}
+			i++
+		case py:
+			if after && !elemPart(y) {
+				return false
+			}
+			j++
+		case x == y:
+			i++
+			j++
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// partsDisjoint reports whether two places whose paths overlap without
+// their parts select elements that cannot meet: different constant
+// elements of one array or slice, or parts that disjoint (when not nil)
+// says are apart.
+func partsDisjoint(pa, pb string, disjoint func(a, b string) bool) bool {
+	if strings.IndexByte(pa, '@') < 0 || strings.IndexByte(pb, '@') < 0 {
+		return false
+	}
+	return alignParts(pa, pb, func(x, y string) bool {
+		if x != y && x[1] == 'c' && y[1] == 'c' {
+			return true
+		}
+		return disjoint != nil && disjoint(x, y)
+	})
+}
+
+// within reports whether place q is part of place p's own storage: p's
+// path followed by fields and elements, without following a pointer.
+// Writing a pointer variable does not change the memory it points to.
+func within(p, q string) bool {
+	return prefixOf(p, q) && !strings.ContainsAny(strings.SliceFrom(q, len(p)), "*%$")
+}
+
+// prefixOf reports whether path p is a prefix of q on a step boundary.
+func prefixOf(p, q string) bool {
+	if !strings.HasPrefix(q, p) {
+		return false
+	}
+	return len(q) == len(p) || isDelim(q[len(p)])
+}
+
+// objectBase returns the part of place p that is the object holding its
+// first field after the last pointer followed: p up to that field.
+func objectBase(p vpath) vpath {
+	path := p.path
+	last := -1 // where the step after the last load starts
+	for i := 0; i < len(path); {
+		j := stepEnd(path, i)
+		if c := path[i]; c == '*' || c == '%' || c == '#' || c == '$' {
+			last = j
+		}
+		i = j
+	}
+	n := 0
+	for i := 0; i < len(path); {
+		j := stepEnd(path, i)
+		if i >= last && path[i] == '.' {
+			break
+		}
+		n = j
+		i = j
+	}
+	return vpath{root: p.root, path: strings.Slice(path, 0, n)}
+}
+
+// substitute replaces the parameter roots of v with the caller's values
+// args (one per parameter, receiver first).
+func substitute(v vpath, args []origins) []vpath {
+	if v.root.kind != rParam {
+		return compat.Clone([]vpath{v})
+	}
+	if v.root.idx >= len(args) {
+		return nil
+	}
+	var out []vpath
+	for _, a := range args[v.root.idx] {
+		out = compat.Append(out, a.vp.join(v.path))
+	}
+	return out
+}
+
+// join appends a path to v, step by step, normalizing &* and &%.
+func (v vpath) join(p string) vpath {
+	if p == "" {
+		return v
+	}
+	if !strings.HasSuffix(v.path, "&") && !strings.HasSuffix(v.path, "#") && !strings.Contains(p, "&") &&
+		loads(v.path)+loads(p) <= loadLimit && countSteps(v.path)+countSteps(p) <= maxSteps {
+		// Nothing to normalise or cut: the paths simply join.
+		v.path = compat.Concat(v.path, p)
+		return v
+	}
+	nl, ns := loads(v.path), countSteps(v.path)
+	for i := 0; i < len(p); {
+		j := stepEnd(p, i)
+		if s := strings.Slice(p, i, j); s == "&" {
+			if !strings.HasSuffix(v.path, "#") {
+				v.path = compat.Concat(v.path, "&")
+				ns++
+			}
+		} else {
+			v, nl, ns = v.extendN(s, nl, ns)
+		}
+		i = j
+	}
+	return v
+}
+
+// syncedSplit splits a place at its last $N: the reference the object was
+// reached through (a value), the object's type number, and the path within
+// the object. ok is false when the place is not within a synced object.
+func syncedSplit(v vpath) (base vpath, typ int, sub string, ok bool) {
+	i := strings.LastIndexByte(v.path, '$')
+	if i < 0 {
+		return vpath{}, 0, "", false
+	}
+	j := i + 1
+	for j < len(v.path) && v.path[j] >= '0' && v.path[j] <= '9' {
+		typ = typ*10 + int(v.path[j]-'0')
+		j++
+	}
+	base = vpath{root: v.root, path: strings.Slice(v.path, 0, i)}
+	return base, typ, strings.SliceFrom(v.path, j), true
+}
+
+// An origin is something a value may hold: a value path, and the field of a
+// struct value it is held in ("" for the whole value).
+type origin struct {
+	vp  vpath
+	tag string
+}
+
+// origins is a small set of origins.
+type origins []origin
+
+func (s origins) has(o origin) bool {
+	for _, x := range s {
+		if x == o {
+			return true
+		}
+	}
+	return false
+}
+
+// add adds o and reports whether it was new.
+func (s *origins) add(o origin) bool {
+	if s.has(o) {
+		return false
+	}
+	*s = origins(compat.Append(*s, o))
+	return true
+}
+
+// uniq drops repeated origins, keeping the first of each; s is built by
+// appending, which is linear where add on each would be quadratic.
+func (s origins) uniq() origins {
+	if len(s) < 2 {
+		return s
+	}
+	out := s[:0]
+	if len(s) <= 16 {
+		for _, o := range s {
+			if !out.has(o) {
+				out = origins(compat.Append(out, o))
+			}
+		}
+		return out
+	}
+	seen := make(map[origin]bool, len(s))
+	for _, o := range s {
+		if !seen[o] {
+			seen[o] = true
+			out = origins(compat.Append(out, o))
+		}
+	}
+	return out
+}
+
+// maxOrigins is how many origins a call argument keeps exactly: past it,
+// the origins under each root are cut to the root, which stands for all of
+// them, so a callee's accesses are not instantiated once per origin.
+const maxOrigins = 16
+
+// A capSite is an argument of a call whose origins were cut.
+type capSite struct {
+	pos token.Pos
+	idx int
+}
+
+// capped returns s, cut when it is large.
+func (s origins) capped() origins {
+	if len(s) <= maxOrigins {
+		return s
+	}
+	return s.cut()
+}
+
+// cut returns s with the origins sharing a root and tag cut to the root.
+func (s origins) cut() origins {
+	if len(s) < 2 {
+		return s
+	}
+	type group struct {
+		r   root
+		tag string
+	}
+	n := map[group]int{}
+	for _, o := range s {
+		n[group{o.vp.root, o.tag}]++
+	}
+	out := origins(compat.MakeCap[origin](0, len(n)))
+	for _, o := range s {
+		g := group{o.vp.root, o.tag}
+		if n[g] > 1 && o.vp.root.kind != rFunc && o.vp.root.kind != rLit {
+			o.vp.path = "#"
+		}
+		out = origins(compat.Append(out, o))
+	}
+	return out.uniq()
+}
+
+func (s *origins) addAll(t origins) bool {
+	if len(*s)*len(t) > 256 {
+		// Large sets: a map instead of a scan for each.
+		seen := make(map[origin]bool, len(*s)+len(t))
+		for _, o := range *s {
+			seen[o] = true
+		}
+		grew := false
+		for _, o := range t {
+			if !seen[o] {
+				seen[o] = true
+				*s = origins(compat.Append(*s, o))
+				grew = true
+			}
+		}
+		return grew
+	}
+	grew := false
+	for _, o := range t {
+		if s.add(o) {
+			grew = true
+		}
+	}
+	return grew
+}
+
+func unionOrigins(sets ...origins) origins {
+	var out origins
+	for _, s := range sets {
+		out.addAll(s)
+	}
+	return out
+}
+
+// untag drops the field tags: the value as a whole.
+func (s origins) untag() origins {
+	var out origins
+	for _, o := range s {
+		o.tag = ""
+		out = origins(compat.Append(out, o))
+	}
+	return out.uniq()
+}
+
+// field returns the origins of field name of a struct value with origins s.
+func (s origins) field(name string) origins {
+	var out origins
+	step := compat.Concat(".", name)
+	for _, o := range s {
+		switch {
+		case o.tag == "":
+			if o.vp.root.kind == rFunc || o.vp.root.kind == rLit {
+				continue
+			}
+			out = origins(compat.Append(out, origin{vp: o.vp.extend(step)}))
+		case prefixOf(step, o.tag):
+			o.tag = strings.SliceFrom(o.tag, len(step))
+			out = origins(compat.Append(out, o))
+		}
+	}
+	return out.uniq()
+}
+
+// tagged marks every origin in s as held in field name of a struct value.
+func (s origins) tagged(name string) origins {
+	var out origins
+	for _, o := range s {
+		o.tag = compat.Concat(".", name, o.tag)
+		if countSteps(o.tag) > maxSteps {
+			o.tag = ""
+		}
+		out = origins(compat.Append(out, o))
+	}
+	return out.uniq()
+}
+
+// derefOr returns the places that values with origins s point to, or a
+// place in unknown memory u when the analysis does not know where they
+// point.
+func (s origins) derefOr(step string, u root) []vpath {
+	if out := s.deref(step); len(out) > 0 {
+		return out
+	}
+	return compat.Clone([]vpath{vpath{root: u}.extend(step)})
+}
+
+// deref returns the places that values with origins s point to.
+func (s origins) deref(step string) []vpath {
+	var out []vpath
+	seen := map[vpath]bool{}
+	for _, o := range s {
+		if o.vp.root.kind == rFunc || o.vp.root.kind == rLit {
+			continue
+		}
+		// A tagged origin is a pointer held in some field of a struct
+		// value; dereferencing the struct as a whole stands for any of
+		// them.
+		p := o.vp.extend(step)
+		if !seen[p] {
+			seen[p] = true
+			out = compat.Append(out, p)
+		}
+	}
+	return out
+}
+
+// valuesAt returns the origins of the values stored at places ps.
+func valuesAt(ps []vpath) origins {
+	var out origins
+	for _, p := range ps {
+		out = origins(compat.Append(out, origin{vp: p}))
+	}
+	return out.uniq()
+}
+
+// addrsOf returns pointers to places ps.
+func addrsOf(ps []vpath) origins {
+	var out origins
+	for _, p := range ps {
+		out = origins(compat.Append(out, origin{vp: p.addr()}))
+	}
+	return out.uniq()
+}

@@ -1,0 +1,291 @@
+// Translated by go2pu from internal/lower/packed.go at the go-cutover tag; edited by hand since.
+
+package lower
+
+import (
+	"pluto/slices"
+	"compiler/internal/ssa"
+	"compiler/internal/syntax/ast"
+	"compiler/internal/types2"
+	"compiler/pu"
+)
+
+// Packed storage. A packed type whose size is 1, 2, 4 or 8 bytes is held in
+// one integer; its fields are shifts and masks of that integer. Larger packed
+// types are byte arrays; a field is read by loading the bytes that cover it.
+// Bit numbering is LSB-first: bit b is bit b%8 of byte b/8.
+//
+// Byte order: an integer-backed "packed be" type is byte-swapped when loaded
+// and stored, so its fields number bits from the least significant bit of the
+// swapped value. In a byte-array packed type with "be", byte-aligned fields
+// whose width is a whole number of bytes are byte-swapped individually.
+
+// needsSwap reports whether an integer-held packed type is stored with the
+// opposite byte order to the target (little-endian x86-64).
+func needsSwap(p *types2.Packed) bool {
+	return p.Order() == ast.BigEndian && p.Backing() != nil && isIntegerType(p.Backing())
+}
+
+// comparedBits returns the bits of packed type T that comparison and map
+// hashing look at (spec section 7.14), numbered as in a register holding a
+// value of T, or nil when T is not packed or has no reserved bits.
+func comparedBits(T types2.Type) []byte {
+	p, ok := unwrap(T).Underlying().(*types2.Packed)
+	if !ok {
+		return nil
+	}
+	return p.ComparedBits()
+}
+
+// comparedBitsInMemory is comparedBits laid out as the bytes of a value of T
+// in memory, for the type descriptor.
+func comparedBitsInMemory(T types2.Type) []byte {
+	m := comparedBits(T)
+	if m != nil && needsSwap(unwrap(T).Underlying().(*types2.Packed)) {
+		slices.Reverse(m)
+	}
+	return m
+}
+
+// leWord reads up to eight bytes as a little-endian word.
+func leWord(b []byte) uint64 {
+	var v uint64
+	for i := 0; i < len(b) && i < 8; i++ {
+		v |= uint64(b[i]) << (8 * i)
+	}
+	return v
+}
+
+// packedEqual compares two packed values of type T whose reserved bits are
+// given by mask (comparedBits): equal when the bits outside the reserved
+// bits are equal.
+func (s *fnState) packedEqual(x, y value, T types2.Type, mask []byte) *ssa.Value {
+	if st := s.l.scalarType(unwrap(T)); st != nil {
+		xv, yv := x.v, y.v
+		if x.addr {
+			xv = s.loadFrom(xv, T).v
+		}
+		if y.addr {
+			yv = s.loadFrom(yv, T).v
+		}
+		m := leWord(mask)
+		xm := s.newValue(ssa.OpAnd, st, xv, s.constInt(st, int64(m)))
+		ym := s.newValue(ssa.OpAnd, st, yv, s.constInt(st, int64(m)))
+		return s.newValue(ssa.OpEq, ssa.TBool, xm, ym)
+	}
+	// Stored as bytes: compare them in chunks of 8, 4, 2 and 1 bytes,
+	// leaving out the chunks with no compared bit.
+	result := s.constBool(true)
+	for off := int64(0); off < int64(len(mask)); {
+		n := int64(8)
+		for n > int64(len(mask))-off {
+			n /= 2
+		}
+		m := leWord(mask[off : off+n])
+		if m != 0 {
+			t := ssa.IntType(n)
+			xv := s.load(t, s.offPtr(x.v, off))
+			yv := s.load(t, s.offPtr(y.v, off))
+			if m != ^uint64(0)>>(64-8*n) {
+				xv = s.newValue(ssa.OpAnd, t, xv, s.constInt(t, int64(m)))
+				yv = s.newValue(ssa.OpAnd, t, yv, s.constInt(t, int64(m)))
+			}
+			result = s.newValue(ssa.OpAnd, ssa.TBool, result, s.newValue(ssa.OpEq, ssa.TBool, xv, yv))
+		}
+		off += n
+	}
+	return result
+}
+
+func isIntegerType(T types2.Type) bool {
+	b, ok := T.Underlying().(*types2.Basic)
+	return ok && b.Info()&types2.IsInteger != 0
+}
+
+// packedField extends a container lvalue (or bit reference) with a field of
+// the packed type p.
+func (s *fnState) packedField(base lvalue, p *types2.Packed, idx int) lvalue {
+	f := p.Field(idx)
+	ref := pu.New(bitRef{packed_: p, offset: f.Offset(), width: f.Width(), T: f.Var().Type()})
+	if base.bits != nil {
+		// A field of a flag group or nested packed type: offsets add up in
+		// the outer storage.
+		ref.packed_ = base.bits.packed_
+		ref.offset += base.bits.offset
+	}
+	ft := f.Var().Type()
+	inner, nested := ft.Underlying().(*types2.Packed)
+	if nested && needsSwap(inner) && !isIntegerBacked(ref.packed_) {
+		// A packed type with a big-endian integer backing inside a type
+		// laid out by byte (section 7.14, Byte order): the field is the
+		// integer stored in the bytes at its offset, and its own fields
+		// are defined by the integer rule.
+		if ref.offset%8 != 0 {
+			s.l.unsupportedf(0, "packed field %s is a big-endian integer that does not start on a byte boundary", pu.Box(f.Var().Name()))
+		}
+		return lvalue{ptr: s.offPtr(base.ptr, ref.offset/8), T: ft, stable: base.stable}
+	}
+	if b, ok := ft.Underlying().(*types2.Basic); ok && b.Info()&(types2.IsInteger|types2.IsBoolean) != 0 &&
+		p.Order() == ast.BigEndian && !isIntegerBacked(p) && !f.IsBits() && f.Width() > 8 && f.Offset()%8 == 0 {
+		// A field of several bytes in a big-endian type laid out by byte
+		// is stored most significant byte first.
+		switch f.Width() {
+		case 16, 32, 64:
+			ref.swap = true
+		default:
+			s.l.unsupportedf(0, "packed field %s of %d bits in a big-endian packed type cannot be accessed", pu.Box(f.Var().Name()), f.Width())
+		}
+	}
+	return lvalue{ptr: base.ptr, T: base.T, bits: ref}
+}
+
+// isIntegerBacked reports whether p is stored in an integer, whose bit
+// positions count from the least significant bit of the value.
+func isIntegerBacked(p *types2.Packed) bool {
+	return p.Backing() != nil && isIntegerType(p.Backing())
+}
+
+// storageWord loads the whole storage of an integer-held packed container,
+// or the bytes covering [offset, offset+width) of a byte-array one. It
+// returns the loaded word, its type and the shift of the field within it.
+func (s *fnState) storageWord(lv lvalue) (word *ssa.Value, t *ssa.Type, shift int64, ptr *ssa.Value) {
+	ref := lv.bits
+	if st := s.l.scalarType(ref.packed_); st != nil {
+		ld := s.load(st, lv.ptr)
+		if isVolatile(lv.T) {
+			s.markVolatileLoad(ld)
+		}
+		if needsSwap(ref.packed_) {
+			ld = s.newValue(ssa.OpBswap, st, ld)
+		}
+		return ld, st, ref.offset, lv.ptr
+	}
+	// Byte array storage: load the smallest power-of-two window covering the
+	// field that stays inside the storage.
+	size := s.l.sizeof(ref.packed_)
+	first := ref.offset / 8
+	last := (ref.offset + ref.width - 1) / 8
+	span := last - first + 1
+	n := int64(1)
+	for n < span {
+		n *= 2
+	}
+	start := first
+	if start+n > size {
+		start = size - n
+	}
+	if start < 0 || n > 8 {
+		return nil, nil, 0, nil
+	}
+	t = ssa.IntType(n)
+	ptr = s.offPtr(lv.ptr, start)
+	ld := s.load(t, ptr)
+	return ld, t, ref.offset - start*8, ptr
+}
+
+// loadBits reads a packed field.
+func (s *fnState) loadBits(lv lvalue) *ssa.Value {
+	ref := lv.bits
+	rt := s.l.scalarType(ref.T)
+	word, wt, shift, _ := s.storageWord(lv)
+	if word == nil {
+		s.l.unsupportedf(0, "packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
+		return s.zeroScalar(rt)
+	}
+	// Move the field to the top of the word and shift it back down, which
+	// both masks it and sign-extends signed fields.
+	top := wt.Bits() - shift - ref.width
+	v := word
+	if top > 0 {
+		v = s.newValue(ssa.OpShl, wt, v, s.constInt(ssa.TI64, top))
+	}
+	down := wt.Bits() - ref.width
+	if down > 0 {
+		op := ssa.OpShrL
+		if isSigned(ref.T) {
+			op = ssa.OpShrA
+		}
+		v = s.newValue(op, wt, v, s.constInt(ssa.TI64, down))
+	}
+	if ref.swap {
+		fieldType := ssa.IntType(ref.width / 8)
+		if wt.Size > fieldType.Size {
+			v = s.newValue(ssa.OpTrunc, fieldType, v)
+		}
+		v = s.newValue(ssa.OpBswap, fieldType, v)
+		wt = fieldType
+	}
+	switch {
+	case rt.IsBool():
+		return s.newValue(ssa.OpNe, ssa.TBool, v, s.constInt(wt, 0))
+	case rt.Size < wt.Size:
+		return s.newValue(ssa.OpTrunc, rt, v)
+	case rt.Size > wt.Size:
+		if isSigned(ref.T) && !ref.swap {
+			return s.newValue(ssa.OpSignExt, rt, v)
+		}
+		return s.newValue(ssa.OpZeroExt, rt, v)
+	}
+	return v
+}
+
+// storeBits writes a packed field: read the storage, clear the field's bits,
+// insert the new value's low bits, write it back.
+func (s *fnState) storeBits(lv lvalue, val *ssa.Value) {
+	ref := lv.bits
+	word, wt, shift, ptr := s.storageWord(lv)
+	if word == nil {
+		s.l.unsupportedf(0, "packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
+		return
+	}
+	// Bring the new value to the word's width.
+	v := val
+	vt := val.Type
+	if ref.swap {
+		ft := ssa.IntType(ref.width / 8)
+		if vt.Size > ft.Size {
+			v = s.newValue(ssa.OpTrunc, ft, v)
+		} else if vt.Size < ft.Size || vt.IsBool() {
+			v = s.newValue(ssa.OpZeroExt, ft, v)
+		}
+		v = s.newValue(ssa.OpBswap, ft, v)
+		vt = ft
+	}
+	switch {
+	case vt.IsBool() || vt.Size < wt.Size:
+		v = s.newValue(ssa.OpZeroExt, wt, v)
+	case vt.Size > wt.Size:
+		v = s.newValue(ssa.OpTrunc, wt, v)
+	}
+	mask := uint64(1)<<uint(ref.width) - 1
+	if ref.width >= 64 {
+		mask = ^uint64(0)
+	}
+	fieldMask := int64(mask << uint(shift))
+	if ref.width < wt.Bits() {
+		v = s.newValue(ssa.OpAnd, wt, v, s.constInt(wt, int64(mask)))
+	}
+	if shift > 0 {
+		v = s.newValue(ssa.OpShl, wt, v, s.constInt(ssa.TI64, shift))
+	}
+	kept := s.newValue(ssa.OpAnd, wt, word, s.constInt(wt, ^fieldMask))
+	out := s.newValue(ssa.OpOr, wt, kept, v)
+	if st := s.l.scalarType(ref.packed_); st != nil && needsSwap(ref.packed_) {
+		out = s.newValue(ssa.OpBswap, wt, out)
+	}
+	s.store(wt, ptr, out)
+	if isVolatile(lv.T) {
+		s.mem().AuxInt |= ssa.MemVolatile
+	}
+}
+
+// bitsOfValue reads a packed field from a packed value held in a register.
+func (s *fnState) bitsOfValue(v *ssa.Value, p *types2.Packed, idx int) *ssa.Value {
+	tmp := s.temp(p, "packed")
+	t := s.l.scalarType(p)
+	if needsSwap(p) {
+		v = s.newValue(ssa.OpBswap, t, v)
+	}
+	s.store(t, tmp, v)
+	return s.loadLV(s.packedField(lvalue{ptr: tmp, T: p}, p, idx)).v
+}

@@ -1,0 +1,257 @@
+// Translated by go2pu from internal/lower/box.go at the go-cutover tag; edited by hand since.
+
+package lower
+
+import (
+	"compiler/compat"
+	"compiler/internal/ssa"
+	"compiler/internal/syntax/ast"
+	"compiler/internal/syntax/token"
+	"compiler/internal/types2"
+	"compiler/pu"
+)
+
+// Boxes: owned[T], shared[T], synced[T] and weak[P] (language spec sections
+// 7.19 and 18.7, abi.md section 1.2). Each is the address of a heap object
+// with a header in front that records its allocator (pluto/rt, box.p).
+//
+//   - owned[T] is an owner: it moves, and its drop glue drops the T and
+//     frees the memory (dropFields).
+//   - shared[T], synced[T] and weak[P] are counted references, kept by the
+//     machinery of counted strings (strcount.go): copies retain, drops
+//     release. Releasing the last strong reference drops the T and then
+//     the weak reference all strong ones hold together; releasing the last
+//     weak reference frees the memory.
+//
+// synced counts atomically once the program is threaded; shared never does,
+// which is why it may not cross tasks.
+//
+// A channel is counted in the same way (language spec section 7.11): its
+// count is in the runtime's hchan, atomic once the program is threaded, and
+// the last release drops the values still buffered and frees the channel
+// (chanRelease).
+
+// boxHeader is the size of the header in front of a box's object.
+func boxHeader(k types2.WrapperKind) int64 {
+	if k == types2.WrapOwned {
+		return 16
+	}
+	return 32
+}
+
+// boxTarget returns the counted reference a weak reference refers through
+// (shared[T] or synced[T]); for the other kinds, w itself.
+func boxTarget(w *types2.Wrapper) *types2.Wrapper {
+	if w.Kind() == types2.WrapWeak {
+		if t, ok := w.Elem().Underlying().(*types2.Wrapper); ok {
+			return t
+		}
+	}
+	return w
+}
+
+// isSynced reports whether w is synced[T] or a weak reference to one.
+func isSynced(w *types2.Wrapper) bool { return boxTarget(w).Kind() == types2.WrapSynced }
+
+// boxObject returns the type of the object a box refers to.
+func (s *fnState) boxObject(w *types2.Wrapper) types2.Type {
+	return s.subst(boxTarget(w).Elem())
+}
+
+// newBox allocates a zeroed object of type elem in a box of kind k, from
+// the allocator expression extra[0] if there is one, otherwise from the
+// current allocator, and returns its address.
+func (s *fnState) newBox(k types2.WrapperKind, elem types2.Type, extra []ast.Expr) *ssa.Value {
+	hdr := s.constInt(ssa.TI64, boxHeader(k))
+	size := s.constInt(ssa.TI64, s.l.sizeof(elem))
+	align := s.constInt(ssa.TI64, s.l.alignof(elem))
+	if len(extra) > 0 {
+		allocT := s.l.rtFunc("boxNewWith").Type().(*types2.Signature).Params().At(0).Type()
+		a := s.exprAs(extra[0], allocT)
+		parts := s.leafValues(a, []leaf{{0, ssa.TPtr}, {8, ssa.TPtr}})
+		return s.callRuntime("boxNewWith", compat.Clone([]*ssa.Type{ssa.TPtr}), parts, []*ssa.Value{hdr, size, align})[0]
+	}
+	return s.callRuntime("boxNew", compat.Clone([]*ssa.Type{ssa.TPtr}), []*ssa.Value{hdr, size, align})[0]
+}
+
+// boxRetain takes another reference to the object at p, a counted box of
+// type w.
+func (s *fnState) boxRetain(p *ssa.Value, w *types2.Wrapper) {
+	s.callRuntime("boxRetain", nil, []*ssa.Value{p, s.constBool(w.Kind() == types2.WrapWeak), s.constBool(isSynced(w))})
+}
+
+// boxRelease drops a reference to the object at p, a counted box of type w.
+func (s *fnState) boxRelease(p *ssa.Value, w *types2.Wrapper) {
+	if w.Kind() == types2.WrapWeak {
+		elem := s.boxObject(w)
+		s.callRuntimeRelease("weakRelease", []*ssa.Value{p, s.constBool(isSynced(w)),
+			s.constInt(ssa.TI64, s.l.sizeof(elem)), s.constInt(ssa.TI64, s.l.alignof(elem))})
+		s.noteImplicitGoexit()
+		return
+	}
+	glue := s.l.releaseGlue(types2.NewWrapper(w.Kind(), s.subst(w.Elem()), 0))
+	p0 := types2.NewVar(token.NoPos, nil, "p", types2.Typ[types2.UnsafePointer])
+	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(compat.Clone([]*types2.Var{p0})...), nil, false)
+	s.emitCall(callee{sym: glue, referenceRelease: true}, sig, nil, []value{scalarValue(p, p0.Type())}, token.NoPos)
+	s.noteImplicitGoexit()
+}
+
+// releaseGlue returns the function that drops a strong reference of type
+// w (shared[T] or synced[T]): the last one drops the T, then gives up the
+// weak reference the strong ones held.
+func (l *Lowerer) releaseGlue(w *types2.Wrapper) *ssa.Sym {
+	name := compat.Concat(typeString(w), "·release")
+	if sym := l.funcs[name]; sym != nil {
+		return sym
+	}
+	sym := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = sym
+	p := types2.NewVar(token.NoPos, nil, "p", types2.Typ[types2.UnsafePointer])
+	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(compat.Clone([]*types2.Var{p})...), nil, false)
+	sync := w.Kind() == types2.WrapSynced
+	elem := w.Elem()
+	l.queue = compat.Append(l.queue, pu.New(funcJob{sym: sym, sig: sig, build: pu.New(goClosure_releaseGlue_1{sig: sig, sync: sync, elem: elem})}))
+	return sym
+}
+
+// chanRetain takes another reference to the channel p.
+func (s *fnState) chanRetain(p *ssa.Value) {
+	s.callRuntime("chanRetain", nil, []*ssa.Value{p})
+}
+
+// chanRelease drops a reference to the channel p, of type ch. A channel
+// whose elements need no drop is released by the runtime alone; otherwise
+// by the release glue of its element type, which drops the values still
+// buffered when the reference was the last.
+func (s *fnState) chanRelease(p *ssa.Value, ch *types2.Chan) {
+	elem := ch.Elem()
+	if !s.l.needsDrop(elem) && !s.l.counted(elem) {
+		s.callRuntimeRelease("chanDrop", []*ssa.Value{p})
+		s.noteImplicitGoexit()
+		return
+	}
+	glue := s.l.chanReleaseGlue(elem)
+	p0 := types2.NewVar(token.NoPos, nil, "p", types2.Typ[types2.UnsafePointer])
+	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(compat.Clone([]*types2.Var{p0})...), nil, false)
+	s.emitCall(callee{sym: glue, referenceRelease: true}, sig, nil, []value{scalarValue(p, p0.Type())}, token.NoPos)
+	s.noteImplicitGoexit()
+}
+
+// chanReleaseGlue returns the function that drops a reference to a channel
+// of elem values: the last one drops the values still buffered, then frees
+// the channel and its timer.
+func (l *Lowerer) chanReleaseGlue(elem types2.Type) *ssa.Sym {
+	name := compat.Concat("chan ", typeString(elem), "·release")
+	if sym := l.funcs[name]; sym != nil {
+		return sym
+	}
+	sym := l.out.Sym(name, ssa.SymFunc)
+	l.funcs[name] = sym
+	p := types2.NewVar(token.NoPos, nil, "p", types2.Typ[types2.UnsafePointer])
+	sig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(compat.Clone([]*types2.Var{p})...), nil, false)
+	l.queue = compat.Append(l.queue, pu.New(funcJob{sym: sym, sig: sig, build: pu.New(goClosure_chanReleaseGlue_1{sig: sig, elem: elem})}))
+	return sym
+}
+
+// dropOwned is the drop glue of an owned[T] at ptr: if it holds an object,
+// drop the T and free the memory to the allocator in its header.
+func (s *fnState) dropOwned(ptr *ssa.Value, w *types2.Wrapper) {
+	elem := s.subst(w.Elem())
+	obj := s.load(ssa.TPtr, ptr)
+	nonNil := s.newValue(ssa.OpNe, ssa.TBool, obj, s.constInt(ssa.TPtr, 0))
+	s.ifThen(nonNil, func() {
+		s.destroyAt(obj, elem)
+		s.callRuntime("boxFree", nil, []*ssa.Value{obj, s.constInt(ssa.TI64, 16),
+			s.constInt(ssa.TI64, s.l.sizeof(elem)), s.constInt(ssa.TI64, s.l.alignof(elem))})
+	})
+}
+
+// weakFrom makes a weak reference from the counted reference v (the
+// conversion weak[P](p)): the same address, with one more weak reference.
+func (s *fnState) weakFrom(v value, to types2.Type) value {
+	w := unwrap(to).Underlying().(*types2.Wrapper)
+	p := s.wordOf(v)
+	s.boxRetain(p, w)
+	return s.wordTemp(p, to, "weak")
+}
+
+// upgrade lowers w.Upgrade(): a new strong reference and true while the
+// object has one, otherwise nil and false.
+func (s *fnState) upgrade(v value, w *types2.Wrapper, T types2.Type) []value {
+	p := s.wordOf(v)
+	ok := s.callRuntime("boxUpgrade", compat.Clone([]*ssa.Type{ssa.TBool}), []*ssa.Value{p, s.constBool(isSynced(w))})[0]
+	P := s.subst(w.Elem())
+	strong := s.wordTemp(s.newValue(ssa.OpSelect, ssa.TPtr, ok, p, s.constInt(ssa.TPtr, 0)), P, "strong")
+	return compat.Clone([]value{strong, scalarValue(ok, types2.Typ[types2.Bool])})
+}
+
+// wordOf returns the one-word value v, loading it if it is in memory.
+func (s *fnState) wordOf(v value) *ssa.Value {
+	if v.addr {
+		return s.load(ssa.TPtr, v.v)
+	}
+	return v.v
+}
+
+// cloneBox lowers p.Clone() for an owned[T] whose T is not an owner: a new
+// box from the current allocator holding a copy of the object, which takes
+// references of its own to the strings and counted references in it.
+func (s *fnState) cloneBox(v value, w *types2.Wrapper, T types2.Type) value {
+	elem := s.subst(w.Elem())
+	p := s.wordOf(v)
+	np := s.newBox(types2.WrapOwned, elem, nil)
+	src := s.loadFrom(p, elem)
+	src.cnt = cntUnstable
+	s.assign(lvalue{ptr: np, T: elem}, src, true)
+	return scalarValue(np, T)
+}
+
+// goClosure_releaseGlue_1 is the function literal at box.go:109, converted to a struct
+// that holds the variables it captures (go2pu closure conversion).
+type goClosure_releaseGlue_1 struct {
+	sig  *types2.Signature
+	sync bool
+	elem types2.Type
+}
+
+func (goSelf *goClosure_releaseGlue_1) Call(s *fnState) {
+	in := s.incomingArgs(goSelf.sig)
+	s.beginCleanupGoexit()
+	obj := in[0].v
+	last := s.callRuntime("boxReleaseStrong", compat.Clone([]*ssa.Type{ssa.TBool}), []*ssa.Value{obj, s.constBool(goSelf.sync)})[0]
+	s.ifThen(last, func() {
+		s.callRuntime("dropBegin", nil)
+		s.destroyAt(obj, goSelf.elem)
+		s.callRuntime("weakRelease", nil, []*ssa.Value{obj, s.constBool(goSelf.sync),
+			s.constInt(ssa.TI64, s.l.sizeof(goSelf.elem)), s.constInt(ssa.TI64, s.l.alignof(goSelf.elem))})
+		s.callRuntime("dropEnd", nil)
+	})
+	s.finishCleanupGoexit()
+	s.returnValues(nil)
+}
+
+// goClosure_chanReleaseGlue_1 is the function literal at box.go:162, converted to a struct
+// that holds the variables it captures (go2pu closure conversion).
+type goClosure_chanReleaseGlue_1 struct {
+	sig  *types2.Signature
+	elem types2.Type
+}
+
+func (goSelf *goClosure_chanReleaseGlue_1) Call(s *fnState) {
+	in := s.incomingArgs(goSelf.sig)
+	s.beginCleanupGoexit()
+	c := in[0].v
+	last := s.callRuntime("chanRelease", compat.Clone([]*ssa.Type{ssa.TBool}), []*ssa.Value{c})[0]
+	s.ifThen(last, func() {
+		res := s.callRuntime("chanBuffered", compat.Clone([]*ssa.Type{ssa.TPtr, ssa.TI64, ssa.TI64, ssa.TI64}), []*ssa.Value{c})
+		buf, first, size := res[0], res[1], res[3]
+		s.countedLoop(res[2], nil, func(i *ssa.Value) {
+			// The buffer is a ring: value i is in slot (first+i) % size.
+			k := s.newValue(ssa.OpMod, ssa.TI64, s.newValue(ssa.OpAdd, ssa.TI64, first, i), size)
+			s.destroyAt(s.elemAddr(buf, k, goSelf.elem), goSelf.elem)
+		})
+		s.callRuntime("chanFree", nil, []*ssa.Value{c})
+	})
+	s.finishCleanupGoexit()
+	s.returnValues(nil)
+}

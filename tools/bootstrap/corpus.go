@@ -75,7 +75,7 @@ var knownDifferences = map[string]string{
 	// The type checker shows the fix for an owner type declaration as
 	// printed source (types2.DeclPrinter); the printer is not translated
 	// (it needs text/tabwriter and go/doc/comment), so the translation
-	// shows the declaration's description instead (selfhost/internal/load,
+	// shows the declaration's description instead (compiler/internal/load,
 	// printhook.p).
 	"diag/owners": "no source printer in the translation",
 }

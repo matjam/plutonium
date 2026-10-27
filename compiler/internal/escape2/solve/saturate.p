@@ -1,0 +1,97 @@
+// Translated by go2pu from internal/escape2/solve/saturate.go at the go-cutover tag; edited by hand since.
+
+package solve
+
+import (
+	"compiler/compat"
+	"compiler/internal/escape2/domain"
+	"compiler/internal/escape2/eir"
+	"compiler/internal/escape2/summary"
+)
+
+// Saturated inputs. Inside an SCC a function is solved again each time a
+// summary it reads grows. When its previous iterate already holds, for an
+// input i, every entry any pointer of i could make (i escapes with
+// everything it reaches, is stored into every input and stores every input
+// into itself, fills its places with heap memory, and every result may hold
+// it anywhere), what a solve learns about i's pointers adds nothing to the
+// summary the scheduler keeps, which joins each iterate with the previous
+// one. Such a solve then starts input i as In(i, Root, GE): one token that
+// stands for every pointer i leads to, instead of the thousands of paths it
+// would follow to find the same entries (lower.(*fnState).concat of the
+// translated compiler: 28 million steps a solve, its summary all GE on
+// the inputs' roots). The result is wider only where the previous iterate
+// is already as wide: the joined summary is the same, and findings, which
+// are of frame objects, do not depend on the paths of In tokens.
+//
+// Only Solve and SolveKeep, the solves of an SCC's iteration, do it; the
+// final solves for reasons (SolveDerivs) and the checks (SolveCheck) follow
+// every path. The previous iterate comes from PreviousEnv, which reads it
+// without making the solve a reader of it (that would solve every function
+// once more after each change of its own summary).
+
+// PreviousEnv is an Env that gives a function's latest iterate.
+type PreviousEnv interface {
+	Previous(id eir.FuncID) *summary.Summary
+}
+
+// saturatedInputs reports, for each input of f, whether prev holds every
+// entry a pointer of it could make (see above); nil when none does.
+func saturatedInputs(f *eir.Func, prev *summary.Summary) []bool {
+	if prev == nil || len(f.Inputs) == 0 {
+		return nil
+	}
+	n := len(f.Inputs)
+	root := func(i int) domain.Key { return domain.MakeKey(i, domain.Root, domain.KeyFlags{GE: true}) }
+	has := func(keys []domain.Key, k domain.Key) bool {
+		for _, x := range keys {
+			if x == k {
+				return true
+			}
+		}
+		return false
+	}
+	pair := func(a, b domain.Key) bool {
+		for _, p := range prev.Store {
+			if p.Src == a && p.Dst == b {
+				return true
+			}
+		}
+		return false
+	}
+	var out []bool
+	for i := 0; i < n && i < domain.MaxInputs; i++ {
+		k := root(i)
+		ok := (has(prev.Esc, k) || has(prev.Esc, k.WithStrict())) && has(prev.HeapStore, k)
+		for j := 0; ok && j < n && j < domain.MaxInputs; j++ {
+			ok = pair(k, root(j)) && pair(root(j), k)
+		}
+		// Each result holds i's pointers anywhere already, or none of
+		// them (then a result that comes to hold some holds the root with
+		// GE: wider than following the paths would give, but sound).
+		for r := 0; ok && r < len(prev.Res); r++ {
+			whole, some := false, false
+			for _, rk := range prev.Res[r].From {
+				if rk.Key.Input() == i {
+					some = true
+					whole = whole || rk.Key == k && rk.Field == domain.Root
+				}
+			}
+			ok = whole || !some
+		}
+		if ok {
+			if out == nil {
+				out = compat.Make[bool](n)
+			}
+			out[i] = true
+		}
+	}
+	return out
+}
+
+// initSaturated sets s.saturated from the previous iterate of the function.
+func (s *solver) initSaturated() {
+	if pe, ok := s.env.(PreviousEnv); ok {
+		s.saturated = saturatedInputs(s.f, pe.Previous(s.f.ID))
+	}
+}

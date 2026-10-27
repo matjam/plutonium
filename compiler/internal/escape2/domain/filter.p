@@ -1,0 +1,408 @@
+// Translated by go2pu from internal/escape2/domain/filter.go at the go-cutover tag; edited by hand since.
+
+package domain
+
+import (
+	"pluto/slices"
+	"pluto/strings"
+	"compiler/compat"
+	"compiler/internal/scratch"
+	"compiler/internal/types2"
+	"compiler/pu"
+)
+
+// Type filters on keys (decision D51; docs/plans/2026-10-24-type-filtered-summaries.md).
+// A key may carry a filter: a type predicate and a position on its path (the
+// number of steps before the filtered pointer). The key then stands only for
+// the pointers found through a pointer, at that position, whose dynamic type
+// the predicate admits: what a type assertion lets through, or the receiver
+// of a method a call through an interface reaches. A filter never widens a
+// key: the key without it covers it (Covers). A filter is a union of atoms:
+// two entries that differ only in their filter are one entry with the union
+// (summary.Widen), which keeps a join of many candidates as small as it is
+// without filters.
+
+// AtomKind is the kind of an atom of a type predicate.
+type AtomKind uint8
+
+const (
+	// AtomImplements admits a dynamic type that implements interface T.
+	AtomImplements AtomKind = iota + 1
+	// AtomIs admits the dynamic type T alone.
+	AtomIs
+	// AtomPtrTo admits a pointer to an instance of generic type T (T is
+	// the origin of a named type with type parameters, types2.Named.Origin):
+	// a method of pointer receiver *G[P] is reached only by such a pointer.
+	AtomPtrTo
+)
+
+// An Atom is one type predicate.
+type Atom struct {
+	Kind AtomKind
+	T    types2.Type
+}
+
+// Admits reports whether the atom admits dynamic type d.
+func (a Atom) Admits(d types2.Type) bool {
+	switch a.Kind {
+	case AtomImplements:
+		if i, ok := a.T.Underlying().(*types2.Interface); ok {
+			return types2.Implements(d, i)
+		}
+		return true
+	case AtomIs:
+		return types2.Identical(d, a.T)
+	case AtomPtrTo:
+		p, ok := types2.Unalias(d).(*types2.Pointer)
+		return ok && SameOrigin(p.Elem(), a.T)
+	}
+	return true
+}
+
+func (a Atom) same(b Atom) bool { return a.Kind == b.Kind && types2.Identical(a.T, b.T) }
+
+// Text is the atom's canonical text: its kind and its type, packages by
+// path (the order of a union; the cache's encoding).
+func (a Atom) Text() string {
+	return compat.Concat(compat.RuneString(rune(rune('0'+a.Kind))), types2.TypeString(a.T, func(p *types2.Package) string { return p.Path() }))
+}
+
+// SameOrigin reports whether t is an instance (or the origin) of generic
+// named type origin.
+func SameOrigin(t, origin types2.Type) bool {
+	n, ok := types2.Unalias(t).(*types2.Named)
+	o, ok2 := types2.Unalias(origin).(*types2.Named)
+	return ok && ok2 && n.Origin() == o.Origin()
+}
+
+// A Filter is a union of atoms, in a canonical order.
+type Filter struct {
+	Atoms []Atom
+}
+
+// One is the filter of a single atom.
+func One(kind AtomKind, T types2.Type) Filter { return Filter{Atoms: compat.Clone([]Atom{{kind, T}})} }
+
+// Admits reports whether some atom admits dynamic type d.
+func (f Filter) Admits(d types2.Type) bool {
+	for _, a := range f.Atoms {
+		if a.Admits(d) {
+			return true
+		}
+	}
+	return false
+}
+
+func (f Filter) same(g Filter) bool {
+	return slices.EqualFunc(f.Atoms, g.Atoms, Atom.same)
+}
+
+// FilterID names an interned filter; 0 is none.
+type FilterID uint16
+
+// MaxFilters is the number of filters interned; past it, Intern gives none
+// (0), which only widens the keys it would have filtered.
+const MaxFilters = 1<<13 - 1
+
+// MaxAtoms bounds the atoms of a union; a larger union is no filter.
+const MaxAtoms = 1024
+
+// Filters interns filters: one table per analysis, with its paths
+// (Paths.Filters). It is safe for concurrent use: parallel solves make
+// filters as they meet assertions and joins. Get takes no lock (the list
+// only grows, and is published whole); Intern, Union and the covers test
+// memoize. The IDs depend on the order filters are first made, which
+// parallel solves do not fix: Canonical renumbers them once the analysis
+// is over, so that its results do not depend on it.
+type Filters struct {
+	mu     compat.Mutex
+	list   compat.AtomicPointer[[]Filter] // by ID-1
+	byText map[string][]FilterID          // by the atoms' texts, in order
+	keys   []string                       // each filter's atoms' texts, by ID-1
+	text   map[Atom]string                // Atom.Text, memoized
+	union  map[[2]FilterID]FilterID       // Union, memoized
+	covers map[[2]FilterID]bool           // filterCovers, memoized
+
+	// memo holds what the solvers derive from a filter's program (the
+	// filter of an assertion's type, of a candidate's receiver), for the
+	// analysis's lifetime (Memo).
+	memo map[any]FilterID
+}
+
+// atomText is a.Text, memoized; fs.mu is held.
+func (fs *Filters) atomText(a Atom) string {
+	if t, ok := fs.text[a]; ok {
+		return t
+	}
+	if fs.text == nil {
+		fs.text = map[Atom]string{}
+	}
+	t := a.Text()
+	fs.text[a] = t
+	return t
+}
+
+// Intern returns the ID of f, adding it when no filter of the same atoms is
+// known; 0 when the table is full or f has no atom or too many.
+func (fs *Filters) Intern(f Filter) FilterID {
+	if fs == nil || len(f.Atoms) == 0 || len(f.Atoms) > MaxAtoms {
+		return 0
+	}
+	for _, a := range f.Atoms {
+		if a.T == nil {
+			return 0
+		}
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	defer scratch.Outer().Restore()
+	return fs.intern(f)
+}
+
+// intern is Intern with fs.mu held.
+func (fs *Filters) intern(f Filter) FilterID {
+	// The canonical form: atoms sorted by their text, without duplicates.
+	type at struct {
+		a Atom
+		t string
+	}
+	ats := compat.Make[at](len(f.Atoms))
+	for i, a := range f.Atoms {
+		ats[i] = at{a, fs.atomText(a)}
+	}
+	slices.SortStableFunc(ats, func(x, y at) int { return strings.Compare(x.t, y.t) })
+	ats = slices.CompactFunc(ats, func(x, y at) bool { return x.t == y.t && x.a.same(y.a) })
+	var key compat.Builder
+	atoms := compat.Make[Atom](len(ats))
+	for i, x := range ats {
+		atoms[i] = x.a
+		key.WriteString(x.t)
+		key.WriteByte(0)
+	}
+	f = Filter{Atoms: atoms}
+	k := key.String()
+	list := pu.Alloc[[]Filter]()
+	if l := fs.list.Load(); l != nil {
+		(*list) = *l
+	}
+	for _, id := range fs.byText[k] {
+		if (*list)[id-1].same(f) {
+			return id
+		}
+	}
+	if len((*list)) >= MaxFilters {
+		return 0
+	}
+	(*list) = compat.Append((*list), f)
+	fs.list.Store(list)
+	id := FilterID(len((*list)))
+	if fs.byText == nil {
+		fs.byText = map[string][]FilterID{}
+	}
+	fs.byText[k] = compat.AppendPlain(fs.byText[k], id)
+	fs.keys = compat.Append(fs.keys, k)
+	return id
+}
+
+// Get returns the filter of id; ok is false for 0 or an unknown id.
+func (fs *Filters) Get(id FilterID) (Filter, bool) {
+	if fs == nil || id == 0 {
+		return Filter{}, false
+	}
+	l := fs.list.Load()
+	if l == nil || int(id) > len(*l) {
+		return Filter{}, false
+	}
+	return (*l)[id-1], true
+}
+
+// Union returns the ID of the union of filters a and b; 0 (no filter) when
+// either is 0 or the union is too large.
+func (fs *Filters) Union(a, b FilterID) FilterID {
+	if a == b {
+		return a
+	}
+	if a > b {
+		a, b = b, a
+	}
+	fa, ok1 := fs.Get(a)
+	fb, ok2 := fs.Get(b)
+	if !ok1 || !ok2 {
+		return 0
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	defer scratch.Outer().Restore()
+	if u, ok := fs.union[[2]FilterID{a, b}]; ok {
+		return u
+	}
+	var u FilterID
+	if len(fa.Atoms)+len(fb.Atoms) <= 2*MaxAtoms {
+		all := compat.Append(compat.Clone(fa.Atoms), fb.Atoms...)
+		u = fs.intern(Filter{Atoms: all})
+		if g, ok := fs.getLocked(u); ok && len(g.Atoms) > MaxAtoms {
+			u = 0
+		}
+	}
+	if fs.union == nil {
+		fs.union = map[[2]FilterID]FilterID{}
+	}
+	fs.union[[2]FilterID{a, b}] = u
+	return u
+}
+
+func (fs *Filters) getLocked(id FilterID) (Filter, bool) {
+	l := fs.list.Load()
+	if id == 0 || l == nil || int(id) > len(*l) {
+		return Filter{}, false
+	}
+	return (*l)[id-1], true
+}
+
+// coversID reports whether filter a's atoms include filter b's, memoized.
+func (fs *Filters) coversID(a, b FilterID) bool {
+	fa, ok1 := fs.Get(a)
+	fb, ok2 := fs.Get(b)
+	if !ok1 || !ok2 {
+		return false
+	}
+	fs.mu.Lock()
+	c, ok := fs.covers[[2]FilterID{a, b}]
+	fs.mu.Unlock()
+	if ok {
+		return c
+	}
+	defer scratch.Outer().Restore()
+	c = true
+	for _, x := range fb.Atoms {
+		if !slices.ContainsFunc(fa.Atoms, x.same) {
+			c = false
+			break
+		}
+	}
+	fs.mu.Lock()
+	if fs.covers == nil {
+		fs.covers = map[[2]FilterID]bool{}
+	}
+	fs.covers[[2]FilterID{a, b}] = c
+	fs.mu.Unlock()
+	return c
+}
+
+// maxFilterPos is the last position a filter may have (three bits of the
+// key); a filter past it is dropped, which only widens the key.
+const maxFilterPos = 7
+
+const (
+	keyFilterShift = 46
+	keyFilterMask  = Key(MaxFilters) << keyFilterShift
+	keyPosShift    = 60
+	keyPosMask     = Key(7) << keyPosShift
+)
+
+// Filter returns the key's filter and its position, or 0.
+func (k Key) Filter() (FilterID, int) {
+	return FilterID((k & keyFilterMask) >> keyFilterShift), int((k & keyPosMask) >> keyPosShift)
+}
+
+// WithFilter returns k with filter id at position pos (the number of path
+// steps before the filtered pointer); id 0, or a position past the key's
+// path or past maxFilterPos, gives k without a filter.
+func (k Key) WithFilter(ps Paths, id FilterID, pos int) Key {
+	k = k.NoFilter()
+	if id == 0 || k.Arena() || pos < 0 || pos > maxFilterPos || pos > len(ps.Steps(k.Path())) {
+		return k
+	}
+	return k | Key(id)<<keyFilterShift | Key(pos)<<keyPosShift
+}
+
+// WithFilterRaw is WithFilter for a position known to lie within the key's
+// path (a solver's token keeps it so).
+func (k Key) WithFilterRaw(id FilterID, pos int) Key {
+	k = k.NoFilter()
+	if id == 0 || k.Arena() || pos < 0 || pos > maxFilterPos {
+		return k
+	}
+	return k | Key(id)<<keyFilterShift | Key(pos)<<keyPosShift
+}
+
+// NoFilter returns k without its filter.
+func (k Key) NoFilter() Key { return k &^ (keyFilterMask | keyPosMask) }
+
+// HasFilter reports whether k has a filter.
+func (k Key) HasFilter() bool { return k&keyFilterMask != 0 }
+
+// filterCovers reports whether a's filter covers b's: both at one position,
+// every atom of b's an atom of a's.
+func filterCovers(fs *Filters, a, b Key) bool {
+	ia, pa := a.Filter()
+	ib, pb := b.Filter()
+	if ib == 0 || pa != pb {
+		return false
+	}
+	if ia == ib {
+		return true
+	}
+	return fs.coversID(ia, ib)
+}
+
+// Canonical renumbers the filters by their atoms' texts (filters of the
+// same texts, of distinct local types, keep their order) and returns the
+// renaming, by old ID (nil: none changes). The keys that name the old IDs
+// must be renamed with it (Key.WithFilterRaw); the memos are dropped. It
+// must not run beside any other use of the table.
+func (fs *Filters) Canonical() []FilterID {
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	l := fs.list.Load()
+	if l == nil {
+		return nil
+	}
+	list := *l
+	order := compat.Make[int](len(list))
+	for i := range order {
+		order[i] = i
+	}
+	slices.SortStableFunc(order, func(a, b int) int { return strings.Compare(fs.keys[a], fs.keys[b]) })
+	rename := compat.Make[FilterID](len(list) + 1)
+	same := true
+	newList := pu.New(compat.Make[Filter](len(list)))
+	newKeys := compat.Make[string](len(list))
+	fs.byText = map[string][]FilterID{}
+	for n, old := range order {
+		id := FilterID(n + 1)
+		rename[old+1] = id
+		same = same && old == n
+		(*newList)[n], newKeys[n] = list[old], fs.keys[old]
+		fs.byText[newKeys[n]] = compat.AppendPlain(fs.byText[newKeys[n]], id)
+	}
+	fs.list.Store(newList)
+	fs.keys = newKeys
+	fs.union, fs.covers = nil, nil
+	fs.memo = nil
+	if same {
+		return nil
+	}
+	return rename
+}
+
+// Memo returns the filter memoized for k, computing it with compute (which
+// interns it in fs) the first time: the filter of an assertion's type or
+// of a candidate's receiver, which the solvers ask for at every solve.
+func (fs *Filters) Memo(k any, compute func() FilterID) FilterID {
+	defer scratch.Outer().Restore()
+	fs.mu.Lock()
+	id, ok := fs.memo[k]
+	fs.mu.Unlock()
+	if ok {
+		return id
+	}
+	id = compute()
+	fs.mu.Lock()
+	if fs.memo == nil {
+		fs.memo = map[any]FilterID{}
+	}
+	fs.memo[k] = id
+	fs.mu.Unlock()
+	return id
+}

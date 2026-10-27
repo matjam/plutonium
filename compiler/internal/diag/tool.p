@@ -1,0 +1,83 @@
+// Translated by go2pu from internal/diag/tool.go at the go-cutover tag; edited by hand since.
+
+package diag
+
+import (
+	"pluto/strings"
+	"compiler/compat"
+	"compiler/pu"
+)
+
+// FromTool returns the diagnostic for a failed run of an external tool:
+// the assembler (as), the linker (ld) or the C compiler. cause is what
+// running it returned (its error text; notFound is set when the tool was
+// not found), and output its error output. rename maps the
+// temporary file names the tool saw to the names the user knows.
+//
+// The message starts "running <tool> failed: ", followed by the cause
+// when it is one of the common ones, and then the tool's output, indented.
+func FromTool(tool string, notFound bool, cause, output string, rename map[string]string) *Diagnostic {
+	for from, to := range rename {
+		output = strings.ReplaceAll(output, from, to)
+	}
+	output = strings.TrimRight(output, "\n")
+	d := pu.New(Diagnostic{Code: LinkFailed})
+	switch {
+	case notFound:
+		d.Code = ToolNotFound
+		d.Text = compat.Sprintfb("Plutonium uses the system's %s, which is not installed or not on the PATH. On most Linux systems the binutils package provides as and ld, and a C compiler package provides cc.", compat.ArgS(toolName(tool)))
+	case tool == "as":
+		d.Code = AssemblerError
+	case tool != "ld":
+		d.Code = CCompilerError
+	default:
+		cause, d.Code, d.Text = linkCause(output, cause)
+	}
+	d.Msg = compat.Sprintfb("running %s failed: %s", compat.ArgS(tool), compat.ArgS(cause))
+	if output != "" {
+		d.Msg = compat.Concat(d.Msg, compat.Concat("\n\t", strings.ReplaceAll(output, "\n", "\n\t")))
+	}
+	return d
+}
+
+func toolName(tool string) string {
+	switch tool {
+	case "as":
+		return "GNU assembler (as)"
+	case "ld":
+		return "GNU linker (ld)"
+	}
+	return compat.Concat("C compiler (", tool, ")")
+}
+
+// linkCause recognises the common linker failures in ld's output and
+// returns the cause for the message, the code and an explanation.
+func linkCause(output, status string) (string, Code, string) {
+	if sym, ok := matchQuoted(output, "undefined reference to `"); ok {
+		user := ""
+		if f, ok := matchQuoted(output, "in function `"); ok {
+			user = f
+		}
+		b := pu.Alloc[compat.Builder]()
+		compat.Fprintfb(b, "The program uses the symbol %s", compat.ArgS(sym))
+		if user != "" {
+			compat.Fprintfb(b, " (in %s)", compat.ArgS(user))
+		}
+		b.WriteString(", but nothing linked into it defines that symbol.\n")
+		if strings.Contains(sym, ".") {
+			compat.Fprintfb(b, "%s looks like a Plutonium function. A function declared without a body must be defined in a .s file of its package, under the symbol \"%s\" in quotes, or be marked //pu:extern with the name of a C function.", compat.ArgS(sym), compat.ArgS(sym))
+		} else {
+			compat.Fprintfb(b, "%s looks like a C symbol, as named by //pu:extern. Add the .c or .o file that defines it to the package, or check the spelling in the //pu:extern line.", compat.ArgS(sym))
+		}
+		return compat.Concat("undefined reference to ", sym), UndefinedSymbol, b.String()
+	}
+	if reloc, rsym, ok := matchRelocTrunc(output); ok {
+		text := compat.Sprintfb("The code reaches %s with a %s relocation, a 32-bit offset, and the linker placed it too far away for that. Compiled Plutonium code expects all code and data within 2 GiB of each other: near address 0 in hosted builds, and in the top 2 GiB of the address space in kernel mode.\nThe usual cause is a linker script that places a section elsewhere. In kernel mode, link the image at or above 0xFFFFFFFF80000000, as the default kernel linker script does.", compat.ArgS(rsym), compat.ArgS(reloc))
+		return compat.Concat("relocation truncated to fit (", reloc, " against ", rsym, ")"), RelocOverflow, text
+	}
+	if def, ok := matchQuoted(output, "multiple definition of `"); ok {
+		text := compat.Sprintfb("Two of the objects linked into the program define %s. Rename one of them, or remove the duplicate .s, .c or .o file. A //pu:export name must not also be defined in C or assembly.", compat.ArgS(def))
+		return compat.Concat("multiple definition of ", def), MultipleDefs, text
+	}
+	return status, LinkFailed, ""
+}

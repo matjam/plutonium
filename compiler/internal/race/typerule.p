@@ -1,0 +1,201 @@
+// Translated by go2pu from internal/race/typerule.go at the go-cutover tag; edited by hand since.
+
+package race
+
+import (
+	"pluto/sort"
+	"pluto/strings"
+	"compiler/compat"
+	"compiler/internal/syntax/token"
+	"compiler/internal/types2"
+	"compiler/pu"
+)
+
+// The type rule. A view may cross to another task when every object of
+// the struct type it points to is safe to use from several tasks at once:
+// nothing overwrites a whole object through a view, and each field is
+// either never changed once the object is reachable from anywhere but the
+// function that allocated it, or used only with atomic operations, or only
+// while holding one lock of the same object (or one package-level lock),
+// inferred from the accesses as for package variables. An immutable struct
+// is the case with no changes; an object guarded by its own mutex, such as
+// one with a sync.Mutex field next to the data it protects, is the other.
+
+// A typeAccess is a use of a field of an object, in any function: which
+// locks it holds (named relative to the object, or package-level ones) and
+// whether it is atomic.
+type typeAccess struct {
+	write, atomic bool
+	excl, shared  []string
+	pos           token.Pos
+	fn            string
+	global        *types2.Var // the object is this package variable
+}
+
+// A typeSeenKey identifies a recorded typeAccess of a field.
+type typeSeenKey struct {
+	key           string
+	write, atomic bool
+	excl, shared  string
+	pos           token.Pos
+	global        *types2.Var
+}
+
+// recordType records a use of field key of the object place p is in.
+// Initialising uses of memory nobody else can reach yet are left out.
+func (a *analyzer) recordType(key string, p vpath, write, atomic bool, locks lockset, pos token.Pos, fn string, initializing bool) {
+	if initializing || p.root.kind == rLocal || p.root.kind == rParam {
+		return
+	}
+	if len(locks) == 0 && p.root.kind != rGlobal {
+		// Nothing about the place itself goes into the record: skip
+		// working out its object when it is already known.
+		if a.typeSeen[typeSeenKey{key: key, write: write, atomic: atomic, pos: pos}] {
+			return
+		}
+	}
+	base := objectBase(p)
+	x := pu.New(typeAccess{write: write, atomic: atomic, pos: pos, fn: fn})
+	if p.root.kind == rGlobal && !strings.ContainsAny(base.path, "*%$#") {
+		x.global = p.root.v
+	}
+	for _, l := range locks {
+		var k string
+		// A cut base (#) names no one object, so no lock is relative to it.
+		if l.place.root == base.root && !strings.Contains(base.path, "#") && prefixOf(base.path, l.place.path) && !strings.ContainsAny(strings.SliceFrom(l.place.path, len(base.path)), "*%$#") {
+			k = compat.Concat("rel:", strings.SliceFrom(l.place.path, len(base.path)))
+		} else if g, ok := globalLock(l); ok {
+			k = compat.Concat("glob:", g)
+		}
+		if k == "" {
+			continue
+		}
+		if l.excl {
+			x.excl = compat.Append(x.excl, k)
+		} else {
+			x.shared = compat.Append(x.shared, k)
+		}
+	}
+	if len(x.excl) > 1 {
+		sort.Strings(x.excl)
+	}
+	if len(x.shared) > 1 {
+		sort.Strings(x.shared)
+	}
+	dk := typeSeenKey{key: key, write: write, atomic: atomic, excl: compat.Join(x.excl, ","), shared: compat.Join(x.shared, ","), pos: pos, global: x.global}
+	if a.typeSeen[dk] {
+		return
+	}
+	a.typeSeen[dk] = true
+	a.typeAcc[key] = compat.Append(a.typeAcc[key], x)
+}
+
+// funcAt names the declared function whose body holds pos, for messages.
+func (a *analyzer) funcAt(pos token.Pos) string {
+	best := ""
+	for _, f := range a.funcs {
+		if f.decl != nil && f.decl.Pos() <= pos && pos < f.decl.End() {
+			best = f.name
+		}
+	}
+	if best == "" {
+		return "package initialization"
+	}
+	return best
+}
+
+// fieldProblem checks the type rule for field key. It returns an access at
+// fault and a write it may meet, or nils.
+func (a *analyzer) fieldProblem(key string) (bad, write *typeAccess) {
+	var xs []*typeAccess
+	for _, x := range a.typeAcc[key] {
+		if x.global != nil && !a.addrGlobals[x.global] {
+			continue // no view reaches it: the package variable rule covers it
+		}
+		xs = compat.Append(xs, x)
+	}
+	var g map[string]bool
+	for _, x := range xs {
+		if !x.write {
+			continue
+		}
+		xg := map[string]bool{}
+		if x.atomic {
+			xg["atomic"] = true
+		}
+		for _, k := range x.excl {
+			xg[k] = true
+		}
+		if g == nil {
+			g = xg
+		} else {
+			g = intersect(g, xg)
+		}
+		if len(g) == 0 {
+			return x, x
+		}
+		write = x
+	}
+	if g == nil {
+		return nil, nil // never changed once reachable
+	}
+	for _, x := range xs {
+		held := x.atomic && g["atomic"]
+		for _, k := range x.excl {
+			held = held || g[k]
+		}
+		for _, k := range x.shared {
+			held = held || g[k]
+		}
+		if !held {
+			return x, write
+		}
+	}
+	return nil, nil
+}
+
+// typeProblem checks the type rule for struct type E and returns where it
+// fails, with an explanation when the failing use is not itself a write.
+func (a *analyzer) typeProblem(E types2.Type) (*writeSite, string) {
+	return a.typeProblemIn(E, map[types2.Type]bool{})
+}
+
+func (a *analyzer) typeProblemIn(E types2.Type, seen map[types2.Type]bool) (*writeSite, string) {
+	if seen[E] {
+		return nil, ""
+	}
+	seen[E] = true
+	if a.selfSynchronized(E) {
+		return nil, ""
+	}
+	if s := a.viewWrites[compat.Concat("whole:", typeKey(E))]; s != nil {
+		return s, ""
+	}
+	st, ok := underlying(E).(*types2.Struct)
+	if !ok {
+		if arr, ok := underlying(E).(*types2.Array); ok && isAggregate(arr.Elem()) {
+			return a.typeProblemIn(arr.Elem(), seen)
+		}
+		return nil, ""
+	}
+	for i := 0; i < st.NumFields(); i++ {
+		f := st.Field(i)
+		if isSyncType(f.Type()) {
+			continue
+		}
+		key := compat.Concat("field:", typeKey(E), ".", f.Name())
+		if bad, w := a.fieldProblem(key); bad != nil {
+			site := pu.New(writeSite{pos: bad.pos, fn: a.funcAt(bad.pos), expr: compat.Concat("its field ", f.Name())})
+			if !bad.write && w != nil {
+				return site, compat.Sprintfb("Its field %s is changed at %s (in %s) and read at %s (in %s) without a lock that every change holds.", compat.ArgS(f.Name()), compat.ArgS(a.short(w.pos)), compat.ArgS(a.funcAt(w.pos)), compat.ArgS(a.short(bad.pos)), compat.ArgS(a.funcAt(bad.pos)))
+			}
+			return site, ""
+		}
+		if isAggregate(f.Type()) {
+			if s, why := a.typeProblemIn(f.Type(), seen); s != nil {
+				return s, why
+			}
+		}
+	}
+	return nil, ""
+}

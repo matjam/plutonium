@@ -1,0 +1,1080 @@
+// Translated by go2pu from internal/escape/tokens.go at the go-cutover tag; edited by hand since.
+
+package escape
+
+import (
+	"pluto/path/filepath"
+	"pluto/sort"
+	"pluto/strconv"
+	"pluto/strings"
+	"compiler/compat"
+	"compiler/internal/syntax/ast"
+	"compiler/internal/syntax/token"
+	"compiler/internal/types2"
+	"compiler/pu"
+)
+
+// Access paths. A path is a sequence of steps, each a field offset ("3."
+// for field 3) or a load ("*"). The trailing dot keeps string prefixes on
+// step boundaries. Selecting a field of a struct value, as opposed to
+// offsetting a pointer, is not a step: values are tracked as a whole.
+//
+// maxDepth bounds the loads and maxSteps the steps a path may have; a
+// longer one is cut short and marked ge, "this path or any extension".
+const (
+	maxDepth = 3
+	maxSteps = 8
+)
+
+// The counts below run over every path of every token the analysis makes, so
+// they are plain loops.
+func pathDepth(p string) int {
+	n := 0
+	for i := 0; i < len(p); i++ {
+		if p[i] == '*' {
+			n++
+		}
+	}
+	return n
+}
+
+// maxFieldNest is how many nested fields a path tells apart between loads.
+const maxFieldNest = 2
+
+// fieldTail counts the field steps after a path's last load.
+func fieldTail(p string) int {
+	n := 0
+	for i := len(p) - 1; i >= 0 && p[i] != '*'; i-- {
+		if p[i] == '.' {
+			n++
+		}
+	}
+	return n
+}
+
+func pathSteps(p string) int {
+	n := 0
+	for i := 0; i < len(p); i++ {
+		if p[i] == '*' || p[i] == '.' {
+			n++
+		}
+	}
+	return n
+}
+
+// A tokKind says where a pointer may point.
+type tokKind uint8
+
+const (
+	tHeap  tokKind = iota // the heap, static memory, or a device: never a frame
+	tFrame                // a location in the frame being analysed (or an enclosing one)
+	tParam                // whatever parameter idx of scope sc held, followed along path
+)
+
+// A tok is one thing a pointer-carrying value may point at. A value's
+// abstract form is a set of them; a value with no pointers has none.
+type tok struct {
+	kind        tokKind
+	counted     bool     // tHeap: a strong reference; tParam: conversion to a counted error
+	directCount bool     // tParam: the conversion's source is known to be shared or synced
+	borrowed    bool     // tParam: the selected value lends its box payload
+	shape       ptrShape // what the pointer is of, relative to its location (see ptrShape)
+	holder      *loc     // tHeap: holder to use only when borrowing this strong value
+	loc         *loc     // tFrame
+	path        string   // tFrame: the field within loc; tParam: the access path from the parameter
+	sc          *scope   // tParam
+	idx         int      // tParam: parameter index, receiver first
+	ge          bool     // tParam: the path or any extension of it
+
+	// tParam: a type assertion to the interface filt, applied when the path
+	// was filtAt bytes long, constrains the dynamic type of the interface
+	// value found there. A caller drops the frame boxes whose type does not
+	// implement filt, so that x.(error) inside fmt does not make every
+	// boxed string escape.
+	filt   types2.Type
+	filtAt int
+	// The shape the pointer had where the filter applied (see ptrShape): a
+	// caller judges its own pointer at that place of the path as one of that
+	// shape, which a pointer the callee took into what its parameter points to
+	// (&p[1]) is, whatever the caller's pointer is.
+	filtShape ptrShape
+
+	// In a struct value, the field path (as in locations, up to
+	// maxFieldNest fields) of the field that holds the pointer; empty when
+	// unknown or the value is not a struct. Struct values are told apart
+	// field by field, like locations.
+	tag string
+}
+
+// A ptrShape says how a pointer relates to the location its token names. A
+// type filter (a type assertion, or the receiver type of a method) judges a
+// pointer by the type of its location, which holds only for a pointer to the
+// whole of it.
+type ptrShape uint8
+
+const (
+	shapeWhole   ptrShape = iota // a pointer to the whole location, of its type
+	shapeElement                 // a pointer to an element of an array or slice, which are followed as a whole: of a type in the location, at the path of the location
+	shapeOffset                  // a pointer into the location at an offset unsafe.Add made: of a type in the location, at no path
+	shapeOther                   // a pointer that may be of any type: converted to another type, through unsafe.Pointer, or the one pointer of a pointer-shaped struct
+)
+
+// interior reports whether the pointer is into the location, of the type of
+// something in it.
+func (t tok) interior() bool { return t.shape == shapeElement || t.shape == shapeOffset }
+
+// loaded returns a token found in what t points to: a pointer to a field of a
+// location is followed to the field, but one made by an offset or of another
+// type points to memory whose fields are not those of the location, so the
+// pointers it holds are not told apart by field.
+func (t tok) loaded(u tok) tok {
+	if t.shape >= shapeOffset {
+		return u.untag()
+	}
+	return u
+}
+
+// as returns t marked as a pointer of shape s, which it keeps if it has a
+// less exact one already. A filter the token has stays: it constrains the
+// interface the pointer was the data word of, which a conversion of the pointer
+// does not change. The pointer a load finds is another one (extend).
+func (t tok) as(s ptrShape) tok {
+	if t.kind == tHeap || s <= t.shape {
+		return t
+	}
+	t.shape = s
+	return t
+}
+
+// asShape marks every pointer in ts as one of shape s (see tok.as).
+func asShape(ts tset, s ptrShape) tset {
+	var out tbuf
+	for _, t := range ts {
+		out.add(t.as(s))
+	}
+	return out.done()
+}
+
+// valueType returns the type of what the location holds, as a whole.
+func (l *loc) valueType() types2.Type {
+	if l == nil {
+		return nil
+	}
+	if l.dynamic != nil {
+		if el := pointerElem(l.dynamic); el != nil {
+			return el
+		}
+		return l.dynamic
+	}
+	return l.typ
+}
+
+// holdsType reports whether a value of type T has in it, or is, a value of
+// type R: a field, an element, or a field of one, which a pointer into the
+// value may point to. What a pointer in it points to is another location.
+func holdsType(T, R types2.Type, depth int) bool {
+	if types2.Identical(T, R) {
+		return true
+	}
+	if depth > 8 {
+		return true // too deep to tell
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if holdsType(u.Field(i).Type(), R, depth+1) {
+				return true
+			}
+		}
+	case *types2.Array:
+		return holdsType(u.Elem(), R, depth+1)
+	}
+	return false
+}
+
+// holdsImplementer reports whether a value of type T has in it, or is, a
+// value whose type implements the interface iface (when value is set), or
+// whose pointer type does (when it is not).
+func holdsImplementer(T types2.Type, iface *types2.Interface, value bool, depth int) bool {
+	if depth > 8 {
+		return true
+	}
+	if value && types2.Implements(T, iface) || !value && types2.Implements(types2.NewPointer(T), iface) {
+		return true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if holdsImplementer(u.Field(i).Type(), iface, value, depth+1) {
+				return true
+			}
+		}
+	case *types2.Array:
+		return holdsImplementer(u.Elem(), iface, value, depth+1)
+	}
+	return false
+}
+
+// into returns t as a pointer into the object it points into, at an offset
+// (unsafe.Add): of the type of something in the object, at no path of it. A
+// pointer to the object is kept, whole, for a type filter to apply to; what a
+// load through the pointer finds is any pointer the object holds.
+func (t tok) into(s ptrShape) tok {
+	t = t.untag()
+	switch t.kind {
+	case tFrame:
+		t.path = ""
+	case tParam:
+		// The object is the one the last load found.
+		if i := strings.LastIndexByte(t.path, '*'); i >= 0 {
+			t.path = strings.Slice(t.path, 0, i+1)
+		} else {
+			t.path = ""
+		}
+		if t.filtAt > len(t.path) {
+			t.filt, t.filtAt, t.filtShape = nil, 0, shapeWhole
+		}
+	}
+	return t.as(s)
+}
+
+// intoSet is into for every pointer in ts.
+func intoSet(ts tset, s ptrShape) tset {
+	var out tbuf
+	for _, t := range ts {
+		out.add(t.into(s))
+	}
+	return out.done()
+}
+
+// untag drops the field tag: the token as a pointer in its own right.
+func (t tok) untag() tok {
+	t.tag = ""
+	return t
+}
+
+// tagField marks every token in ts as held in field i of a struct value.
+func tagField(ts tset, i int) tset {
+	var out tbuf
+	for _, t := range ts {
+		t.tag = capFields(compat.Concat(fieldStep(i), t.tag))
+		out.add(t)
+	}
+	return out.done()
+}
+
+// retag marks every token in ts with field path tag.
+func retag(ts tset, tag string) tset {
+	if tag == "" {
+		return ts
+	}
+	var out tbuf
+	for _, t := range ts {
+		t.tag = tag
+		out.add(t)
+	}
+	return out.done()
+}
+
+// selectField returns the tokens of struct value ts that field i may hold.
+func selectField(ts tset, i int) tset {
+	var out tbuf
+	step := fieldStep(i)
+	for _, t := range ts {
+		switch {
+		case t.tag == "":
+			out.add(t)
+		case strings.HasPrefix(t.tag, step):
+			t.tag = strings.SliceFrom(t.tag, len(step))
+			out.add(t)
+		}
+	}
+	return out.done()
+}
+
+// capFields cuts a field path to maxFieldNest fields.
+func capFields(p string) string {
+	n := 0
+	for i := 0; i < len(p); i++ {
+		if p[i] == '.' {
+			if n++; n == maxFieldNest {
+				return strings.Slice(p, 0, i+1)
+			}
+		}
+	}
+	return p
+}
+
+var heapTok = tok{kind: tHeap}
+
+func frameTok(l *loc) tok { return tok{kind: tFrame, loc: l} }
+
+func paramTok(sc *scope, idx int) tok { return tok{kind: tParam, sc: sc, idx: idx} }
+
+// extend appends a step to a parameter token's path.
+func (t tok) extend(step string) tok {
+	if t.ge {
+		return t
+	}
+	wide := false
+	if step == "*" {
+		// What a pointer at an offset into an object holds is any of the
+		// pointers the object holds: the load is what is widened.
+		wide = t.shape >= shapeOffset
+		t.shape = shapeWhole // the pointer loaded is another one
+	}
+	p := compat.Concat(t.path, step)
+	if pathDepth(p) > maxDepth || pathSteps(p) > maxSteps {
+		// Too long: cut the path back to its first load and one more,
+		// so that the tokens past the limit stay few. A long path has at
+		// least two loads, so the pointers it reaches are all reachable
+		// from the memory the first load's result points to.
+		t.ge = true
+		if i := strings.IndexByte(t.path, '*'); i >= 0 {
+			t.path = compat.Concat(strings.Slice(t.path, 0, i+1), "*")
+		} else {
+			t.path = ""
+		}
+		if t.filtAt > len(t.path) {
+			// The cut lost where the filter applied. (One that applies
+			// within what is left still does: it constrains the pointers
+			// found there, and the ones past them come from those.)
+			t.filt, t.filtAt, t.filtShape = nil, 0, shapeWhole
+		}
+		return t
+	}
+	t.path = p
+	t.ge = wide
+	return t
+}
+
+// widen makes a parameter token stand for its path and every extension.
+func (t tok) widen() tok {
+	t.ge = true
+	return t
+}
+
+// fieldStep is the path step for field i.
+func fieldStep(i int) string { return compat.Concat(strconv.Itoa(i), ".") }
+
+// A tset is a set of tokens in the order they were first added. Most are
+// small, but a pointer to a large structure reaches hundreds of tokens, and
+// the dynamic calls of translated code add every implementation's: a
+// tbuf builds one without searching it for every token.
+type tset []tok
+
+// indexMin is the size from which a tbuf builds a hash index; a linear scan of
+// fewer tokens is faster than a lookup.
+const indexMin = 12
+
+func (s tset) has(t tok) bool {
+	for _, u := range s {
+		if u == t {
+			return true
+		}
+	}
+	return false
+}
+
+// add adds t and reports whether it was new. It searches s; a set that is
+// built from many tokens uses a tbuf.
+func (s *tset) add(t tok) bool {
+	if s.has(t) {
+		return false
+	}
+	*s = tset(compat.Append(*s, t))
+	return true
+}
+
+// addAll adds every token of u and reports whether any was new.
+func (s *tset) addAll(u tset) bool {
+	if len(u) == 0 {
+		return false
+	}
+	b := tbuf{set: *s}
+	grew := b.addAll(u)
+	*s = b.done()
+	return grew
+}
+
+func union(sets ...tset) tset {
+	var out tbuf
+	for _, s := range sets {
+		out.addAll(s)
+	}
+	return out.done()
+}
+
+// A tbuf builds a tset: add keeps a hash index of the tokens once there are
+// indexMin of them, so that building a set of n tokens takes time in
+// proportion to n. The zero value is an empty set. The order of the tokens
+// is the order of their first addition, as for tset.add.
+type tbuf struct {
+	set tset
+	idx map[tok]struct{} // the tokens of set, from indexMin of them
+}
+
+// add adds t and reports whether it was new.
+func (b *tbuf) add(t tok) bool {
+	if b.idx == nil {
+		if len(b.set) < indexMin {
+			if b.set.has(t) {
+				return false
+			}
+			b.set = tset(compat.Append(b.set, t))
+			return true
+		}
+		b.idx = newIndex(4 * len(b.set))
+		for _, u := range b.set {
+			b.idx[u] = struct{}{}
+		}
+	}
+	if _, ok := b.idx[t]; ok {
+		return false
+	}
+	b.idx[t] = struct{}{}
+	b.set = tset(compat.Append(b.set, t))
+	return true
+}
+
+// done returns the set the buffer built and gives its hash index back for
+// another buffer to reuse; the buffer must not be used again. Without the
+// reuse, the indexes were most of what the analysis allocated: a map for
+// every set of indexMin tokens or more, built and dropped (the translated
+// compiler frees nothing, self-hosting plan section 3.4).
+func (b *tbuf) done() tset {
+	if b.idx != nil {
+		putIndex(b.idx)
+		b.idx = nil
+	}
+	return b.set
+}
+
+// indexPool holds hash indexes given back by tbuf.done, cleared.
+var indexPool struct {
+	mu   compat.Mutex
+	maps []map[tok]struct{}
+}
+
+// indexPoolMax bounds the pool, and indexKeepMax the size of an index
+// worth keeping: clearing a map takes time in proportion to its capacity,
+// so a large one is left to the collector.
+const (
+	indexPoolMax = 64
+	indexKeepMax = 4096
+)
+
+// newIndex returns an empty index for n tokens or more.
+func newIndex(n int) map[tok]struct{} {
+	indexPool.mu.Lock()
+	defer indexPool.mu.Unlock()
+	if k := len(indexPool.maps); k > 0 {
+		m := indexPool.maps[k-1]
+		indexPool.maps = indexPool.maps[:k-1]
+		return m
+	}
+	return make(map[tok]struct{}, n)
+}
+
+// putIndex gives an index back to the pool.
+func putIndex(m map[tok]struct{}) {
+	if len(m) > indexKeepMax {
+		return
+	}
+	clear(m)
+	indexPool.mu.Lock()
+	defer indexPool.mu.Unlock()
+	if len(indexPool.maps) < indexPoolMax {
+		indexPool.maps = compat.Append(indexPool.maps, m)
+	}
+}
+
+// addAll adds every token of u and reports whether any was new.
+func (b *tbuf) addAll(u tset) bool {
+	grew := false
+	for _, t := range u {
+		if b.add(t) {
+			grew = true
+		}
+	}
+	return grew
+}
+
+// A locKind says what a piece of frame storage is, for messages.
+type locKind uint8
+
+const (
+	lkVar         locKind = iota // a local variable
+	lkParam                      // a parameter
+	lkResult                     // a named result
+	lkResultN                    // an unnamed result
+	lkTemp                       // a copy of an operand that & cannot address
+	lkRecv                       // a copy of a receiver, for a pointer method
+	lkLit                        // the T of &T{...}
+	lkSliceLit                   // the backing array of a slice literal
+	lkVarargs                    // the argument array of a variadic call
+	lkBox                        // an interface's copy of a value larger than a word
+	lkClosure                    // the record of a function literal that uses variables
+	lkMethodValue                // the record of a method value, holding its receiver
+	lkCtor                       // the region a call that returns closures builds them in
+	lkObject                     // the heap object a box (owned, shared, synced) held in a frame refers to
+	lkArena                      // memory allocated from a local arena installed as the default allocator (arena.go)
+	lkLoopBody                   // the closure record of the body of a range loop over a function (rangefunc.go)
+	lkStmtTemp                   // an owner or counted box temporary, dropped at the end of its statement
+)
+
+// A loc is a piece of frame storage: a local variable, a parameter's slot,
+// a result, or a temporary the compiler places in the frame (an interface
+// box, a closure record, a slice literal's backing array).
+type holderKey struct {
+	expr ast.Expr
+	path string
+}
+
+type loc struct {
+	holders  map[holderKey]*loc // immutable projected payload identities
+	kind     locKind
+	v        *types2.Var   // lkVar, lkParam, lkResult
+	node     ast.Node      // temporaries: the expression that makes it
+	fn       string        // the function whose frame holds it, for messages
+	captures []*types2.Var // lkClosure: the variables the literal uses
+	method   string        // lkStmtTemp: the pointer method called on the temporary
+	pos      token.Pos     // where it is declared or made
+	level    int           // nesting depth of the function literal that owns it; 0 for the declared function
+	contents *contents     // what the storage may hold, by field path within it
+
+	// The type stored, when known, and whether the location is an
+	// interface box. A pointer to the whole location used as an interface
+	// data word then has a known dynamic type: the boxed type, or a
+	// pointer to the stored one.
+	typ types2.Type
+	box bool
+	// object marks a statement temporary's boxed payload, whose contents
+	// are heap memory even though its lifetime is bounded by the statement.
+	object bool
+	// dynamic is the projected payload's interface type when a different
+	// containing value bounds its lifetime.
+	dynamic types2.Type
+	// explicit marks an lkArena whose arena v is a local variable that a
+	// call was given as an allocator (arena.go), as opposed to one that
+	// alloc.Use installed.
+	explicit bool
+}
+
+func (l *loc) dynamicType() types2.Type {
+	if l == nil {
+		return nil
+	}
+	if l.dynamic != nil {
+		return l.dynamic
+	}
+	if l.kind == lkSliceLit {
+		return nil // the backing array of a slice is not pointed to as an array
+	}
+	if l.typ == nil || l.box {
+		return l.typ
+	}
+	return types2.NewPointer(l.typ)
+}
+
+// put records that v is stored at field path p of l and reports whether
+// that added anything.
+func (l *loc) put(p string, v tset) bool {
+	if len(v) == 0 {
+		return false
+	}
+	if l.contents == nil {
+		l.contents = pu.New(contents{m: map[string]*tbuf{}})
+	}
+	grew := false
+	for _, t := range v {
+		k := capFields(compat.Concat(p, t.tag))
+		s := l.contents.m[k]
+		if s == nil {
+			s = pu.New(tbuf{})
+			l.contents.m[k] = s
+		}
+		if s.add(t.untag()) {
+			grew = true
+		}
+	}
+	if grew {
+		l.contents.ver++
+	}
+	return grew
+}
+
+// contents is what a location holds, by field path. Locations made from one
+// another (projected payloads) share it.
+type contents struct {
+	m   map[string]*tbuf
+	ver uint32 // counts the additions
+	// getCache holds the results of get, for the version it was made at.
+	getCache map[string]getEnt
+}
+
+type getEnt struct {
+	ver uint32
+	set tset
+}
+
+// each calls f with the tokens held at each field path.
+func (l *loc) each(f func(set tset) bool) {
+	if l.contents == nil {
+		return
+	}
+	for _, c := range l.contents.m {
+		if !f(c.set) {
+			return
+		}
+	}
+}
+
+// getShared is get, for a caller that does not change the result: it is kept
+// until something is added to l.
+func (l *loc) getShared(p string) tset {
+	if l.contents == nil {
+		return nil
+	}
+	c := l.contents
+	if e, ok := c.getCache[p]; ok && e.ver == c.ver {
+		return e.set
+	}
+	set := l.get(p)
+	if c.getCache == nil {
+		c.getCache = map[string]getEnt{}
+	}
+	c.getCache[p] = getEnt{c.ver, set}
+	return set
+}
+
+// get returns what a load of field path p of l may yield: whatever was
+// stored at p, at a field inside it, or at a whole that contains it.
+func (l *loc) get(p string) tset {
+	if l.contents == nil {
+		return nil
+	}
+	keys := compat.MakeCap[string](0, len(l.contents.m))
+	for k := range l.contents.m {
+		if strings.HasPrefix(p, k) || strings.HasPrefix(k, p) {
+			keys = compat.Append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	var out tbuf
+	for _, k := range keys {
+		// What was stored in a field inside p comes back tagged with the
+		// field's path relative to p.
+		tag, ok := strings.CutPrefix(k, p)
+		if !ok {
+			tag = ""
+		}
+		for _, t := range l.contents.m[k].set {
+			t.tag = tag
+			out.add(t)
+		}
+	}
+	return out.done()
+}
+
+// A scope is the body of a declared function, a function literal inside
+// it, or the initialisers of a package's variables.
+type scope struct {
+	fn      *function
+	parent  *scope
+	level   int
+	node    ast.Node // the FuncDecl, FuncLit or nil for package initialisation
+	results []*loc
+	named   bool // the results have names
+	// loopBody: the scope is the body of a range loop over a function, as
+	// the yield function the loop passes (rangefunc.go); node is the loop.
+	// Only its parameters, the loop's variables, belong to it.
+	loopBody bool
+
+	// What a function literal returns that belongs to an enclosing frame:
+	// addresses of its locations and its parameters' pointers.
+	outerRet map[int]tset
+}
+
+// contains reports whether pos lies inside the scope's source.
+func (sc *scope) contains(pos token.Pos) bool {
+	return sc.node != nil && sc.node.Pos() <= pos && pos < sc.node.End()
+}
+
+// A pkey names pointers relative to a parameter: those found by following
+// path from parameter idx, or any extension of it when ge is set.
+type pkey struct {
+	// The fields are in the order that makes the struct smallest: there is
+	// one for every key of every summary, and millions of them.
+	path        string
+	filt        types2.Type // see tok
+	idx         int
+	filtAt      int
+	borrowed    bool     // the selected value lends its box payload
+	counts      bool     // conversion of this parameter to a counted error
+	directCount bool     // a definite strong-box conversion, rather than a generic one
+	shape       ptrShape // see tok
+	filtShape   ptrShape // see tok
+	ge          bool
+}
+
+func keyOf(t tok) pkey {
+	return pkey{idx: t.idx, counts: t.counted, directCount: t.directCount, borrowed: t.borrowed, path: t.path, ge: t.ge, shape: t.shape, filt: t.filt, filtAt: t.filtAt, filtShape: t.filtShape}
+}
+
+// An edge records that a function stores pointers derived from one
+// parameter into memory reached from another.
+type edge struct{ src, dst pkey }
+
+// A summary says what a function does with the pointers its caller passes.
+type summary struct {
+	escSet  escSet // stored where they outlive the call (escset.go)
+	filtIDs map[types2.Type]uint32
+	stores  map[edge]*reason // stored into memory a parameter points to
+	results []resultSum
+
+	// The keys of escapes and stores in order, made when a call applies the
+	// summary and dropped when a key is added: applying is done at every
+	// call of the function in every pass, and sorting is not cheap.
+	escKeys   []pkey
+	storeKeys []edge
+
+	// escLog are the keys of escapes by parameter, in the order they were
+	// added, so that a call site can apply the keys added since it last did
+	// (applyEscapes).
+	escLog []escLog
+
+	// heapStores are the places reached from parameters that the function
+	// stores heap memory in: a caller's memory there then holds heap
+	// pointers, through which storing a view of its frame keeps that view
+	// (an element stored into a vector the callee allocated).
+	heapStores    map[pkey]bool
+	heapStoreKeys []pkey
+
+	// ver counts the changes to what other functions read of this one: the
+	// summary and the facts kept beside it (function.builds and
+	// outerResults), for deps.go.
+	ver uint32
+}
+
+// sortedEscapes returns the keys of escapes in order. The slice is not
+// changed by later additions, which make a new one.
+func (s *summary) sortedEscapes() []pkey {
+	if s.escKeys == nil && s.escSet.n > 0 {
+		s.escKeys = sortedKeys(s.escapeKeys())
+	}
+	return s.escKeys
+}
+
+// sortedStores returns the keys of stores in order.
+func (s *summary) sortedStores() []edge {
+	if s.storeKeys == nil && len(s.stores) > 0 {
+		s.storeKeys = sortedEdges(s.stores)
+	}
+	return s.storeKeys
+}
+
+// A resultSum says what a result may hold: pointers derived from
+// parameters and pointers to the heap, each with the field path of a
+// struct result that holds it (or "").
+type resultSum struct {
+	from map[rkey]bool
+	heap map[heapResult]bool
+
+	fromKeys []rkey // the keys of from in order, until one is added
+}
+
+// sortedFrom returns the keys of from in order.
+func (r *resultSum) sortedFrom() []rkey {
+	if r.fromKeys == nil && len(r.from) > 0 {
+		r.fromKeys = sortedRkeys(r.from)
+	}
+	return r.fromKeys
+}
+
+type heapResult struct {
+	tag     string
+	counted bool
+}
+
+type rkey struct {
+	pkey
+	tag string
+}
+
+// addHeapStore records that the function stores heap memory in the place k
+// names. The place is what matters, not what the pointer to it is known to
+// be of: the key keeps its path only, and past the first load, which leads
+// out of the memory the parameter points to, it stands for anything there,
+// so that a function has a few such keys for each parameter, not one for
+// every way of reaching a place.
+func (s *summary) addHeapStore(k pkey) bool {
+	path, ge := k.path, k.ge
+	if i := strings.IndexByte(path, '*'); i >= 0 {
+		path, ge = strings.Slice(path, 0, i+1), true
+	}
+	k = pkey{idx: k.idx, path: path, ge: ge}
+	if s.heapStores[k] {
+		return false
+	}
+	if s.heapStores == nil {
+		s.heapStores = map[pkey]bool{}
+	}
+	s.heapStores[k] = true
+	s.ver++
+	s.heapStoreKeys = nil
+	return true
+}
+
+// sortedHeapStores returns the keys of heapStores in order.
+func (s *summary) sortedHeapStores() []pkey {
+	if s.heapStoreKeys == nil && len(s.heapStores) > 0 {
+		keys := compat.MakeCap[pkey](0, len(s.heapStores))
+		for k := range s.heapStores {
+			keys = compat.Append(keys, k)
+		}
+		sort.SortFunc(keys, func(a, b pkey) bool { return lessKey(a, b) })
+		s.heapStoreKeys = keys
+	}
+	return s.heapStoreKeys
+}
+
+func (s *summary) addStore(e edge, r *reason) bool {
+	if s.stores == nil {
+		s.stores = map[edge]*reason{}
+	}
+	if _, ok := s.stores[e]; ok {
+		return false
+	}
+	s.stores[e] = r
+	s.ver++
+	s.storeKeys = nil
+	return true
+}
+
+func (s *summary) addResult(i int, k pkey, tag string) bool {
+	for len(s.results) <= i {
+		s.results = compat.Append(s.results, resultSum{})
+	}
+	r := &s.results[i]
+	if r.from == nil {
+		r.from = map[rkey]bool{}
+	}
+	rk := rkey{k, tag}
+	if r.from[rk] {
+		return false
+	}
+	r.from[rk] = true
+	s.ver++
+	r.fromKeys = nil
+	return true
+}
+
+func (s *summary) addResultHeap(i int, tag string, counted bool) bool {
+	for len(s.results) <= i {
+		s.results = compat.Append(s.results, resultSum{})
+	}
+	r := &s.results[i]
+	if r.heap == nil {
+		r.heap = map[heapResult]bool{}
+	}
+	k := heapResult{tag, counted}
+	if r.heap[k] {
+		return false
+	}
+	r.heap[k] = true
+	s.ver++
+	return true
+}
+
+// A reason explains, for messages, how a parameter escapes inside a
+// function: what the function does with it and where.
+//
+// The text is built when a message needs it: a reason refers to the reasons
+// of the callees below it, so building every text when the reason is made
+// costs memory in proportion to the depth of the calls, for every
+// parameter of every function, whether or not any error is reported.
+type reason struct {
+	text  string // "stores p in package variable G (a.p:12)"
+	build goFn2  // makes text, once
+
+	// A reason made by callReason: "<act> (pos), which <parent>", about the
+	// key of ent (of the summary of fn).
+	parent *reason
+	ent    *escEnt
+	fn     *function
+	a      *analyzer
+	act    string
+	pos    token.Pos
+}
+
+func (r *reason) String() string {
+	if r == nil {
+		return ""
+	}
+	if r.build != nil {
+		r.text = r.build.Call()
+		r.build = nil
+	}
+	if r.parent != nil {
+		r.text = r.callText()
+		r.parent, r.ent, r.fn, r.a, r.act = nil, nil, nil, nil, ""
+	}
+	return r.text
+}
+
+// shortPos prints a position as file:line, without the directory, which is
+// enough to find it and keeps chained explanations short.
+func shortPos(p token.Position) string {
+	return compat.Sprintfb("%s:%d", compat.ArgS(filepath.Base(p.Filename)), compat.ArgI(int64(p.Line)))
+}
+
+// A function is a declared function, method or function literal, with the
+// summary the analysis has computed for it so far.
+type function struct {
+	name     string
+	obj      *types2.Func // declared functions
+	pkg      *pkgInfo
+	decl     *ast.FuncDecl
+	lit      *ast.FuncLit
+	sig      *types2.Signature
+	params   []*types2.Var // receiver first
+	sum      summary
+	bodyless bool // implemented in assembly or C
+	noescape bool // //pu:noescape: arguments are not kept past the call
+	// //pu:resultholds: parameters kept only while the result lives, by
+	// index (receiver first).
+	resultHolds map[int]bool
+	// external: called from outside what the analysis sees (exported to C,
+	// an interrupt handler, started by a task statement).
+	external bool
+	// builds: the function may return closures it builds in a region of
+	// its caller's frame (regions.go).
+	builds bool
+	// outerResults identifies literal result fields that may refer to
+	// captured frame memory. Other results do not inherit the record's provenance.
+	outerResults map[int]map[string]bool
+	// outerRegionResults distinguishes addresses in captured region
+	// storage from copies of captured parameters' values.
+	outerRegionResults map[int]map[string]bool
+	inits              bool       // the initialisers of a package's variables
+	loopBody           bool       // the body of a range loop over a function, as its yield function (rangefunc.go)
+	dropVars           *[]dropVar // the variables whose drops call a Drop method, once listed (drops.go)
+	// tracked is the walker's computeTracked result for the function's
+	// body, kept for later passes.
+	tracked map[*types2.Var]bool
+
+	// What the last walk of the function read, for deps.go.
+	deps     map[*function]uint32
+	depsVer  globalVers
+	analyzed bool
+}
+
+// keepsParam reports whether f keeps parameter idx's own pointer (not
+// only what it points to) past the call: in a place that outlives it, or
+// in memory another parameter points to.
+func (f *function) keepsParam(idx int) bool {
+	own := func(k pkey) bool { return k.idx == idx && (k.ge || pathDepth(k.path) == 0) }
+	if idx < len(f.sum.escLog) {
+		l := &f.sum.escLog[idx]
+		for i := 0; i < l.n; i++ {
+			if own(l.at(i).k) {
+				return true
+			}
+		}
+	}
+	for e := range f.sum.stores {
+		if own(e.src) {
+			return true
+		}
+	}
+	return false
+}
+
+// paramName names parameter idx of f (receiver first), for messages.
+func (f *function) paramName(idx int) string {
+	if idx < len(f.params) && f.params[idx].Name() != "" && f.params[idx].Name() != "_" {
+		return f.params[idx].Name()
+	}
+	return compat.Sprintfb("argument %d", compat.ArgI(int64(idx+1)))
+}
+
+// paramDesc names the memory a pkey denotes inside f, for messages.
+func (f *function) paramDesc(k pkey) string {
+	name := f.paramName(k.idx)
+	switch {
+	case k.ge:
+		return compat.Concat("a pointer reachable from ", name)
+	case pathDepth(k.path) == 0:
+		return name
+	}
+	return compat.Concat("a pointer loaded from ", f.renderPath(k))
+}
+
+// renderPath writes a parameter access path in Go syntax, with the loads
+// implicit as Go writes them: p.next.val.
+func (f *function) renderPath(k pkey) string {
+	// expr is the current pointer value, or with isAddr the expression the
+	// current pointer points at; T is expr's type.
+	expr := f.params[k.idx].Name()
+	T := f.params[k.idx].Type()
+	isAddr := false
+	for _, step := range splitPath(k.path) {
+		if step == "*" {
+			switch {
+			case isAddr:
+				isAddr = false
+			case pointerElem(T) != nil:
+				expr, T = compat.Concat("(*", expr, ")"), pointerElem(T)
+			case elemType(T) != nil:
+				expr, T = compat.Concat(expr, "[i]"), elemType(T)
+			default:
+				expr = compat.Concat("*", expr)
+			}
+			continue
+		}
+		S := T
+		if !isAddr {
+			if el := pointerElem(T); el != nil {
+				S = el
+			}
+		}
+		i, _ := strconv.Atoi(strings.TrimSuffix(step, "."))
+		s, ok := underlying(S).(*types2.Struct)
+		if !ok || i >= s.NumFields() {
+			expr, isAddr = compat.Concat(expr, ".?"), true
+			continue
+		}
+		expr, T, isAddr = compat.Concat(expr, ".", s.Field(i).Name()), s.Field(i).Type(), true
+	}
+	if isAddr {
+		return compat.Concat("&", expr)
+	}
+	return expr
+}
+
+func splitPath(p string) []string {
+	var out []string
+	for p != "" {
+		if p[0] == '*' {
+			out = compat.Append(out, "*")
+			p = strings.SliceFrom(p, 1)
+			continue
+		}
+		i := strings.IndexByte(p, '.')
+		out = compat.Append(out, strings.Slice(p, 0, i+1))
+		p = strings.SliceFrom(p, i+1)
+	}
+	return out
+}
+
+// elemType returns the element type of a slice, array or string, or nil.
+func elemType(T types2.Type) types2.Type {
+	switch u := underlying(T).(type) {
+	case *types2.Slice:
+		return u.Elem()
+	case *types2.Array:
+		return u.Elem()
+	}
+	return nil
+}

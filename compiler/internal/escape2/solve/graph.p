@@ -1,0 +1,654 @@
+// Translated by go2pu from internal/escape2/solve/graph.go at the go-cutover tag; edited by hand since.
+
+package solve
+
+import (
+	"compiler/compat"
+	"compiler/internal/escape2/domain"
+	"compiler/internal/escape2/eir"
+)
+
+// The constraint graph. Nodes are the registers (node r for register r,
+// node 0 the empty register), the places of frame objects, and nodes the
+// solver derives for call application (the values of summary keys). Each
+// node has the tagged tokens it holds as an append-only list, with a bitset
+// over token numbers for membership, and the length of the list already
+// propagated (done): difference propagation sends only the list's tail. A
+// node's memory is linear in what it holds; hash-consed sets would keep
+// every intermediate set of a node that grows one token at a time, which is
+// quadratic (seed 5401 of the differential test passed 256 MB that way).
+//
+// Simple constraints are edges with a transform (xform); complex ones
+// (loads, stores, sinks, summary keys) are attached to the node whose tokens
+// they read and fire on each new token. Copy cycles among registers and
+// derived nodes are collapsed (lazy cycle detection: an identity edge whose
+// two ends have equal sets after propagation starts a search).
+
+// Node words: lists, bits and done (per node, above), nodeRep (union-find parent),
+// nodeEdges, nodeCons (list heads, index+1), nodeInfo (kind and the place's
+// object and path), nodeNext (next place of the same object, +1).
+const (
+	nkReg    = iota // a register, or a derived plain node: collapsible
+	nkPlace         // a place <o, p, pg>
+	nkReach         // a reach node (not collapsible)
+	nkPinned        // a derived node that must not be merged
+	nkTok           // a node holding one token for good (tokNode): not merged
+)
+
+// xform kinds, in an edge's transform word: kind (bits 0-7), flag (bit 8),
+// path (bits 32-63).
+const (
+	xID       = iota // identity
+	xSel             // sel(path)
+	xPre             // pre(path), tag GE when flag
+	xOff             // off(path)
+	xStep            // a summary key's field step: sel ∪ off of root pointers
+	xGe              // geify
+	xRetag           // the tag made (Root, GE) only (loads through a cut pointer)
+	xPreLoad         // a load link: pre(path), GE when flag
+	xSelLoad         // a load link: sel(path), tags GE when flag
+	xSelGe           // a reach link: sel(path), then geify
+	xAny             // offset to anywhere in the object (eir.AnyStep)
+	xNoBox           // identity, without pointers to interface boxes (OpAssert to a direct type)
+	xImpl            // identity, without pointers to boxes whose type does not implement assertT[path] (OpAssert to an interface)
+	xNoRec           // identity, without the closure records ownRecord resolves (funccall.go)
+	xOnlyIn          // identity, In tokens only (defer.go, splitNode)
+	xNoIn            // identity, without In tokens
+	xArena           // OpArenaView: a frame object's pointer becomes one to its arena memory, Obj(path) for one with none
+	xLend            // identity, In tokens made lent (OpBorrow, a Borrowed key)
+	xNoHolder        // identity, without pointers to the view objects of counted errors' holders (a key not Borrowed)
+	xRecount         // identity, In tokens not lent and no pointers to ErrHolder objects (OpRecount)
+	xFilter          // through the type filter whose ID is path (D51; filterTok)
+	xArenaKey        // a summary's Arena key: pointers made arn (tokens.go), Heap unchanged
+)
+
+func xw(kind int, path domain.PathID, flag bool) uint64 {
+	w := uint64(kind) | uint64(path)<<32
+	if flag {
+		w |= 1 << 8
+	}
+	return w
+}
+
+// Edge words: to, xform, why, next (index+1), flags (bit 0: cycle checked).
+const edgeWords = 5
+
+// Constraint words: kind, a, b, next (index+1).
+const consWords = 4
+
+const (
+	cLoad       = iota + 1 // a: the destination node; b: 1 if heap-only
+	cReach                 // the node's own tokens: subscribe their places
+	cStore                 // a: the value node; b: why
+	cStoreIn               // a: the destination token; b: why
+	cSink                  // a: code index; b: why
+	cReturn                // a: result index; b: why
+	cRegionChk             // a: result index; b: why
+	cBack                  // a: loop index; b: why
+	cRegionWalk            // a: result index; b: why: the regions of calls in it
+	cDCall                 // a: dcall index: a function value called (defer.go)
+	cDArg                  // a: dcall index: an argument of a deferred call (defer.go)
+	cFRec                  // a: fcall index: a function value called (funccall.go)
+	cFRest                 // a: fcall index: the function value less its own closures (funccall.go)
+	cArenaBox              // a counted value copied into an interface box: E3313 for a local arena's memory (SinkBoxCopy)
+	cBorrow                // a: the holder's node; b: the destination: OpBorrow, once X holds CHeap
+)
+
+func (s *solver) newNode(kind uint64) uint32 {
+	n := uint32(len(s.nodeRep.s))
+	s.lists = compat.Append(s.lists, vec{})
+	s.bits = compat.Append(s.bits, vec{})
+	s.done.push(s.a, 0)
+	s.nodeRep.push(s.a, uint64(n))
+	s.nodeEdges.push(s.a, 0)
+	s.nodeCons.push(s.a, 0)
+	s.nodeInfo.push(s.a, kind)
+	s.nodeInfo2.push(s.a, 0)
+	s.nodeNext.push(s.a, 0)
+	s.inWork.push(s.a, 0)
+	return n
+}
+
+func (s *solver) find(n uint32) uint32 {
+	for {
+		p := uint32(s.nodeRep.s[n])
+		if p == n {
+			return n
+		}
+		gp := uint32(s.nodeRep.s[p])
+		s.nodeRep.s[n] = uint64(gp)
+		n = p
+	}
+}
+
+// pts is the list of the tokens node n holds. The slice stays valid (and
+// unchanged below its length) while the node grows.
+func (s *solver) pts(n uint32) []uint64 { return s.lists[n].s }
+
+// has reports whether node n holds token id.
+func (s *solver) has(n uint32, id uint64) bool {
+	b := s.bits[n].s
+	w := int(id / 64)
+	return w < len(b) && b[w]&(1<<(id%64)) != 0
+}
+
+// addID adds token id to node n and reports whether it was new. An In
+// token that a GE In token of the node covers is not added (rules.go, "GE
+// subsumption"): everything it leads to, the covering token leads to.
+func (s *solver) addID(n uint32, id uint64) bool {
+	if s.has(n, id) || s.coveredIn(n, id) {
+		return false
+	}
+	w := int(id / 64)
+	if w >= len(s.bits[n].s) {
+		s.bits[n].resize(s.a, max(w+1, 2*len(s.bits[n].s)))
+	}
+	s.bits[n].s[w] |= 1 << (id % 64)
+	s.lists[n].push(s.a, id)
+	return true
+}
+
+func (s *solver) nodeKind(n uint32) int { return int(s.nodeInfo.s[n] & 0xff) }
+
+// coveredIn reports whether node n holds a GE or Deep In token, other than
+// id, that covers token id: a prefix of its path (itself included) with GE,
+// or with Deep when the token's path has more loads than the prefix (or the
+// token is Deep too), and a tag that holds its tag.
+func (s *solver) coveredIn(n uint32, id uint64) bool {
+	t := s.tokAt(id)
+	if t.kind != tIn {
+		return false
+	}
+	// A coverer of a lending rank no lower than t's (counted copy < plain <
+	// lent view): it stands for at least what t does.
+	for r := lendRankTok(t); r <= 2; r++ {
+		c := t
+		c.cnt, c.lent = r == 0, r == 2
+		if s.coveredBy(n, c, id) {
+			return true
+		}
+	}
+	return false
+}
+
+// lendRankTok is an In token's lending rank (domain.Covers): 0 a counted
+// copy, 1 plain, 2 a lent view.
+func lendRankTok(t tok) int {
+	switch {
+	case t.lent:
+		return 2
+	case t.cnt:
+		return 0
+	}
+	return 1
+}
+
+// coveredBy is coveredIn for coverers lent as t is.
+func (s *solver) coveredBy(n uint32, t tok, id uint64) bool {
+	steps := s.ps.Steps(t.path)
+	tsteps := s.ps.Steps(t.tag)
+	loads := s.ps.Loads(t.path)
+	p := domain.Root
+	for i := 0; ; i++ {
+		// Candidate coverers at path p: the same tag (GE, or exact when
+		// t's is exact), and every prefix of the tag with GE.
+		// (An arn token, never GE or Deep, is covered as it is without the
+		// flag: domain.Covers.)
+		c := tok{kind: tIn, base: t.base, path: p, ge: true, lent: t.lent, cnt: t.cnt}
+		for {
+			q := domain.Root
+			for j := 0; ; j++ {
+				c.tag, c.tagGE = q, true
+				if s.holdsTok(n, c, id) {
+					return true
+				}
+				if j == len(tsteps) {
+					break
+				}
+				q, _ = s.ps.Extend(q, tsteps[j])
+			}
+			if !t.tagGE {
+				c.tag, c.tagGE = t.tag, false
+				if s.holdsTok(n, c, id) {
+					return true
+				}
+			}
+			if c.deep || !t.deep && s.ps.Loads(p) == loads {
+				break
+			}
+			c.ge, c.deep = false, true // then the Deep coverers at p
+		}
+		if i == len(steps) {
+			return false
+		}
+		p, _ = s.ps.Extend(p, steps[i])
+	}
+}
+
+// holdsTok reports whether node n holds token c (when it is not token id).
+func (s *solver) holdsTok(n uint32, c tok, id uint64) bool {
+	w0, w1 := c.words()
+	cid, ok := s.tokIdx.get(w0, w1)
+	return ok && cid != id && s.has(n, cid)
+}
+
+// addTokens adds tokens to node n and queues it if it grew.
+func (s *solver) addTokens(n uint32, ids []uint64) bool {
+	n = s.find(n)
+	grew := false
+	for _, id := range ids {
+		if s.addID(n, id) {
+			grew = true
+		}
+	}
+	if grew {
+		s.enqueue(n)
+	}
+	return grew
+}
+
+func (s *solver) addTok(n uint32, t tok) bool {
+	n = s.find(n)
+	if !s.addID(n, s.intern(t)) {
+		return false
+	}
+	s.enqueue(n)
+	return true
+}
+
+func (s *solver) enqueue(n uint32) {
+	if s.inWork.s[n] != 0 {
+		return
+	}
+	s.inWork.s[n] = 1
+	s.work.push(s.a, uint64(n))
+}
+
+// addEdge adds an edge from n to m and sends n's tokens along it at once.
+// Duplicate edges are dropped.
+func (s *solver) addEdge(n, m uint32, x uint64, why uint64) {
+	n, m = s.find(n), s.find(m)
+	if n == m && x == xw(xID, 0, false) {
+		return
+	}
+	// De-duplicate exactly: an edge with a why (a store into a place) has
+	// a transform with no path (identity or geify).
+	k2 := x
+	if why != 0 {
+		if x>>32 != 0 || why >= 1<<54 {
+			panic("internal compiler error: escape2/solve: store edge with a path")
+		}
+		k2 = 1<<63 | why<<8 | x&0xff
+	}
+	if !s.edgeSeen.add(s.a, uint64(n)<<32|uint64(m), k2) {
+		return
+	}
+	e := s.edges.add(s.a, uint64(m), x, why, s.nodeEdges.s[n], 0)
+	s.nodeEdges.s[n] = e + 1
+	s.sendAlong(e, s.pts(n))
+}
+
+// addCons attaches a complex constraint to n and fires it on n's tokens.
+func (s *solver) addCons(n uint32, kind int, a, b uint64) {
+	n = s.find(n)
+	if a >= 1<<32 || b >= 1<<32 {
+		panic("internal compiler error: escape2/solve: constraint operand out of range")
+	}
+	if !s.consSeen.add(s.a, uint64(n)<<8|uint64(kind), a|b<<32) {
+		return
+	}
+	c := s.cons.add(s.a, uint64(kind), a, b, s.nodeCons.s[n])
+	s.nodeCons.s[n] = c + 1
+	for i := 0; i < len(s.lists[n].s); i++ {
+		s.fire(n, c, s.lists[n].s[i])
+	}
+}
+
+// sendAlong applies edge e to the token set d and adds the result to its
+// target.
+func (s *solver) sendAlong(e uint64, d []uint64) {
+	if len(d) == 0 {
+		return
+	}
+	w := s.edges.at(e)
+	m := s.find(uint32(w[0]))
+	x, why := w[1], w[2]
+	kind := int(x & 0xff)
+	if kind == xID && why == 0 {
+		s.addTokens(m, d)
+		return
+	}
+	s.buf.s = s.buf.s[:0]
+	for _, id := range d {
+		s.transform(x, s.tokAt(id))
+	}
+	if why != 0 && s.nodeKind(m) == nkPlace {
+		for _, id := range s.buf.s {
+			s.checkStore(m, s.tokAt(id), why)
+		}
+	}
+	if len(s.buf.s) > 0 {
+		s.addTokens(m, s.buf.s)
+	}
+}
+
+// transform applies transform word x to t, pushing the results on s.buf.
+func (s *solver) transform(x uint64, t tok) {
+	s.nsteps++
+	path := domain.PathID(x >> 32)
+	flag := x&(1<<8) != 0
+	switch int(x & 0xff) {
+	case xID:
+		s.buf.push(s.a, s.intern(t))
+	case xSel:
+		if u, ok := s.sel(t, path); ok {
+			s.buf.push(s.a, s.intern(u))
+		}
+	case xPre:
+		s.buf.push(s.a, s.intern(s.pre(t, path, flag)))
+	case xOff:
+		u := asPointer(s.off(t, s.ps.Steps(path))) // the result is a pointer
+		if flag && (u.kind == tObj || u.kind == tIn && !u.deep) {
+			u = setGE(u) // the path was cut: anywhere under it
+		}
+		s.buf.push(s.a, s.intern(u))
+	case xStep:
+		if u, ok := s.sel(t, path); ok {
+			s.buf.push(s.a, s.intern(u))
+		}
+		if t.kind == tObj && t.tag == domain.Root && !t.tagGE {
+			s.buf.push(s.a, s.intern(s.off(asPointer(t), s.ps.Steps(path))))
+		}
+		if t.kind == tObj && t.tagGE {
+			// Somewhere in the value: it may be the pointer the step
+			// offsets.
+			s.buf.push(s.a, s.intern(geify(s.off(t, s.ps.Steps(path)))))
+		}
+	case xGe:
+		s.buf.push(s.a, s.intern(geify(t)))
+	case xRetag:
+		t.tag, t.tagGE = domain.Root, true
+		s.buf.push(s.a, s.intern(t))
+	case xPreLoad:
+		u := s.pre(t, path, flag)
+		s.buf.push(s.a, s.intern(u))
+	case xSelLoad:
+		if u, ok := s.sel(t, path); ok {
+			if flag {
+				u.tag, u.tagGE = domain.Root, true
+			}
+			s.buf.push(s.a, s.intern(u))
+		}
+	case xNoBox:
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].Kind == eir.ObjBox {
+			return
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xImpl:
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && !BoxAsserts(&s.f.Objects[t.base], s.assertT[path]) {
+			return
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xOnlyIn:
+		if t.kind == tIn {
+			s.buf.push(s.a, s.intern(t))
+		}
+	case xNoIn:
+		if t.kind != tIn {
+			s.buf.push(s.a, s.intern(t))
+		}
+	case xLend:
+		if t.kind == tIn {
+			t.lent, t.cnt = true, false
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xRecount:
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].ErrHolder {
+			return
+		}
+		if t.kind == tIn {
+			t.lent, t.cnt = false, true
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xNoHolder:
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].ErrHolder {
+			return
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xArena:
+		if t.kind == tObj {
+			o := uint32(path)
+			if m, ok := s.f.ArenaMem[eir.ObjID(t.base)]; ok && !s.isRegion(t.base) {
+				o = uint32(m)
+			}
+			if l, _ := s.life(o); l == eir.LifeHeap {
+				t = tok{kind: tHeap, tag: t.tag, tagGE: t.tagGE}
+			} else {
+				t = tok{kind: tObj, base: o, path: domain.Root, tag: t.tag, tagGE: t.tagGE}
+			}
+		}
+		s.buf.push(s.a, s.intern(arenaTok(t)))
+	case xArenaKey:
+		if t.kind == tObj {
+			t.arn = true
+		}
+		s.buf.push(s.a, s.intern(arenaTok(t)))
+	case xFilter:
+		id := domain.FilterID(path)
+		f, ok := s.filterOf(id)
+		if !ok {
+			s.buf.push(s.a, s.intern(t))
+			return
+		}
+		if u, ok := s.filterTok(t, id, f); ok {
+			s.buf.push(s.a, s.intern(u))
+		}
+	case xNoRec:
+		if _, ok := s.ownRecord(t); ok {
+			return
+		}
+		if s.notRecord(t) {
+			return
+		}
+		if _, ok := s.regionKnown(t); ok {
+			return // regionlits.go
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xAny:
+		s.buf.push(s.a, s.intern(s.anyOffset(t)))
+	case xSelGe:
+		if u, ok := s.sel(t, path); ok {
+			s.buf.push(s.a, s.intern(geify(u)))
+		}
+	}
+}
+
+// arenaTok is an exact In token as the memory of the allocator it points
+// at (tokens.go, arn), the filter gone. A GE, FieldsGE or Deep token names
+// many pointers, so no one allocator: it stays, covering their memory
+// (domain.Key.WithoutArena). Other tokens are unchanged.
+func arenaTok(t tok) tok {
+	if t.kind == tIn && !t.ge && !t.fge && !t.deep {
+		t.arn, t.filt, t.fpos = true, 0, 0
+	}
+	return t
+}
+
+// run propagates until nothing changes.
+func (s *solver) run() {
+	for len(s.work.s) > 0 {
+		// FIFO through a moving head.
+		for s.head < len(s.work.s) {
+			n := uint32(s.work.s[s.head])
+			s.head++
+			if s.checkLimit() {
+				return // past the limits: Result.Limit
+			}
+			s.inWork.s[n] = 0
+			if s.find(n) != n {
+				continue
+			}
+			s.process(n)
+		}
+		s.work.s = s.work.s[:0]
+		s.head = 0
+	}
+}
+
+func (s *solver) process(n uint32) {
+	pts := s.pts(n)
+	d := pts[s.done.s[n]:]
+	if len(d) == 0 {
+		return
+	}
+	s.done.s[n] = uint64(len(pts))
+	for c := s.nodeCons.s[n]; c != 0; c = s.cons.at(c - 1)[3] {
+		for _, id := range d {
+			s.fire(n, c-1, id)
+		}
+		if s.find(n) != n {
+			return // merged while firing; the merged node is queued again
+		}
+	}
+	for e := s.nodeEdges.s[n]; e != 0; e = s.edges.at(e - 1)[3] {
+		s.sendAlong(e-1, d)
+		if s.find(n) != n {
+			return
+		}
+		s.lazyCycle(n, e-1)
+	}
+}
+
+// lazyCycle looks for a copy cycle through identity edge e of n when its two
+// ends hold the same set (Hardekopf and Lin's lazy cycle detection).
+func (s *solver) lazyCycle(n uint32, e uint64) {
+	w := s.edges.at(e)
+	if w[1] != xw(xID, 0, false) || w[2] != 0 || w[4]&1 != 0 {
+		return
+	}
+	m := s.find(uint32(w[0]))
+	if s.noCollapse || m == n || s.nodeKind(n) != nkReg || s.nodeKind(m) != nkReg || !s.sameSet(n, m) {
+		return
+	}
+	w[4] |= 1
+	s.collapseFrom(m)
+}
+
+// sameSet reports whether nodes n and m hold the same tokens.
+func (s *solver) sameSet(n, m uint32) bool {
+	if len(s.lists[n].s) != len(s.lists[m].s) {
+		return false
+	}
+	for _, id := range s.lists[n].s {
+		if !s.has(m, id) {
+			return false
+		}
+	}
+	return true
+}
+
+// collapseFrom runs Tarjan's algorithm over the identity edges between
+// collapsible nodes reachable from root, and merges each cycle it finds.
+func (s *solver) collapseFrom(root uint32) {
+	s.tjIndex.s = s.tjIndex.s[:0]
+	s.tjLow.s = s.tjLow.s[:0]
+	s.tjStack.s = s.tjStack.s[:0]
+	s.tjSeen.n = 0
+	clear(s.tjSeen.slots)
+	s.tjCounter = 0
+	s.tarjan(root)
+}
+
+func (s *solver) tjNum(n uint32) (int, bool) {
+	v, ok := s.tjSeen.get(uint64(n), 0)
+	return int(v), ok
+}
+
+func (s *solver) tarjan(n uint32) uint64 {
+	idx := s.tjCounter
+	s.tjCounter++
+	s.tjSeen.put(s.a, uint64(n), 0, uint64(len(s.tjIndex.s)))
+	slot := len(s.tjIndex.s)
+	s.tjIndex.push(s.a, idx)
+	s.tjLow.push(s.a, idx|tjOnStack)
+	s.tjStack.push(s.a, uint64(n))
+	for e := s.nodeEdges.s[n]; e != 0; e = s.edges.at(e - 1)[3] {
+		w := s.edges.at(e - 1)
+		if w[1] != xw(xID, 0, false) || w[2] != 0 {
+			continue
+		}
+		m := s.find(uint32(w[0]))
+		if s.nodeKind(m) != nkReg || m == n {
+			continue
+		}
+		if ms, ok := s.tjNum(m); !ok {
+			s.lower(slot, s.tarjan(m))
+		} else if s.tjLow.s[ms]&tjOnStack != 0 {
+			s.lower(slot, s.tjIndex.s[ms])
+		}
+	}
+	if s.tjLow.s[slot]&^tjOnStack == s.tjIndex.s[slot] {
+		// Pop the component and merge it into n.
+		k := len(s.tjStack.s) - 1
+		for ; ; k-- {
+			m := uint32(s.tjStack.s[k])
+			ms, _ := s.tjNum(m)
+			s.tjLow.s[ms] &^= tjOnStack
+			if m == n {
+				break
+			}
+		}
+		for _, m := range s.tjStack.s[k+1:] {
+			s.merge(n, uint32(m))
+		}
+		s.tjStack.s = s.tjStack.s[:k]
+	}
+	return s.tjLow.s[slot] &^ tjOnStack
+}
+
+// tjOnStack marks, in tjLow, a node on Tarjan's stack.
+const tjOnStack = 1 << 63
+
+// lower lowers the low link of slot to low, keeping its on-stack mark.
+func (s *solver) lower(slot int, low uint64) {
+	if low < s.tjLow.s[slot]&^tjOnStack {
+		s.tjLow.s[slot] = low | s.tjLow.s[slot]&tjOnStack
+	}
+}
+
+// merge folds node b into node a: sets, edges and constraints. The merged
+// node is propagated again from scratch (constraints are idempotent).
+func (s *solver) merge(a, b uint32) {
+	a, b = s.find(a), s.find(b)
+	if a == b {
+		return
+	}
+	s.nodeRep.s[b] = uint64(a)
+	for _, id := range s.lists[b].s {
+		s.addID(a, id)
+	}
+	s.done.s[a] = 0
+	s.nodeEdges.s[a] = s.appendList(s.nodeEdges.s[a], s.nodeEdges.s[b], &s.edges)
+	s.nodeCons.s[a] = s.appendList(s.nodeCons.s[a], s.nodeCons.s[b], &s.cons)
+	s.merged++
+	s.enqueue(a)
+}
+
+// appendList appends list b to list a (heads index+1; next at word 3).
+func (s *solver) appendList(a, b uint64, r *recs) uint64 {
+	if a == 0 {
+		return b
+	}
+	if b == 0 {
+		return a
+	}
+	e := a
+	for {
+		next := r.at(e - 1)[3]
+		if next == 0 {
+			r.at(e - 1)[3] = b
+			return a
+		}
+		e = next
+	}
+}
