@@ -388,18 +388,20 @@ against the corrected specification. The immediate implementation order is:
      allocator at parameter path P"; the default allocator, which is per task (section 18.9), needs nothing.
      Tests: the probe (E3402 at `println(*p)`), the same with the read under `mu` (accepted), and with the
      task allocating from an arena of its own (accepted).
-141. **A task's counted arguments belong to its parameters** (partly done; sections 12.12, 18.7 rule 2;
-     found by the CI failure of `embedshared` at -O0). A task statement copies each argument into the new
-     task as an argument is assigned to a parameter, so the parameter holds the task's one reference, and
-     overwriting it releases that reference. The thunk used to keep the argument block's reference until
-     the call returned, while the callee took a reference of its own: `s = SWidget{}` in the task dropped
-     nothing, and a `Drop` that the spec places before the task goes on ran after it returned, or never.
-     Done for static functions, concrete methods and literals that capture nothing: the task calls a
+141. **A task's counted arguments belong to its parameters** (done, `456d5b46` and `89870257`; sections 12.12,
+     18.7 rule 2; found by the CI failure of `embedshared` at -O0). A task statement copies each argument
+     into the new task as an argument is assigned to a parameter, so the parameter holds the task's one
+     reference, and overwriting it releases that reference. The thunk used to keep the argument block's
+     reference until the call returned, while the callee took a reference of its own: `s = SWidget{}` in the
+     task dropped nothing, and a `Drop` that the spec places before the task goes on ran after it returned,
+     or never. For static functions, concrete methods and literals that capture nothing, the task calls a
      variant of the function (`f·task`) whose counted parameters take over the block's references
-     (`taskEntry` in lower.p). Test: `taskcounted`. Remaining: a task started through an interface method
-     or a func value that is not a literal still calls the ordinary entry, which borrows; the release then
-     waits for the call to return. Closing it needs a second entry reached from the method table and the
-     closure record, or a flag passed with the call.
+     (`taskEntry` in lower.p). A task started through an interface method or a func value calls a
+     dispatcher (`taskdispatch.p`), one per interface method or func signature used that way with a counted
+     argument: it compares the code pointer with each function that can be in that slot or of that signature
+     and owns a counted parameter, and calls that function's task variant; any other code borrows, and the
+     dispatcher releases the references when it returns. Tests: `taskcounted`, `taskdynamic`. A task that calls an
+     allocator's method through an interface (`AllocMethod`) is not dispatched and still borrows.
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
@@ -449,7 +451,7 @@ The implementation gaps of
 | 38 | A string is cut with `strings.Slice`, E2019 (done, D9) | 104, 74 | 7.3, 11.12, F.6 |
 | 39 | Normal termination follows Go (done, D10) | 105 | 15.4, 19.1 |
 | 40 | `errors.New` has a fresh identity (done, D11) | 106 | 16.3 |
-| 43 | A task's counted arguments belong to its parameters (partly done) | 141 | 12.12, 18.7 |
+| 43 | A task's counted arguments belong to its parameters (done) | 141 | 12.12, 18.7 |
 
 The pass that aligned the documents with the chapters found six more, items 93 to 98; they are rows 25 to
 30 of complete-spec section 6.5. Row 31, item 99, is the `or` clause, decided later the same day. Row 32,
