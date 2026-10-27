@@ -1,0 +1,315 @@
+// Ported from internal/escape2/eir/build_test.go at the go-cutover tag.
+// The Go file was the external package eir_test; pluto test has no
+// external test packages, and nothing here makes an import cycle.
+
+package eir
+
+import (
+	"pluto/path/filepath"
+	"pluto/strings"
+	"pluto/testing"
+
+	"compiler/compat"
+	"compiler/internal/load"
+	"compiler/internal/testenv"
+	"compiler/internal/types2"
+	"compiler/pu"
+)
+
+// loadSrc loads src as a main package.
+func loadSrc(t *testing.T, src string) *load.Program {
+	t.Helper()
+	dir := testenv.TempDir(t)
+	defer testenv.Remove(dir)
+	testenv.WriteFile(t, filepath.Join(dir, "main.p"), src)
+	return loadDir(t, dir)
+}
+
+func loadDir(t *testing.T, dir string) *load.Program {
+	t.Helper()
+	cfg := pu.New(load.Config{
+		Tags:   map[string]bool{"amd64": true, "linux": true, "hosted": true},
+		Stdlib: testenv.Stdlib(),
+		Sizes:  types2.SizesFor("gc", "amd64"),
+	})
+	prog, err := load.Load(cfg, dir)
+	if err != nil {
+		t.Fatalf("load: %s", err.Error())
+	}
+	return prog
+}
+
+// dumpMain builds src and returns the dumps of the functions of package
+// main.
+func dumpMain(t *testing.T, src string) string {
+	t.Helper()
+	prog := loadSrc(t, src)
+	p, err := Build(prog)
+	if err != nil {
+		t.Fatalf("build: %s", err.Error())
+	}
+	b := pu.New(compat.Builder{})
+	also := compat.Getenv("EIR_DUMP_FUNC") // and the functions whose names contain it
+	for _, f := range p.Funcs {
+		if f.Pkg == prog.Main.Types || (also != "" && strings.Contains(f.Name, also)) {
+			p.Dump(b, prog.Fset, f)
+		}
+	}
+	return b.String()
+}
+
+// section returns s from i up to the next "func " after its first byte.
+func section(s string, i int) string {
+	s = strings.SliceFrom(s, i)
+	if k := strings.Index(strings.SliceFrom(s, 1), "func "); k >= 0 {
+		s = strings.Slice(s, 0, k+1)
+	}
+	return s
+}
+
+func TestBuildDump(t *testing.T) {
+	f := compat.Getenv("EIR_DUMP")
+	if f == "" {
+		t.Skip("EIR_DUMP=file dumps the EIR of a program")
+	}
+	src, err := compat.ReadFile(f)
+	if err != nil {
+		t.Fatal(err.Error())
+	}
+	t.Log(dumpMain(t, compat.String(src)))
+}
+
+func TestBuildSmoke(t *testing.T) {
+	out := dumpMain(t, `package main
+
+type T struct{ p *int }
+
+func (t *T) Set(p *int) { t.p = p }
+
+func f(x *int) *int {
+	var t T
+	t.Set(x)
+	for i := 0; i < 3; i++ {
+		if i == 1 {
+			x = nil
+		}
+	}
+	return x
+}
+
+func main() {
+	n := 1
+	defer println("bye")
+	f(&n)
+}
+`)
+	t.Log(out)
+}
+
+// TestBuildDeferInRangeBody checks that what a defer statement in a range
+// body keeps (a closure record, an interface box) is in the frame of the
+// function that runs the deferred call, not the body's, which is gone by
+// then (testdata/run/rangefuncdefer.p; internal/lower lastingFrame).
+func TestBuildDeferInRangeBody(t *testing.T) {
+	out := dumpMain(t, `package main
+
+func save(x int, v any) {}
+
+func each(yield func(int) bool) { _ = yield(1) }
+
+func keepAll(ps ...*int) {}
+
+func f() {
+	x := 1
+	for i := range each {
+		keepAll(&i, &i)
+		if i == 1 {
+			defer func() { save(x, nil) }()
+			defer save(i, [2]int{i, x})
+			return
+		}
+	}
+}
+
+func main() { f() }
+`)
+	i := strings.Index(out, "func main.f\n")
+	j := strings.Index(out, "func main.f range body")
+	if i < 0 || j < 0 {
+		t.Fatalf("no f or its range body in\n%s", out)
+	}
+	root := section(out, i)
+	body := section(out, j)
+	if !strings.Contains(root, " closure func()") || !strings.Contains(root, " box [2]int") {
+		t.Errorf("the deferred call's closure record and box are not in f's frame:\n%s", root)
+	}
+	if strings.Contains(body, " closure func()") || strings.Contains(body, " box ") {
+		t.Errorf("the range body holds what its deferred call keeps:\n%s", body)
+	}
+	// An ordinary call's variadic array is the body's own
+	// (testdata/run/slicespkg.p).
+	if !strings.Contains(body, "variadic arguments") {
+		t.Errorf("the variadic array of a call in the range body is not the body's:\n%s", body)
+	}
+}
+
+// TestBuildRegions checks that the closures a function returns through a
+// variable, a named result or a composite literal are built in the
+// region its caller provides (section 11.5; testdata/run/closureregions.p,
+// closureregions2.p, closureifacechain.p), with the variables they
+// capture.
+func TestBuildRegions(t *testing.T) {
+	out := dumpMain(t, `package main
+
+type V struct{ f func() int }
+
+func later() func() int {
+	v := 1
+	f := func() int { return v * 10 }
+	v = 7
+	return f
+}
+
+func named() (f func() int) {
+	x := 5
+	f = func() int { return x }
+	return
+}
+
+func composite(x int) V {
+	return V{f: func() int { return x * 10 }}
+}
+
+func namedCapture(s string) (f func() string, last string) {
+	last = s
+	f = func() string { return last }
+	return
+}
+
+func main() {
+	_ = later()
+	_ = named()
+	_ = composite(1)
+	_, _ = namedCapture("x")
+}
+`)
+	if !strings.Contains(out, `var string "last" life=6`) {
+		t.Errorf("a named result a returned closure captures is not in the region:\n%s", out)
+	}
+	for _, fn := range []string{"main.later", "main.named", "main.composite"} {
+		i := strings.Index(out, compat.Concat("func ", fn, "\n"))
+		if i < 0 {
+			t.Fatalf("no %s in\n%s", fn, out)
+		}
+		s := strings.SliceFrom(out, i+1)
+		if k := strings.Index(s, "func "); k >= 0 {
+			s = strings.Slice(s, 0, k)
+		}
+		// LifeCaller is 6.
+		if !strings.Contains(s, `closure func() int "closure" life=6`) {
+			t.Errorf("%s: the closure it returns is not in its caller's region:\n%s", fn, s)
+		}
+		// A captured variable assigned after the closure is made (later's
+		// v) is in the region too; the others are captured by value.
+		if fn == "main.later" && strings.Count(s, "life=6") < 2 {
+			t.Errorf("%s: the variable the closure captures is not in the region:\n%s", fn, s)
+		}
+	}
+}
+
+// TestBuildInterfaceValues checks the forms of interface values: a
+// zero-sized value has no box (testdata/plutonium/tp_cons.p returns one);
+// a type parameter's is the box or the value, which the instance decides
+// (review4 ea01); and a type that is only a field of a converted type gets
+// the itab adapter of an interface asserted to (fmt reaches a field's
+// String through x.(Stringer)).
+func TestBuildInterfaceValues(t *testing.T) {
+	out := dumpMain(t, `package main
+
+type Nil struct{}
+
+type L []*int
+
+func (l L) String() string { return "l" }
+
+type Outer struct {
+	L L
+	K int
+}
+
+type Stringer interface{ String() string }
+
+func empty() any { return Nil{} }
+
+func generic[T any](x T) any { return x }
+
+func str(a any) string {
+	if s, ok := a.(Stringer); ok {
+		return s.String()
+	}
+	return ""
+}
+
+func main() {
+	_ = empty()
+	_ = generic[int](1)
+	n := 1
+	_ = str(Outer{L{&n}, 1})
+}
+`)
+	sect := func(name string) string {
+		i := strings.Index(out, compat.Concat("func ", name, "\n"))
+		if i < 0 {
+			t.Fatalf("no %s in\n%s", name, out)
+		}
+		s := strings.SliceFrom(out, i+1)
+		if j := strings.Index(s, "func "); j >= 0 {
+			s = strings.Slice(s, 0, j)
+		}
+		return s
+	}
+	if s := sect("main.empty"); strings.Contains(s, " box ") {
+		t.Errorf("a zero-sized value is boxed:\n%s", s)
+	}
+	if s := sect("main.generic"); !strings.Contains(s, "phi") {
+		t.Errorf("a type parameter's interface value is not the box or the value:\n%s", s)
+	}
+	if !strings.Contains(out, "func main.L.String (interface adapter)") {
+		t.Errorf("no adapter of main.L for Stringer:\n%s", out)
+	}
+}
+
+// TestBuildMethodCallCapture checks that a method call takes the address of
+// its operand only where Go's x.m means (&x).m: a closure captures by value
+// a pointer whose pointer-receiver method it calls, and a value whose
+// value-receiver method it calls, but by address a value whose
+// pointer-receiver method it calls.
+func TestBuildMethodCallCapture(t *testing.T) {
+	out := dumpMain(t, `package main
+
+type T struct{ n int }
+
+func (t *T) ptr() int { return t.n }
+func (t T) val() int  { return t.n }
+
+func f(p *T, v T, w T) func() int {
+	return func() int { return p.ptr() + v.val() + w.ptr() }
+}
+
+func main() { println(f(&T{1}, T{2}, T{3})()) }
+`)
+	i := strings.Index(out, "func main.f\n")
+	if i < 0 {
+		t.Fatalf("no f in\n%s", out)
+	}
+	root := section(out, i)
+	for _, name := range []string{`"p"`, `"v"`} {
+		if strings.Contains(root, name) {
+			t.Errorf("%s is a frame object: the closure captures it by address\n%s", name, root)
+		}
+	}
+	if !strings.Contains(root, `"w"`) {
+		t.Errorf("w is not a frame object, though w.ptr() takes its address\n%s", root)
+	}
+}
+

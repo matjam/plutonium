@@ -18,11 +18,41 @@ import (
 
 // Getenv is os.Getenv with each invalid byte of the value replaced by
 // U+FFFD.
-func Getenv(key string) string { return os.GetenvLossy(key) }
+func Getenv(key string) string {
+	v, _ := LookupEnv(key)
+	return v
+}
 
 // LookupEnv is os.LookupEnv with each invalid byte of the value replaced by
 // U+FFFD.
-func LookupEnv(key string) (string, bool) { return os.LookupEnvLossy(key) }
+func LookupEnv(key string) (string, bool) {
+	if v, ok := envOverride[key]; ok {
+		return v, true
+	}
+	return os.LookupEnvLossy(key)
+}
+
+// envOverride holds the values SetenvForTest set.
+var envOverride map[string]string
+
+// SetenvForTest makes Getenv and LookupEnv return value for key, without
+// changing the process's environment, which pluto/os cannot change. It is
+// the compiler's unit tests' t.Setenv: the test calls the function it
+// returns, which restores what Getenv returned before, when it is done.
+func SetenvForTest(key, value string) (restore func()) {
+	if envOverride == nil {
+		envOverride = map[string]string{}
+	}
+	old, had := envOverride[key]
+	envOverride[key] = value
+	return func() {
+		if had {
+			envOverride[key] = old
+		} else {
+			delete(envOverride, key)
+		}
+	}
+}
 
 // TempDir is os.TempDir with each invalid byte replaced by U+FFFD.
 func TempDir() string { return os.TempDirLossy() }
