@@ -11,6 +11,12 @@ import (
 // expr walks an expression whose value is used where it is, or copied into
 // something that does not own it (an ordinary interface lends it).
 func (f *fn) expr(e ast.Expr) {
+	// A type is not evaluated, so nothing in it is read or moved. The
+	// explicit type argument vec.Vec[int] of vec.New[vec.Vec[int]] is an
+	// instantiation (spec 11.16), not a read of a container (11.11).
+	if f.c.types[e].IsType() {
+		return
+	}
 	switch e.(type) {
 	case *ast.Ident, *ast.SelectorExpr, *ast.IndexExpr:
 		f.checkView(e) // views.go
@@ -523,7 +529,7 @@ func (f *fn) assertTo(x ast.Expr, T types2.Type, pos token.Pos) {
 // containerOfOwners reports whether x[k] calls Index on a container whose
 // elements are owners.
 func (f *fn) containerOfOwners(e *ast.IndexExpr) bool {
-	if !types2.IndexesByMethod(f.c.typeOf(e.X)) {
+	if f.c.types[e].IsType() || !types2.IndexesByMethod(f.c.typeOf(e.X)) {
 		return false
 	}
 	return isOwner(f.c.typeOf(e))

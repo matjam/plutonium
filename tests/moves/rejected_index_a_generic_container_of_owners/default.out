@@ -1,0 +1,15 @@
+$DIR/main.p:19:7: cannot read bag[0]: the elements of bag are owners, and bag[0] would be a copy
+    bag[0] on Bag[Buf] calls its Index method, which returns a copy of the
+    element. Buf is an owner type, so the copy would be a second owner of what
+    the element owns.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To look at the element, use a method that returns a pointer to it:
+        p := bag.Ptr(0)
+    To move it out, use a method that removes or replaces it, or take it through
+    such a pointer:
+        elem := take(bag.Ptr(0))
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E3309" for a longer explanation)

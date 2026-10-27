@@ -1,1 +1,0 @@
-the moves pass reads the explicit type argument vec.Vec[int] of a call as an index expression and reports E3309 "cannot read vec.Vec[int]: the elements of vec.Vec are owners" at main.p:8:15, on both compilers; a type alias or a var declaration of the same type is accepted

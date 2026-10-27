@@ -72,7 +72,7 @@ its original Go assertion:
 | race   | 291   | `internal/race` check, checkKernel (kernel cases add a `//pu:panic` loop) |
 | types2 | 369   | `internal/types2` checkSrc, checkWithRT, TestUnionErrors, TestOrValid, TestOrErrors, enum/union/owner two-package tests (`pluto vet`) |
 | escape | 603   | `internal/escape` check, review2/3 (80 set `PLUTO_ESCAPE=old`) |
-| moves  | 103   | `internal/moves` check (1 knownfail, below) |
+| moves  | 105   | `internal/moves` check (one knownfail fixed, below) |
 | lower  | 161   | `internal/lower` lowerError, lowerModeError |
 | diag   | 156   | `cmd/pluto/testdata/diag` |
 
@@ -120,9 +120,13 @@ shared counter). Left in Go, with the reason:
 Known differences and bugs found:
 - `pluto fmt --harness` exists only in the self-hosted compiler; its goldens
   fail on pluto0.
-- moves misreads an explicit type argument that is itself an instantiation,
+- moves misread an explicit type argument that is itself an instantiation,
   `vec.New[vec.Vec[int]]()`, as an index expression (E3309), on both
-  compilers: `tests/moves/type_argument_of_owner_vec` (knownfail).
+  compilers. Fixed in the self-hosted compiler: the moves pass no longer
+  walks type expressions, as a type is not evaluated (spec 11.16; E3309 is
+  for reads `x[k]`, 11.11). `tests/moves/type_argument_of_owner_vec` passes,
+  with `accepted_owner_type_arguments` and
+  `rejected_index_a_generic_container_of_owners` beside it.
 - race: a task literal that takes its operand as an argument inside a
   per-CPU region, `task func(x uint64) { ... }(x)`, is accepted with no E2022,
   while the named-function form `task set(x + 1)` is reported.
