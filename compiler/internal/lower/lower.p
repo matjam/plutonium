@@ -146,6 +146,12 @@ type Lowerer struct {
 	// declared function a generated method expression thunk calls.
 	gx        *goexitInfo
 	gxWrapped map[*ssa.Sym]*types2.Func
+
+	// Task statements through an interface or a func value
+	// (taskdispatch.go): how to build each function's task variant, and
+	// the dispatchers.
+	taskVariants   map[*ssa.Sym]*taskVariant
+	taskDispatches []*taskDispatch
 	typeStrs  map[types2.Type]string // typeStr's memo
 
 	// initRoots are the parts of each package's initialization, which a
@@ -235,6 +241,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		sites:          map[*ssa.Value]*callSite{},
 		callOrigins:    map[*ssa.Value]token.Pos{},
 		gxWrapped:      map[*ssa.Sym]*types2.Func{},
+		taskVariants:   map[*ssa.Sym]*taskVariant{},
 		typeStrs:       map[types2.Type]string{},
 	})
 	l.types = newTypeTable(l)
@@ -280,7 +287,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		if len(l.errs) > 0 {
 			break
 		}
-		if l.types.finish() || l.resolveLateHooks() || l.finishRegions() || l.queueShutdown() {
+		if l.types.finish() || l.resolveLateHooks() || l.finishRegions() || l.queueShutdown() || l.finishTaskDispatch() {
 			continue
 		}
 		break
@@ -564,18 +571,7 @@ func (l *Lowerer) taskEntry(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	for i := 0; i < declared.Params().Len(); i++ {
 		params = compat.Append(params, declared.Params().At(i))
 	}
-	facts := analyzeVars(d.decl.Body, d.pkg.Info)
-	owns := false
-	for _, v := range params {
-		T := v.Type()
-		if tm != nil {
-			T = tm.subst(T)
-		}
-		if f := facts[v]; f != nil && (f.assigned || f.addrTaken || f.captured) && l.counted(T) {
-			owns = true
-		}
-	}
-	if !owns {
+	if !l.ownsCountedParam(analyzeVars(d.decl.Body, d.pkg.Info), params, tm) {
 		return nil
 	}
 	entry := l.out.Sym(name, ssa.SymFunc)

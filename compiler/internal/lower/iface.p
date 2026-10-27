@@ -884,6 +884,7 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 		sig := fn.Type().(*types2.Signature)
 		plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
 		adapter := adapterSignature(plain)
+		l.noteTaskVariant(sym, pu.New(taskVariant{kind: tvWrap, recv: recvData, fn: fn, sig: adapter, T: T, index: index, recvT: recvBase(T, index), iface: true, plain: plain}))
 		l.queue = compat.Append(l.queue, pu.New(funcJob{sym: sym, sig: adapter, build: pu.New(goClosure_itabAdapter_1{adapter: adapter, T: T, index: index, fn: fn, plain: plain})}))
 		return sym
 	}
@@ -894,9 +895,13 @@ func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
 			targs = compat.Append(targs, n.TypeArgs().At(i))
 		}
 	}
-	target, full := l.methodFunc(fn, targs, ringMethodRing(fn, func(t types2.Type) types2.Type { return t }), token.NoPos, "called through an interface")
+	ring := ringMethodRing(fn, func(t types2.Type) types2.Type { return t })
+	target, full := l.methodFunc(fn, targs, ring, token.NoPos, "called through an interface")
 	plain := types2.NewSignatureType(nil, nil, nil, full.Params(), full.Results(), full.Variadic())
 	adapter := adapterSignature(plain)
+	if ring == nil {
+		l.noteTaskVariant(sym, pu.New(taskVariant{kind: tvWrap, recv: recvData, fn: fn, targs: targs, sig: adapter, full: full, T: T, index: index, recvT: full.Recv().Type()}))
+	}
 	l.queue = compat.Append(l.queue, pu.New(funcJob{sym: sym, sig: adapter, build: pu.New(goClosure_itabAdapter_2{adapter: adapter, T: T, index: index, full: full, target: target})}))
 	return sym
 }
@@ -984,6 +989,7 @@ func (l *Lowerer) ifaceMethodValueWrapper(I types2.Type, gofn *types2.Func) *ssa
 	sig := (*fn).Type().(*types2.Signature)
 	plain := types2.NewSignatureType(nil, nil, nil, sig.Params(), sig.Results(), sig.Variadic())
 	l.funcValues[sym] = plain
+	l.noteTaskVariant(sym, pu.New(taskVariant{kind: tvWrap, recv: recvCtx, fn: (*fn), sig: plain, recvT: I, iface: true, plain: plain}))
 	l.queue = compat.Append(l.queue, pu.New(funcJob{sym: sym, sig: plain, build: pu.New(goClosure_ifaceMethodValueWrapper_1{plain: plain, I: I, fn: fn})}))
 	return sym
 }

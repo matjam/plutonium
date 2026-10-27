@@ -422,6 +422,8 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	nlead := 0               // values before the arguments
 	boxRecv := pu.New(false) // the receiver is the owned or synced box itself (task p.Serve())
 	adopted := false          // the callee is a task entry, which owns the counted arguments (taskEntry)
+	dynamic := false          // the call goes through an interface or a func value
+	dispatch := pu.New(false) // ... through a dispatcher, which owns the counted arguments (taskdispatch.go)
 
 	if se, ok := fun.(*ast.SelectorExpr); ok {
 		if sel := s.info.Selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
@@ -432,7 +434,8 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 			case isInterface(recvT) && len(sel.Index()) == 1:
 				iv := s.materialize(s.expr(se.X))
 				vals = compat.Append(vals, iv)
-				(*emit) = pu.New(goClosure_taskStmt_1{recvT: recvT, fn: fn, sig: sig})
+				(*emit) = pu.New(goClosure_taskStmt_1{recvT: recvT, fn: fn, sig: sig, dispatch: dispatch})
+				dynamic = allocMethod(recvT, fn) == ssa.AllocNone
 				vals = compat.Append(vals, s.callArgs(call, (*sig), nil)...)
 			default:
 				m, path, ok := s.selectedMethod(se, sel)
@@ -457,7 +460,8 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 				vals = compat.Append(vals, recv)
 				if isIfaceMethod(m) {
 					rT := recv.T
-					(*emit) = pu.New(goClosure_taskStmt_2{rT: rT, m: m, sig: sig})
+					(*emit) = pu.New(goClosure_taskStmt_2{rT: rT, m: m, sig: sig, dispatch: dispatch})
+					dynamic = allocMethod(rT, m) == ssa.AllocNone
 					vals = compat.Append(vals, s.callArgs(call, (*sig), nil)...)
 				} else {
 					var targs []types2.Type
@@ -517,14 +521,25 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 			adopted = true
 		} else {
 			fv = s.scalar(call.Fun)
+			dynamic = true
 		}
 		vals = compat.Append(vals, scalarValue(fv, fT))
-		(*emit) = pu.New(goClosure_taskStmt_5{sig: sig})
+		(*emit) = pu.New(goClosure_taskStmt_5{sig: sig, plain: s.subst((*sig)).(*types2.Signature), dispatch: dispatch})
 		vals = compat.Append(vals, s.callArgs(call, (*sig), nil)...)
 		nlead = 1
 	}
 	for i, v := range vals {
 		vals[i] = s.holdProducedOwner(v)
+	}
+	if dynamic {
+		// The function is not known here: a dispatcher finds its task
+		// entry, if it has one (taskdispatch.go), and owns the counted
+		// arguments. The thunk keeps the interface or func value.
+		for _, v := range vals[nlead:] {
+			if s.l.counted(v.T) {
+				(*dispatch) = true
+			}
+		}
 	}
 	for _, v := range vals[nlead:] {
 		s.checkSendable(v.T, call.Pos(), "task statement argument of type")
@@ -588,7 +603,7 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	unsafePtr := types2.Typ[types2.UnsafePointer]
 	tsig := types2.NewSignatureType(nil, nil, nil, types2.NewTuple(compat.Clone([]*types2.Var{types2.NewParam(token.NoPos, nil, "p", unsafePtr)})...), nil, false)
 	pos := call.Pos()
-	s.l.queue = compat.Append(s.l.queue, pu.New(funcJob{sym: thunk, pkg: s.pkg, sig: tsig, parent: s, build: pu.New(goClosure_taskStmt_6{tsig: tsig, args: args, varArr: varArr, varOff: varOff, boxRecv: boxRecv, adopted: adopted, emit: emit, pos: pos})}))
+	s.l.queue = compat.Append(s.l.queue, pu.New(funcJob{sym: thunk, pkg: s.pkg, sig: tsig, parent: s, build: pu.New(goClosure_taskStmt_6{tsig: tsig, args: args, varArr: varArr, varOff: varOff, boxRecv: boxRecv, adopted: adopted || (*dispatch), keepLead: (*dispatch), emit: emit, pos: pos})}))
 
 	rec := s.symAddr(s.l.closureRecord(thunk))
 	// The bound argument is the stack the call is proven to need; 0 until
@@ -952,24 +967,34 @@ type goFn1 interface {
 // goClosure_taskStmt_1 is the function literal at conc.go:433, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_taskStmt_1 struct {
-	recvT types2.Type
-	fn    *types2.Func
-	sig   **types2.Signature
+	recvT    types2.Type
+	fn       *types2.Func
+	sig      **types2.Signature
+	dispatch *bool
 }
 
 func (goSelf *goClosure_taskStmt_1) Call(ts *fnState, in []value, pos token.Pos) {
+	if *goSelf.dispatch {
+		ts.ifaceTaskCall(in[0], goSelf.recvT, goSelf.fn, (*goSelf.sig), in[1:])
+		return
+	}
 	ts.ifaceCall(in[0], goSelf.recvT, goSelf.fn, (*goSelf.sig), in[1:], pos, goSelf.fn.Name())
 }
 
 // goClosure_taskStmt_2 is the function literal at conc.go:460, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_taskStmt_2 struct {
-	rT  types2.Type
-	m   *types2.Func
-	sig **types2.Signature
+	rT       types2.Type
+	m        *types2.Func
+	sig      **types2.Signature
+	dispatch *bool
 }
 
 func (goSelf *goClosure_taskStmt_2) Call(ts *fnState, in []value, pos token.Pos) {
+	if *goSelf.dispatch {
+		ts.ifaceTaskCall(in[0], goSelf.rT, goSelf.m, (*goSelf.sig), in[1:])
+		return
+	}
 	ts.ifaceCall(in[0], goSelf.rT, goSelf.m, (*goSelf.sig), in[1:], pos, goSelf.m.Name())
 }
 
@@ -1006,25 +1031,32 @@ func (goSelf *goClosure_taskStmt_4) Call(ts *fnState, in []value, pos token.Pos)
 // goClosure_taskStmt_5 is the function literal at conc.go:512, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_taskStmt_5 struct {
-	sig **types2.Signature
+	sig      **types2.Signature
+	plain    *types2.Signature // sig instantiated
+	dispatch *bool
 }
 
 func (goSelf *goClosure_taskStmt_5) Call(ts *fnState, in []value, pos token.Pos) {
 	f := in[0].v
+	if *goSelf.dispatch {
+		ts.funcTaskCall(f, goSelf.plain, in[1:])
+		return
+	}
 	ts.emitCall(callee{code: ts.load(ssa.TPtr, f), ctx: f}, (*goSelf.sig), nil, in[1:], pos)
 }
 
 // goClosure_taskStmt_6 is the function literal at conc.go:584, converted to a struct
 // that holds the variables it captures (go2pu closure conversion).
 type goClosure_taskStmt_6 struct {
-	tsig    *types2.Signature
-	args    []goArg
-	varArr  **types2.Array
-	varOff  *int64
-	boxRecv *bool
-	adopted bool // the callee releases the counted arguments
-	emit    *goFn1
-	pos     token.Pos
+	tsig     *types2.Signature
+	args     []goArg
+	varArr   **types2.Array
+	varOff   *int64
+	boxRecv  *bool
+	adopted  bool // the callee releases the counted arguments
+	keepLead bool // ... except the interface or func value, the first
+	emit     *goFn1
+	pos      token.Pos
 }
 
 func (goSelf *goClosure_taskStmt_6) Call(ts *fnState) {
@@ -1052,7 +1084,7 @@ func (goSelf *goClosure_taskStmt_6) Call(ts *fnState) {
 		if (*goSelf.boxRecv) && i == 0 {
 			continue
 		}
-		if !goSelf.adopted && ts.l.counted(a.v.T) {
+		if (!goSelf.adopted || goSelf.keepLead && i == 0) && ts.l.counted(a.v.T) {
 			ts.releaseAt(ts.offPtr(p, a.off), a.v.T)
 		}
 	}

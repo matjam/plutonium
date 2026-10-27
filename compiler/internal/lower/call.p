@@ -823,7 +823,9 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *ty
 		fn, path = m, index
 	}
 	if isIfaceMethod(fn) {
-		return s.l.methodExprThunk(R, fn, path, nil, nil, sig)
+		sym := s.l.methodExprThunk(R, fn, path, nil, nil, sig)
+		s.l.noteTaskVariant(sym, pu.New(taskVariant{kind: tvWrap, recv: recvArg, fn: fn, path: path, sig: sig, iface: true, plain: dropFirstParam(sig)}))
+		return sym
 	}
 	w := s.ringOf(fn)
 	var targs []types2.Type
@@ -836,9 +838,16 @@ func (s *fnState) methodExpr(e *ast.SelectorExpr, sel *types2.Selection, sig *ty
 	}
 	target, full := s.l.methodFunc(fn, targs, w, e.Sel.Pos(), "used as a method expression")
 	if len(path) == 1 && types2.Identical(full.Recv().Type(), R) {
+		if w == nil {
+			s.l.noteTaskFunc(target, fn, targs)
+		}
 		return target
 	}
-	return s.l.methodExprThunk(R, fn, path, target, full, sig)
+	sym := s.l.methodExprThunk(R, fn, path, target, full, sig)
+	if w == nil {
+		s.l.noteTaskVariant(sym, pu.New(taskVariant{kind: tvWrap, recv: recvArg, fn: fn, targs: targs, path: path, sig: sig, full: full}))
+	}
+	return sym
 }
 
 // methodFunc returns the function implementing method fn instantiated with
@@ -892,6 +901,7 @@ func (s *fnState) funcValue(fn *types2.Func, targs []types2.Type, pos token.Pos)
 	}
 	sym := s.l.funcSym(fn, targs)
 	s.checkNotHandler(sym, pos, "used as a func value")
+	s.l.noteTaskFunc(sym, fn, targs)
 	if s.l.isCFunc(sym) {
 		// Func values use the internal ABI; a C function whose signature
 		// needs translating is reached through a thunk.
@@ -947,6 +957,9 @@ func (s *fnState) closureJob(lit *ast.FuncLit, captures []*types2.Var, adoptPara
 	sym := s.l.out.Sym(name, ssa.SymFunc)
 	sig := s.subst(s.info.Types[lit].Type).(*types2.Signature)
 	s.l.funcValues[sym] = sig
+	if !adoptParams {
+		s.l.noteTaskVariant(sym, pu.New(taskVariant{kind: tvLit, parent: s, lit: lit, captures: captures}))
+	}
 	s.l.queue = compat.Append(s.l.queue, pu.New(funcJob{
 		sym: sym, pkg: s.pkg, lit: lit, sig: sig, tmap: s.tmap, captures: captures, parent: s, adoptParams: adoptParams,
 	}))
@@ -1005,7 +1018,11 @@ func (s *fnState) methodValue(se *ast.SelectorExpr, sel *types2.Selection) *ssa.
 	if w == nil {
 		targs = s.methodTypeArgs(fn, se, recvT)
 	}
-	wrapper := s.l.boundMethodWrapper(s.l.methodFunc(fn, targs, w, se.Sel.Pos(), "used as a method value"))
+	target, full := s.l.methodFunc(fn, targs, w, se.Sel.Pos(), "used as a method value")
+	wrapper := s.l.boundMethodWrapper(target, full)
+	if w == nil {
+		s.l.noteTaskVariant(wrapper, pu.New(taskVariant{kind: tvWrap, recv: recvCtx, fn: fn, targs: targs, sig: s.l.funcValues[wrapper], full: full, recvT: full.Recv().Type()}))
+	}
 	size := 8 + s.l.sizeof(recv.T)
 	rec := s.methodValueRecord((size+7)&^7, inRegion)
 	s.store(ssa.TPtr, rec, s.funcAddr(wrapper))

@@ -1,0 +1,35 @@
+drop res 1
+value receiver: cleared
+drop res 2
+pointer receiver: cleared
+drop res 3
+value receiver: cleared
+drop res 4
+pointer receiver: cleared
+drop res 5
+one: cleared
+drop res 6
+literal: cleared
+drop res 7
+gen: cleared x
+drop res 8
+value receiver: cleared
+drop res 9
+value receiver: cleared
+drop res 10
+value receiver: cleared
+drop res 11
+pointer receiver: cleared
+drop res 12
+value receiver: cleared
+drop res 14
+generic receiver: cleared 7
+drop res 15
+generic receiver: cleared s
+look: running 99
+drop res 99
+look: dropped after return
+value receiver: cleared
+main still holds 13
+drop res 13
+end
