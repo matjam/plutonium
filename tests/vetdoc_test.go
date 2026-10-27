@@ -2,6 +2,7 @@ package tests
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -153,7 +154,11 @@ func TestDocSourceErrors(t *testing.T) {
 }
 
 // TestDocLibrarySources checks that pluto doc reads the standard library
-// from $PLUTOROOT when it is set, and finds its own without it.
+// from $PLUTOROOT when it is set, and without it from the lib directory
+// beside its executable. For the second case the test installs a copy of
+// the compiler in a directory of its own, with lib linked to the
+// repository's library, since the compiler under test may have no lib
+// beside it.
 func TestDocLibrarySources(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -166,17 +171,28 @@ func TestDocLibrarySources(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(pkg, "sample.p"), []byte("// Package sample comes from PLUTOROOT.\npackage sample\ntype Text string\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ root, target, symbol, want string }{
-		{root, "pluto/sample", "", "package sample // import \"pluto/sample\"\n\nPackage sample comes from PLUTOROOT.\n\nText [counted]\ntype Text string\n"},
-		{"", "pluto/bits", "Len", "package bits // import \"pluto/bits\"\n\nfunc Len(x uint) int\n    Len returns the minimum number of bits to represent x.\n"},
-	} {
-		args := []string{"doc", tc.target}
-		if tc.symbol != "" {
-			args = append(args, tc.symbol)
-		}
-		out, status := runPluto(t, dir, []string{"PLUTOROOT=" + tc.root}, args...)
-		if status != 0 || out != tc.want {
-			t.Fatalf("%s: status %d: %q, want %q", tc.target, status, out, tc.want)
-		}
+	out, status := runPluto(t, dir, []string{"PLUTOROOT=" + root}, "doc", "pluto/sample")
+	if want := "package sample // import \"pluto/sample\"\n\nPackage sample comes from PLUTOROOT.\n\nText [counted]\ntype Text string\n"; status != 0 || out != want {
+		t.Fatalf("pluto/sample: status %d: %q, want %q", status, out, want)
+	}
+
+	install := t.TempDir()
+	exe := filepath.Join(install, "pluto")
+	data, err := os.ReadFile(compiler(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exe, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(libRoot(t), filepath.Join(install, "lib")); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(exe, "doc", "pluto/bits", "Len")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "PLUTOROOT=", "PLUTO_BRIEF=")
+	got, err := cmd.CombinedOutput()
+	if want := "package bits // import \"pluto/bits\"\n\nfunc Len(x uint) int\n    Len returns the minimum number of bits to represent x.\n"; err != nil || string(got) != want {
+		t.Fatalf("pluto/bits: %v: %q, want %q", err, got, want)
 	}
 }
