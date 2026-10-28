@@ -5,6 +5,7 @@ package eir
 import (
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
+	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 )
 
@@ -72,18 +73,66 @@ func (fb *fnb) assertCounted(from, T types2.Type, r Reg) Reg {
 }
 
 // lendView returns r, a value of a counted error converted to an
-// interface that does not count: its In tokens lent (OpBorrow with no
-// holder). The holder's view is not added: fmt's %w takes the error back
-// through a generic container (vec.Fixed[error]), whose store of a type
-// parameter makes no counted copy the summary can show, and fmt's walk
-// keeps every operand (D51). A view of a holder kept past it through such
-// an interface (returning any(e) of a local e) is not seen
-// (docs/plans/2026-10-20-escape-redesign.md, known gaps).
+// interface that does not count, as a variadic argument: its In tokens
+// lent (OpBorrow with no holder). The holder's view is not added: fmt's %w
+// takes the error back through a generic container (vec.Fixed[error]),
+// whose store of a type parameter makes no counted copy the summary can
+// show, and fmt's walk keeps every operand (D51). Other conversions add it
+// (viewError).
 func (fb *fnb) lendView(r Reg) Reg {
 	if r == 0 || fb.cur == nil {
 		return r
 	}
 	return fb.emitDst(Instr{Op: OpBorrow, X: r, Pos: fb.pos})
+}
+
+// viewError returns r, a value of the counted error x converted to an
+// interface that does not count: a view of the box x holds, which x's
+// holder bounds (borrowError), or with no holder its In tokens lent
+// (lendView). return any(e) of a local e points into what e keeps alive.
+func (fb *fnb) viewError(x ast.Expr, r Reg) Reg {
+	if r == 0 || fb.cur == nil {
+		return r
+	}
+	if h := fb.errorHolder(x); h != 0 {
+		return fb.emitDst(Instr{Op: OpBorrow, X: r, Y: h, Pos: fb.pos})
+	}
+	return fb.lendView(r)
+}
+
+// countHeap returns r with its heap pointers counted references
+// (OpCountHeap); direct for a shared or synced box converted to a counted
+// error, whose In tokens become counted copies too.
+func (fb *fnb) countHeap(r Reg, direct bool) Reg {
+	if r == 0 || fb.cur == nil {
+		return r
+	}
+	in := Instr{Op: OpCountHeap, X: r, Pos: fb.pos}
+	if direct {
+		in.Index = 1
+	}
+	return fb.emitDst(in)
+}
+
+// loadsCounted reports whether e, of type T, is a counted error loaded
+// from memory the analysis does not follow into (a field, an element, a
+// pointer's target, a channel's value, a package variable): what it holds
+// in the heap may be a reference of its own, not a view of a holder's.
+// (What a parameter's path holds keeps its key.)
+func (fb *fnb) loadsCounted(e ast.Expr, T types2.Type) bool {
+	if T == nil || !types2.IsCountedError(T) || types2.IsOwner(T) {
+		return false
+	}
+	switch x := ast.Unparen(e).(type) {
+	case *ast.SelectorExpr, *ast.IndexExpr, *ast.IndexListExpr, *ast.StarExpr:
+		return true
+	case *ast.UnaryExpr:
+		return x.Op == token.ARROW
+	case *ast.Ident:
+		v, ok := fb.b.uses[x].(*types2.Var)
+		return ok && fb.isGlobal(v)
+	}
+	return false
 }
 
 // lendError returns r, the counted error x passed to a callee, lent with

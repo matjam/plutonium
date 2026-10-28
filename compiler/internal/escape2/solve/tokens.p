@@ -53,6 +53,7 @@ type tok struct {
 	deep  bool // In: the key is Deep
 	lent  bool // In: taken out of a counted error the caller holds (OpBorrow): its key is Borrowed
 	cnt   bool // In: a counted copy (OpRecount): its key is Counts; never with lent
+	dcnt  bool // In: with cnt, a shared or synced box converted to a counted error (OpCountHeap): its key is DirectCount
 	arn   bool // the memory of the allocator the token points at (above)
 	base  uint32
 	path  domain.PathID
@@ -85,6 +86,9 @@ func (t tok) words() (uint64, uint64) {
 	if t.arn {
 		w0 |= 1 << 58
 	}
+	if t.dcnt {
+		w0 |= 1 << 59
+	}
 	return w0, uint64(t.path) | uint64(t.tag)<<32
 }
 
@@ -103,6 +107,7 @@ func tokOf(w0, w1 uint64) tok {
 		filt:  domain.FilterID((w0 >> 40) & 0x3fff),
 		fpos:  uint8((w0 >> 54) & 0xf),
 		arn:   w0&(1<<58) != 0,
+		dcnt:  w0&(1<<59) != 0,
 	}
 }
 
@@ -157,7 +162,7 @@ func (s *solver) tokAt(id uint64) tok {
 
 // key is the summary key of an In token.
 func key(t tok) domain.Key {
-	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt, Arena: t.arn}).WithFilterRaw(t.filt, int(t.fpos))
+	return domain.MakeKey(int(t.base), t.path, domain.KeyFlags{GE: t.ge, FieldsGE: t.fge, Deep: t.deep, Borrowed: t.lent, Counts: t.cnt, DirectCount: t.dcnt, Arena: t.arn}).WithFilterRaw(t.filt, int(t.fpos))
 }
 
 // extend appends one step to p; ge reports that the step went past the
@@ -287,17 +292,17 @@ func (s *solver) loadIn(t tok) tok {
 	case t.wide():
 		// It covers the load: the token itself, lent or not.
 	case t.fge:
-		t.fge, t.deep, t.lent, t.cnt, t.arn = false, true, false, false, false
+		t.fge, t.deep, t.lent, t.cnt, t.dcnt, t.arn = false, true, false, false, false, false
 	case t.arn:
 		// What the allocator's memory holds is what its pointer leads to
 		// (KeyFlags.Arena): Deep on the allocator's path, which covers the
 		// pointers loaded at any offset.
-		t.deep, t.lent, t.cnt, t.arn = true, false, false, false
+		t.deep, t.lent, t.cnt, t.dcnt, t.arn = true, false, false, false, false
 	default:
 		// What a view holds is not a view of the box (OpBorrow), nor
 		// what a counted copy holds a copy.
 		t.path, t.deep = s.extend(t.path, domain.StepLoad)
-		t.lent, t.cnt = false, false
+		t.lent, t.cnt, t.dcnt = false, false, false
 		t = s.trimFilter(t)
 	}
 	return t

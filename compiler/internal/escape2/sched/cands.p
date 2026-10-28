@@ -307,7 +307,7 @@ func (c *cands) localBoxes(f *eir.Func, call *eir.Call) ([]eir.FuncID, bool) {
 		}
 		in := defs[x]
 		switch in.Op {
-		case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap:
+		case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap, eir.OpCountHeap:
 			work = compat.AppendPlain(work, in.X)
 		case eir.OpPhi:
 			work = compat.AppendPlain(work, in.Args...)
@@ -370,7 +370,7 @@ func (c *cands) localClosures(f *eir.Func, r eir.Reg) []eir.FuncID {
 		}
 		in := defs[x]
 		switch in.Op {
-		case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap:
+		case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap, eir.OpCountHeap:
 			work = compat.AppendPlain(work, in.X)
 		case eir.OpPhi:
 			work = compat.AppendPlain(work, in.Args...)

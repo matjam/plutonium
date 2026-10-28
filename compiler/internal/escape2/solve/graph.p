@@ -63,6 +63,7 @@ const (
 	xOwner            // OpOwnerView: a frame object's pointer becomes one to the memory it owns; other pointers go
 	xOwnerHeap        // OpOwnerHeap: a heap or input pointer becomes one to the owner memory object path; others unchanged
 	xOwnerMove        // OpOwnerMove: a pointer to the owner memory object path becomes a heap pointer; others unchanged
+	xCountHeap        // OpCountHeap: heap pointers made counted; with flag, also xRecount with In tokens DirectCount
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -95,6 +96,7 @@ const (
 	cFRest                 // a: fcall index: the function value less its own closures (funccall.go)
 	cArenaBox              // a counted value copied into an interface box: E3313 for a local arena's memory (SinkBoxCopy)
 	cBorrow                // a: the holder's node; b: the destination: OpBorrow, once X holds CHeap
+	cCountLoad             // a: the destination: OpCountHeap of a heap-only load, by what the address points to
 )
 
 func (s *solver) newNode(kind uint64) uint32 {
@@ -165,6 +167,9 @@ func (s *solver) coveredIn(n uint32, id uint64) bool {
 	// A coverer of a lending rank no lower than t's (counted copy < plain <
 	// lent view): it stands for at least what t does.
 	for r := lendRankTok(t); r <= 2; r++ {
+		if t.dcnt && r != 0 {
+			break // only a DirectCount key covers one (domain.Covers)
+		}
 		c := t
 		c.cnt, c.lent = r == 0, r == 2
 		if s.coveredBy(n, c, id) {
@@ -197,7 +202,7 @@ func (s *solver) coveredBy(n uint32, t tok, id uint64) bool {
 		// t's is exact), and every prefix of the tag with GE.
 		// (An arn token, never GE or Deep, is covered as it is without the
 		// flag: domain.Covers.)
-		c := tok{kind: tIn, base: t.base, path: p, ge: true, lent: t.lent, cnt: t.cnt}
+		c := tok{kind: tIn, base: t.base, path: p, ge: true, lent: t.lent, cnt: t.cnt, dcnt: t.dcnt}
 		for {
 			q := domain.Root
 			for j := 0; ; j++ {
@@ -402,7 +407,7 @@ func (s *solver) transform(x uint64, t tok) {
 		}
 	case xLend:
 		if t.kind == tIn {
-			t.lent, t.cnt = true, false
+			t.lent, t.cnt, t.dcnt = true, false, false
 		}
 		s.buf.push(s.a, s.intern(t))
 	case xRecount:
@@ -411,6 +416,17 @@ func (s *solver) transform(x uint64, t tok) {
 		}
 		if t.kind == tIn {
 			t.lent, t.cnt = false, true
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xCountHeap:
+		switch {
+		case t.kind == tHeap:
+			t.kind = tCHeap
+		case !flag:
+		case t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].ErrHolder:
+			return
+		case t.kind == tIn:
+			t.lent, t.cnt, t.dcnt = false, true, true
 		}
 		s.buf.push(s.a, s.intern(t))
 	case xNoHolder:

@@ -376,6 +376,14 @@ const (
 	// move), with each pointer to Obj, the memory the owner owns, made a
 	// pointer to the heap: the memory moves with the owner (ownerview.go).
 	OpOwnerMove
+	// OpCountHeap: Dst = X, with each heap pointer made a counted heap
+	// reference: a counted error loaded from memory the analysis does not
+	// follow, which may hold a reference of its own (borrow.go). With
+	// Index 1 it is a shared or synced box converted to a counted error:
+	// the In tokens also become counted copies whose caller counts its
+	// heap pointers (domain.KeyFlags.DirectCount), and pointers to ErrHolder
+	// objects go, as for OpRecount.
+	OpCountHeap
 )
 
 // ElemStep is the path step of an array or slice element in OpAddr and

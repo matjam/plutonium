@@ -691,6 +691,7 @@ const (
 	dLend       = 1 << 54 // in the first word: a node's tokens, In tokens lent (keyNode)
 	dNoHolder   = 1 << 53 // in the first word: a node's tokens less counted errors' holders (keyNode)
 	dRecount    = 1 << 52 // in the first word: a node's tokens as a counted copy (keyNode)
+	dCount      = 1 << 51 // in the first word: a node's tokens as a counted copy of a box (keyNode, DirectCount)
 	dFilter     = 1 << 63 // in the first word: a node through a type filter (filterNode; the node index is in bits 20-51)
 )
 
@@ -703,7 +704,7 @@ func (s *solver) keyNode(base uint32, k domain.Key) uint32 {
 		// A counted error passed with OpLend: its holder's view is for
 		// the callee's Borrowed keys alone, which lend what they name.
 		if k.Counts() {
-			return s.derivedNode(dRecount, s.keyNodeOf(base, k), xRecount)
+			return s.countNode(s.keyNodeOf(base, k), k)
 		}
 		if !k.Borrowed() {
 			return s.keyNodeOf(s.derivedNode(dNoHolder, base, xNoHolder), k)
@@ -716,20 +717,36 @@ func (s *solver) keyNode(base uint32, k domain.Key) uint32 {
 	if k.Counts() {
 		// A counted copy: no holder of the caller's bounds it, and what
 		// it names is a counted copy for the caller's own keys too.
-		return s.derivedNode(dRecount, s.keyNodeOf(base, k), xRecount)
+		return s.countNode(s.keyNodeOf(base, k), k)
 	}
 	return s.keyNodeOf(base, k)
+}
+
+// countNode is node n, val of Counts key k, as a counted copy (xRecount).
+// A DirectCount key is a shared or synced box the callee converted to a
+// counted error: the caller's heap pointers in it are counted references
+// too (xCountHeap).
+func (s *solver) countNode(n uint32, k domain.Key) uint32 {
+	if k.Flags().DirectCount {
+		return s.derivedNodeX(dCount, n, xw(xCountHeap, 0, true))
+	}
+	return s.derivedNode(dRecount, n, xRecount)
 }
 
 // derivedNode returns the node of n's tokens through transform x (one of
 // xLend and xNoHolder, kind its derived-node kind), made once.
 func (s *solver) derivedNode(kind uint64, n uint32, x int) uint32 {
+	return s.derivedNodeX(kind, n, xw(x, 0, false))
+}
+
+// derivedNodeX is derivedNode with the edge's whole transform word w.
+func (s *solver) derivedNodeX(kind uint64, n uint32, w uint64) uint32 {
 	if m, ok := s.derived.get(kind|uint64(n), 0); ok {
 		return uint32(m)
 	}
 	m := s.newNode(nkPinned)
 	s.derived.put(s.a, kind|uint64(n), 0, uint64(m))
-	s.addEdge(n, m, xw(x, 0, false), 0)
+	s.addEdge(n, m, w, 0)
 	return m
 }
 
@@ -964,6 +981,27 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 	case cBorrow:
 		if t.kind == tCHeap {
 			s.addEdge(uint32(a), uint32(b), xw(xID, 0, false), 0) // the holder's view, once
+		}
+	case cCountLoad:
+		// The address of a counted error's heap-only load. Through an
+		// input's path it is a counted copy of what the caller's memory
+		// holds there (DirectCount, as xCountHeap makes it): the
+		// wrapping error whose field it is holds it (Unwrap returning
+		// e.err), and a caller whose memory there is counted counts it.
+		// A frame object's field holds what was stored there (a value
+		// receiver's copy holds the caller's), counted the same way.
+		// Other memory may hold a reference of its own: counted heap.
+		switch {
+		case t.kind == tIn:
+			l := s.loadIn(asPointer(t))
+			l.lent, l.cnt, l.dcnt = false, true, true
+			s.addTok(uint32(a), l)
+		case t.kind == tObj && !s.isBoxView(t.base):
+			n2 := s.newNode(nkPinned)
+			s.subscribe(t.base, t.path, t.ge, n2, subLoad)
+			s.addEdge(n2, uint32(a), xw(xCountHeap, 0, true), 0)
+		default:
+			s.addTok(uint32(a), tok{kind: tCHeap})
 		}
 	case cArenaBox:
 		if t.kind == tObj && s.isArenaMem(t.base) {
@@ -1504,6 +1542,15 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		} else {
 			s.edge(in.X, dst, xw(xID, 0, false))
 		}
+	case eir.OpCountHeap:
+		if addr := s.loadAddr(in.X); in.Index == 0 && addr != 0 && s.heapOnlyLoad(addr) {
+			// A counted error loaded from a heap-only field, which the
+			// load takes as heap memory alone: by what the address
+			// points to (cCountLoad).
+			s.addCons(uint32(addr), cCountLoad, uint64(dst), 0)
+			return
+		}
+		s.edge(in.X, dst, xw(xCountHeap, 0, in.Index == 1))
 	case eir.OpLend:
 		s.edge(in.X, dst, xw(xID, 0, false))
 		if in.Y != 0 {
@@ -1792,6 +1839,20 @@ func (s *solver) staticAddr(x eir.Reg) bool {
 			return false
 		}
 	}
+}
+
+// loadAddr returns the address x is loaded through, when an OpLoad
+// defines x, or 0.
+func (s *solver) loadAddr(x eir.Reg) eir.Reg {
+	d := s.defs.s[x]
+	if d == 0 {
+		return 0
+	}
+	in := &s.f.Blocks[d>>32].Instrs[uint32(d)-1]
+	if in.Op != eir.OpLoad {
+		return 0
+	}
+	return in.X
 }
 
 // heapOnlyLoad reports whether a load through x reads a heap-only field

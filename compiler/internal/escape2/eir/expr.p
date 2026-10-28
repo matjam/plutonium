@@ -32,6 +32,13 @@ func (fb *fnb) typeOf(e ast.Expr) types2.Type {
 
 // exprAs builds e and converts it to T as an assignment would.
 func (fb *fnb) exprAs(e ast.Expr, T types2.Type) Reg {
+	return fb.exprAsIn(e, T, false)
+}
+
+// exprAsIn is exprAs; vararg says e is a variadic argument of a call
+// packed into its array, whose view of a counted error lends no holder
+// (lendView).
+func (fb *fnb) exprAsIn(e ast.Expr, T types2.Type, vararg bool) Reg {
 	tv := fb.b.types[e]
 	if !tv.Value.IsNil() {
 		if T != nil && isInterface(T) {
@@ -62,7 +69,12 @@ func (fb *fnb) exprAs(e ast.Expr, T types2.Type) Reg {
 		r = fb.expr(e)
 	}
 	if from := fb.typeOf(e); isInterface(from) && T != nil && isInterface(T) && lendsError(from, T) {
-		r = fb.lendView(r) // borrow.go
+		// A view of the box the error holds (borrow.go).
+		if vararg {
+			r = fb.lendView(r)
+		} else {
+			r = fb.viewError(e, r)
+		}
 	}
 	return fb.convertReg(r, fb.typeOf(e), T, e.Pos())
 }
@@ -172,6 +184,9 @@ func (fb *fnb) convIn(r Reg, from, I types2.Type, pos token.Pos, inPlace bool) R
 	if in.Obj != NoObj && len(fb.f.ArenaMem) > 0 && releasesCounted(from) {
 		fb.sink(SinkBoxCopy, r, 0, pos) // arena.go
 	}
+	if isCountedBox(from) && types2.IsCountedError(I) && !types2.IsOwner(I) {
+		d = fb.countHeap(d, true) // borrow.go
+	}
 	if isTypeParam(from) {
 		// The instance decides: a direct type is its own data word.
 		return fb.either(d, r)
@@ -261,7 +276,11 @@ func (fb *fnb) expr(e ast.Expr) Reg {
 		r := fb.expr0(e, T)
 		return fb.ownerTemp(r, T)
 	}
-	return fb.expr0(e, T)
+	r := fb.expr0(e, T)
+	if fb.loadsCounted(e, T) {
+		r = fb.countHeap(r, false) // borrow.go
+	}
+	return r
 }
 
 func (fb *fnb) expr0(e ast.Expr, T types2.Type) Reg {

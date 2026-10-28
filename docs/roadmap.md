@@ -455,14 +455,14 @@ against the corrected specification. The immediate implementation order is:
      result is a view of that temporary; a task statement's packed variadic arguments are checked as
      the task's; `//pu:resultholds` outside the standard library and on a name that is not a parameter
      is reported (E3007, E3008). A closure region result followed back through a function literal's
-     frame is E3001 (item 137); its cases now cite section 11.5. Still open, each a corpus case
-     marked `knownfail`:
+     frame is E3001 (item 137); its cases now cite section 11.5. A counted error loaded from memory
+     the analysis does not follow (a field, an element, a pointer's target, a channel, a package
+     variable) or returned by a function without a body holds counted heap references, and a counted
+     error converted to an interface that does not count is a view its holder bounds, so the `Unwrap`
+     borrow check sees them. Still open, each a corpus case marked `knownfail`:
      - A box passed by value through a type parameter (`save[T Getter](g T)` called with
        `sharedHolder().p`): escape2 analyses a generic body once, so it misses the view of the
        temporary. Nine `temporaryboxviews` cases.
-     - Counted errors: an error loaded from heap memory, or returned by a function without a body,
-       is not taken as counted, so the `Unwrap` borrow check misses it. Eight `countederrorborrows`
-       cases.
      - fmt calling a pointer method of a struct field inside a box
        (`rejected_fmt_calls_a_pointer_method_of_a_struct_field_inside_a_box`).
      - Two false rejections: a method that keeps its receiver applied to a box the type assertion

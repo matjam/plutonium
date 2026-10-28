@@ -346,7 +346,7 @@ func (h *heapOnly) regType1(f *eir.Func, r eir.Reg, depth int) types2.Type {
 		}
 	case eir.OpSelect:
 		return walkPath(h.regTypeRec(f, in.X, depth+1), in.Path)
-	case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap:
+	case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap, eir.OpCountHeap:
 		return h.regTypeRec(f, in.X, depth+1)
 	case eir.OpConv:
 		return in.To
@@ -559,7 +559,7 @@ func (h *heapOnly) addrLoc(f *eir.Func, r eir.Reg, depth int) loc {
 			t = elemOf(h.regType(f, in.X))
 		}
 		return loc{base: t, fieldStep: l.fieldStep}
-	case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap:
+	case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap, eir.OpCountHeap:
 		return h.addrLoc(f, in.X, depth+1)
 	case eir.OpPhi:
 		return h.phiLoc(f, r, depth)
@@ -806,7 +806,7 @@ func (h *heapOnly) origin1(st *originState, r eir.Reg, path []int) ([]hoAtom, bo
 			out, complete = compat.AppendPlain(out, x...), complete && c
 		}
 		return out, complete
-	case eir.OpRecount, eir.OpLend:
+	case eir.OpRecount, eir.OpLend, eir.OpCountHeap:
 		// What X holds: a counted copy of it, or X lent to a call.
 		return h.origin(st, in.X, path)
 	case eir.OpArenaView, eir.OpBorrow, eir.OpOwnerView, eir.OpOwnerHeap:

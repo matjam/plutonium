@@ -120,6 +120,8 @@ func (p *Program) InstrString(in *Instr) string {
 			return compat.Sprintf("%srecount r%d %s", dst, in.X, in.Type)
 		}
 		return compat.Sprintfb("%srecount r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)))
+	case OpCountHeap:
+		return compat.Sprintfb("%scountheap r%d [%d]", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgI(int64(in.Index)))
 	case OpLend:
 		return compat.Sprintfb("%slend r%d r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgU(uint64(in.Y)))
 	case OpOwnerView:

@@ -533,7 +533,13 @@ func (fb *fnb) args(e *ast.CallExpr, sig *types2.Signature, fn *types2.Func) ([]
 				base = fb.objAddr(owner, o)
 			}
 			for _, a := range extra {
-				fb.store(fb.elem(base), eval(a, et), et)
+				var r Reg
+				if a.e != nil {
+					r = fb.exprAsIn(a.e, et, true)
+				} else {
+					r = eval(a, et)
+				}
+				fb.store(fb.elem(base), r, et)
 			}
 			out = compat.AppendPlain(out, base)
 		}

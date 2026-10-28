@@ -496,10 +496,22 @@ func noEscapeSummary(ps domain.Paths, f *eir.Func) *summary.Summary {
 			deep := domain.MakeKey(i, domain.Root, domain.KeyFlags{Deep: true})
 			sum.Res[r].From = compat.Append(sum.Res[r].From, summary.ResultKey{Key: deep, Field: domain.Root})
 		}
-		sum.Res[r].Heap = compat.Clone([]domain.PathID{domain.Root})
+		if countedResult(f.Sig, r) {
+			sum.Res[r].CountedHeap = compat.Clone([]domain.PathID{domain.Root})
+		} else {
+			sum.Res[r].Heap = compat.Clone([]domain.PathID{domain.Root})
+		}
 	}
 	summary.Widen(ps, sum)
 	return sum
+}
+
+// countedResult reports whether result r of a function of signature sig
+// with no body the analysis sees is a counted error: the heap memory it
+// holds may be a reference of its own (a counted heap reference), as of a
+// shared or synced box converted to it.
+func countedResult(sig *types2.Signature, r int) bool {
+	return sig != nil && r < sig.Results().Len() && types2.IsCountedError(sig.Results().At(r).Type()) && !types2.IsOwner(sig.Results().At(r).Type())
 }
 
 // applyDefault applies the default of a bodyless function without a
@@ -526,9 +538,19 @@ func (s *solver) applyDefault(in *eir.Instr, bind []uint64, cand eir.FuncID) {
 			}
 		}
 	}
-	for _, res := range results {
-		if res != 0 {
-			// Res Heap Root, applied as any summary's (rules.go, OpCall).
+	for r, res := range results {
+		if res == 0 {
+			continue
+		}
+		// Res Heap Root, applied as any summary's (rules.go, OpCall): a
+		// counted error's is CountedHeap (noEscapeSummary).
+		sig := c.Sig
+		if cand != eir.NoFunc && s.prog.Funcs[cand].Sig != nil {
+			sig = s.prog.Funcs[cand].Sig
+		}
+		if countedResult(sig, r) {
+			s.addTok(uint32(res), tok{kind: tCHeap, tagGE: true})
+		} else {
 			s.addTok(uint32(res), tok{kind: tHeap, tagGE: true})
 		}
 	}
