@@ -515,9 +515,34 @@ func printBool(b bool) {
 	}
 }
 
-func printInt(v int64)              { writeInt(Console{}, v) }
-func printUint(v uint64)            { writeUint(Console{}, v) }
-func printPointer(p unsafe.Pointer) { writePointer(Console{}, uintptr(p)) }
+// printInt, printUint and printPointer format into a buffer and write it
+// with printBytes, not through the generic writers below. A generic
+// writer's w.Write is a call through a type parameter, which the analysis
+// of rt.ExitTask (lower/goexit.p) takes to reach every Write method of the
+// program. A test's Write may call t.FailNow, and these functions are on
+// the path of every runtime panic, so with them generic, every function
+// that can panic, Free and Drop among them, would look as though it may
+// end the task, and every release in the program would need a check.
+func printInt(v int64) {
+	if v < 0 {
+		printString("-")
+		printUint(uint64(-v))
+		return
+	}
+	printUint(uint64(v))
+}
+
+func printUint(v uint64) {
+	var buf [20]byte
+	i := formatUint(&buf, v)
+	printBytes(unsafe.Pointer(&buf[i]), len(buf)-i)
+}
+
+func printPointer(p unsafe.Pointer) {
+	var buf [18]byte
+	i := formatPointer(&buf, uintptr(p))
+	printBytes(unsafe.Pointer(&buf[i]), len(buf)-i)
+}
 
 // A Writer receives the text of a panic report (Panic.Print and
 // Panic.PrintTrace). It has the method of pluto/io.Writer, so any
@@ -571,6 +596,19 @@ func writeInt[W Writer](w W, v int64) {
 
 func writeUint[W Writer](w W, v uint64) {
 	var buf [20]byte
+	i := formatUint(&buf, v)
+	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
+}
+
+func writePointer[W Writer](w W, v uintptr) {
+	var buf [18]byte
+	i := formatPointer(&buf, v)
+	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
+}
+
+// formatUint writes v in decimal at the end of buf and returns where it
+// starts.
+func formatUint(buf *[20]byte, v uint64) int {
 	i := len(buf)
 	for {
 		i--
@@ -580,12 +618,13 @@ func writeUint[W Writer](w W, v uint64) {
 			break
 		}
 	}
-	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
+	return i
 }
 
-func writePointer[W Writer](w W, v uintptr) {
+// formatPointer writes v in hexadecimal, with 0x, at the end of buf and
+// returns where it starts.
+func formatPointer(buf *[18]byte, v uintptr) int {
 	const digits = "0123456789abcdef"
-	var buf [18]byte
 	i := len(buf)
 	for {
 		i--
@@ -599,7 +638,7 @@ func writePointer[W Writer](w W, v uintptr) {
 	buf[i] = 'x'
 	i--
 	buf[i] = '0'
-	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
+	return i
 }
 
 func printString(s string) {

@@ -121,21 +121,26 @@ shared counter). Left in Go, with the reason:
 Unit tests restored (2026-10-27). The Go packages' API-level tests at
 `go-cutover` are `_test.p` files in the matching `compiler/` packages, run by
 `pluto test` and by TestCompilerUnits (`tests/compilerunits_test.go`; the heavy
-packages need `PLUTO_UNIT_HEAVY=1` and build with `-gencheck=false`):
+packages need `PLUTO_UNIT_HEAVY=1`). The heavy packages build with
+generation checks on since 2026-10-28; sched still builds with
+`-gencheck=false` (its test fakes keep package slices in scratch memory
+that is reset after each step). Their times are the checked build plus the
+run on kraken, with another job in the other slot, and the memory is the
+peak of either:
 
 | Package | Tests | pluto test |
 |---------|-------|------------|
 | ssa | schedule, disjoint, verify (4) | 3.5 s, 370 MB |
 | opt | all 21 | 10 s, 570 MB |
 | arch/amd64 | all 27 (3 run GNU `as`) | 16 s, 650 MB |
-| escape2/domain | all 37 | 69 s, 1.5 GB |
-| escape2/summary | all 8 | 122 s, 5 GB |
-| escape2/solve | 68 (internal package files) | 130 s, 5.2 GB |
-| escape2/sched | 60 of 61 | 192 s, 5.8 GB |
-| escape2/eir | build, desugar, corpus | 833 s, 5.4 GB |
-| escape2 | cache, calls, report, scale and the rest | 931 s, 12 GB |
-| lsp | all 32 | 99 s, 3.2 GB |
-| build | fieldnames, ssatext | about 34 min, over 8 GB |
+| escape2/domain | all 37 | 170 s, 1.5 GB |
+| escape2/summary | all 8 | 720 s, 5.2 GB |
+| escape2/solve | 68 (internal package files) | 694 s, 5.5 GB |
+| escape2/sched | 60 of 61 | 192 s, 5.8 GB (unchecked) |
+| escape2/eir | build, desugar, corpus | 497 s, 5.7 GB |
+| escape2 | cache, calls, report, scale and the rest | 931 s, 12 GB (unchecked; its tests do not build now) |
+| lsp | all 32 | 512 s, 3.3 GB |
+| build | fieldnames, ssatext | 36 min, 9.5 GB |
 
 The `internal/build` program tests (about 190) are Go tests in
 `tests/build_*_test.go`, built through the CLI (Config fields map to `pluto

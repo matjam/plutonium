@@ -15,12 +15,26 @@ type arenaEnded struct {
 
 var arenaEndedHead uint64
 
+// arenaRecordEnded runs under genWriter. Reclaim ends allocations newest
+// first, so a run of ended allocations usually arrives as extents that each
+// end where the newest record begins. When the newest record has the same
+// tag and site and the new extent reaches its first granule, the record is
+// extended down instead of adding one: the bytes in between lie in granules
+// that carry this tag from this incarnation, so the lookup stays exact.
+// Without this a long-running program keeps one record per ended
+// allocation forever.
 func arenaRecordEnded(lo, hi uintptr, tag uint16, pc uintptr, freed bool) {
-	e := (*arenaEnded)(genMetadata(unsafe.Sizeof(arenaEnded{})))
-	e.lo, e.hi, e.tag, e.site = lo, hi, tag, pc
+	site := pc
 	if freed {
-		e.site |= uintptr(1) << 63
+		site |= uintptr(1) << 63
 	}
+	if h := (*arenaEnded)(unsafe.Pointer(uintptr(vload64(&arenaEndedHead)))); h != nil &&
+		h.tag == tag && h.site == site && lo < h.lo && hi <= h.lo && (hi+15)&^15 >= h.lo&^15 {
+		store64((*uint64)(unsafe.Pointer(&h.lo)), uint64(lo))
+		return
+	}
+	e := (*arenaEnded)(genMetadata(unsafe.Sizeof(arenaEnded{})))
+	e.lo, e.hi, e.tag, e.site = lo, hi, tag, site
 	e.next = (*arenaEnded)(unsafe.Pointer(uintptr(vload64(&arenaEndedHead))))
 	store64(&arenaEndedHead, uint64(uintptr(unsafe.Pointer(e))))
 }

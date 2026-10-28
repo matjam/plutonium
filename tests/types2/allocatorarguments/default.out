@@ -518,41 +518,43 @@ package pluto/rt
     pluto/rt/float.p:38:20: unsafe.Pointer
   unsafe pluto/rt.stmtFloat pluto/rt/float.p:42:1
     pluto/rt/float.p:45:19: unsafe.Pointer
-  unsafe pluto/rt.arenaRecordEnded pluto/rt/gen_arena_on.p:18:1
-    pluto/rt/gen_arena_on.p:19:33: unsafe.Sizeof (layout query)
-    pluto/rt/gen_arena_on.p:24:32: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:25:49: unsafe.Pointer
-  unsafe pluto/rt.GenCheckArenaFree pluto/rt/gen_arena_on.p:30:1
-    pluto/rt/gen_arena_on.p:30:24: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:30:33: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:31:5: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:31:41: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:32:14: unsafe.Pointer
-  unsafe pluto/rt.GenTagArena pluto/rt/gen_arena_on.p:38:1
-    pluto/rt/gen_arena_on.p:38:33: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:38:42: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:38:72: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:43:27: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:44:20: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:44:32: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:73:16: unsafe.Pointer
-  unsafe pluto/rt.GenArenaExhausted pluto/rt/gen_arena_on.p:81:1
-    pluto/rt/gen_arena_on.p:81:24: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:81:33: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:82:20: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:82:32: unsafe.Pointer
-  unsafe pluto/rt.GenEndArena pluto/rt/gen_arena_on.p:99:1
-    pluto/rt/gen_arena_on.p:104:27: unsafe.Pointer
-  unsafe pluto/rt.GenTrimArena pluto/rt/gen_arena_on.p:117:1
-    pluto/rt/gen_arena_on.p:119:27: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:127:27: unsafe.Pointer
-  unsafe pluto/rt.arenaEndedSite pluto/rt/gen_arena_on.p:139:1
-    pluto/rt/gen_arena_on.p:139:21: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:139:30: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:140:15: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:141:35: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:141:44: unsafe.Pointer
-    pluto/rt/gen_arena_on.p:142:32: unsafe.Pointer
+  unsafe pluto/rt.arenaRecordEnded pluto/rt/gen_arena_on.p:26:1
+    pluto/rt/gen_arena_on.p:31:31: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:33:28: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:36:33: unsafe.Sizeof (layout query)
+    pluto/rt/gen_arena_on.p:38:32: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:39:49: unsafe.Pointer
+  unsafe pluto/rt.GenCheckArenaFree pluto/rt/gen_arena_on.p:44:1
+    pluto/rt/gen_arena_on.p:44:24: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:44:33: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:45:5: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:45:41: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:46:14: unsafe.Pointer
+  unsafe pluto/rt.GenTagArena pluto/rt/gen_arena_on.p:52:1
+    pluto/rt/gen_arena_on.p:52:33: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:52:42: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:52:72: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:57:27: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:58:20: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:58:32: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:87:16: unsafe.Pointer
+  unsafe pluto/rt.GenArenaExhausted pluto/rt/gen_arena_on.p:95:1
+    pluto/rt/gen_arena_on.p:95:24: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:95:33: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:96:20: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:96:32: unsafe.Pointer
+  unsafe pluto/rt.GenEndArena pluto/rt/gen_arena_on.p:113:1
+    pluto/rt/gen_arena_on.p:118:27: unsafe.Pointer
+  unsafe pluto/rt.GenTrimArena pluto/rt/gen_arena_on.p:131:1
+    pluto/rt/gen_arena_on.p:133:27: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:141:27: unsafe.Pointer
+  unsafe pluto/rt.arenaEndedSite pluto/rt/gen_arena_on.p:153:1
+    pluto/rt/gen_arena_on.p:153:21: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:153:30: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:154:15: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:155:35: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:155:44: unsafe.Pointer
+    pluto/rt/gen_arena_on.p:156:32: unsafe.Pointer
   unsafe pluto/rt.GenQuarantine pluto/rt/gen_directory_on.p:88:1
     pluto/rt/gen_directory_on.p:93:27: unsafe.Pointer
     pluto/rt/gen_directory_on.p:96:8: unsafe.Pointer
@@ -1051,6 +1053,15 @@ package pluto/rt
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
+    calls pluto/rt.printUint
+      pluto/rt/goexit.p:59:2: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/goexit.p:59:2: may call pluto/rt.m0Main
       pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
@@ -1060,16 +1071,6 @@ package pluto/rt
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/goexit.p:59:2: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
     calls pluto/rt.casUint64
       pluto/rt/goexit.p:59:2: may call pluto/rt.m0Main
       pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
@@ -1710,6 +1711,9 @@ package pluto/rt
     calls pluto/rt.lastResort
       pluto/rt/join.p:232:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
+    calls pluto/rt.printUint
+      pluto/rt/join.p:234:2: call pluto/rt.printInt
+      pluto/rt/rt.p:529:3: call pluto/rt.printUint
     calls pluto/rt.callerFrame
       pluto/rt/join.p:235:2: call pluto/rt.fatal
       pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
@@ -1724,14 +1728,6 @@ package pluto/rt
       pluto/rt/join.p:232:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32
-    calls pluto/rt.writeString
-      pluto/rt/join.p:234:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
-    calls pluto/rt.writeUint
-      pluto/rt/join.p:234:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
     calls pluto/rt.getg
       pluto/rt/join.p:232:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
@@ -1851,7 +1847,7 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/map.p:174:2: call pluto/rt.*MapTable[K, V].setup
       pluto/rt/map.p:193:7: call pluto/rt.DefaultAllocator
-      pluto/rt/rt.p:874:10: call pluto/rt.current
+      pluto/rt/rt.p:913:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.*MapTable[K, V].typeHash
       pluto/rt/map.p:177:2: call pluto/rt.*MapTable[K, V].Reserve
@@ -1915,7 +1911,7 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/map.p:182:2: call pluto/rt.*MapTable[K, V].setup
       pluto/rt/map.p:193:7: call pluto/rt.DefaultAllocator
-      pluto/rt/rt.p:874:10: call pluto/rt.current
+      pluto/rt/rt.p:913:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.*MapTable[K, V].typeHash
       pluto/rt/map.p:185:2: call pluto/rt.*MapTable[K, V].Reserve
@@ -1960,7 +1956,7 @@ package pluto/rt
       pluto/rt/panic.p:169:2: call pluto/rt.raise
     calls pluto/rt.getg
       pluto/rt/map.p:193:7: call pluto/rt.DefaultAllocator
-      pluto/rt/rt.p:874:10: call pluto/rt.current
+      pluto/rt/rt.p:913:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.syscall3
       pluto/rt/map.p:190:3: call pluto/rt.panicMessage
@@ -3210,7 +3206,7 @@ package pluto/rt
       pluto/rt/rt.p:483:2: call pluto/rt.printString
     calls pluto/rt.getg
       pluto/rt/map.p:825:7: call pluto/rt.DefaultAllocator
-      pluto/rt/rt.p:874:10: call pluto/rt.current
+      pluto/rt/rt.p:913:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.casUint64
       pluto/rt/map.p:827:3: call pluto/rt.panicMessage
@@ -3763,20 +3759,18 @@ package pluto/rt
   safe pluto/rt.describeOverflow pluto/rt/panic.p:320:1
     calls pluto/rt.printString
       pluto/rt/panic.p:322:3: call pluto/rt.printString
+    calls pluto/rt.printUint
+      pluto/rt/panic.p:323:3: call pluto/rt.printSize
+      pluto/rt/panic.p:341:3: call pluto/rt.printUint
     calls pluto/rt.getg
       pluto/rt/panic.p:321:10: call pluto/rt.overflowedTask
       pluto/rt/panic.p:310:7: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
-    calls pluto/rt.writeUint
-      pluto/rt/panic.p:323:3: call pluto/rt.printSize
-      pluto/rt/panic.p:341:3: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   safe pluto/rt.printSize pluto/rt/panic.p:338:1
+    calls pluto/rt.printUint
+      pluto/rt/panic.p:341:3: call pluto/rt.printUint
     calls pluto/rt.printString
       pluto/rt/panic.p:342:3: call pluto/rt.printString
-    calls pluto/rt.writeUint
-      pluto/rt/panic.p:341:3: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   unsafe pluto/rt.describeFault pluto/rt/panic.p:353:1
     pluto/rt/panic.p:364:24: unsafe.Pointer
   safe pluto/rt.Abort pluto/rt/panic.p:376:1
@@ -4254,6 +4248,9 @@ package pluto/rt
     calls pluto/rt.lastResort
       pluto/rt/rt.p:278:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
+    calls pluto/rt.printUint
+      pluto/rt/rt.p:280:2: call pluto/rt.printInt
+      pluto/rt/rt.p:529:3: call pluto/rt.printUint
     calls pluto/rt.callerFrame
       pluto/rt/rt.p:283:2: call pluto/rt.fatal
       pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
@@ -4268,14 +4265,6 @@ package pluto/rt
       pluto/rt/rt.p:278:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32
-    calls pluto/rt.writeString
-      pluto/rt/rt.p:280:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
-    calls pluto/rt.writeUint
-      pluto/rt/rt.p:280:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
     calls pluto/rt.getg
       pluto/rt/rt.p:278:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
@@ -4324,6 +4313,9 @@ package pluto/rt
     calls pluto/rt.lastResort
       pluto/rt/rt.p:297:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
+    calls pluto/rt.printUint
+      pluto/rt/rt.p:299:2: call pluto/rt.printInt
+      pluto/rt/rt.p:529:3: call pluto/rt.printUint
     calls pluto/rt.callerFrame
       pluto/rt/rt.p:305:2: call pluto/rt.fatal
       pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
@@ -4338,14 +4330,6 @@ package pluto/rt
       pluto/rt/rt.p:297:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32
-    calls pluto/rt.writeString
-      pluto/rt/rt.p:299:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
-    calls pluto/rt.writeUint
-      pluto/rt/rt.p:299:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
     calls pluto/rt.getg
       pluto/rt/rt.p:297:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
@@ -4447,6 +4431,9 @@ package pluto/rt
     calls pluto/rt.lastResort
       pluto/rt/rt.p:371:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
+    calls pluto/rt.printUint
+      pluto/rt/rt.p:373:2: call pluto/rt.printInt
+      pluto/rt/rt.p:529:3: call pluto/rt.printUint
     calls pluto/rt.callerFrame
       pluto/rt/rt.p:376:2: call pluto/rt.fatal
       pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
@@ -4461,14 +4448,6 @@ package pluto/rt
       pluto/rt/rt.p:371:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32
-    calls pluto/rt.writeString
-      pluto/rt/rt.p:373:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
-    calls pluto/rt.writeUint
-      pluto/rt/rt.p:373:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
     calls pluto/rt.getg
       pluto/rt/rt.p:371:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
@@ -4548,6 +4527,9 @@ package pluto/rt
     calls pluto/rt.lastResort
       pluto/rt/rt.p:413:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
+    calls pluto/rt.printUint
+      pluto/rt/rt.p:415:2: call pluto/rt.printInt
+      pluto/rt/rt.p:529:3: call pluto/rt.printUint
     calls pluto/rt.callerFrame
       pluto/rt/rt.p:418:2: call pluto/rt.fatal
       pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
@@ -4562,14 +4544,6 @@ package pluto/rt
       pluto/rt/rt.p:413:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32
-    calls pluto/rt.writeString
-      pluto/rt/rt.p:415:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
-    calls pluto/rt.writeUint
-      pluto/rt/rt.p:415:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
     calls pluto/rt.getg
       pluto/rt/rt.p:413:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
@@ -4587,6 +4561,9 @@ package pluto/rt
     calls pluto/rt.lastResort
       pluto/rt/rt.p:426:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
+    calls pluto/rt.printUint
+      pluto/rt/rt.p:428:2: call pluto/rt.printInt
+      pluto/rt/rt.p:529:3: call pluto/rt.printUint
     calls pluto/rt.callerFrame
       pluto/rt/rt.p:432:2: call pluto/rt.fatal
       pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
@@ -4601,14 +4578,6 @@ package pluto/rt
       pluto/rt/rt.p:426:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32
-    calls pluto/rt.writeString
-      pluto/rt/rt.p:428:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
-    calls pluto/rt.writeUint
-      pluto/rt/rt.p:428:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
     calls pluto/rt.getg
       pluto/rt/rt.p:426:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
@@ -4617,6 +4586,8 @@ package pluto/rt
   safe pluto/rt.panicValue pluto/rt/rt.p:435:1
     calls pluto/rt.printString
       pluto/rt/rt.p:439:3: call pluto/rt.printString
+    calls pluto/rt.printUint
+      pluto/rt/rt.p:447:3: call pluto/rt.printUint
     calls pluto/rt.casUint64
       pluto/rt/rt.p:436:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
@@ -4626,9 +4597,6 @@ package pluto/rt
     calls pluto/rt.lastResort
       pluto/rt/rt.p:436:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
-    calls pluto/rt.writeUint
-      pluto/rt/rt.p:447:3: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
     calls pluto/rt.callerFrame
       pluto/rt/rt.p:459:2: call pluto/rt.fatal
       pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
@@ -4643,10 +4611,6 @@ package pluto/rt
       pluto/rt/rt.p:436:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32
-    calls pluto/rt.writeString
-      pluto/rt/rt.p:443:3: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
     calls pluto/rt.getg
       pluto/rt/rt.p:436:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
@@ -4728,213 +4692,211 @@ package pluto/rt
   safe pluto/rt.printBool pluto/rt/rt.p:510:1
     calls pluto/rt.printString
       pluto/rt/rt.p:512:3: call pluto/rt.printString
-  safe pluto/rt.printInt pluto/rt/rt.p:518:1
+  safe pluto/rt.printInt pluto/rt/rt.p:526:1
+    calls pluto/rt.printString
+      pluto/rt/rt.p:528:3: call pluto/rt.printString
+    calls pluto/rt.printUint
+      pluto/rt/rt.p:529:3: call pluto/rt.printUint
+  unsafe pluto/rt.printUint pluto/rt/rt.p:535:1
+    pluto/rt/rt.p:538:20: unsafe.Pointer
+  unsafe pluto/rt.printPointer pluto/rt/rt.p:541:1
+    pluto/rt/rt.p:541:19: unsafe.Pointer
+    pluto/rt/rt.p:541:28: unsafe.Pointer
+    pluto/rt/rt.p:543:35: unsafe.Pointer
+    pluto/rt/rt.p:544:20: unsafe.Pointer
+  unsafe pluto/rt.Console.Write pluto/rt/rt.p:568:1
+    pluto/rt/rt.p:570:21: unsafe.Pointer
+  unsafe pluto/rt.writeBytes pluto/rt/rt.p:576:1
+    pluto/rt/rt.p:576:32: unsafe.Pointer
+    pluto/rt/rt.p:576:41: unsafe.Pointer
+    pluto/rt/rt.p:578:11: unsafe.Slice
+    pluto/rt/rt.p:578:32: unsafe.Pointer
+  unsafe pluto/rt.writeString pluto/rt/rt.p:582:1
+    pluto/rt/rt.p:584:24: unsafe.Pointer
+    pluto/rt/rt.p:584:32: unsafe.StringData
+  safe pluto/rt.writeInt pluto/rt/rt.p:588:1
     calls pluto/rt.writeString
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
+      pluto/rt/rt.p:590:3: call pluto/rt.writeString
     calls pluto/rt.writeUint
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
-  safe pluto/rt.printUint pluto/rt/rt.p:519:1
-    calls pluto/rt.writeUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
-  unsafe pluto/rt.printPointer pluto/rt/rt.p:520:1
-    pluto/rt/rt.p:520:19: unsafe.Pointer
-    pluto/rt/rt.p:520:28: unsafe.Pointer
-    pluto/rt/rt.p:520:71: unsafe.Pointer
-  unsafe pluto/rt.Console.Write pluto/rt/rt.p:543:1
-    pluto/rt/rt.p:545:21: unsafe.Pointer
-  unsafe pluto/rt.writeBytes pluto/rt/rt.p:551:1
-    pluto/rt/rt.p:551:32: unsafe.Pointer
-    pluto/rt/rt.p:551:41: unsafe.Pointer
-    pluto/rt/rt.p:553:11: unsafe.Slice
-    pluto/rt/rt.p:553:32: unsafe.Pointer
-  unsafe pluto/rt.writeString pluto/rt/rt.p:557:1
-    pluto/rt/rt.p:559:24: unsafe.Pointer
-    pluto/rt/rt.p:559:32: unsafe.StringData
-  safe pluto/rt.writeInt pluto/rt/rt.p:563:1
-    calls pluto/rt.writeString
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
-    calls pluto/rt.writeUint
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
-  unsafe pluto/rt.writeUint pluto/rt/rt.p:572:1
-    pluto/rt/rt.p:583:23: unsafe.Pointer
-  unsafe pluto/rt.writePointer pluto/rt/rt.p:586:1
-    pluto/rt/rt.p:602:23: unsafe.Pointer
-  unsafe pluto/rt.printString pluto/rt/rt.p:605:1
-    pluto/rt/rt.p:607:21: unsafe.Pointer
-    pluto/rt/rt.p:607:29: unsafe.StringData
-  safe pluto/rt.printBegin pluto/rt/rt.p:649:1
+      pluto/rt/rt.p:591:3: call pluto/rt.writeUint
+  unsafe pluto/rt.writeUint pluto/rt/rt.p:597:1
+    pluto/rt/rt.p:600:23: unsafe.Pointer
+  unsafe pluto/rt.writePointer pluto/rt/rt.p:603:1
+    pluto/rt/rt.p:606:23: unsafe.Pointer
+  unsafe pluto/rt.printString pluto/rt/rt.p:644:1
+    pluto/rt/rt.p:646:21: unsafe.Pointer
+    pluto/rt/rt.p:646:29: unsafe.StringData
+  safe pluto/rt.printBegin pluto/rt/rt.p:688:1
     calls pluto/rt.loadUint64
-      pluto/rt/rt.p:650:23: call pluto/rt.loadUint64
+      pluto/rt/rt.p:689:23: call pluto/rt.loadUint64
     calls pluto/rt.stmtFlush
-      pluto/rt/rt.p:656:3: call pluto/rt.stmtFlush
+      pluto/rt/rt.p:695:3: call pluto/rt.stmtFlush
     calls pluto/rt.casUint64
-      pluto/rt/rt.p:662:3: call pluto/rt.casUint64
+      pluto/rt/rt.p:701:3: call pluto/rt.casUint64
     calls pluto/rt.syscall3
-      pluto/rt/rt.p:650:49: call pluto/rt.selfID
+      pluto/rt/rt.p:689:49: call pluto/rt.selfID
       pluto/rt/rt_linux.p:314:38: call pluto/rt.syscall3
     calls pluto/rt.inc32
-      pluto/rt/rt.p:660:2: call pluto/rt.*Lock.Lock
+      pluto/rt/rt.p:699:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:800:3: call pluto/rt.inc32
     calls pluto/rt.getg
-      pluto/rt/rt.p:660:2: call pluto/rt.*Lock.Lock
+      pluto/rt/rt.p:699:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:799:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
-      pluto/rt/rt.p:660:2: call pluto/rt.*Lock.Lock
+      pluto/rt/rt.p:699:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1034:5: call pluto/rt.cas32
     calls pluto/rt.pause
-      pluto/rt/rt.p:660:2: call pluto/rt.*Lock.Lock
+      pluto/rt/rt.p:699:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1038:3: call pluto/rt.pause
     calls pluto/rt.load32
-      pluto/rt/rt.p:660:2: call pluto/rt.*Lock.Lock
+      pluto/rt/rt.p:699:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1039:6: call pluto/rt.load32
     calls pluto/rt.xchg32
-      pluto/rt/rt.p:660:2: call pluto/rt.*Lock.Lock
+      pluto/rt/rt.p:699:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1043:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
-      pluto/rt/rt.p:660:2: call pluto/rt.*Lock.Lock
+      pluto/rt/rt.p:699:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1044:3: call pluto/rt.futexsleep
-  safe pluto/rt.printEnd pluto/rt/rt.p:668:1
+  safe pluto/rt.printEnd pluto/rt/rt.p:707:1
     calls pluto/rt.stmtFlush
-      pluto/rt/rt.p:669:2: call pluto/rt.stmtFlush
+      pluto/rt/rt.p:708:2: call pluto/rt.stmtFlush
     calls pluto/rt.casUint64
-      pluto/rt/rt.p:675:3: call pluto/rt.casUint64
+      pluto/rt/rt.p:714:3: call pluto/rt.casUint64
     calls pluto/rt.syscall3
-      pluto/rt/rt.p:675:25: call pluto/rt.selfID
+      pluto/rt/rt.p:714:25: call pluto/rt.selfID
       pluto/rt/rt_linux.p:314:38: call pluto/rt.syscall3
     calls pluto/rt.xchg32
-      pluto/rt/rt.p:677:2: call pluto/rt.*Lock.Unlock
+      pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1051:5: call pluto/rt.xchg32
     calls pluto/rt.futexwakeup
-      pluto/rt/rt.p:677:2: call pluto/rt.*Lock.Unlock
+      pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1052:3: call pluto/rt.futexwakeup
     calls pluto/rt.getg
-      pluto/rt/rt.p:677:2: call pluto/rt.*Lock.Unlock
+      pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:823:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.dec32
-      pluto/rt/rt.p:677:2: call pluto/rt.*Lock.Unlock
+      pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.inc32
-      pluto/rt/rt.p:677:2: call pluto/rt.*Lock.Unlock
+      pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:574:2: call pluto/rt.inc32
     calls pluto/rt.schedYield
-      pluto/rt/rt.p:677:2: call pluto/rt.*Lock.Unlock
+      pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
-  unsafe pluto/rt.stmtFlush pluto/rt/rt.p:681:1
-    pluto/rt/rt.p:684:23: unsafe.Pointer
-  unsafe pluto/rt.stmtBytes pluto/rt/rt.p:691:1
-    pluto/rt/rt.p:691:16: unsafe.Pointer
-    pluto/rt/rt.p:691:25: unsafe.Pointer
-    pluto/rt/rt.p:698:17: unsafe.Pointer
-    pluto/rt/rt.p:702:17: unsafe.Pointer
-    pluto/rt/rt.p:702:45: unsafe.Pointer
-  unsafe pluto/rt.stmtOut.Write pluto/rt/rt.p:709:1
-    pluto/rt/rt.p:711:20: unsafe.Pointer
-  unsafe pluto/rt.stmtString pluto/rt/rt.p:716:1
-    pluto/rt/rt.p:718:20: unsafe.Pointer
-    pluto/rt/rt.p:718:28: unsafe.StringData
-  safe pluto/rt.stmtSpace pluto/rt/rt.p:722:1
+  unsafe pluto/rt.stmtFlush pluto/rt/rt.p:720:1
+    pluto/rt/rt.p:723:23: unsafe.Pointer
+  unsafe pluto/rt.stmtBytes pluto/rt/rt.p:730:1
+    pluto/rt/rt.p:730:16: unsafe.Pointer
+    pluto/rt/rt.p:730:25: unsafe.Pointer
+    pluto/rt/rt.p:737:17: unsafe.Pointer
+    pluto/rt/rt.p:741:17: unsafe.Pointer
+    pluto/rt/rt.p:741:45: unsafe.Pointer
+  unsafe pluto/rt.stmtOut.Write pluto/rt/rt.p:748:1
+    pluto/rt/rt.p:750:20: unsafe.Pointer
+  unsafe pluto/rt.stmtString pluto/rt/rt.p:755:1
+    pluto/rt/rt.p:757:20: unsafe.Pointer
+    pluto/rt/rt.p:757:28: unsafe.StringData
+  safe pluto/rt.stmtSpace pluto/rt/rt.p:761:1
     calls pluto/rt.stmtString
-      pluto/rt/rt.p:722:22: call pluto/rt.stmtString
-  safe pluto/rt.stmtNewline pluto/rt/rt.p:723:1
+      pluto/rt/rt.p:761:22: call pluto/rt.stmtString
+  safe pluto/rt.stmtNewline pluto/rt/rt.p:762:1
     calls pluto/rt.stmtString
-      pluto/rt/rt.p:723:22: call pluto/rt.stmtString
-  safe pluto/rt.stmtBool pluto/rt/rt.p:725:1
+      pluto/rt/rt.p:762:22: call pluto/rt.stmtString
+  safe pluto/rt.stmtBool pluto/rt/rt.p:764:1
     calls pluto/rt.stmtString
-      pluto/rt/rt.p:727:3: call pluto/rt.stmtString
-  safe pluto/rt.stmtInt pluto/rt/rt.p:733:1
+      pluto/rt/rt.p:766:3: call pluto/rt.stmtString
+  safe pluto/rt.stmtInt pluto/rt/rt.p:772:1
     calls pluto/rt.writeString
-      pluto/rt/rt.p:733:38: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
+      pluto/rt/rt.p:772:38: call pluto/rt.writeInt
+      pluto/rt/rt.p:590:3: call pluto/rt.writeString
     calls pluto/rt.writeUint
-      pluto/rt/rt.p:733:38: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
-  safe pluto/rt.stmtUint pluto/rt/rt.p:734:1
+      pluto/rt/rt.p:772:38: call pluto/rt.writeInt
+      pluto/rt/rt.p:591:3: call pluto/rt.writeUint
+  safe pluto/rt.stmtUint pluto/rt/rt.p:773:1
     calls pluto/rt.writeUint
-      pluto/rt/rt.p:734:38: call pluto/rt.writeUint
-  unsafe pluto/rt.stmtPointer pluto/rt/rt.p:735:1
-    pluto/rt/rt.p:735:18: unsafe.Pointer
-    pluto/rt/rt.p:735:27: unsafe.Pointer
-    pluto/rt/rt.p:735:70: unsafe.Pointer
-  unsafe pluto/rt.memmove pluto/rt/rt.p:740:1
-    pluto/rt/rt.p:740:14: unsafe.Pointer
-    pluto/rt/rt.p:740:19: unsafe.Pointer
-    pluto/rt/rt.p:740:30: unsafe.Pointer
-    pluto/rt/rt.p:741:15: unsafe.Pointer
-    pluto/rt/rt.p:741:22: unsafe.Pointer
-    pluto/rt/rt.p:747:15: unsafe.Pointer
-    pluto/rt/rt.p:748:15: unsafe.Pointer
-    pluto/rt/rt.p:752:15: unsafe.Add
-    pluto/rt/rt.p:752:26: unsafe.Pointer
-    pluto/rt/rt.p:752:48: unsafe.Add
-    pluto/rt/rt.p:752:59: unsafe.Pointer
-    pluto/rt/rt.p:755:13: unsafe.Add
-    pluto/rt/rt.p:755:24: unsafe.Pointer
-    pluto/rt/rt.p:755:44: unsafe.Add
-    pluto/rt/rt.p:755:55: unsafe.Pointer
-    pluto/rt/rt.p:761:14: unsafe.Add
-    pluto/rt/rt.p:761:25: unsafe.Pointer
-    pluto/rt/rt.p:761:49: unsafe.Add
-    pluto/rt/rt.p:761:60: unsafe.Pointer
-    pluto/rt/rt.p:764:12: unsafe.Add
-    pluto/rt/rt.p:764:23: unsafe.Pointer
-    pluto/rt/rt.p:764:43: unsafe.Add
-    pluto/rt/rt.p:764:54: unsafe.Pointer
-  unsafe pluto/rt.memclr pluto/rt/rt.p:768:1
-    pluto/rt/rt.p:768:13: unsafe.Pointer
-    pluto/rt/rt.p:768:22: unsafe.Pointer
-    pluto/rt/rt.p:771:14: unsafe.Add
-    pluto/rt/rt.p:771:25: unsafe.Pointer
-    pluto/rt/rt.p:774:12: unsafe.Add
-    pluto/rt/rt.p:774:23: unsafe.Pointer
-  unsafe pluto/rt.memequal pluto/rt/rt.p:778:1
-    pluto/rt/rt.p:778:15: unsafe.Pointer
-    pluto/rt/rt.p:778:18: unsafe.Pointer
-    pluto/rt/rt.p:778:27: unsafe.Pointer
-    pluto/rt/rt.p:780:15: unsafe.Add
-    pluto/rt/rt.p:780:26: unsafe.Pointer
-    pluto/rt/rt.p:780:45: unsafe.Add
-    pluto/rt/rt.p:780:56: unsafe.Pointer
-  unsafe pluto/rt.strequal pluto/rt/rt.p:787:1
-    pluto/rt/rt.p:791:25: unsafe.Pointer
-    pluto/rt/rt.p:791:33: unsafe.StringData
-    pluto/rt/rt.p:791:63: unsafe.Pointer
-    pluto/rt/rt.p:791:71: unsafe.StringData
-  unsafe pluto/rt.decodeRune pluto/rt/rt.p:818:1
-    pluto/rt/rt.p:819:7: unsafe.Slice
-  safe pluto/rt.DefaultAllocator pluto/rt/rt.p:873:1
+      pluto/rt/rt.p:773:38: call pluto/rt.writeUint
+  unsafe pluto/rt.stmtPointer pluto/rt/rt.p:774:1
+    pluto/rt/rt.p:774:18: unsafe.Pointer
+    pluto/rt/rt.p:774:27: unsafe.Pointer
+    pluto/rt/rt.p:774:70: unsafe.Pointer
+  unsafe pluto/rt.memmove pluto/rt/rt.p:779:1
+    pluto/rt/rt.p:779:14: unsafe.Pointer
+    pluto/rt/rt.p:779:19: unsafe.Pointer
+    pluto/rt/rt.p:779:30: unsafe.Pointer
+    pluto/rt/rt.p:780:15: unsafe.Pointer
+    pluto/rt/rt.p:780:22: unsafe.Pointer
+    pluto/rt/rt.p:786:15: unsafe.Pointer
+    pluto/rt/rt.p:787:15: unsafe.Pointer
+    pluto/rt/rt.p:791:15: unsafe.Add
+    pluto/rt/rt.p:791:26: unsafe.Pointer
+    pluto/rt/rt.p:791:48: unsafe.Add
+    pluto/rt/rt.p:791:59: unsafe.Pointer
+    pluto/rt/rt.p:794:13: unsafe.Add
+    pluto/rt/rt.p:794:24: unsafe.Pointer
+    pluto/rt/rt.p:794:44: unsafe.Add
+    pluto/rt/rt.p:794:55: unsafe.Pointer
+    pluto/rt/rt.p:800:14: unsafe.Add
+    pluto/rt/rt.p:800:25: unsafe.Pointer
+    pluto/rt/rt.p:800:49: unsafe.Add
+    pluto/rt/rt.p:800:60: unsafe.Pointer
+    pluto/rt/rt.p:803:12: unsafe.Add
+    pluto/rt/rt.p:803:23: unsafe.Pointer
+    pluto/rt/rt.p:803:43: unsafe.Add
+    pluto/rt/rt.p:803:54: unsafe.Pointer
+  unsafe pluto/rt.memclr pluto/rt/rt.p:807:1
+    pluto/rt/rt.p:807:13: unsafe.Pointer
+    pluto/rt/rt.p:807:22: unsafe.Pointer
+    pluto/rt/rt.p:810:14: unsafe.Add
+    pluto/rt/rt.p:810:25: unsafe.Pointer
+    pluto/rt/rt.p:813:12: unsafe.Add
+    pluto/rt/rt.p:813:23: unsafe.Pointer
+  unsafe pluto/rt.memequal pluto/rt/rt.p:817:1
+    pluto/rt/rt.p:817:15: unsafe.Pointer
+    pluto/rt/rt.p:817:18: unsafe.Pointer
+    pluto/rt/rt.p:817:27: unsafe.Pointer
+    pluto/rt/rt.p:819:15: unsafe.Add
+    pluto/rt/rt.p:819:26: unsafe.Pointer
+    pluto/rt/rt.p:819:45: unsafe.Add
+    pluto/rt/rt.p:819:56: unsafe.Pointer
+  unsafe pluto/rt.strequal pluto/rt/rt.p:826:1
+    pluto/rt/rt.p:830:25: unsafe.Pointer
+    pluto/rt/rt.p:830:33: unsafe.StringData
+    pluto/rt/rt.p:830:63: unsafe.Pointer
+    pluto/rt/rt.p:830:71: unsafe.StringData
+  unsafe pluto/rt.decodeRune pluto/rt/rt.p:857:1
+    pluto/rt/rt.p:858:7: unsafe.Slice
+  safe pluto/rt.DefaultAllocator pluto/rt/rt.p:912:1
     calls pluto/rt.getg
-      pluto/rt/rt.p:874:10: call pluto/rt.current
+      pluto/rt/rt.p:913:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
-  safe pluto/rt.UseAllocator pluto/rt/rt.p:889:1
+  safe pluto/rt.UseAllocator pluto/rt/rt.p:928:1
     calls pluto/rt.getg
-      pluto/rt/rt.p:890:7: call pluto/rt.current
+      pluto/rt/rt.p:929:7: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
-  unsafe pluto/rt.alloc pluto/rt/rt.p:902:1
-    pluto/rt/rt.p:902:40: unsafe.Pointer
-  unsafe pluto/rt.allocWith pluto/rt/rt.p:911:1
-    pluto/rt/rt.p:911:57: unsafe.Pointer
-  unsafe pluto/rt.allocAt pluto/rt/rt.p:921:1
-    pluto/rt/rt.p:921:59: unsafe.Pointer
-    pluto/rt/rt.p:928:2: unsafe.Pointer
-    pluto/rt/rt.p:928:7: direct Allocator.Alloc
-    pluto/rt/rt.p:932:5: unsafe.Pointer
-    pluto/rt/rt.p:935:9: unsafe.Pointer
+  unsafe pluto/rt.alloc pluto/rt/rt.p:941:1
+    pluto/rt/rt.p:941:40: unsafe.Pointer
+  unsafe pluto/rt.allocWith pluto/rt/rt.p:950:1
+    pluto/rt/rt.p:950:57: unsafe.Pointer
+  unsafe pluto/rt.allocAt pluto/rt/rt.p:960:1
+    pluto/rt/rt.p:960:59: unsafe.Pointer
+    pluto/rt/rt.p:967:2: unsafe.Pointer
+    pluto/rt/rt.p:967:7: direct Allocator.Alloc
+    pluto/rt/rt.p:971:5: unsafe.Pointer
+    pluto/rt/rt.p:974:9: unsafe.Pointer
   unsafe pluto/rt.syscall3 pluto/rt/rt_linux.p:8:1
     pluto/rt/rt_linux.p:8:1: function without a body
   unsafe pluto/rt.syscall6 pluto/rt/rt_linux.p:9:1
@@ -5699,6 +5661,15 @@ package pluto/rt
       pluto/rt/sched_linux.p:581:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:595:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:621:3: call pluto/rt.newThread
+    calls pluto/rt.printUint
+      pluto/rt/sched.p:394:2: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/sched.p:394:2: may call pluto/rt.m0Main
       pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
@@ -5708,16 +5679,6 @@ package pluto/rt
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/sched.p:394:2: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   unsafe pluto/rt.newContext pluto/rt/sched.p:402:1
     pluto/rt/sched.p:406:32: unsafe.Pointer
   unsafe pluto/rt.Pinned pluto/rt/sched.p:427:1
@@ -6273,6 +6234,14 @@ package pluto/rt
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
+    calls pluto/rt.printUint
+      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
@@ -6281,15 +6250,6 @@ package pluto/rt
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
     calls pluto/rt.casUint64
       pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:304:3: call pluto/rt.Switch
@@ -6476,6 +6436,14 @@ package pluto/rt
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
+    calls pluto/rt.printUint
+      pluto/rt/sched_linux.p:296:2: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/sched_linux.p:296:2: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
@@ -6484,15 +6452,6 @@ package pluto/rt
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/sched_linux.p:296:2: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
     calls pluto/rt.casUint64
       pluto/rt/sched_linux.p:296:2: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:304:3: call pluto/rt.Switch
@@ -6647,6 +6606,13 @@ package pluto/rt
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
+    calls pluto/rt.printUint
+      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
@@ -6654,14 +6620,6 @@ package pluto/rt
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
     calls pluto/rt.casUint64
       pluto/rt/sched_linux.p:304:3: call pluto/rt.Switch
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
@@ -7345,19 +7303,18 @@ package pluto/rt
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
+    calls pluto/rt.printUint
+      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
       pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   safe pluto/rt.workAvailable pluto/rt/sched_linux.p:563:1
     calls pluto/rt.load32
       pluto/rt/sched_linux.p:564:5: call pluto/rt.load32
@@ -7576,6 +7533,11 @@ package pluto/rt
       pluto/rt/sched_linux.p:636:2: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
+    calls pluto/rt.printUint
+      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
@@ -7586,12 +7548,6 @@ package pluto/rt
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
-    calls pluto/rt.writeUint
-      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   safe pluto/rt.checkDead pluto/rt/sched_linux.p:648:1
     calls pluto/rt.load32
       pluto/rt/sched_linux.p:649:32: call pluto/rt.load32
@@ -7602,34 +7558,31 @@ package pluto/rt
     calls pluto/rt.syscall3
       pluto/rt/sched_linux.p:657:2: call pluto/rt.exit
       pluto/rt/rt_linux.p:350:2: call pluto/rt.syscall3
+    calls pluto/rt.printUint
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   safe pluto/rt.reportParked pluto/rt/sched_linux.p:675:1
     calls pluto/rt.printString
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:686:2: call pluto/rt.printString
+    calls pluto/rt.printUint
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   safe pluto/rt.reportTask pluto/rt/sched_linux.p:682:1
     calls pluto/rt.printString
       pluto/rt/sched_linux.p:686:2: call pluto/rt.printString
+    calls pluto/rt.printUint
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   safe pluto/rt.acquirep pluto/rt/sched_linux.p:694:1
     calls pluto/rt.store64
       pluto/rt/sched_linux.p:697:2: call pluto/rt.store64
@@ -9025,6 +8978,16 @@ package pluto/rt
       pluto/rt/sched_linux.p:581:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:595:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:621:3: call pluto/rt.newThread
+    calls pluto/rt.printUint
+      pluto/rt/shutdown.p:176:8: may call pluto/rt.waitShutdown
+      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/shutdown.p:176:8: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
@@ -9035,17 +8998,6 @@ package pluto/rt
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/shutdown.p:176:8: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   safe pluto/rt.waitShutdown pluto/rt/shutdown.p:196:1
     calls pluto/rt.schedNowOpt
       pluto/rt/shutdown.p:203:11: call pluto/rt.schedNowOpt
@@ -9211,6 +9163,15 @@ package pluto/rt
       pluto/rt/sched_linux.p:581:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:595:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:621:3: call pluto/rt.newThread
+    calls pluto/rt.printUint
+      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
       pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
@@ -9220,16 +9181,6 @@ package pluto/rt
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
       pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
       pluto/rt/sched_linux.p:691:2: call pluto/rt.TraceTask
-    calls pluto/rt.writeUint
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:232:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:302:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:473:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:635:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   safe pluto/rt.normalShutdownFinish pluto/rt/shutdown.p:238:1
     calls pluto/rt.flushShutdownCaches
       pluto/rt/shutdown.p:239:2: call pluto/rt.flushShutdownCaches
@@ -9311,7 +9262,7 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/str.p:130:22: call pluto/rt.currentAllocator
       pluto/rt/str.p:136:7: call pluto/rt.DefaultAllocator
-      pluto/rt/rt.p:874:10: call pluto/rt.current
+      pluto/rt/rt.p:913:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.casUint64
       pluto/rt/str.p:130:22: call pluto/rt.currentAllocator
@@ -9356,7 +9307,7 @@ package pluto/rt
       pluto/rt/rt.p:483:2: call pluto/rt.printString
     calls pluto/rt.getg
       pluto/rt/str.p:136:7: call pluto/rt.DefaultAllocator
-      pluto/rt/rt.p:874:10: call pluto/rt.current
+      pluto/rt/rt.p:913:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.casUint64
       pluto/rt/str.p:138:3: call pluto/rt.panicMessage
@@ -9440,7 +9391,7 @@ package pluto/rt
       pluto/rt/str.p:368:12: call pluto/rt.strAlloc
       pluto/rt/str.p:130:22: call pluto/rt.currentAllocator
       pluto/rt/str.p:136:7: call pluto/rt.DefaultAllocator
-      pluto/rt/rt.p:874:10: call pluto/rt.current
+      pluto/rt/rt.p:913:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.casUint64
       pluto/rt/str.p:368:12: call pluto/rt.strAlloc
@@ -9503,6 +9454,9 @@ package pluto/rt
     calls pluto/rt.lastResort
       pluto/rt/str.p:391:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
+    calls pluto/rt.printUint
+      pluto/rt/str.p:393:2: call pluto/rt.printInt
+      pluto/rt/rt.p:529:3: call pluto/rt.printUint
     calls pluto/rt.callerFrame
       pluto/rt/str.p:395:2: call pluto/rt.fatal
       pluto/rt/panic.p:166:2: call pluto/rt.callerFrame
@@ -9517,14 +9471,6 @@ package pluto/rt
       pluto/rt/str.p:391:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32
-    calls pluto/rt.writeString
-      pluto/rt/str.p:393:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:565:3: call pluto/rt.writeString
-    calls pluto/rt.writeUint
-      pluto/rt/str.p:393:2: call pluto/rt.printInt
-      pluto/rt/rt.p:518:39: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
     calls pluto/rt.getg
       pluto/rt/str.p:391:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
@@ -10609,6 +10555,11 @@ package pluto/rt
       pluto/rt/timer_linux.p:167:3: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
+    calls pluto/rt.printUint
+      pluto/rt/timer_linux.p:166:3: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
+      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
     calls pluto/rt.TraceTask
       pluto/rt/timer_linux.p:166:3: call pluto/rt.checkDead
       pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
@@ -10619,12 +10570,6 @@ package pluto/rt
       pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
-    calls pluto/rt.writeUint
-      pluto/rt/timer_linux.p:166:3: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:656:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:676:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:687:2: call pluto/rt.printUint
-      pluto/rt/rt.p:519:39: call pluto/rt.writeUint
   unsafe pluto/rt.pollerWait pluto/rt/timer_linux.p:185:1
     pluto/rt/timer_linux.p:186:23: unsafe.Pointer
     pluto/rt/timer_linux.p:193:75: unsafe.Pointer
@@ -10848,7 +10793,7 @@ package pluto/rt
       pluto/rt/trace.p:475:2: call pluto/rt.writeString
     calls pluto/rt.writeUint
       pluto/rt/trace.p:480:2: call pluto/rt.writeInt
-      pluto/rt/rt.p:566:3: call pluto/rt.writeUint
+      pluto/rt/rt.p:591:3: call pluto/rt.writeUint
   unsafe pluto/rt.findLine pluto/rt/trace.p:486:1
     pluto/rt/trace.p:486:15: unsafe.Pointer
     pluto/rt/trace.p:486:20: unsafe.Pointer

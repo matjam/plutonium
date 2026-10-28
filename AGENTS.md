@@ -187,14 +187,13 @@ About the programs:
 Compiler unit tests: the Go packages' API-level tests are `_test.p` files in their
 `compiler/` packages, run by `pluto test` and by `tests/compilerunits_test.go`
 (TestCompilerUnits). The light packages (compat, regexp, ssa, opt, arch/amd64) run unless
-`-short`, in about 15 s. escape2, lsp and build take minutes each and 5 to 12 GB, and run
-only with `PLUTO_UNIT_HEAVY=1`, built with `-gencheck=false`. The `internal/build` program
-tests are Go tests in `tests/build_*_test.go`.
+`-short`, in about 15 s. escape2, lsp and build take minutes each and 2 to 10 GB, and run
+only with `PLUTO_UNIT_HEAVY=1`, with generation checks on. sched alone builds with
+`-gencheck=false`: its test fakes append to package slices from scratch memory that is reset
+after each step, and the checks stop them. The `internal/build` program tests are Go tests in
+`tests/build_*_test.go`.
 
 Known gaps: these guards went with the Go implementation and have no replacement yet.
-- The test builds of escape2, lsp and build run out of memory with generation checks on
-  (11 GB locally, over 24 GB on kraken, in the first opt group), so they are run with
-  `-gencheck=false`. This is a compiler bug.
 - Unit tests left out (list in the go-removal plan, "Phase 2 status"): the external
   `solve_test` package files (pluto test has no external test packages), escape2
   oracle_test and sample_test, refsolve, lsp TestDefinitionExtractedStdlib. Three
