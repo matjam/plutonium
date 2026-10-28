@@ -142,6 +142,11 @@ type Lowerer struct {
 	sites       map[*ssa.Value]*callSite
 	callOrigins map[*ssa.Value]token.Pos // source provenance for implicit calls
 
+	// For E3306 in the library: the first direct call of each function,
+	// and the positions already reported.
+	firstCaller       map[*ssa.Sym]callerSite
+	ownerCopyReported map[token.Pos]bool
+
 	// rt.ExitTask (goexit.go): which functions may end with it, and the
 	// declared function a generated method expression thunk calls.
 	gx        *goexitInfo
@@ -243,6 +248,9 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 		gxWrapped:      map[*ssa.Sym]*types2.Func{},
 		taskVariants:   map[*ssa.Sym]*taskVariant{},
 		typeStrs:       map[types2.Type]string{},
+
+		firstCaller:       map[*ssa.Sym]callerSite{},
+		ownerCopyReported: map[token.Pos]bool{},
 	})
 	l.types = newTypeTable(l)
 	if cfg.Keep != nil {

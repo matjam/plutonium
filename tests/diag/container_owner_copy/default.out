@@ -1,0 +1,27 @@
+$DIR/main.p:11:7: cannot copy an element of type main.Conn: it is an owner
+    The container method At gives an element out by value. For an owner that
+    would be a second owner of what the element owns, and both would release it.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To look at an element, use a method that returns a pointer to it:
+        p := v.Ptr(i)
+    To move an element out, use a method that removes it:
+        x := v.Pop()
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3306" for a longer explanation)
+
+$DIR/main.p:21:10: cannot copy an element of type main.Conn: it is an owner
+    The container method Get gives an element out by value. For an owner that
+    would be a second owner of what the element owns, and both would release it.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To look at a value, use a method that returns a pointer to it:
+        p := m.Ptr(k)
+    To move a value out, use a method that removes it:
+        x, ok := m.Remove(k)
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3306" for a longer explanation)

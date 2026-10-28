@@ -6,11 +6,13 @@ import (
 	"compiler/compat"
 	"compiler/internal/constant"
 	"compiler/internal/diag"
+	"compiler/internal/load"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // String operations that build new strings: concatenation and the
@@ -267,10 +269,92 @@ func (s *fnState) elementCopy(fn *types2.Func, e *ast.CallExpr, T types2.Type) [
 
 // reportOwnerCopy reports a container method that copies elements, called
 // for a container of owners.
+// The copy is in the library, so the error is reported at the call in the
+// program that led to it, found by following the first caller of each
+// library function back out of the library.
 func (s *fnState) reportOwnerCopy(e *ast.CallExpr, T types2.Type) {
+	var from *ssa.Sym
+	if s.job != nil {
+		from = s.job.sym
+	}
+	at, method := s.l.programCall(from, e.Pos())
+	if s.l.ownerCopyReported[at] {
+		return
+	}
+	s.l.ownerCopyReported[at] = true
 	d := pu.New(diag.Diagnostic{Code: diag.CopyOwners, Msg: compat.Sprintf("cannot copy an element of type %s: it is an owner", T)})
 	d.Text = "The container method that was called gives an element out by value. For an owner that would be a second owner of what the element owns, and both would release it."
-	d.Fix = pu.New(diag.Fix{Intro: "To look at an element, use a method that returns a pointer to it", Code: "p := v.Ptr(i)"})
-	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To move an element out, use a method that removes it", Code: "x := v.Pop()"})})
-	s.l.report(e.Pos(), d)
+	if method != nil {
+		d.Text = compat.Concat("The container method ", method.Name(), " gives an element out by value. For an owner that would be a second owner of what the element owns, and both would release it.")
+	}
+	if isMapMethod(method) {
+		d.Fix = pu.New(diag.Fix{Intro: "To look at a value, use a method that returns a pointer to it", Code: "p := m.Ptr(k)"})
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To move a value out, use a method that removes it", Code: "x, ok := m.Remove(k)"})})
+	} else {
+		d.Fix = pu.New(diag.Fix{Intro: "To look at an element, use a method that returns a pointer to it", Code: "p := v.Ptr(i)"})
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To move an element out, use a method that removes it", Code: "x := v.Pop()"})})
+	}
+	s.l.report(at, d)
+}
+
+// isMapMethod reports whether fn is a method of hash.Map.
+func isMapMethod(fn *types2.Func) bool {
+	if fn == nil || fn.Pkg() == nil || fn.Pkg().Path() != "pluto/hash" {
+		return false
+	}
+	recv := fn.Type().(*types2.Signature).Recv()
+	if recv == nil {
+		return false
+	}
+	T := recv.Type()
+	if p, ok := T.(*types2.Pointer); ok {
+		T = p.Elem()
+	}
+	n, ok := types2.Unalias(T).(*types2.Named)
+	return ok && n.Obj().Name() == "Map"
+}
+
+// callerSite is the first direct call of a function that lowering met.
+type callerSite struct {
+	from *ssa.Sym
+	pos  token.Pos
+}
+
+// noteCaller records the first direct call of callee, made at pos in from.
+func (l *Lowerer) noteCaller(callee, from *ssa.Sym, pos token.Pos) {
+	if from == nil || !pos.IsValid() {
+		return
+	}
+	if _, ok := l.firstCaller[callee]; ok {
+		return
+	}
+	l.firstCaller[callee] = callerSite{from: from, pos: pos}
+}
+
+// programCall follows the first callers of sym, starting from pos in its
+// body, while the position is in the standard library. It returns the first
+// position outside it and the function called there, or pos and nil when
+// the chain ends in the library (a call through a function value, or the
+// library's own code).
+func (l *Lowerer) programCall(sym *ssa.Sym, pos token.Pos) (token.Pos, *types2.Func) {
+	at := pos
+	for i := 0; i < 64; i++ {
+		if sym == nil || !l.inStdlib(at) {
+			break
+		}
+		c, ok := l.firstCaller[sym]
+		if !ok {
+			break
+		}
+		if !l.inStdlib(c.pos) {
+			return c.pos, l.symFuncs[sym]
+		}
+		sym, at = c.from, c.pos
+	}
+	return pos, nil
+}
+
+// inStdlib reports whether pos is in a file of the standard library.
+func (l *Lowerer) inStdlib(pos token.Pos) bool {
+	return strings.HasPrefix(l.fset.Position(pos).Filename, load.StdPrefix)
 }

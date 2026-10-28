@@ -1,0 +1,2 @@
+$DIR/main.p:11:7: cannot copy an element of type main.Conn: it is an owner
+$DIR/main.p:21:10: cannot copy an element of type main.Conn: it is an owner

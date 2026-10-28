@@ -319,6 +319,9 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 	}
 	if c.sym != nil {
 		s.checkNotHandler(c.sym, pos, "called")
+		if s.job != nil {
+			s.l.noteCaller(c.sym, s.job.sym, pos)
+		}
 		if s.l.isCFunc(c.sym) {
 			// An unsupported signature was reported at its declaration.
 			if cs, err := s.l.cSignature(sig); err == nil && !cs.internal {
