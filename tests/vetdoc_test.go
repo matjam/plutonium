@@ -1,11 +1,14 @@
 package tests
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // The tests in this file check pluto vet on testdata/vet and pluto doc on
@@ -188,10 +191,20 @@ func TestDocLibrarySources(t *testing.T) {
 	if err := os.Symlink(libRoot(t), filepath.Join(install, "lib")); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(exe, "doc", "pluto/bits", "Len")
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "PLUTOROOT=", "PLUTO_BRIEF=")
-	got, err := cmd.CombinedOutput()
+	// A parallel test that forks while the copy is open for writing leaves
+	// the file open in its child until the child execs, and running the copy
+	// then fails with ETXTBSY. That ends within moments, so retry.
+	var got []byte
+	for try := 0; ; try++ {
+		cmd := exec.Command(exe, "doc", "pluto/bits", "Len")
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "PLUTOROOT=", "PLUTO_BRIEF=")
+		got, err = cmd.CombinedOutput()
+		if !errors.Is(err, syscall.ETXTBSY) || try == 50 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if want := "package bits // import \"pluto/bits\"\n\nfunc Len(x uint) int\n    Len returns the minimum number of bits to represent x.\n"; err != nil || string(got) != want {
 		t.Fatalf("pluto/bits: %v: %q, want %q", err, got, want)
 	}
