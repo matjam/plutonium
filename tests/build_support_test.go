@@ -266,6 +266,7 @@ type progCase struct {
 // compete with the compiler for the CPU.
 func buildProgCases(t *testing.T, cases []progCase, flags ...string) []string {
 	t.Helper()
+	pluto := compiler(t)
 	type job struct {
 		name, src string
 		level     int
@@ -291,7 +292,7 @@ func buildProgCases(t *testing.T, cases []progCase, flags ...string) []string {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			// runPluto only calls t.Fatal on a failure to run pluto at all.
-			results[i] = tryBuildNoFatal(dirs[i], append([]string{optFlag(j.level)}, flags...)...)
+			results[i] = tryBuildNoFatal(pluto, dirs[i], append([]string{optFlag(j.level)}, flags...)...)
 		}()
 	}
 	wg.Wait()
@@ -311,7 +312,7 @@ func buildProgCases(t *testing.T, cases []progCase, flags ...string) []string {
 
 // tryBuildNoFatal is tryBuildDir for use outside the test's goroutine: it
 // reports a failure to run pluto as status -1.
-func tryBuildNoFatal(dir string, flags ...string) tryResult {
+func tryBuildNoFatal(pluto, dir string, flags ...string) tryResult {
 	exe := filepath.Join(dir, "prog")
 	args := append([]string{"build"}, flags...)
 	args = append(args, "-o", exe, ".")
@@ -319,14 +320,7 @@ func tryBuildNoFatal(dir string, flags ...string) tryResult {
 	if err != nil {
 		return tryResult{out: err.Error(), status: -1}
 	}
-	c := os.Getenv("PLUTO_TEST_COMPILER")
-	if c == "" {
-		c = filepath.Join("..", "pluto")
-	}
-	if c, err = filepath.Abs(c); err != nil {
-		return tryResult{out: err.Error(), status: -1}
-	}
-	cmd := exec.Command(c, args...)
+	cmd := exec.Command(pluto, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "PLUTOROOT="+root, "PLUTO_BRIEF=")
 	out, err := cmd.CombinedOutput()
