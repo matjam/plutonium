@@ -336,9 +336,9 @@ Work that remains, in order:
    guards that went with the Go code.
 3. Loose ends from item 132. `hash.Set` keys and `vec.Fixed` elements stay values, as section 10.9 allows
    (E3207, with a fix for library types); E3306 from a copy method points at the program's call. Generic
-   code over `[T owner any]` that ranges over a `vec.Vec[T]` sees `*T` (sections 8.7, 12.10); an instance
-   with a value type (`Bump[int]`) is rejected with E2500 for now, as it would get the elements by value.
-   The real fix, iterator instances that keep the views, is roadmap item 145 (target
+   code over `[T owner any]` whose range over a `vec.Vec[T]` binds the element sees `*T` (sections 8.7,
+   12.10); an instance with a value type (`Bump[int]`) is rejected with E2500 for now, as it would get the
+   elements by value. A range that binds only the index compiles for both. The real fix, iterator instances that keep the views, is roadmap item 145 (target
    `tests/lower/generic_owner_range_views`, a known failure).
 4. Known: the debug-allocator tests that join with a `WaitGroup` or channel retry a run that took the abandon
    path (D31).

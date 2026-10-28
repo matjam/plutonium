@@ -502,9 +502,11 @@ against the corrected specification. The immediate implementation order is:
      `hash.Map[K, T]` yields views, `*T`, because `T` is an owner there (8.7, 12.10), and an instance keeps
      the meaning of the generic code (10.9). The library's iterators decide through `rt.View`, which an
      instance with a value type collapses to the value, so `Bump[int]` would get ints where its code wants
-     `*int`. Until this is done the checker marks such a type parameter (`types2.OwnerViewTypeParam`) and
-     lowering rejects an instance with a value type with E2500 at the program's call
-     (`tests/lower/generic_owner_range`); the rejection also covers a range that uses only the index. The
+     `*int`. Until this is done the checker marks such a type parameter (`types2.OwnerViewTypeParam`) when
+     the code uses a view: a range that binds the element, or an expression of a type that mentions
+     `rt.View[T]`. Lowering rejects an instance with a value type with E2500 at the program's call
+     (`tests/lower/generic_owner_range`). A range that binds only the index, or nothing, uses no view and
+     compiles for both kinds of type (`tests/lower/generic_owner_range_index`). The
      fix: instances of the library's iterators, with their own symbol names, that yield views for a type
      argument reached through an owner type parameter, carried through the type substitution. Target:
      `tests/lower/generic_owner_range_views`, a known failure until then. A related gap is not covered by
