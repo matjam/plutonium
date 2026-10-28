@@ -8,6 +8,7 @@ import (
 	"compiler/internal/syntax/token"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
+	"pluto/strings"
 )
 
 // Owners (language spec section 7.18).
@@ -422,6 +423,19 @@ func (check *Checker) ownerTypeArg(tpar *TypeParam, targ Type) *ownerArgError {
 		e.msg = compat.Concat(t, " allows owners and ", p, " does not")
 	} else {
 		e.msg = compat.Concat(t, " is an owner and ", p, " does not allow owners")
+	}
+	if pkg := tpar.obj.pkg; pkg != nil && pkg != check.pkg && (pkg.path == "pluto" || strings.HasPrefix(pkg.path, "pluto/")) {
+		// A standard library declaration: the program cannot mark it owner.
+		e.ex = pu.New(Explanation{
+			Text: compat.Concat("The standard library declares ", p, " without owner: its code copies values of ", p, " freely, so it cannot hold owners. Copying an owner would leave several values that all free the same memory."),
+			Fixes: compat.Clone([]ExplainFix{{
+				Intro: "To keep owners in a container, use one that allows them: a vec.Vec holds owners, and a hash.Map holds them as its values",
+				Code:  compat.Concat("v := vec.New[", t, "]()"),
+			}, {
+				Intro: "Otherwise use pointers to the owners, or copies made explicitly with Clone.",
+			}}),
+		})
+		return e
 	}
 	e.ex = pu.New(Explanation{
 		Text: compat.Concat("Inside the generic code, values of ", p, " are copied freely. Copying an owner would leave several values that all free the same memory."),

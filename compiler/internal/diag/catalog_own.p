@@ -213,7 +213,7 @@ func init() {
 		}),
 		pu.New(Entry{
 			Code: CheckerCode(typerr.OwnerTypeArg), Name: "OwnerTypeArg",
-			Text:    "Generic code copies the values of a type parameter freely unless its constraint is marked owner. Copying an owner would leave several values that all free the same memory, so an owner type can only be the type argument of a type parameter declared [T owner any] (or owner with another constraint). Inside such code, values of T move as owners do.\nIf the generic code moves each value at most once, mark its type parameter owner. Otherwise pass pointers to the owners, or copies made with Clone.",
+			Text:    "Generic code copies the values of a type parameter freely unless its constraint is marked owner. Copying an owner would leave several values that all free the same memory, so an owner type can only be the type argument of a type parameter declared [T owner any] (or owner with another constraint). Inside such code, values of T move as owners do.\nIf the generic code moves each value at most once, mark its type parameter owner. Otherwise pass pointers to the owners, or copies made with Clone.\nThe standard library marks the type parameters that admit owners, and the others never do: the keys of hash.Set and hash.Map and the elements of vec.Fixed are copied, so they cannot be owners. Keep owners in a vec.Vec, or as the values of a hash.Map.",
 			Why:     whyOwners,
 			Spec:    pspec("7.18", "Owner types"),
 			Example: "func Fill[T any](s []T, v T)\n\nFill(bufs, strings.Buf{})",

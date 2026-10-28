@@ -211,7 +211,9 @@ type Log owner File                          // dropping a Log runs File's drop 
 - `Drop` must treat the zero value as empty: a moved-from variable, a `take` result and zeroed memory all hold it.
   A variable known to hold nothing is not dropped at all. `Drop` cannot report failure: give the type a
   `Close() error` for callers that care.
-- A type parameter admits an owner only if declared `[T owner any]` (E3207).
+- A type parameter admits an owner only if declared `[T owner any]` (E3207). The standard library's other type
+  parameters never take owners: `hash.Set` keys, `hash.Map` keys and `vec.Fixed` elements are copied. Keep owners
+  in a `vec.Vec`, or as the values of a `hash.Map`.
 - A built-in map cannot hold owners as key or value (E3213): hold `synced[T]` or `shared[T]` boxes, or use a
   `hash.Map[K, V]`, whose values may be owners. `vec.Vec[T]` and `hash.Map[K, V]` own their elements: `Push`, `Set`
   and `m[k] = v` move one in (dropping the one replaced), `Pop`, `Remove` (`m.Remove(k)`) and `m.Pop()` move one

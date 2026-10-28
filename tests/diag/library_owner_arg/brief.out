@@ -1,0 +1,2 @@
+$DIR/main.p:11:19: cannot use Conn as K in hash.NewSet[Conn]: Conn is an owner and K does not allow owners
+$DIR/main.p:14:7: cannot use Conn as T in vec.NewFixed: Conn is an owner and T does not allow owners

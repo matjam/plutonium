@@ -1,0 +1,29 @@
+$DIR/main.p:11:19: cannot use Conn as K in hash.NewSet[Conn]: Conn is an owner and K does not allow owners
+    The standard library declares K without owner: its code copies values of K
+    freely, so it cannot hold owners. Copying an owner would leave several
+    values that all free the same memory.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To keep owners in a container, use one that allows them: a vec.Vec holds
+    owners, and a hash.Map holds them as its values:
+        v := vec.New[Conn]()
+    Otherwise use pointers to the owners, or copies made explicitly with Clone.
+    (see "Owner types" in the Plutonium spec, section 7.18)
+    (run "pluto explain E3207" for a longer explanation)
+
+$DIR/main.p:14:7: cannot use Conn as T in vec.NewFixed: Conn is an owner and T does not allow owners
+    The standard library declares T without owner: its code copies values of T
+    freely, so it cannot hold owners. Copying an owner would leave several
+    values that all free the same memory.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To keep owners in a container, use one that allows them: a vec.Vec holds
+    owners, and a hash.Map holds them as its values:
+        v := vec.New[Conn]()
+    Otherwise use pointers to the owners, or copies made explicitly with Clone.
+    (see "Owner types" in the Plutonium spec, section 7.18)
+    (run "pluto explain E3207" for a longer explanation)

@@ -5325,6 +5325,11 @@ values of T move as owners do.
 If the generic code moves each value at most once, mark its type parameter
 owner. Otherwise pass pointers to the owners, or copies made with Clone.
 
+The standard library marks the type parameters that admit owners, and the others
+never do: the keys of hash.Set and hash.Map and the elements of vec.Fixed are
+copied, so they cannot be owners. Keep owners in a vec.Vec, or as the values of
+a hash.Map.
+
 Go copies such values freely and its garbage collector frees what they refer to
 when nothing refers to it any more. Plutonium has no garbage collector: an owner
 frees what it owns when it is dropped, so there must be exactly one.
