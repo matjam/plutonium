@@ -103,10 +103,13 @@ every command (`build`, `run`, `version`, `explain`, `vet`, `test`, `fmt`, `doc`
   deliberately changes the compiler's output.
 
 ## Build & Test
-- CI (`.github/workflows/ci.yml`): every push runs gofmt, `go vet ./...` and the tests that
-  need no compiler. Nightly, on demand, and on pull requests labeled `compiler`, it builds the
-  compiler at the commit with the release compiler and runs every test with it; weekly (or on
-  demand with `fixpoint`) it also checks the self-build fixpoint.
+- CI (`.github/workflows/ci.yml`): every push to main and every pull request runs gofmt,
+  `go vet ./...` and the tests that need no compiler, then builds the compiler at the commit
+  with the release compiler, checks `pluto fmt` on `compiler/` and `lib/`, and runs every test
+  with it; weekly (or on demand with `fixpoint`) it also checks the self-build fixpoint. While
+  the repository is private the jobs run on the self-hosted runner on kraken (a user service,
+  `systemctl --user status actions-runner` there), whose heavy steps share kraken's two build
+  slots; the repository variable `RUNS_ON` moves them (`"ubuntu-latest"` for GitHub's runners).
 - Run all tests: `PLUTO_TEST_COMPILER=$PWD/pluto go test -count=1 ./...`. The Go code
   left is the test harness `tests/`, `tools/bootstrap`, `tools/difftest`,
   `tools/mkunicode`, `tools/skillcheck`, the tests of `editors/vscode`, the skill's

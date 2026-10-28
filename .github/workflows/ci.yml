@@ -1,23 +1,28 @@
 # Checks of the repository.
 #
-# Every push and pull request runs the quick job: the Go code's vet, format
-# and lint checks, and the tests that need no compiler (spec references,
-# the diagnostics catalog, the bootstrap tool).
+# The quick job runs the Go code's vet, format and lint checks, and the
+# tests that need no compiler (spec references, the diagnostics catalog,
+# the bootstrap tool).
 #
 # The compiler job builds compiler/cmd/pluto at the commit with the release
-# compiler (tools/bootstrap's releaseTag) and runs every test with it. A
-# self build takes about 13 minutes and the tests about 51 on a hosted
-# runner, so it runs weekly, on demand, and on pull requests labeled
-# "compiler" (nightly would use most of a private repository's free
-# minutes). The fixpoint job then checks that the new compiler rebuilds
-# itself byte for byte (pluto2 == pluto3); it runs weekly and on demand.
+# compiler (tools/bootstrap's releaseTag), checks that compiler/ and lib/
+# are pluto fmt-formatted, and runs every test with the new compiler: about
+# 10 minutes to build and 50 to test. The fixpoint job then checks that the
+# new compiler rebuilds itself byte for byte (pluto2 == pluto3); it runs
+# weekly and on demand.
+#
+# Where the jobs run: the repository variable RUNS_ON, as JSON. While the
+# repository is private it is unset, and the jobs run on the self-hosted
+# runner on kraken (labels self-hosted and kraken), which costs no Actions
+# minutes. There the heavy steps wait for one of kraken's two build slots
+# (~/build/slot.sh), which local builds share. To run on GitHub's runners,
+# set RUNS_ON to "ubuntu-latest" (with the quotes).
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
   schedule:
     - cron: "47 10 * * 0" # weekly with the fixpoint, Sunday 03:47 Pacific
   workflow_dispatch:
@@ -34,9 +39,13 @@ concurrency:
   group: ci-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
+env:
+  # Whether the fixpoint job runs, and so needs the compiler as an artifact.
+  FIXPOINT: ${{ (github.event_name == 'schedule' && github.event.schedule == '47 10 * * 0') || (github.event_name == 'workflow_dispatch' && inputs.fixpoint) }}
+
 jobs:
   quick:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.RUNS_ON || '["self-hosted","kraken"]') }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -54,13 +63,9 @@ jobs:
         run: go test -count=1 ./...
 
   compiler:
-    if: >-
-      github.event_name == 'schedule' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'compiler'))
     needs: quick
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
+    runs-on: ${{ fromJSON(vars.RUNS_ON || '["self-hosted","kraken"]') }}
+    timeout-minutes: 180
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -69,32 +74,38 @@ jobs:
         with:
           go-version-file: go.mod
       - name: tools
+        if: runner.environment == 'github-hosted'
         run: sudo apt-get update && sudo apt-get install -y binutils qemu-system-x86
+      - name: build slot
+        # On kraken, the heavy steps run in a build slot.
+        if: runner.environment == 'self-hosted'
+        run: echo "SLOT=bash $HOME/build/slot.sh" >> "$GITHUB_ENV"
       - name: release compiler
         run: go run ./tools/bootstrap -stages 0 -work "$RUNNER_TEMP/bs"
       - name: build the compiler at this commit
         run: |
-          PLUTOROOT=$PWD/lib "$RUNNER_TEMP/bs/pluto0" build -O2 --gencheck=false -o pluto ./compiler/cmd/pluto
+          PLUTOROOT=$PWD/lib $SLOT "$RUNNER_TEMP/bs/pluto0" build -O2 --gencheck=false -o pluto ./compiler/cmd/pluto
           ./pluto version
       - name: pluto fmt
         run: |
           out=$(./pluto fmt -l $(git ls-files 'compiler/*.p' 'lib/*.p'))
           if [ -n "$out" ]; then echo "not pluto fmt-formatted:"; echo "$out"; exit 1; fi
       - name: tests
-        run: PLUTO_TEST_COMPILER=$PWD/pluto go test -count=1 -timeout 100m ./...
+        run: PLUTO_TEST_COMPILER=$PWD/pluto $SLOT go test -count=1 -timeout 150m ./...
       - uses: actions/upload-artifact@v4
+        if: env.FIXPOINT == 'true'
         with:
           name: pluto-x86_64-linux
           path: pluto
-          retention-days: 7
+          retention-days: 1
 
   fixpoint:
     if: >-
       (github.event_name == 'schedule' && github.event.schedule == '47 10 * * 0') ||
       (github.event_name == 'workflow_dispatch' && inputs.fixpoint)
     needs: compiler
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
+    runs-on: ${{ fromJSON(vars.RUNS_ON || '["self-hosted","kraken"]') }}
+    timeout-minutes: 120
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -105,7 +116,10 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: pluto-x86_64-linux
+      - name: build slot
+        if: runner.environment == 'self-hosted'
+        run: echo "SLOT=bash $HOME/build/slot.sh" >> "$GITHUB_ENV"
       - name: pluto2 and pluto3 must be identical
         run: |
           chmod +x pluto
-          go run ./tools/bootstrap -pluto1 ./pluto -stages 3 -work "$RUNNER_TEMP/fix"
+          $SLOT go run ./tools/bootstrap -pluto1 ./pluto -stages 3 -work "$RUNNER_TEMP/fix"
