@@ -324,6 +324,20 @@ func (r *reporter) carriers(f *finding) map[*types2.Var]bool {
 						changed = true
 					}
 				}
+			case *ast.OrStmt:
+				// The call's results, and the err its clause declares.
+				if n.Call == nil || !makes(n.Call) {
+					break
+				}
+				for _, lhs := range n.Lhs {
+					if add(lhs) {
+						changed = true
+					}
+				}
+				if v, _ := f.info.Implicits[n].(*types2.Var); v != nil && !out[v] {
+					out[v] = true
+					changed = true
+				}
 			}
 			return true
 		})
@@ -533,6 +547,21 @@ func (r *reporter) stored(e *viewErr, f *finding) {
 		return
 	}
 	e.pos, e.expr = st.at, st.rhs
+	if st.copyTo != nil {
+		// copy(dst, src): the elements go to dst's backing array, which
+		// a slice always reaches through a pointer.
+		e.dst, e.where = st.dst, storeHeap
+		v := rootVar(st.copyTo, f.info)
+		switch {
+		case f.fn.Key.Lit != nil && r.declaredOutside(st.copyTo, f.fn.Key.Lit, f.info):
+			if p, owner := r.reachedThroughParam(st.copyTo, f); p != nil {
+				e.where, e.via, e.viaFn = storeParam, p.Name(), owner
+			}
+		case v != nil && isParam(f.fn, v):
+			e.where, e.via = storeParam, v.Name()
+		}
+		return
+	}
 	if st.lhs == nil {
 		e.dst, e.where, e.inMap = st.dst, storeHeap, st.inMap
 		return
@@ -571,11 +600,12 @@ func (r *reporter) destination(e *viewErr, f *finding, lhs ast.Expr) {
 // A store is an assignment, declaration or literal element that stores a
 // view.
 type store struct {
-	lhs   ast.Expr // the destination, nil for an element of a map literal
-	rhs   ast.Expr // the value stored
-	at    token.Pos
-	dst   string // the destination when lhs is nil
-	inMap string // "key" or "element" of a map literal, or ""
+	lhs    ast.Expr // the destination, nil for an element of a map literal
+	rhs    ast.Expr // the value stored
+	at     token.Pos
+	dst    string   // the destination when lhs is nil
+	inMap  string   // "key" or "element" of a map literal, or ""
+	copyTo ast.Expr // the destination slice of a call of copy, or nil
 }
 
 // storeAt finds, among path, the assignment or literal element that stores
@@ -625,11 +655,34 @@ func (r *reporter) storeAt(f *finding, path []ast.Node) (st store, ok bool) {
 				return store{rhs: n.Key, at: n.Key.Pos(), dst: "a key of the map literal", inMap: "key"}, true
 			}
 			return store{rhs: n.Value, at: n.Value.Pos(), dst: "an element of the map literal", inMap: "element"}, true
+		case *ast.CallExpr:
+			if dst, ok := copyDst(n, f); ok {
+				return store{at: n.Pos(), dst: compat.Concat("the backing array of ", exprText(dst)), copyTo: dst}, true
+			}
 		case *ast.FuncLit:
 			return store{}, false
 		}
 	}
 	return store{}, false
+}
+
+// copyDst returns the destination of call n when it is a call of the
+// builtin copy that stores the finding's view itself (the finding is not
+// in its operands).
+func copyDst(n *ast.CallExpr, f *finding) (ast.Expr, bool) {
+	id, ok := ast.Unparen(n.Fun).(*ast.Ident)
+	if !ok || f.info == nil || len(n.Args) != 2 {
+		return nil, false
+	}
+	if b, isB := f.info.Uses[id].(*types2.Builtin); !isB || b.Name() != "copy" {
+		return nil, false
+	}
+	for _, a := range n.Args {
+		if a.Pos() <= f.fd.Pos && f.fd.Pos < a.End() {
+			return nil, false
+		}
+	}
+	return n.Args[0], true
 }
 
 // rootVar returns the variable an expression such as p.f[i] starts at.

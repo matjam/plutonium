@@ -460,7 +460,7 @@ against the corrected specification. The immediate implementation order is:
      and owns a counted parameter, and calls that function's task variant; any other code borrows, and the
      dispatcher releases the references when it returns. Tests: `taskcounted`, `taskdynamic`. A task that calls an
      allocator's method through an interface (`AllocMethod`) is not dispatched and still borrows.
-142. **One escape analysis** (in progress; sections 11.5, 16.5 to 16.7, 18.3, 20.3). The old analysis
+142. **One escape analysis** (done; sections 11.5, 16.5 to 16.7, 18.3, 20.3). The old analysis
      (`internal/escape`) and `PLUTO_ESCAPE` are gone; `internal/escape2` is the only one. Before the
      removal, `tools/escapedigest -compare` over the corpus listed the cases where the two disagreed.
      Fixed in escape2 with the removal: a function without a body now keeps every pointer argument
@@ -482,9 +482,11 @@ against the corrected specification. The immediate implementation order is:
      type assertion is chosen only among the receivers the assertion admits, and a value method's
      receiver is the value one load past the data word, so a pointer the value holds is not counted
      as the box (`accepted_type_assertion_and_a_method_that_keeps_its_receiver`,
-     `staysexact_fmt_and_a_value_that_holds_a_type_with_a_method_that_keeps_nil`). Many messages also changed with the switch and are weaker in places, for example a store of
-     `[1]*int{&x}` into a local `src` reported in place of the `copy` into a package vector's slice,
-     and a format string reported in place of `&in` (`review2_programs_f26`, `f27`).
+     `staysexact_fmt_and_a_value_that_holds_a_type_with_a_method_that_keeps_nil`). A `copy` that
+     stores a view is reported at the call, as a store in the backing array of its destination
+     (`rejected_copy_to_heap_slice`, `review3_programs_d13` to `d15`), and the error an `or` clause
+     declares carries the views of its call's arguments, so the view is named in place of a format
+     string (`review2_programs_f26`, `f27`).
 143. **An exit through a function that never returns** (done; section 17.3). A function whose body ends
      in a panic or a call that never returns counts as never returning, but `rt.ExitTask` before that
      point still ends the task through its return path. The caller skipped the exit check after such

@@ -1,13 +1,14 @@
-$DIR/main.p:13:2: cannot store [1]*int{...} in src, which outlives x
-    [1]*int{...} points into x. x is a local variable of f (declared at
-    main.p:12). When f returns, x's memory is reclaimed, but src may be on the
-    heap and live longer, so it would be left pointing at reclaimed memory.
+$DIR/main.p:14:8: cannot store &x in the backing array of gv.Slice(), which outlives x
+    &x points into x. x is a local variable of f (declared at main.p:12). When f
+    returns, x's memory is reclaimed, but the backing array of gv.Slice() may be
+    on the heap and live longer, so it would be left pointing at reclaimed
+    memory.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
     Store values instead of views of x, or allocate x and store its owner, an
     owned[int], which moves there:
-        src = new(int)
+        the backing array of gv.Slice() = new(int)
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3002" for a longer explanation)

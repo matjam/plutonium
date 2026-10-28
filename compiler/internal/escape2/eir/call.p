@@ -955,7 +955,12 @@ func (fb *fnb) copyElems(dst, src Reg, et types2.Type, pos token.Pos) {
 	if et == nil || !hasPointers(et) {
 		return
 	}
+	saved := fb.pos
+	if pos.IsValid() {
+		fb.pos = pos // a deferred copy stores where its defer statement is
+	}
 	fb.store(fb.elem(dst), fb.load(fb.elem(src), et), et)
+	fb.pos = saved
 }
 
 // dropAt destroys the value of type T at addr: a call of its drop glue,

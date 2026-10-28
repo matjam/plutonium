@@ -1,7 +1,7 @@
-$DIR/main.p:32:8: cannot pass "wrapped: %w" to fmt.Errorf, which keeps it after returning
-    "wrapped: %w" points into ev. ev is a local variable of f (declared at
-    main.p:30). fmt.Errorf stores a pointer loaded from args[i] in memory that
-    outlives the call (errorf.p:45), so "wrapped: %w" would outlive ev.
+$DIR/main.p:32:8: cannot pass &ev to fmt.Errorf, which keeps it after returning
+    &ev points into ev. ev is a local variable of f (declared at main.p:30).
+    fmt.Errorf stores a pointer loaded from args[i] in memory that outlives the
+    call (errorf.p:45), so &ev would outlive ev.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
@@ -9,5 +9,28 @@ $DIR/main.p:32:8: cannot pass "wrapped: %w" to fmt.Errorf, which keeps it after 
     If fmt.Errorf should keep its own copy of ev, change it to take the value,
     not a pointer, or an owner it can keep: an owned[E] from new, a shared[E],
     or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:32:8: cannot pass &in to fmt.Errorf, which keeps it after returning
+    &in points into in. in is a local variable of f (declared at main.p:28).
+    fmt.Errorf passes a pointer reachable from args to (*printer).doPrintf
+    (errorf.p:37), which passes a pointer reachable from args to
+    (*printer).printArg (fmt.p:880), which passes a pointer reachable from arg
+    to a formatting method of what it walks (which may call
+    (synced[pluto/os.PathError]).Error) (fmt.p:671), which passes a pointer
+    reachable from e to e.Err.Error (which may call os.(*PathError).Error)
+    (os_linux.p:623), which passes a pointer reachable from e to e.Err.Error
+    (which may call os.(*PathError).Error) (os_linux.p:623), which passes a
+    pointer reachable from e to e.Err.Error (which may call main.(*E).Error)
+    (os_linux.p:623), which stores a pointer loaded from e.p in package variable
+    keep (main.p:19), so &in would outlive in.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If fmt.Errorf should keep its own copy of in, change it to take the value,
+    not a pointer, or an owner it can keep: an owned[Inner] from new, a
+    shared[Inner], or a library owner such as a vec.Vec.
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3003" for a longer explanation)

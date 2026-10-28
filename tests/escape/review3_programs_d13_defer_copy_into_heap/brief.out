@@ -1,1 +1,1 @@
-$DIR/main.p:13:2: cannot store [1]*int{...} in src, which outlives x
+$DIR/main.p:14:8: cannot store &x in the backing array of gv.Slice(), which outlives x
