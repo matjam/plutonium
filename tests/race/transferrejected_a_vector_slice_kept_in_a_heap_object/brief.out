@@ -1,1 +1,1 @@
-PLACEHOLDER
+$DIR/main.p:20:2: cannot store v.Slice() in r.s, which outlives v

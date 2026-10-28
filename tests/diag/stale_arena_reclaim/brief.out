@@ -1,0 +1,3 @@
+$DIR/main.p:13:3: p holds a view of a (a.New[int](), line 11), which was reclaimed by a.Reset() at line 12, so p can no longer be used here
+$DIR/main.p:19:3: q holds a view of b (b.New[int](), line 17), which was reclaimed by b.Release(m) at line 18, so q can no longer be used here
+$DIR/main.p:26:10: s holds a view of c (c.Slice[int](4), line 22), which was reclaimed by c.Reset() at line 23, so s can no longer be used here

@@ -131,7 +131,7 @@ func (fb *fnb) load(x Reg, T types2.Type) Reg {
 		}
 		return 0
 	}
-	return fb.emitDst(Instr{Op: OpLoad, X: x, Type: T})
+	return fb.ownerMove(x, T, fb.emitDst(Instr{Op: OpLoad, X: x, Type: T})) // ownerview.go
 }
 
 // store stores y into *x, a location of type T.

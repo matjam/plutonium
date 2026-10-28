@@ -265,6 +265,7 @@ const (
 	mvNewValue                    // given a new value (views.go)
 	mvTake                        // emptied by take(&x) (views.go)
 	mvScopeEnd                    // dropped at the end of its block (views.go)
+	mvReclaim                     // a local arena's memory reclaimed by Reset or Release (views.go)
 )
 
 // A move records where and how a variable's value left it.

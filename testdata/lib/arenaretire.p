@@ -35,6 +35,10 @@ func main() {
 	// Mark/Release: every round allocates at the same place until its
 	// granule is exhausted.
 	a := arena.NewChunked()
+	// The rounds release through pa: old keeps pointers past Release on
+	// purpose, to ask whether they are still registered, which a Release
+	// of a itself would make a compile error (section 18.9).
+	pa := &a
 	var old [4]unsafe.Pointer
 	sum := 0
 	for i := 0; i < rounds; i++ {
@@ -45,7 +49,7 @@ func main() {
 		if i%10000 == 0 {
 			old[i/10000] = unsafe.Pointer(p)
 		}
-		a.Release(m)
+		pa.Release(m)
 	}
 	for i, p := range old {
 		if checked && rt.GenRegisteredLive(p) {

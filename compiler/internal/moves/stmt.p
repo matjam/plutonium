@@ -361,10 +361,10 @@ func (f *fn) assignLHS(lhs ast.Expr, tok token.Token) {
 	f.forget(lhs)
 }
 
-// renew records that the owner v, at id, is given a new value: the views
-// of its old one are stale (views.go).
+// renew records that the owner or counted reference v, at id, is given a
+// new value: the views of its old one are stale (views.go).
 func (f *fn) renew(id *ast.Ident, v *types2.Var) {
-	if isOwner(v.Type()) && !f.captured(v) {
+	if bounds(v.Type()) && !f.captured(v) {
 		f.invalidate(v, move{kind: mvNewValue, pos: id.Pos()})
 	}
 }

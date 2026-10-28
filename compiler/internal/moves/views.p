@@ -216,7 +216,11 @@ func whole(vs []view) []view {
 func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 	v, path, box, ok := f.placePath(x)
 	if !ok || v == nil {
-		return f.viewsOf(baseOf(x))
+		out := f.viewsOf(baseOf(x))
+		if r := f.countedVar(x); r != nil {
+			out = compat.Append(out, view{of: r, pos: made.Pos(), text: exprText(made), inHeap: true})
+		}
+		return out
 	}
 	var out []view
 	if box {
@@ -323,8 +327,125 @@ func (f *fn) viewsOf(e ast.Expr) []view {
 		return f.callViews(x)
 	case *ast.KeyValueExpr:
 		return f.viewsOf(x.Value)
+	case *ast.FuncLit:
+		return f.funcLitViews(x)
 	}
 	return nil
+}
+
+// funcLitViews returns the views a function literal holds: those the local
+// variables it uses hold where it is made. Calling it reads them.
+func (f *fn) funcLitViews(lit *ast.FuncLit) []view {
+	var out []view
+	seen := map[*types2.Var]bool{}
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		v := f.varOf(id)
+		if v == nil || seen[v] || !f.vars[v] || !mayView(v.Type()) {
+			return true
+		}
+		seen[v] = true
+		out = compat.Append(out, whole(f.held(v, nil))...)
+		return true
+	})
+	return out
+}
+
+// countedVar returns the local variable holding a counted reference
+// (shared[T], synced[T]) that the place x is reached through by its first
+// dereference, or nil. A view obtained that way is bounded by the
+// reference as a view of an owner is (section 18.3).
+func (f *fn) countedVar(x ast.Expr) *types2.Var {
+	for {
+		switch e := ast.Unparen(x).(type) {
+		case *ast.SelectorExpr:
+			sel := f.c.selections[e]
+			if sel == nil || sel.Kind() != types2.FieldVal {
+				return nil
+			}
+			if sel.Indirect() {
+				id, ok := ast.Unparen(e.X).(*ast.Ident)
+				if !ok || !isCountedBox(f.c.typeOf(e.X)) {
+					return nil
+				}
+				if v := f.varOf(id); v != nil && f.vars[v] {
+					return v
+				}
+				return nil
+			}
+			x = e.X
+		case *ast.IndexExpr:
+			if _, isArr := f.c.typeOf(e.X).Underlying().(*types2.Array); !isArr {
+				return nil
+			}
+			x = e.X
+		default:
+			return nil
+		}
+	}
+}
+
+// isCountedBox reports whether T is shared[E] or synced[E].
+func isCountedBox(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	w, ok := T.Underlying().(*types2.Wrapper)
+	return ok && (w.Kind() == types2.WrapShared || w.Kind() == types2.WrapSynced)
+}
+
+// bounds reports whether the views of a local variable of type T are
+// bounded by it: an owner, or a counted reference.
+func bounds(T types2.Type) bool { return isOwner(T) || isCountedBox(T) }
+
+// isCheckedArena reports whether T is one of the checked arenas of
+// pluto/arena, Fixed and Chunked (section 18.9).
+func isCheckedArena(T types2.Type) bool {
+	n, ok := types2.Unalias(T).(*types2.Named)
+	if !ok || n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != "pluto/arena" {
+		return false
+	}
+	switch n.Obj().Name() {
+	case "Fixed", "Chunked":
+		return true
+	}
+	return false
+}
+
+// isArenaMark reports whether T is the mark of a checked arena, ChunkMark
+// or FixedMark. A mark is a fill level, not memory of the arena: Release
+// of a stale mark is a run time check (section 18.9), so a mark holds no
+// view that Reset or Release ends.
+func isArenaMark(T types2.Type) bool {
+	n, ok := types2.Unalias(T).(*types2.Named)
+	if !ok || n.Obj().Pkg() == nil || n.Obj().Pkg().Path() != "pluto/arena" {
+		return false
+	}
+	switch n.Obj().Name() {
+	case "ChunkMark", "FixedMark":
+		return true
+	}
+	return false
+}
+
+// arenaAlloc reports whether call allocates from the local arena a: a
+// call of its method New, Slice or Alloc. What it returns is a view of
+// the arena's memory, which Reset and Release reclaim.
+func (f *fn) arenaAlloc(call *ast.CallExpr, a *types2.Var) bool {
+	se := funSelector(call.Fun)
+	if se == nil || !isCheckedArena(a.Type()) {
+		return false
+	}
+	switch se.Sel.Name {
+	case "New", "Slice", "Alloc":
+	default:
+		return false
+	}
+	id, ok := ast.Unparen(se.X).(*ast.Ident)
+	return ok && f.varOf(id) == a
 }
 
 // partViews returns the views a field or array element read from a local
@@ -336,8 +457,14 @@ func (f *fn) partViews(x ast.Expr) []view {
 	if !ok {
 		if se, isSel := ast.Unparen(x).(*ast.SelectorExpr); isSel {
 			// A field read through a pointer (l.head.next) looks at
-			// memory that pointer reaches: the views it holds.
-			return f.viewsOf(se.X)
+			// memory that pointer reaches: the views it holds. Through a
+			// local counted reference, it looks at what the reference
+			// keeps alive.
+			out := f.viewsOf(se.X)
+			if r := f.countedVar(x); r != nil {
+				out = compat.Append(out, view{of: r, pos: x.Pos(), text: exprText(x), inHeap: true})
+			}
+			return out
 		}
 		return f.viewsOf(baseOf(x))
 	}
@@ -427,7 +554,7 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 		}
 		return out
 	}
-	if !mayView(f.c.typeOf(call)) {
+	if !mayView(f.c.typeOf(call)) || isArenaMark(f.c.typeOf(call)) {
 		return nil
 	}
 	var out []view
@@ -475,6 +602,9 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 func (f *fn) loadsOwned(call *ast.CallExpr, w view) bool {
 	if w.inHeap || w.of == nil {
 		return false
+	}
+	if f.arenaAlloc(call, w.of) {
+		return true
 	}
 	res := resultLeaves(f.c.typeOf(call), 0)
 	if len(res) == 0 {
@@ -635,9 +765,24 @@ func (f *fn) storeViews(lhs ast.Expr, vs []view) {
 		return
 	}
 	v, path, box, ok := f.placePath(lhs)
-	if !ok || box || f.captured(v) || f.kept[v] {
+	if !ok || box || f.captured(v) {
 		f.pin(vs, lhs.Pos(), compat.Concat("stored in ", exprText(lhs)))
 		return
+	}
+	if f.kept[v] {
+		// Something the walk does not follow may use v, which pins the
+		// owners of the views of their own storage. The views of what an
+		// owner holds on the heap pin nothing, so they are followed here
+		// as far as the walk sees v: a function literal that uses v holds
+		// them (funcLitViews).
+		f.pin(vs, lhs.Pos(), compat.Concat("stored in ", exprText(lhs)))
+		var heap []view
+		for _, w := range vs {
+			if w.inHeap {
+				heap = compat.Append(heap, w)
+			}
+		}
+		vs = heap
 	}
 	s := f.env[v]
 	var keep []view
@@ -802,7 +947,7 @@ func (f *fn) argViews(call *ast.CallExpr) []argView {
 // every view of it is stale from here on. If a view of it went where the
 // walk cannot follow, that is the error.
 func (f *fn) invalidate(v *types2.Var, mv move) {
-	if f.env == nil || !isOwner(v.Type()) || !f.vars[v] {
+	if f.env == nil || !bounds(v.Type()) || !f.vars[v] {
 		return
 	}
 	if p := f.env[v].pin; p != nil && f.report {
@@ -825,10 +970,15 @@ func (f *fn) invalidatePart(v *types2.Var, path Path, mv move) {
 // staleViews makes the views of v that look at or into the part at path
 // (all of v for a nil path) stale.
 func (f *fn) staleViews(v *types2.Var, path Path, mv move) {
+	f.staleWhere(v, mv, func(w view) bool { return overlap(w.part, path) })
+}
+
+// staleWhere makes the views of v for which which holds stale.
+func (f *fn) staleWhere(v *types2.Var, mv move, which func(w view) bool) {
 	for h, s := range f.env {
 		var out []view // the views slice is shared with other paths' states
 		for i, w := range s.views {
-			if w.of == v && (w.stale == nil || w.maybe) && overlap(w.part, path) {
+			if w.of == v && (w.stale == nil || w.maybe) && which(w) {
 				if out == nil {
 					out = compat.Clone(s.views)
 				}
@@ -841,6 +991,99 @@ func (f *fn) staleViews(v *types2.Var, path Path, mv move) {
 			f.env[h] = s
 		}
 	}
+}
+
+// reclaim records a call of Reset or Release on a local checked arena: the
+// views of what it reclaims are stale (section 18.9). Reset reclaims every
+// allocation. Release(m) reclaims those made after the Mark that gave m
+// its value: when m is a local variable that only a := of a.Mark() gives a
+// value, in a function without goto, those are the views made after that
+// statement in the text; otherwise every allocation is taken as reclaimed.
+// The arena's own storage stays, so views of it (&a) do not go stale.
+func (f *fn) reclaim(call *ast.CallExpr) {
+	if f.env == nil {
+		return
+	}
+	se := funSelector(call.Fun)
+	if se == nil || se.Sel.Name != "Reset" && se.Sel.Name != "Release" {
+		return
+	}
+	id, ok := ast.Unparen(se.X).(*ast.Ident)
+	if !ok {
+		return
+	}
+	a := f.varOf(id)
+	if a == nil || !f.vars[a] || !isCheckedArena(a.Type()) {
+		return
+	}
+	since := token.NoPos
+	if se.Sel.Name == "Release" && len(call.Args) == 1 {
+		if mid, ok := ast.Unparen(call.Args[0]).(*ast.Ident); ok {
+			since = f.markPos(f.varOf(mid), a)
+		}
+	}
+	mv := move{kind: mvReclaim, pos: call.Pos(), to: exprText(call)}
+	f.staleWhere(a, mv, func(w view) bool { return w.inHeap && w.pos > since })
+}
+
+// markPos returns where the a.Mark() call is that alone gives the local
+// variable m its value, by m := a.Mark(), or NoPos if m may hold another
+// value.
+func (f *fn) markPos(m *types2.Var, a *types2.Var) token.Pos {
+	if m == nil || !f.vars[m] || f.topBody == nil {
+		return token.NoPos
+	}
+	at, n, bad := token.NoPos, 0, false
+	isM := func(e ast.Expr) bool {
+		id, ok := ast.Unparen(e).(*ast.Ident)
+		return ok && f.c.objOf(id) == m
+	}
+	ast.Inspect(f.topBody, func(nd ast.Node) bool {
+		switch x := nd.(type) {
+		case *ast.BranchStmt:
+			bad = bad || x.Tok == token.GOTO
+		case *ast.UnaryExpr:
+			bad = bad || x.Op == token.AND && isM(x.X)
+		case *ast.RangeStmt:
+			bad = bad || isM(x.Key) || isM(x.Value)
+		case *ast.ValueSpec:
+			for _, name := range x.Names {
+				if isM(name) {
+					bad = true
+				}
+			}
+		case *ast.AssignStmt:
+			for i, l := range x.Lhs {
+				if !isM(l) {
+					continue
+				}
+				n++
+				if x.Tok != token.DEFINE || len(x.Lhs) != len(x.Rhs) {
+					bad = true
+					continue
+				}
+				call, ok := ast.Unparen(x.Rhs[i]).(*ast.CallExpr)
+				se := (*ast.SelectorExpr)(nil)
+				if ok {
+					se = funSelector(call.Fun)
+				}
+				if se == nil || se.Sel.Name != "Mark" || len(call.Args) != 0 {
+					bad = true
+					continue
+				}
+				if id, ok := ast.Unparen(se.X).(*ast.Ident); !ok || f.varOf(id) != a {
+					bad = true
+					continue
+				}
+				at = x.Pos()
+			}
+		}
+		return true
+	})
+	if bad || n != 1 {
+		return token.NoPos
+	}
+	return at
 }
 
 // checkView reports a read of e, part of a local variable, where it may

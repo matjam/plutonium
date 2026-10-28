@@ -206,6 +206,10 @@ type Func struct {
 	// (arena.Fixed, arena.Chunked) its ObjArenaWindow object: the memory
 	// allocated from it, of the variable's lifetime (OpArenaView).
 	ArenaMem map[ObjID]ObjID
+	// OwnerMem gives each addressed frame variable that holds an owner
+	// its ObjBoxView object: the memory the variable owns, of the
+	// variable's lifetime (OpOwnerView, ownerview.go).
+	OwnerMem map[ObjID]ObjID
 }
 
 // Input is one input of a function.
@@ -294,6 +298,9 @@ type Object struct {
 	// into the holder is E3401. The holder itself lives for a statement,
 	// so no other store check applies to it.
 	Ends []ObjID
+	// Owned marks an ObjBoxView that is the memory a variable owns
+	// (Func.OwnerMem), not the object of a box.
+	Owned bool
 }
 
 // Loop is a natural loop of the CFG. Back edges of SSA registers are phis
@@ -355,6 +362,20 @@ const (
 	// ErrHolder objects: a counted error copied (returned, stored), which
 	// takes a reference of its own and is no view (borrow.go).
 	OpRecount
+	// OpOwnerView: Dst = the views of local owners' memory among what X
+	// points to (section 18.3, "A local owner's memory"; ownerview.go):
+	// each pointer of X to a frame object o becomes a pointer to
+	// Func.OwnerMem[o] or Func.ArenaMem[o], a pointer to a box view
+	// stays, and other pointers are dropped.
+	OpOwnerView
+	// OpOwnerHeap: Dst = X, with each pointer to heap memory made a pointer
+	// to Obj, the memory a local owner owns (ownerview.go): what a method
+	// of the owner returns of the memory it reaches.
+	OpOwnerHeap
+	// OpOwnerMove: Dst = X, the value of a local owner loaded whole (a
+	// move), with each pointer to Obj, the memory the owner owns, made a
+	// pointer to the heap: the memory moves with the owner (ownerview.go).
+	OpOwnerMove
 )
 
 // ElemStep is the path step of an array or slice element in OpAddr and

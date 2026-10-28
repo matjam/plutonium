@@ -94,6 +94,8 @@ func (c *checker) howMoved(mv *move) string {
 		return compat.Concat("emptied by ", mv.to)
 	case mvScopeEnd:
 		return "dropped at the end of its block"
+	case mvReclaim:
+		return compat.Concat("reclaimed by ", mv.to)
 	}
 	return "moved"
 }
@@ -152,7 +154,13 @@ func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic 
 	if w.maybe {
 		lost = compat.Sprintfb("At line %d %s was %s on some paths to this point", compat.ArgI(int64(at)), compat.ArgS(owner), compat.ArgS(how))
 	}
-	d.Text = compat.Sprintfb("%s looks at memory that %s owns, without owning it: the view was made by %s at line %d. A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from. %s, so the view may look at memory that was released, or at a value that now belongs to something else.", compat.ArgS(holder), compat.ArgS(owner), compat.ArgS(w.text), compat.ArgI(int64(made)), compat.ArgS(lost))
+	owns, rule := "owns", "A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from."
+	if isCountedBox(w.of.Type()) {
+		owns, rule = "refers to", "A view obtained through a counted reference held in a local variable may be used only while the variable keeps the reference the view was made from."
+	} else if w.stale.kind == mvReclaim {
+		rule = "A view of a local arena's memory may be used only until Reset or Release reclaims it."
+	}
+	d.Text = compat.Sprintfb("%s looks at memory that %s %s, without owning it: the view was made by %s at line %d. %s %s, so the view may look at memory that was released, or at a value that now belongs to something else.", compat.ArgS(holder), compat.ArgS(owner), compat.ArgS(owns), compat.ArgS(w.text), compat.ArgI(int64(made)), compat.ArgS(rule), compat.ArgS(lost))
 	switch w.stale.kind {
 	case mvNewValue:
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before line %d, or give %s its new value only after the last use of %s", compat.ArgS(name), compat.ArgI(int64(at)), compat.ArgS(owner), compat.ArgS(name))})
@@ -166,9 +174,11 @@ func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic 
 			act = compat.Concat("drop ", owner)
 		case mvTake:
 			act = compat.Concat("empty ", owner)
+		case mvReclaim:
+			act = compat.Concat("call ", w.stale.to)
 		}
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before line %d, or %s only after the last use of %s", compat.ArgS(name), compat.ArgI(int64(at)), compat.ArgS(act), compat.ArgS(name))})
-		if hasClone(w.of.Type()) && w.stale.kind != mvDrop && w.stale.kind != mvTake {
+		if hasClone(w.of.Type()) && w.stale.kind != mvDrop && w.stale.kind != mvTake && w.stale.kind != mvReclaim {
 			d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or move a copy at line %d, so that %s keeps its value", compat.ArgI(int64(at)), compat.ArgS(owner)), Code: compat.Concat(owner, ".Clone()")})})
 		}
 	}
@@ -213,6 +223,8 @@ func (c *checker) lostVerbBase(mv move) string {
 		return "drop it"
 	case mvTake:
 		return "empty it with take"
+	case mvReclaim:
+		return "reclaim its memory"
 	}
 	return "move it"
 }

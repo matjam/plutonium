@@ -1,0 +1,1 @@
+$DIR/main.p:17:10: g holds a view of v (v.Slice(), line 14), which was moved into consume (its parameter takes a pluto/vec.Vec[int] by value) at line 16, so g can no longer be used here

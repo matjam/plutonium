@@ -212,6 +212,13 @@ func (fb *fnb) declareVar(v *types2.Var, kind ObjKind, pos token.Pos) {
 				fb.f.ArenaMem = map[ObjID]ObjID{}
 			}
 			fb.f.ArenaMem[fb.objs[v]] = mem
+		} else if life != LifeCaller && fb.b.ownsMemory(v.Type()) {
+			// The memory the variable owns (ownerview.go).
+			mem := fb.newObj(Object{Kind: ObjBoxView, Type: v.Type(), Var: v, Pos: pos, Name: compat.Concat("the memory ", v.Name(), " owns"), Life: life, Owned: true})
+			if fb.f.OwnerMem == nil {
+				fb.f.OwnerMem = map[ObjID]ObjID{}
+			}
+			fb.f.OwnerMem[fb.objs[v]] = mem
 		}
 		return
 	}
@@ -391,6 +398,11 @@ func (fb *fnb) finish() {
 	live := map[*Block]bool{}
 	for _, b := range fb.f.Blocks {
 		live[b] = true
+	}
+	for o, m := range fb.f.OwnerMem {
+		if h := fb.iterHead[o]; h != nil {
+			fb.iterHead[m] = h // the memory of a variable of the loop's header
+		}
 	}
 	for i := range fb.f.Objects {
 		o := &fb.f.Objects[i]

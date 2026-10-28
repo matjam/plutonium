@@ -1,0 +1,7 @@
+$DIR/main.p:19:9: cannot return v.Slice(), which points into v, a local variable of sliceOfLocal
+$DIR/main.p:25:9: cannot return v.Ptr(0), which points into v, a local variable of ptrOfLocal
+$DIR/main.p:31:2: cannot store v.Slice() in package variable keepInts, which outlives v
+$DIR/main.p:42:9: cannot return b.Items(), which points into b, a local variable of throughMethod
+$DIR/main.p:54:9: cannot return b.Node(), which points into b, a local variable of ownedPointer
+$DIR/main.p:59:9: cannot return a.New[int](), which points into memory allocated from a, a local arena of fromFixed
+$DIR/main.p:64:2: cannot store a.New[int]() in package variable keepInt, which outlives a

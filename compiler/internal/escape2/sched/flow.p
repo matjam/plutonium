@@ -524,7 +524,7 @@ func (ev *flowEval) eval(r eir.Reg) *fset {
 			return topSet
 		}
 		out.add(&ev.fl.in[ev.f.ID][in.Index])
-	case eir.OpCopy:
+	case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap:
 		join(in.X)
 	case eir.OpPhi:
 		join(in.Args...)

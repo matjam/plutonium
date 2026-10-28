@@ -123,11 +123,12 @@ a.Free(p, 200000, 65536)
 a.Free(p, 200000, 65536)`, "0\npanic: alloc: Free of memory that was already freed", 2},
 		{"large arena release", "", `
 a := arena.NewChunked(200000)
+ra := &a; _ = ra
 m := a.Mark()
 p := (*byte)(a.Alloc(150000, 65536))
 *p = 33
 println(uintptr(unsafe.Pointer(p))%65536)
-a.Release(m)
+ra.Release(m)
 println(*p)`, "0\npanic: runtime error: use of memory from an arena", 2},
 		{"partial tail indexed access", "", `
 a := arena.NewChunked()
@@ -258,10 +259,11 @@ a.Free(q, 1, 1)
 println(*(*byte)(p))`, "17 18\n17\n", 0},
 		{"parent reset", "", `
 outer := arena.NewChunked()
+ro := &outer; _ = ro
 inner := arena.NewChunked(256, &outer)
 p := (*byte)(inner.Alloc(200000, 16))
 *p = 19
-outer.Reset()
+ro.Reset()
 println(*p)`, "use of memory from an arena", 2},
 		{"nonforwarding free byte aligned", customGenerationAllocator + `
 type Wrapped struct { alloc.Allocator }
@@ -278,6 +280,7 @@ println(*(*byte)(p))
 println(*(*byte)(q))`, "31\npanic: runtime error: use of freed memory", 2},
 		{"partial parent release", "", `
 outer := arena.NewChunked()
+ro := &outer; _ = ro
 left := arena.NewChunked(256, &outer)
 p := (*byte)(left.Alloc(1, 16))
 *p = 21
@@ -285,7 +288,7 @@ m := outer.Mark()
 right := arena.NewChunked(256, &outer)
 q := (*byte)(right.Alloc(1, 16))
 *q = 22
-outer.Release(m)
+ro.Release(m)
 println(*p)
 println(*q)`, "21\npanic: runtime error: use of memory from an arena", 2},
 		{"custom free promoted alloc", `
@@ -456,6 +459,15 @@ var _ arena.Chunked
 var _ unsafe.Pointer
 var _ = strings.Repeat
 ` + c.decl + "\nfunc main() {\n" + c.body + "\n}"
+				// A case that resets or releases a local arena through ra or
+				// ro reaches the run time check; on the arena itself the
+				// stale use is a compile error (E3313, section 18.9).
+				if strings.Contains(src, "_ = ra") || strings.Contains(src, "_ = ro") {
+					direct := strings.NewReplacer("ra.Release", "a.Release", "ro.Reset", "outer.Reset", "ro.Release", "outer.Release").Replace(src)
+					if out := buildFails(t, direct); !strings.Contains(out, "E3313") || !strings.Contains(out, "reclaimed by") {
+						t.Fatalf("direct reclaim: output %q; want E3313", out)
+					}
+				}
 				out, status := runGenCheck(t, src, level)
 				if status != c.status || !strings.Contains(out, c.want) {
 					t.Fatalf("want status %d and %q: got status %d, output %q", c.status, c.want, status, out)

@@ -1,1 +1,13 @@
-PLACEHOLDER
+$DIR/main.p:20:2: cannot store v.Slice() in r.s, which outlives v
+    v.Slice() points into v. v is a local variable of main (declared at
+    main.p:17). When main returns, v's memory is reclaimed, but r.s may be on
+    the heap and live longer, so it would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store values instead of views of v, or allocate v and store its owner, an
+    owned[pluto/vec.Vec[int]], which moves there:
+        r.s = new(pluto/vec.Vec[int])
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

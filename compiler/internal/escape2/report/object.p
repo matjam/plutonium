@@ -71,6 +71,17 @@ func (r *reporter) locOf(fn *eir.Func, fd solve.Finding) *loc {
 			}
 		}
 	case eir.ObjBoxView:
+		if o.Owned {
+			// The memory a local owner holds, bounded by the owner as its
+			// own storage is (eir/ownerview.go).
+			l.kind = lkVar
+			if isResult(fn, o.Var) {
+				l.kind = lkResult
+			} else if isParam(fn, o.Var) {
+				l.kind = lkParam
+			}
+			return l
+		}
 		l.kind = lkObject
 		if o.Var != nil {
 			l.typ, l.pos = o.Var.Type(), o.Var.Pos()

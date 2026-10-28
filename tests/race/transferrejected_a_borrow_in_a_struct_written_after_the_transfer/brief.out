@@ -1,1 +1,1 @@
-PLACEHOLDER
+$DIR/main.p:52:2: r.n holds a view of l (l.First(), line 50), which was moved to the task started at line 51, so r.n can no longer be used here

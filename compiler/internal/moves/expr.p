@@ -246,6 +246,7 @@ func (f *fn) call(e *ast.CallExpr, kind moveKind) {
 		return
 	}
 	f.args(e, sig, name, kind)
+	f.reclaim(e) // views.go
 }
 
 // args walks a call's arguments, moving owners into parameters that take

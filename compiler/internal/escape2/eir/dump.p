@@ -122,6 +122,12 @@ func (p *Program) InstrString(in *Instr) string {
 		return compat.Sprintfb("%srecount r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)))
 	case OpLend:
 		return compat.Sprintfb("%slend r%d r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgU(uint64(in.Y)))
+	case OpOwnerView:
+		return compat.Sprintfb("%sownerview r%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)))
+	case OpOwnerHeap:
+		return compat.Sprintfb("%sownerheap r%d o%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgI(int64(int32(in.Obj))))
+	case OpOwnerMove:
+		return compat.Sprintfb("%sownermove r%d o%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgI(int64(int32(in.Obj))))
 	case OpArenaView:
 		return compat.Sprintfb("%sarenaview r%d o%d", compat.ArgS(dst), compat.ArgU(uint64(in.X)), compat.ArgI(int64(int32(in.Obj))))
 	}

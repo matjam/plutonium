@@ -150,23 +150,29 @@ func main() {
 		name, body, want string
 		status           int
 	}{
+		// Through pa the move checker does not see which arena is reset,
+		// so the misuse reaches the run time check. TestArenaStaleViews
+		// has the same programs on a itself, rejected at compile time.
 		{"view after reset", `
+	pa := &a
 	p := a.New[node]()
 	p.val = 7
-	a.Reset() // here
+	pa.Reset() // here
 	println(p.val)`, reset, 2},
 		{"view after release", `
+	pa := &a
 	m := a.Mark()
 	p := a.New[node]()
 	p.val = 7
-	a.Release(m) // here
+	pa.Release(m) // here
 	q := a.New[node]() // reuses p's memory
 	q.val = 8
 	println(p.val)`, reset, 2},
 		{"slice in a chunk of its own", `
+	pa := &a
 	m := a.Mark()
 	s := a.Slice[int](3000)
-	a.Release(m) // here
+	pa.Release(m) // here
 	_ = a.Slice[int](3000)
 	s[2999] = 1`, reset, 2},
 		{"string in a heap container", `
@@ -250,6 +256,61 @@ func main() {
 				}
 			})
 		}
+	}
+}
+
+// TestArenaStaleViews checks that a view of a local arena.Chunked used after
+// a Reset or Release of that arena by name is rejected at compile time
+// (E3313, section 18.9), with the use and the reclaiming call named.
+func TestArenaStaleViews(t *testing.T) {
+	t.Parallel()
+	const prelude = `package main
+
+import "pluto/arena"
+
+type node struct {
+	next *node
+	val  int
+}
+
+func main() {
+	a := arena.NewChunked()
+`
+	cases := []struct{ name, body, use, reclaim string }{
+		{"view after reset", `
+	p := a.New[node]()
+	p.val = 7
+	a.Reset() // here
+	println(p.val) // use`, "p", "a.Reset()"},
+		{"view after release", `
+	m := a.Mark()
+	p := a.New[node]()
+	p.val = 7
+	a.Release(m) // here
+	q := a.New[node]()
+	q.val = 8
+	println(p.val) // use`, "p", "a.Release(m)"},
+		{"slice in a chunk of its own", `
+	m := a.Mark()
+	s := a.Slice[int](3000)
+	a.Release(m) // here
+	_ = a.Slice[int](3000)
+	s[2999] = 1 // use`, "s", "a.Release(m)"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			src := prelude + c.body + "\n\ta.Drop()\n}\n"
+			line := func(mark string) string {
+				return strconv.Itoa(strings.Count(src[:strings.Index(src, mark)], "\n") + 1)
+			}
+			out := buildFails(t, src)
+			if !strings.Contains(out, "E3313") || !strings.Contains(out, "main.p:"+line("// use")+":") ||
+				!strings.Contains(out, c.use) || !strings.Contains(out, c.reclaim) ||
+				!strings.Contains(out, "line "+line("// here")) {
+				t.Fatalf("output %q; want E3313 at line %s for %s after %s at line %s", out, line("// use"), c.use, c.reclaim, line("// here"))
+			}
+		})
 	}
 }
 

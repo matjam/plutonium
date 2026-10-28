@@ -118,12 +118,15 @@ value loaded from such memory is never a view of a frame.
 **A local owner's memory.** A view obtained from an owner held in a local variable (`v.Slice()`,
 `b.Bytes()`, `&m`, `p.field` through an `owned[T]`, `&*p`) is bounded by that variable. It follows the
 frame rules above, and in addition it may not be used after the variable has been moved, dropped or given
-a new value in the same function (E3313). A variable whose drop releases or writes through a
+a new value in the same function (E3313). Such a view may be stored in memory the same variable owns,
+which is released with what it views. When the variable is moved whole, its memory goes with the
+value, and a view of it kept in that value is then a view of the new owner. A variable whose drop releases or writes through a
 view of another local variable (a string, vector or other value that holds a view of a local arena
 or owner) must be declared after that variable, so that it is dropped first (section 18.6, Drops);
 otherwise the declaration of the holder is E3313, and the error names both variables. A view of a temporary owner (`makeVec().Slice()`) may not outlive the
 statement that made the temporary (E3009; section 18.6). A view obtained through a counted reference held in a
-local variable is bounded by that reference in the same way.
+local variable is bounded by that reference in the same way. A function literal holds the views that the local variables it uses hold
+where it is made, so calling it after the owner was moved, dropped or given a new value is E3313 too.
 
 The compiler follows views through local variables, their fields, and the calls that store them into
 other arguments. A view stored anywhere else (through a pointer, in a variable that a function literal
@@ -705,8 +708,13 @@ Ordinary typed allocation, `Reset`, `Release` and drop must preserve this lifeti
 Marks identify their arena and the recorded allocation position. A foreign mark or one invalidated
 by reclamation cannot reclaim unrelated current storage; it panics. Releasing a later mark does not
 invalidate an earlier still-live mark.
-`Release` invalidates only allocations it reclaims; earlier allocations remain valid. A fixed
-manual `Arena` constructed over a caller-provided buffer continues to use that buffer; it must not
+`Release` invalidates only allocations it reclaims; earlier allocations remain valid.
+For a fixed or chunked arena held in a local variable, the compiler checks this (E3313): a view that
+`New`, `Slice` or `Alloc` returned may not be used after a `Reset` of the arena, or after a
+`Release(m)` that reclaims it. The compiler takes `Release(m)` to reclaim the allocations made after
+the statement `m := a.Mark()` when that is the only statement that gives the local variable `m` a
+value and the function has no `goto`; for any other `m` it takes every allocation as reclaimed.
+A fixed manual `Arena` constructed over a caller-provided buffer continues to use that buffer; it must not
 silently replace it with an allocated buffer or overwrite payload with metadata. The
 raw allocation
 layer and unsafe pointer operations remain available to code that deliberately manages lifetimes

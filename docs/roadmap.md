@@ -37,8 +37,7 @@ against the corrected specification. The immediate implementation order is:
      operations. Keep deliberate unchecked execution distinct. A kernel checking
      representation has not been selected; hosted pointer tags cannot simply be assumed
      suitable. This is a confirmed source-policy gap.
-102. **Outstanding aliases during owner transfer** (audited; sections 8.8, 19.3; the cases that need a
-     method's result to be a view of a local owner wait on item 138). Probes in `tests/race/transfer*`
+102. **Outstanding aliases during owner transfer** (audited; sections 8.8, 19.3). Probes in `tests/race/transfer*`
      (nine accepted, 24 rejected) borrow an owner's memory through a field or a helper, then move the
      owner by `take`, a task or a channel send, then use the borrow. A borrow kept in a local variable, a
      copy of it or a field of a local struct is E3313 at the conflicting use, and its last use before the
@@ -51,9 +50,9 @@ against the corrected specification. The immediate implementation order is:
      view of what a local owner holds, passed to a call that may keep it, is E3314 when the owner then
      crosses to another task (`moves/views.p`, `heapPin`). `take(&h.l)` did not make the views of `h.l`
      stale, and a node reached through another (`l.head.next`) was not a view of `l`. Known failures, each
-     marked `knownfail`: a borrow returned by a method of a local owner (`List.First`, `vec.Vec.Ptr`,
-     `vec.Vec.Slice`; seven cases, item 138), and an owner passed by pointer to a helper that hands a view
-     of its memory to a call that keeps it (one case: neither checker follows a view through calls there).
+     marked `knownfail`: an owner passed by pointer to a helper that hands a view of its memory to a call
+     that keeps it (one case: neither checker follows a view through calls there). The seven cases of a
+     borrow returned by a method of a local owner pass since item 138.
 103. **Nonconsuming owner indexing and length receivers** (planned; sections 11.11,
      13.6). Visible Index/IndexOk/SetIndex and Len validators lack the owner
      value-receiver prohibition. Confirm whole-pipeline rejection and add the missing
@@ -325,7 +324,7 @@ against the corrected specification. The immediate implementation order is:
      (E3001): `func mk() (func() int, *int) { x := 1; g := func() int { return x }; return g, &x }`. The
      analysis must treat such an address as a view of the caller's frame at that call, kept from the next
      run of the call (section 11.5, "Refilling"), and the variable must live in the region.
-138. **Views of local owners, counted references and arenas bounded at compile time** (in progress; sections
+138. **Views of local owners, counted references and arenas bounded at compile time** (done; sections
      18.3 "A local owner's memory" with E3001, E3002, E3313 and E3314, 18.7 rule 5, 18.9; found by the third
      adversarial review of the escape analysis, defect 7). A view obtained from an owner held in a local
      variable is bounded by that variable and follows the frame rules, but the analysis takes what a local
@@ -348,10 +347,26 @@ against the corrected specification. The immediate implementation order is:
      A call result that loads, through a heap-only field, a pointer or slice of a type the owner holds is a
      view of the local owner, so `v.Slice()`, `v.Ptr(i)`, `m.Ptr(k)`, a user owner's methods and a local
      arena's `Alloc` used after the owner moved, was dropped or got a new value are E3313 (tests
-     `diag/stale_owner_views`, `diag/stale_owner_views_map`, `diag/stale_arena_view`). Open: the escape
-     part (returning or storing such a view: o03, c19, c20, o26, ar01, ar04), views captured by a closure
-     (o24), views through a replaced `shared` reference (o25), and `Reset`/`Release` of a local arena
-     ending its views (ar02, ar03, ar07).
+     `diag/stale_owner_views`, `diag/stale_owner_views_map`, `diag/stale_arena_view`). The escape part:
+     each addressed frame variable that holds an owner has an object for the memory it owns, and a static
+     call that passes its address gets, in each result that may point into that memory (by type), a view
+     of it (`eir/ownerview.p`); a local arena's `New`, `Slice` and `Alloc` give views of the arena's
+     memory. Returning such a view is E3001 and storing it in the heap or a package variable E3002 (o03,
+     c19, c20, o26, ar01, ar04); a view stored into the memory of the same owner (a directory listing's
+     entries pointing at its names) is accepted. A function literal holds the views of the variables it
+     uses, so calling it after the owner moved is E3313 (o24). A view taken through a `shared` or `synced`
+     reference in a local variable ends when the variable gets a new value (o25). `Reset` of a local
+     checked arena ends every view of its allocations, and `Release(m)` those made after `m :=
+     a.Mark()` when that is the only assignment to `m` (otherwise all of them), E3313 (ar02, ar03, ar07;
+     section 18.9 now says so). Tests `diag/owner_view_escapes`, `diag/stale_closure_views`,
+     `diag/stale_counted_views`, `diag/stale_arena_reclaim`, and the seven item 102 race probes that waited
+     on this item. A local owner loaded whole is moved and its memory goes with it, so a view of it kept
+     in the value moved is a view of the new owner. A map's walk (`rt.MapIter`) owns no memory: what it
+     returns is a view of the map. Open: heap or caller memory a method of a local owner returns is taken
+     to be the owner's, so a view of the owner stored into unrelated memory reached that way is not
+     caught, and a pointer to caller memory so treated loses its tie to the caller when the owner moves.
+     A view kept in a local owner that is moved and then stored in a package variable is not caught. A
+     view of a table a map walk retired may outlive the walk while the map lives.
 139. **Loops made with `goto` and the blocks a scoped task outlives** (done; sections 18.4, 11.5, 12.17 and
      19.4; found by the third adversarial review, defect 8). A loop made with `goto` (l05: `top: v := n;
      ps[i] = &v; ...; goto top`) shares one variable across its iterations. Sections 11.5 and 12.17 count a
@@ -491,7 +506,7 @@ The implementation gaps of
 | 32 | Package initialization starts no task (done, D2) | 100 | 15.2, 15.3, 19.1, 19.3 |
 | 33 | `clear` of a slice of owners drops each element (done) | 75 | 13.3 |
 | 34 | Ordinary kernel lifetime protection (planned) | 101 | 1.2, 18.11, 21.5 |
-| 35 | Outstanding aliases across owner transfer (audited; parts wait on item 138) | 102 | 8.8, 19.3 |
+| 35 | Outstanding aliases across owner transfer (audited) | 102 | 8.8, 19.3 |
 | 36 | Nonconsuming owner indexing/length receivers (planned) | 103 | 11.11, 13.6 |
 | 37 | Bounded task-stack inference (planned) | 18 | 19.1 |
 | 38 | A string is cut with `strings.Slice`, E2019 (done, D9) | 104, 74 | 7.3, 11.12, F.6 |

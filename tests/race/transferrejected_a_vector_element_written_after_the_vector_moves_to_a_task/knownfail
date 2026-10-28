@@ -1,1 +1,0 @@
-Item 138: a view returned by a method of a local owner (List.First, vec.Vec.Ptr) is not yet a view of the owner, so the use after the transfer is not caught. When item 138 lands, regenerate default.out and brief.out (they hold PLACEHOLDER) and remove this note.

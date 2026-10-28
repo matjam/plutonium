@@ -38,28 +38,31 @@ const (
 // xform kinds, in an edge's transform word: kind (bits 0-7), flag (bit 8),
 // path (bits 32-63).
 const (
-	xID       = iota // identity
-	xSel             // sel(path)
-	xPre             // pre(path), tag GE when flag
-	xOff             // off(path)
-	xStep            // a summary key's field step: sel ∪ off of root pointers
-	xGe              // geify
-	xRetag           // the tag made (Root, GE) only (loads through a cut pointer)
-	xPreLoad         // a load link: pre(path), GE when flag
-	xSelLoad         // a load link: sel(path), tags GE when flag
-	xSelGe           // a reach link: sel(path), then geify
-	xAny             // offset to anywhere in the object (eir.AnyStep)
-	xNoBox           // identity, without pointers to interface boxes (OpAssert to a direct type)
-	xImpl            // identity, without pointers to boxes whose type does not implement assertT[path] (OpAssert to an interface)
-	xNoRec           // identity, without the closure records ownRecord resolves (funccall.go)
-	xOnlyIn          // identity, In tokens only (defer.go, splitNode)
-	xNoIn            // identity, without In tokens
-	xArena           // OpArenaView: a frame object's pointer becomes one to its arena memory, Obj(path) for one with none
-	xLend            // identity, In tokens made lent (OpBorrow, a Borrowed key)
-	xNoHolder        // identity, without pointers to the view objects of counted errors' holders (a key not Borrowed)
-	xRecount         // identity, In tokens not lent and no pointers to ErrHolder objects (OpRecount)
-	xFilter          // through the type filter whose ID is path (D51; filterTok)
-	xArenaKey        // a summary's Arena key: pointers made arn (tokens.go), Heap unchanged
+	xID        = iota // identity
+	xSel              // sel(path)
+	xPre              // pre(path), tag GE when flag
+	xOff              // off(path)
+	xStep             // a summary key's field step: sel ∪ off of root pointers
+	xGe               // geify
+	xRetag            // the tag made (Root, GE) only (loads through a cut pointer)
+	xPreLoad          // a load link: pre(path), GE when flag
+	xSelLoad          // a load link: sel(path), tags GE when flag
+	xSelGe            // a reach link: sel(path), then geify
+	xAny              // offset to anywhere in the object (eir.AnyStep)
+	xNoBox            // identity, without pointers to interface boxes (OpAssert to a direct type)
+	xImpl             // identity, without pointers to boxes whose type does not implement assertT[path] (OpAssert to an interface)
+	xNoRec            // identity, without the closure records ownRecord resolves (funccall.go)
+	xOnlyIn           // identity, In tokens only (defer.go, splitNode)
+	xNoIn             // identity, without In tokens
+	xArena            // OpArenaView: a frame object's pointer becomes one to its arena memory, Obj(path) for one with none
+	xLend             // identity, In tokens made lent (OpBorrow, a Borrowed key)
+	xNoHolder         // identity, without pointers to the view objects of counted errors' holders (a key not Borrowed)
+	xRecount          // identity, In tokens not lent and no pointers to ErrHolder objects (OpRecount)
+	xFilter           // through the type filter whose ID is path (D51; filterTok)
+	xArenaKey         // a summary's Arena key: pointers made arn (tokens.go), Heap unchanged
+	xOwner            // OpOwnerView: a frame object's pointer becomes one to the memory it owns; other pointers go
+	xOwnerHeap        // OpOwnerHeap: a heap or input pointer becomes one to the owner memory object path; others unchanged
+	xOwnerMove        // OpOwnerMove: a pointer to the owner memory object path becomes a heap pointer; others unchanged
 )
 
 func xw(kind int, path domain.PathID, flag bool) uint64 {
@@ -428,11 +431,42 @@ func (s *solver) transform(x uint64, t tok) {
 			}
 		}
 		s.buf.push(s.a, s.intern(arenaTok(t)))
+	case xOwner:
+		if t.kind != tObj || s.isRegion(t.base) {
+			return
+		}
+		o := t.base
+		if m, ok := s.f.OwnerMem[eir.ObjID(o)]; ok {
+			o = uint32(m)
+		} else if m, ok := s.f.ArenaMem[eir.ObjID(o)]; ok {
+			o = uint32(m)
+		} else if !s.isBoxView(o) {
+			return
+		}
+		if l, _ := s.life(o); l == eir.LifeHeap {
+			t = tok{kind: tHeap, tag: t.tag, tagGE: t.tagGE}
+		} else {
+			t = tok{kind: tObj, base: o, path: domain.Root, tag: t.tag, tagGE: t.tagGE}
+		}
+		s.buf.push(s.a, s.intern(t))
 	case xArenaKey:
 		if t.kind == tObj {
 			t.arn = true
 		}
 		s.buf.push(s.a, s.intern(arenaTok(t)))
+	case xOwnerHeap:
+		if t.kind == tHeap || t.kind == tIn {
+			o := uint32(path)
+			if l, _ := s.life(o); l != eir.LifeHeap {
+				t = tok{kind: tObj, base: o, path: domain.Root, tag: t.tag, tagGE: t.tagGE}
+			}
+		}
+		s.buf.push(s.a, s.intern(t))
+	case xOwnerMove:
+		if t.kind == tObj && t.base == uint32(path) {
+			t = tok{kind: tHeap, tag: t.tag, tagGE: t.tagGE}
+		}
+		s.buf.push(s.a, s.intern(t))
 	case xFilter:
 		id := domain.FilterID(path)
 		f, ok := s.filterOf(id)

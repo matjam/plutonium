@@ -111,7 +111,7 @@ func (fb *fnb) callResults(e *ast.CallExpr) ([]Reg, []types2.Type) {
 	}
 	c.Args = args
 	types := resultTypes(c.Sig)
-	return fb.freshCounted(fb.arenaCall(e, c, fb.emitCall(c, e.Pos())), types), types // borrow.go
+	return fb.freshCounted(fb.ownerCall(c, fb.arenaCall(e, c, fb.emitCall(c, e.Pos()))), types), types // borrow.go, ownerview.go
 }
 
 // specialMethodCall builds the method calls that are not calls of a method:

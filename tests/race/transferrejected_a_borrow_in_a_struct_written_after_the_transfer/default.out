@@ -1,1 +1,12 @@
-PLACEHOLDER
+$DIR/main.p:52:2: r.n holds a view of l (l.First(), line 50), which was moved to the task started at line 51, so r.n can no longer be used here
+    r.n, part of r, looks at memory that l owns, without owning it: the view was
+    made by l.First() at line 50. A view of an owner held in a local variable
+    may be used only while the variable keeps the value the view was made from.
+    At line 51 l was moved to the task started, so the view may look at memory
+    that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use r.n before line 51, or move l only after the last use of r.n
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

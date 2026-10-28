@@ -1,0 +1,121 @@
+$DIR/main.p:19:9: cannot return v.Slice(), which points into v, a local variable of sliceOfLocal
+    v.Slice() points into v. v is a local variable of sliceOfLocal (declared at
+    main.p:17). Its memory is reclaimed when sliceOfLocal returns, so v.Slice()
+    would point at memory that no longer holds v.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of v, or allocate v and return its owner, an
+    owned[pluto/vec.Vec[int]]:
+        v := new(pluto/vec.Vec[int])
+        ...
+        return v
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:25:9: cannot return v.Ptr(0), which points into v, a local variable of ptrOfLocal
+    v.Ptr(0) points into v. v is a local variable of ptrOfLocal (declared at
+    main.p:23). Its memory is reclaimed when ptrOfLocal returns, so v.Ptr(0)
+    would point at memory that no longer holds v.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of v, or allocate v and return its owner, an
+    owned[pluto/vec.Vec[int]]:
+        v := new(pluto/vec.Vec[int])
+        ...
+        return v
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:31:2: cannot store v.Slice() in package variable keepInts, which outlives v
+    v.Slice() points into v. v is a local variable of storeLocal (declared at
+    main.p:29). When storeLocal returns, v's memory is reclaimed, but package
+    variables live for the whole program, so package variable keepInts would be
+    left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store values instead of views of v, or allocate v and store its owner, an
+    owned[pluto/vec.Vec[int]], which moves there:
+        keepInts = new(pluto/vec.Vec[int])
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)
+
+$DIR/main.p:42:9: cannot return b.Items(), which points into b, a local variable of throughMethod
+    b.Items() points into b. b is a local variable of throughMethod (declared at
+    main.p:39). Its memory is reclaimed when throughMethod returns, so b.Items()
+    would point at memory that no longer holds b.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of b, or allocate b and return its owner, an
+    owned[Bag]:
+        b := new(Bag)
+        ...
+        return b
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:54:9: cannot return b.Node(), which points into b, a local variable of ownedPointer
+    b.Node() points into b. b is a local variable of ownedPointer (declared at
+    main.p:53). Its memory is reclaimed when ownedPointer returns, so b.Node()
+    would point at memory that no longer holds b.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Return values instead of views of b, or allocate b and return its owner, an
+    owned[Box]:
+        b := new(Box)
+        ...
+        return b
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:59:9: cannot return a.New[int](), which points into memory allocated from a, a local arena of fromFixed
+    a.New[int]() points into memory allocated from a, a local arena of
+    fromFixed. a (a local arena of fromFixed, declared at main.p:58) is given as
+    an allocator, so what is allocated from it lives in the arena, and is gone
+    when the arena is. When fromFixed returns, the arena a is gone, so
+    a.New[int]() would point at memory that is no longer allocated.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Allocate what must outlive the arena from an allocator that does, passed
+    explicitly:
+        heap := alloc.Default() // before alloc.Use
+        ...
+        v := vec.New[T](heap)
+    Or install an arena that outlives the result, such as one the caller passes
+    in, or make the copy that must outlive the arena after the Restore is
+    dropped.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3001" for a longer explanation)
+
+$DIR/main.p:64:2: cannot store a.New[int]() in package variable keepInt, which outlives a
+    a.New[int]() points into memory allocated from a, a local arena of
+    storeChunked. a (a local arena of storeChunked, declared at main.p:63) is
+    given as an allocator, so what is allocated from it lives in the arena, and
+    is gone when the arena is. When storeChunked returns, the arena a is gone,
+    but package variables live for the whole program, so package variable
+    keepInt would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Allocate what must outlive the arena from an allocator that does, passed
+    explicitly:
+        heap := alloc.Default() // before alloc.Use
+        ...
+        v := vec.New[T](heap)
+    Or install an arena that outlives the result, such as one the caller passes
+    in, or make the copy that must outlive the arena after the Restore is
+    dropped.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

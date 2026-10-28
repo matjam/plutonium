@@ -1,1 +1,1 @@
-PLACEHOLDER
+$DIR/main.p:18:2: cannot store v.Slice() in package variable keep, which outlives v

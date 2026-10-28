@@ -1,1 +1,1 @@
-PLACEHOLDER
+$DIR/main.p:54:2: p holds a view of h (h.l.First(), line 52), which was emptied by take(&h.l) at line 53, so p can no longer be used here

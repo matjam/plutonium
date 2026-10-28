@@ -323,6 +323,12 @@ const (
 	// (section 18.9, "A view stored in heap memory does not lose its arena
 	// lifetime"), so the sink checks what it reaches instead (fire).
 	cHeap = 1 << 8
+
+	// cSelf and above, in a cSink code for a store into a box view, hold
+	// the box view's object plus one: a view of that object itself may be
+	// stored there.
+	cSelfShift = 9
+	cSelf      = 1 << cSelfShift
 )
 
 // isArenaMemory reports whether frame object o is memory allocated from an
@@ -928,8 +934,14 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		switch t.kind {
 		case tObj:
 			if l, _ := s.life(t.base); l == eir.LifeHeap || s.isBoxView(t.base) {
-				// Heap memory as a store destination (a box view too).
-				s.addCons(val, cSink, uint64(s.storeCode(b)|cHeap), b)
+				// Heap memory as a store destination (a box view too). A
+				// view of a box's object or an owner's memory stored into
+				// that same memory lives no longer than what it views.
+				code := uint64(s.storeCode(b) | cHeap)
+				if l != eir.LifeHeap {
+					code |= uint64(t.base+1) << cSelfShift
+				}
+				s.addCons(val, cSink, code, b)
 				return
 			}
 			pn := s.place(t.base, t.path, t.ge)
@@ -958,8 +970,11 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 			s.report(cE3313, t.base, b)
 		}
 	case cSink:
-		code := int(a) &^ cHeap
+		code := int(a&(cSelf-1)) &^ cHeap
 		heap := int(a)&cHeap != 0
+		if self := a >> cSelfShift; self != 0 && t.kind == tObj && t.base == uint32(self-1) {
+			return // stored into the memory it views
+		}
 		switch t.kind {
 		case tObj:
 			if heap && (t.arn || s.isArenaMemory(t.base)) {
@@ -1467,6 +1482,12 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		}
 	case eir.OpArenaView:
 		s.edge(in.X, dst, xw(xArena, domain.PathID(in.Obj), false))
+	case eir.OpOwnerView:
+		s.edge(in.X, dst, xw(xOwner, 0, false))
+	case eir.OpOwnerHeap:
+		s.edge(in.X, dst, xw(xOwnerHeap, domain.PathID(in.Obj), false))
+	case eir.OpOwnerMove:
+		s.edge(in.X, dst, xw(xOwnerMove, domain.PathID(in.Obj), false))
 	case eir.OpBorrow:
 		s.edge(in.X, dst, xw(xLend, 0, false))
 		if in.Y != 0 {

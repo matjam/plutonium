@@ -346,7 +346,7 @@ func (h *heapOnly) regType1(f *eir.Func, r eir.Reg, depth int) types2.Type {
 		}
 	case eir.OpSelect:
 		return walkPath(h.regTypeRec(f, in.X, depth+1), in.Path)
-	case eir.OpCopy:
+	case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap:
 		return h.regTypeRec(f, in.X, depth+1)
 	case eir.OpConv:
 		return in.To
@@ -559,7 +559,7 @@ func (h *heapOnly) addrLoc(f *eir.Func, r eir.Reg, depth int) loc {
 			t = elemOf(h.regType(f, in.X))
 		}
 		return loc{base: t, fieldStep: l.fieldStep}
-	case eir.OpCopy:
+	case eir.OpCopy, eir.OpOwnerMove, eir.OpOwnerHeap:
 		return h.addrLoc(f, in.X, depth+1)
 	case eir.OpPhi:
 		return h.phiLoc(f, r, depth)
@@ -767,7 +767,8 @@ func (h *heapOnly) origin1(st *originState, r eir.Reg, path []int) ([]hoAtom, bo
 		return h.origin(st, in.X, nil)
 	case eir.OpSelect:
 		return h.origin(st, in.X, concat(in.Path, path))
-	case eir.OpCopy:
+	case eir.OpCopy, eir.OpOwnerMove:
+		// A copy, or a local owner moved with the memory it owns.
 		return h.origin(st, in.X, path)
 	case eir.OpConv:
 		if in.Obj != eir.NoObj {
@@ -808,7 +809,7 @@ func (h *heapOnly) origin1(st *originState, r eir.Reg, path []int) ([]hoAtom, bo
 	case eir.OpRecount, eir.OpLend:
 		// What X holds: a counted copy of it, or X lent to a call.
 		return h.origin(st, in.X, path)
-	case eir.OpArenaView, eir.OpBorrow:
+	case eir.OpArenaView, eir.OpBorrow, eir.OpOwnerView, eir.OpOwnerHeap:
 		// The memory of an allocator X names (eir/arena.go), or a view
 		// of a counted box's payload that its holder bounds
 		// (eir/borrow.go): not heap memory that outlives every frame,

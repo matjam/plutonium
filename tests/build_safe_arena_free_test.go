@@ -20,14 +20,27 @@ func TestSafeArenaFree(t *testing.T) {
  a.Free(unsafe.Pointer(q),8,8)
  r:=a.New[int](); *r=9
  println(*p,*r)`
-					if stale {
-						body = `p:=a.New[int](); *p=7
- a.Reset()
+					// The stale Free resets through pa, which the move checker
+					// does not follow, so the run time check sees it; a Reset
+					// of a itself is a compile error (E3313, section 18.9).
+					staleBody := func(reset string) string {
+						return `pa:=&a; _=pa
+ p:=a.New[int](); *p=7
+ ` + reset + `
  q:=a.New[int](); *q=9
  a.Free(unsafe.Pointer(p),8,8)
  println("accepted stale Free",*q)`
 					}
-					source := "package main\nimport (\"pluto/arena\";\"unsafe\")\nfunc main(){a:=" + constructor + "\n" + body + "\n}\n"
+					src := func(body string) string {
+						return "package main\nimport (\"pluto/arena\";\"unsafe\")\nfunc main(){a:=" + constructor + "\n" + body + "\n}\n"
+					}
+					if stale {
+						body = staleBody("pa.Reset()")
+						if out := buildFails(t, src(staleBody("a.Reset()"))); !strings.Contains(out, "E3313") || !strings.Contains(out, "reclaimed by a.Reset()") {
+							t.Fatalf("direct Reset: output %q; want E3313 for p after a.Reset()", out)
+						}
+					}
+					source := src(body)
 					out, status := runSrc(t, source, opt, "--gencheck")
 					if stale {
 						if status != 2 || !strings.Contains(out, "use of memory from an arena") || strings.Contains(out, "accepted stale Free") {

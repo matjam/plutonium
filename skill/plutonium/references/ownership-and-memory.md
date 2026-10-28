@@ -476,7 +476,8 @@ allocator they came from and free to it, so an owner built in an arena drops nor
 
 - `arena.NewFixed(capacity)` is an owner with fixed private backing. `arena.NewChunked()` grows from its parent.
   `a.New[T]()` returns a `*T` and `a.Slice[T](n)` a `[]T`, valid until `a.Reset()`, `a.Release(mark)` or `a` is
-  dropped. The compiler checks local arenas; a stale use panics at run time. The values in arena memory are not
+  dropped. Using a view of a local arena after its `Reset` or `Release` is E3313; where the compiler cannot
+  tell which arena was reclaimed (through a pointer), the stale use panics at run time. A mark is not a view. The values in arena memory are not
   dropped for you.
 - `defer alloc.Use(&a).Restore()` makes `a` the current allocator for the rest of the function. Anything allocated
   in that window is a **view of the arena**: returning it or storing it past the arena is E3001. Allocate what must
@@ -531,9 +532,10 @@ func main() {
 	m := a.Mark()
 	ys := a.Slice[int](100)
 	ys[0] = 1
-	a.Release(m) // reclaims ys only
-	fmt.Println(xs, len(ys), a.Used() < 1024)
-	a.Reset() // reclaims everything; a view kept past this is E3001 or a panic
+	n := len(ys)
+	a.Release(m) // reclaims ys only: using ys after this is E3313
+	fmt.Println(xs, n, a.Used() < 1024)
+	a.Reset() // reclaims everything; a view used past this is E3313
 }
 ```
 
