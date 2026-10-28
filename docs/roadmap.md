@@ -467,10 +467,10 @@ against the corrected specification. The immediate implementation order is:
      the analysis does not follow (a field, an element, a pointer's target, a channel, a package
      variable) or returned by a function without a body holds counted heap references, and a counted
      error converted to an interface that does not count is a view its holder bounds, so the `Unwrap`
-     borrow check sees them. Still open, each a corpus case marked `knownfail`:
-     - A box passed by value through a type parameter (`save[T Getter](g T)` called with
-       `sharedHolder().p`): escape2 analyses a generic body once, so it misses the view of the
-       temporary. Nine `temporaryboxviews` cases.
+     borrow check sees them. A box passed by value to a parameter of generic type (`save[T Getter](g T)`
+     called with `sharedHolder().p`) is lent to the callee: the generic body is analysed once, so what
+     it keeps through the type parameter's methods is bounded by what holds the box, as for a counted
+     error (`temporaryboxviews` cases). Still open, each a corpus case marked `knownfail`:
      - fmt calling a pointer method of a struct field inside a box
        (`rejected_fmt_calls_a_pointer_method_of_a_struct_field_inside_a_box`).
      - Two false rejections: a method that keeps its receiver applied to a box the type assertion

@@ -1,16 +1,15 @@
-$DIR/main.p:20:2: cannot store a pointer into main's frame in memory that lives longer, which outlives main's frame
-    a pointer into main's frame points into the object of a temporary error in
-    main's frame. The error made at main.p:20 is a temporary: nothing keeps it,
-    so its object is dropped at the end of the statement, and a view of the
-    object may not outlive that statement. At the end of the statement, the
-    temporary is dropped and its object freed, but memory that lives longer may
-    be on the heap and live longer, so it would be left pointing at reclaimed
-    memory.
+$DIR/main.p:20:2: cannot pass fmt.Errorf("wrap: %w", makeError()) to errors.As, which keeps it after returning
+    fmt.Errorf("wrap: %w", makeError()) points into the object of a temporary
+    error in main's frame. The error made at main.p:20 is a temporary: nothing
+    keeps it, so its object is dropped at the end of the statement, and a view
+    of the object may not outlive that statement. errors.As stores it in *target
+    (errors.p:127), so fmt.Errorf("wrap: %w", makeError()) would outlive main's
+    frame.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    Store the value itself instead of a view of main's frame, or allocate it so
-    that it lives as long as memory that lives longer.
+    Change errors.As to take a value or an owner, which it can keep: an owned[T]
+    from new, a shared[T], or a library owner such as a vec.Vec.
     (see "Views" in the Plutonium spec, section 18.3)
-    (run "pluto explain E3002" for a longer explanation)
+    (run "pluto explain E3003" for a longer explanation)

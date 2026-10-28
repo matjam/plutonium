@@ -174,7 +174,7 @@ func (fb *fnb) convIn(r Reg, from, I types2.Type, pos token.Pos, inPlace bool) R
 		if owner != fb {
 			d := fb.fillKept(owner, o, r, from, nil)
 			if isTypeParam(from) {
-				return fb.either(d, r)
+				return fb.either(d, fb.lendParam(r, I))
 			}
 			return d
 		}
@@ -189,9 +189,19 @@ func (fb *fnb) convIn(r Reg, from, I types2.Type, pos token.Pos, inPlace bool) R
 	}
 	if isTypeParam(from) {
 		// The instance decides: a direct type is its own data word.
-		return fb.either(d, r)
+		return fb.either(d, fb.lendParam(r, I))
 	}
 	return d
+}
+
+// lendParam returns r, a value of a type parameter as the data word of
+// interface I: a box instance's is a view of its object, unless I owns or
+// counts (borrow.go, lendBox).
+func (fb *fnb) lendParam(r Reg, I types2.Type) Reg {
+	if types2.IsOwner(I) || types2.IsCountedError(I) {
+		return r
+	}
+	return fb.lendView(r)
 }
 
 // isDirect reports whether a value of T is its own interface data word

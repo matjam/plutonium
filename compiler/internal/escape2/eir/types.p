@@ -292,6 +292,10 @@ type Object struct {
 	// ErrHolder marks the view object of what holds a counted error
 	// (borrow.go): what a callee's Borrowed keys lead to, and no other key.
 	ErrHolder bool
+	// BoxHolder marks the view object of what holds a box passed to a
+	// parameter of generic type (borrow.go, lendBox): as for ErrHolder,
+	// what a callee's Borrowed keys lead to, and no other key.
+	BoxHolder bool
 	// Ends marks the holder of what a scoped task carries for the check of
 	// section 19.4 (scopedTask): the frame variables whose blocks end
 	// before the Scope joins the task. A pointer to one of them stored
@@ -302,6 +306,10 @@ type Object struct {
 	// (Func.OwnerMem), not the object of a box.
 	Owned bool
 }
+
+// Holder reports whether o is the view object of what holds a counted error
+// or a lent box: what a callee's Borrowed keys lead to, and no other key.
+func (o *Object) Holder() bool { return o.ErrHolder || o.BoxHolder }
 
 // Loop is a natural loop of the CFG. Back edges of SSA registers are phis
 // in Header.
@@ -356,7 +364,10 @@ const (
 	OpBorrow
 	// OpLend: Dst = X, and also Y when X holds a counted reference: a
 	// counted error passed to a callee, which lends it to the callee's
-	// Borrowed keys alone (borrow.go).
+	// Borrowed keys alone (borrow.go). With Index 1, Dst is X and Y
+	// whatever X holds: a box passed to a parameter of generic type, whose
+	// views the callee takes through a type parameter's methods are
+	// bounded by what holds the box (lendBox).
 	OpLend
 	// OpRecount: Dst = X, its In tokens not lent and without pointers to
 	// ErrHolder objects: a counted error copied (returned, stored), which

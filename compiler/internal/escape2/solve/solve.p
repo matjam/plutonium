@@ -1553,7 +1553,13 @@ func (s *solver) instr(b eir.BlockID, i int, in *eir.Instr) {
 		s.edge(in.X, dst, xw(xCountHeap, 0, in.Index == 1))
 	case eir.OpLend:
 		s.edge(in.X, dst, xw(xID, 0, false))
-		if in.Y != 0 {
+		switch {
+		case in.Y == 0:
+		case in.Index == 1:
+			// A lent box: its holder's view, anywhere in the value, so
+			// a field key of an aggregate that holds the box sees it.
+			s.edge(in.Y, dst, xw(xPre, 0, true))
+		default:
 			s.addCons(uint32(in.X), cBorrow, uint64(in.Y), uint64(dst))
 		}
 		if s.lent == nil {
@@ -1877,7 +1883,44 @@ func (s *solver) heapOnlyLoad(x eir.Reg) bool {
 		return false
 	}
 	S, field, ok := fieldClass(T, in.Path)
-	return ok && s.env.HeapOnly(S, field)
+	if !ok {
+		return false
+	}
+	if str, isStruct := S.Underlying().(*types2.Struct); isStruct {
+		if holdsTypeParam(str.Field(field).Type(), 0) {
+			// A field that holds a value of a type parameter's type in
+			// place (the type parameter itself, or a struct or array
+			// holding one, as Wrap[T] does): the value may be a box its
+			// caller lends (eir borrow.go, lendBox), whose views the In
+			// token it loads carries to the caller's Borrowed keys. The
+			// class holding only heap pointers does not say that.
+			return false
+		}
+	}
+	return s.env.HeapOnly(S, field)
+}
+
+// holdsTypeParam reports whether a value of type T holds a value of a type
+// parameter's type in place: T is one, or a struct or array that holds one.
+func holdsTypeParam(T types2.Type, depth int) bool {
+	if depth > 32 {
+		return true
+	}
+	switch t := types2.Unalias(T).(type) {
+	case *types2.TypeParam:
+		return true
+	case *types2.Named:
+		return holdsTypeParam(t.Underlying(), depth+1)
+	case *types2.Struct:
+		for i := 0; i < t.NumFields(); i++ {
+			if holdsTypeParam(t.Field(i).Type(), depth+1) {
+				return true
+			}
+		}
+	case *types2.Array:
+		return t.Len() > 0 && holdsTypeParam(t.Elem(), depth+1)
+	}
+	return false
 }
 
 // fieldClass walks T along path to the struct type and field index of the

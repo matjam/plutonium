@@ -94,7 +94,16 @@ func (r *reporter) diagnostic(fd solve.Finding) *diag.Diagnostic {
 		// (eir.SinkBoxCopy).
 		e.sink = sinkBox
 		e.expr = r.exprAt(fd.Pos)
-	default: // E3002, E3009
+	case diag.TempViewKept:
+		if call != nil && !r.storeLike(call) {
+			// A view of a temporary that a callee keeps (a store of its
+			// summary into memory the caller passed): the call keeps it,
+			// as for E3006.
+			r.passed(e, f, call)
+		} else {
+			r.stored(e, f)
+		}
+	default: // E3002
 		r.stored(e, f)
 	}
 	if e.expr != nil && f.info != nil {

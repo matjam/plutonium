@@ -223,3 +223,165 @@ func (fb *fnb) freshCounted(res []Reg, types []types2.Type) []Reg {
 	}
 	return out
 }
+
+// Boxes lent through a type parameter (section 18.3, "A local owner's
+// memory"; section 18.7). A generic body is analysed once for all its
+// instances, so a box passed by value to a parameter of generic type is a
+// value of a type parameter there. A view the body takes through it (a
+// pointer method of the box's object called on the value, or the value
+// converted to an interface, whose data word lends the box) is a view of
+// the box, which what holds the box in the caller bounds, as it bounds a
+// view the caller takes itself. The body lends such a value (lendView), so
+// the summary's keys of what it reaches are Borrowed; the caller passes the
+// box with OpLend X, Y, Index 1, Y the view object of its holder: the local
+// variable, or the statement for a temporary. The callee's other keys (the
+// box itself, copied, stored or returned, which keeps a reference of its
+// own) do not see the holder.
+
+// lendBox returns r, argument x of type T (or, x nil, a result of call)
+// passed to a parameter whose declared type mentions a type parameter, lent
+// with the view object of what holds the boxes T holds.
+func (fb *fnb) lendBox(x, call ast.Expr, T types2.Type, r Reg) Reg {
+	if r == 0 || fb.cur == nil || !holdsBox(T, 0) {
+		return r
+	}
+	h := fb.boxHolder(x, call, T)
+	if h == 0 {
+		return r
+	}
+	return fb.emitDst(Instr{Op: OpLend, X: r, Y: h, Index: 1, Pos: fb.pos})
+}
+
+// boxHolder returns the address of the view object of what holds x, a
+// value of type T that holds a box: a local variable (x, x.f, x[i] on an
+// array), or the statement, for a temporary (or, x nil, for a result of
+// call); 0 for a box reached through a pointer, in a package variable or in
+// the caller's region, which generation checks guard (section 18.11).
+func (fb *fnb) boxHolder(x, call ast.Expr, T types2.Type) Reg {
+	objT := T
+	if isBox(T) {
+		objT = pointerElem(T)
+	}
+	if x != nil {
+		if v := fb.boxRoot(x); v != nil {
+			if owner := fb.ownerOf(v); owner != nil {
+				if owner != fb && owner.regionVars[v] {
+					return 0
+				}
+				o := owner.boxViewObj(v, objT, false)
+				owner.f.Objects[o].BoxHolder = true
+				return fb.objAddr(owner, o)
+			}
+		}
+		call = fb.tempRoot(x)
+	}
+	if call == nil {
+		return 0
+	}
+	o := fb.newObj(Object{Kind: ObjBoxView, Type: objT, Life: LifeStmt, Name: "the object of a temporary box", Pos: call.Pos(), BoxHolder: true})
+	return fb.addr(o)
+}
+
+// holdsBox reports whether a value of T holds a box in place: T is one, or
+// a struct or array holding one.
+func holdsBox(T types2.Type, depth int) bool {
+	if T == nil || depth > 16 || isTypeParam(T) {
+		return false
+	}
+	if isBox(T) {
+		return true
+	}
+	switch u := unwrap(T).Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if holdsBox(u.Field(i).Type(), depth+1) {
+				return true
+			}
+		}
+	case *types2.Array:
+		return u.Len() > 0 && holdsBox(u.Elem(), depth+1)
+	}
+	return false
+}
+
+// genericParam reports whether parameter i of fn is declared with a type
+// that mentions a type parameter.
+func genericParam(fn *types2.Func, i int) bool {
+	if fn == nil {
+		return false
+	}
+	sig, ok := fn.Origin().Type().(*types2.Signature)
+	if !ok || i >= sig.Params().Len() {
+		return false
+	}
+	return mentionsTypeParam(sig.Params().At(i).Type())
+}
+
+// genericRecv reports whether method fn's receiver is declared with a type
+// that mentions a type parameter.
+func genericRecv(fn *types2.Func) bool {
+	if fn == nil {
+		return false
+	}
+	sig, ok := fn.Origin().Type().(*types2.Signature)
+	return ok && sig.Recv() != nil && mentionsTypeParam(sig.Recv().Type())
+}
+
+// mentionsTypeParam reports whether t mentions a type parameter.
+func mentionsTypeParam(t types2.Type) bool {
+	switch t := t.(type) {
+	case nil:
+		return false
+	case *types2.TypeParam:
+		return true
+	case *types2.Alias:
+		return mentionsTypeParam(types2.Unalias(t))
+	case *types2.Named:
+		if args := t.TypeArgs(); args != nil {
+			for i := 0; i < args.Len(); i++ {
+				if mentionsTypeParam(args.At(i)) {
+					return true
+				}
+			}
+		}
+	case *types2.Pointer:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Slice:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Array:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Map:
+		return mentionsTypeParam(t.Key()) || mentionsTypeParam(t.Elem())
+	case *types2.Chan:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Wrapper:
+		return mentionsTypeParam(t.Elem())
+	case *types2.Struct:
+		for i := 0; i < t.NumFields(); i++ {
+			if mentionsTypeParam(t.Field(i).Type()) {
+				return true
+			}
+		}
+	case *types2.Tuple:
+		for i := 0; i < t.Len(); i++ {
+			if mentionsTypeParam(t.At(i).Type()) {
+				return true
+			}
+		}
+	case *types2.Signature:
+		return mentionsTypeParam(t.Params()) || mentionsTypeParam(t.Results())
+	case *types2.Interface:
+		for i := 0; i < t.NumExplicitMethods(); i++ {
+			if mentionsTypeParam(t.ExplicitMethod(i).Type()) {
+				return true
+			}
+		}
+	case *types2.TaggedUnion:
+		for i := 0; i < t.NumVariants(); i++ {
+			if v := t.Variant(i); v.HasPayload() && mentionsTypeParam(v.Payload()) {
+				return true
+			}
+		}
+	}
+	return false
+}

@@ -1,1 +1,1 @@
-$DIR/main.p:20:2: cannot store a pointer into main's frame in memory that lives longer, which outlives main's frame
+$DIR/main.p:20:2: cannot pass fmt.Errorf("wrap: %w", makeError()) to errors.As, which keeps it after returning

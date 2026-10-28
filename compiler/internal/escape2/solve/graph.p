@@ -411,7 +411,7 @@ func (s *solver) transform(x uint64, t tok) {
 		}
 		s.buf.push(s.a, s.intern(t))
 	case xRecount:
-		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].ErrHolder {
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].Holder() {
 			return
 		}
 		if t.kind == tIn {
@@ -423,14 +423,14 @@ func (s *solver) transform(x uint64, t tok) {
 		case t.kind == tHeap:
 			t.kind = tCHeap
 		case !flag:
-		case t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].ErrHolder:
+		case t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].Holder():
 			return
 		case t.kind == tIn:
 			t.lent, t.cnt, t.dcnt = false, true, true
 		}
 		s.buf.push(s.a, s.intern(t))
 	case xNoHolder:
-		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].ErrHolder {
+		if t.kind == tObj && int(t.base) < len(s.f.Objects) && s.f.Objects[t.base].Holder() {
 			return
 		}
 		s.buf.push(s.a, s.intern(t))

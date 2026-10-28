@@ -294,6 +294,11 @@ func (fb *fnb) methodCallee(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.S
 		} else {
 			recv = fb.expr(se.X)
 		}
+		if el := pointerElem(recvT); el == nil {
+			// The value may be a box its caller lends, whose object the
+			// method views (borrow.go, lendBox).
+			recv = fb.lendView(recv)
+		}
 		args, types := fb.args(e, sig, nil)
 		return pu.New(Call{Kind: CallTypeParam, Method: fn, Iface: tp, Sig: sig, RecvAddr: addr}), compat.AppendPlain(compat.Clone([]Reg{recv}), args...), compat.Append(compat.Clone([]types2.Type{tp}), types...), true
 	}
@@ -324,6 +329,11 @@ func (fb *fnb) methodCallee(e *ast.CallExpr, se *ast.SelectorExpr, sel *types2.S
 	}
 	fb.noteMethodInstance(fn, se)
 	full := fn.Type().(*types2.Signature)
+	if rt := full.Recv().Type(); pointerElem(rt) == nil && genericRecv(fn) {
+		// A value receiver of a generic type, which may hold a box the
+		// method views through a type parameter (borrow.go, lendBox).
+		recv = fb.lendBox(se.X, nil, rt, recv)
+	}
 	args, types := fb.args(e, sig, fn)
 	all, allTypes := compat.AppendPlain(compat.Clone([]Reg{recv}), args...), compat.Append(compat.Clone([]types2.Type{full.Recv().Type()}), types...)
 	if q := methodName(fn); contract.IsTrusted(q) {
@@ -505,6 +515,15 @@ func (fb *fnb) args(e *ast.CallExpr, sig *types2.Signature, fn *types2.Func) ([]
 			// What the callee takes out of the error borrows the
 			// caller's holder (borrow.go).
 			r = fb.lendError(srcs[i].e, r)
+		}
+		if genericParam(fn, i) {
+			// A box the generic body may view through a type
+			// parameter's methods (borrow.go, lendBox).
+			var call ast.Expr
+			if srcs[i].e == nil {
+				call = e.Args[0]
+			}
+			r = fb.lendBox(srcs[i].e, call, T, r)
 		}
 		out = compat.AppendPlain(out, r)
 		types = compat.Append(types, T)
