@@ -44,7 +44,6 @@ var rejectedBeforeEscape = map[string]string{
 	"review3/b18_scope_loop_body_slice_in_struct":         "E3401",
 	"review3/d09_defer_named_result_closure":              "E3100",
 	"review3/d10_defer_method_value_named_result":         "E3100",
-	"review3/x02_region_refill_in_loop":                   "E3101",
 	"review3/x03_region_closure_called_after_second_call": "E3101",
 }
 

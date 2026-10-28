@@ -20,10 +20,10 @@ import (
 // there and EIR does not is only a false rejection, until stage 4 follows
 // the closures through variables and calls.
 
-// regionSig reports whether a function of signature sig takes a region: a
+// RegionSig reports whether a function of signature sig takes a region: a
 // result can hold a func value without a pointer in between
 // (lower/regions.go regionSig).
-func regionSig(sig *types2.Signature) bool {
+func RegionSig(sig *types2.Signature) bool {
 	if sig == nil {
 		return false
 	}
@@ -35,6 +35,11 @@ func regionSig(sig *types2.Signature) bool {
 	}
 	return false
 }
+
+// HoldsFunc reports whether a value of type T can hold a func value
+// without a pointer in between: a closure, as against a pointer into a
+// region (section 11.5).
+func HoldsFunc(T types2.Type) bool { return holdsFunc(T, map[types2.Type]bool{}) }
 
 func holdsFunc(T types2.Type, seen map[types2.Type]bool) bool {
 	if seen[T] {
@@ -72,7 +77,7 @@ func holdsFunc(T types2.Type, seen map[types2.Type]bool) bool {
 // literals and conversions, flow-insensitively: a subset of what the
 // lowerer puts in the region.
 func (fb *fnb) planRegion(sig *types2.Signature, body *ast.BlockStmt) {
-	if !regionSig(sig) || body == nil {
+	if !RegionSig(sig) || body == nil {
 		return
 	}
 	fb.regionNodes = map[ast.Node]bool{}

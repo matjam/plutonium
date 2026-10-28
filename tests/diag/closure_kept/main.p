@@ -1,7 +1,7 @@
 package main
 
 // Closures of calls in a loop kept past the iteration by the functions they
-// are passed to, or by their own code (spec section 4.5). Calling such a
+// are passed to, or by their own code (spec section 11.5). Calling such a
 // closure stores only what its function's summary says; these are the ways
 // a summary records that a closure, or what it holds, is kept.
 

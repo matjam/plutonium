@@ -1,7 +1,7 @@
 package main
 
 // Each function returns a closure record that cannot be built in the region
-// its caller provides (spec section 4.5), so it would outlive its frame.
+// its caller provides (spec section 11.5), so it would outlive its frame.
 
 type Seq func(yield func(int) bool)
 

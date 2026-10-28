@@ -1,0 +1,7 @@
+$DIR/main.p:25:9: cannot return p, which points into the closure mk() returns, built in h's frame
+$DIR/main.p:32:9: cannot return q, which points into the closure mk() returns, built in h2's frame
+$DIR/main.p:39:11: cannot keep p past this iteration of the loop: it points into the region of mk(), and it is stored in keep, declared outside the loop (main.p:37)
+$DIR/main.p:54:11: cannot keep p past this iteration of the loop: it points into the region of mk(), and it is stored in s.p
+$DIR/main.p:69:10: cannot keep p past this iteration of the loop: it points into the region of mk(), and it is stored in keep, declared outside the loop (main.p:62)
+$DIR/main.p:83:2: cannot store p in package variable saved, which outlives Save's frame
+$DIR/main.p:90:2: cannot store &x in *out, which outlives x

@@ -273,7 +273,7 @@ func (r *reporter) intro(l *loc, q types2.Qualifier) string {
 		if e, ok := l.node.(ast.Expr); ok {
 			what = exprText(e)
 		}
-		return compat.Sprintfb("%s returns a closure, which it builds in a region of its caller's frame, %s (at %s); the closure lives as long as that frame (section 4.5).", compat.ArgS(what), compat.ArgS(possessive(l.fn)), compat.ArgS(at))
+		return compat.Sprintfb("%s returns a closure, which it builds, with the variables it uses, in a region of its caller's frame, %s (at %s); they live as long as that frame (section 11.5).", compat.ArgS(what), compat.ArgS(possessive(l.fn)), compat.ArgS(at))
 	case lkArena:
 		name := "a local arena"
 		if l.v != nil {

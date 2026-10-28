@@ -1,6 +1,6 @@
 package main
 
-// Closure regions (spec section 4.5): a call in a loop reuses its region on
+// Closure regions (spec section 11.5): a call in a loop reuses its region on
 // every iteration, and a region cannot hold itself.
 
 func counterFrom(n int) func() int {

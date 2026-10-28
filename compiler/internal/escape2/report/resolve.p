@@ -763,6 +763,9 @@ func (r *reporter) loopStore(e *viewErr, f *finding) bool {
 			if v == nil || contains(lp, v.Pos()) && !inForHeader(lp, v.Pos()) {
 				continue
 			}
+			if !storesPointer(f, store{rhs: rv}) {
+				continue // total += *p reads through the view, keeps nothing
+			}
 			if f.l.node != nil && contains(rv, f.l.node.Pos()) || r.usesCarrier(f, rv) {
 				found, lhs, rhs = as, l, rv
 				return false
@@ -801,8 +804,10 @@ func (r *reporter) regionStore(e *viewErr, f *finding) {
 		e.pos = f.l.node.Pos()
 	}
 	st, ok := r.storeAt(f, f.path)
+	ok = ok && storesPointer(f, st)
 	for i := len(f.wit) - 1; i >= 0 && !ok; i-- {
 		st, ok = r.storeAt(f, r.enclosing(f.wit[i]))
+		ok = ok && storesPointer(f, st)
 	}
 	if !ok {
 		var tmp viewErr
@@ -818,6 +823,19 @@ func (r *reporter) regionStore(e *viewErr, f *finding) {
 		}
 	}
 	e.dst = "memory reached through a pointer"
+	if ok {
+		e.held = st.lhs
+		if f.info != nil && st.rhs != nil {
+			// What is kept: a closure (E3101), or a pointer into the
+			// region, the address of a variable a closure the call
+			// returns captures (E3006, section 11.5 "Refilling").
+			if tv, has := f.info.Types[st.rhs]; has && tv.Type != nil {
+				if _, isTuple := tv.Type.(*types2.Tuple); !isTuple && !eir.HoldsFunc(tv.Type) {
+					e.expr, e.regionPtr = st.rhs, true
+				}
+			}
+		}
+	}
 	id, isID := ast.Unparen(lhsOrNil(st.lhs)).(*ast.Ident)
 	if !ok || !isID || f.info == nil {
 		return
@@ -835,6 +853,17 @@ func (r *reporter) regionStore(e *viewErr, f *finding) {
 	} else {
 		e.dst = compat.Concat(v.Name(), ", declared outside the loop (", r.basePos(v.Pos()), ")")
 	}
+}
+
+// storesPointer reports whether st can keep a view: a store of a value
+// that holds no pointer, such as total += *p read through the view, keeps
+// nothing past the iteration.
+func storesPointer(f *finding, st store) bool {
+	if st.rhs == nil || f.info == nil {
+		return true
+	}
+	tv, has := f.info.Types[st.rhs]
+	return !has || tv.Type == nil || holdsPointers(tv.Type)
 }
 
 func lhsOrNil(e ast.Expr) ast.Expr {

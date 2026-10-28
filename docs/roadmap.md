@@ -317,13 +317,23 @@ against the corrected specification. The immediate implementation order is:
      no longer starts a scheduler thread either. Tests: `TestKernelArenaNeedsNoScheduler` (arenas build in
      kernel mode at -O0 and -O2; a task still needs a scheduler), and `TestBoundLateHookGoexit` runs its
      program with and without a task.
-137. **The address of a variable in a region** (planned; sections 11.5, 18.3; found by the second adversarial
-     review of the escape analysis, program c31). Section 11.5 allows a function that returns a closure to
-     return or store the address of a variable the closure captures, which lives in the caller's region and
-     is a view of the caller's frame at that call. The compiler rejects it as a pointer to a local variable
-     (E3001): `func mk() (func() int, *int) { x := 1; g := func() int { return x }; return g, &x }`. The
-     analysis must treat such an address as a view of the caller's frame at that call, kept from the next
-     run of the call (section 11.5, "Refilling"), and the variable must live in the region.
+137. **The address of a variable in a region** (done; sections 11.5, 18.3, 18.4; found by the second
+     adversarial review of the escape analysis, program c31). A function that returns a closure may return
+     the address of a variable the closure captures, or store it in the region (in another captured
+     variable): `func mk() (func() int, *int) { x := 1; g := func() int { return x }; return g, &x }`
+     compiles, the variable lives in the caller's region, and the closure and the pointer see the same
+     variable. The address is a view of the caller's frame at that call. A function that takes no region
+     (its results hold no func) and returns it is E3001 (`func h() *int { _, p := mk(); return p }` used to compile); one that
+     returns a closure passes its region down and may return it. Kept past an iteration of a loop around
+     the call it is E3006 with its own message ("it points into the region of `mk()`"), where a closure
+     kept so stays E3101. Storing it in a package variable or through a pointer the caller passed is E3002:
+     "stores" in 11.5 is read as a store into region memory only. Tests: `tests/diag/closure_region_address`
+     (E3001, E3006 in a `for` loop, a field and a `goto` loop, E3002 twice),
+     `tests/diag/closure_region_address_run` (runs), and
+     `tests/escape/accepted_address_of_a_variable_a_returned_closure_captures`, which was a `knownfail`.
+     Known holes: a `goto` loop whose kept pointer is dead where the next iteration starts is accepted, as
+     for any frame view (18.4 checks a kept view there; nothing can read the stale value); a store whose
+     right side is a tuple keeps the E3101 wording for a pointer.
 138. **Views of local owners, counted references and arenas bounded at compile time** (done; sections
      18.3 "A local owner's memory" with E3001, E3002, E3313 and E3314, 18.7 rule 5, 18.9; found by the third
      adversarial review of the escape analysis, defect 7). A view obtained from an owner held in a local
@@ -457,9 +467,6 @@ against the corrected specification. The immediate implementation order is:
        (`rejected_fmt_calls_a_pointer_method_of_a_struct_field_inside_a_box`).
      - Two false rejections: a method that keeps its receiver applied to a box the type assertion
        rules out, and a value method that keeps a pointer the value holds counted as keeping the box.
-     - `rejected_address_of_a_variable_a_returned_closure_captures`, which item 137 decides. Related:
-       escape2 accepts returning the address from the caller,
-       `func h(k int) *int { _, p := f(k); return p }`, which the spec rejects (E3001).
      Many messages also changed with the switch and are weaker in places, for example a store of
      `[1]*int{&x}` into a local `src` reported in place of the `copy` into a package vector's slice,
      and a format string reported in place of `&in` (`review2_programs_f26`, `f27`).

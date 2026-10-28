@@ -1,1 +1,0 @@
-$DIR/main.p:4:34: cannot return &n, a pointer to a parameter

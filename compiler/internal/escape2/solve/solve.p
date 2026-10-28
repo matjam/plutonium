@@ -1007,6 +1007,11 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		case tObj:
 			l, _ := s.life(t.base)
 			switch {
+			case s.isRegion(t.base) && s.f.Sig != nil && !eir.RegionSig(s.f.Sig):
+				// A function that takes no region (section 11.5) has its
+				// calls' regions in its own frame: what points into one
+				// is a view of that frame, and returning it is E3001.
+				s.report(cE3001, t.base, b)
 			case s.isRegion(t.base):
 				s.addOuter(r)
 				s.noteOuterRegion(t.base)

@@ -1,9 +1,10 @@
 $DIR/main.p:10:17: cannot pass gen(3) to the function value (which may call the loop body at main.p:10), which keeps it after returning
     gen(3) points into the closure gen(3) returns, built in h's frame. gen(3)
-    returns a closure, which it builds in a region of its caller's frame, h's
-    (at main.p:10); the closure lives as long as that frame (section 4.5). the
-    function value (which may call the loop body at main.p:10) stores argument 1
-    in package variable saved (main.p:11), so gen(3) would outlive h's frame.
+    returns a closure, which it builds, with the variables it uses, in a region
+    of its caller's frame, h's (at main.p:10); they live as long as that frame
+    (section 11.5). the function value (which may call the loop body at
+    main.p:10) stores argument 1 in package variable saved (main.p:11), so
+    gen(3) would outlive h's frame.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the

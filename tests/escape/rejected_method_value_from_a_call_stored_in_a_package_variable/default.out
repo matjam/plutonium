@@ -1,9 +1,9 @@
 $DIR/main.p:7:15: cannot store f(C{}) in package variable saved, which outlives main's frame
-    f(C{}) returns a closure, which it builds in a region of its caller's frame,
-    main's (at main.p:7); the closure lives as long as that frame (section 4.5).
-    When main returns, its frame is reclaimed, but package variables live for
-    the whole program, so package variable saved would be left pointing at
-    reclaimed memory.
+    f(C{}) returns a closure, which it builds, with the variables it uses, in a
+    region of its caller's frame, main's (at main.p:7); they live as long as
+    that frame (section 11.5). When main returns, its frame is reclaimed, but
+    package variables live for the whole program, so package variable saved
+    would be left pointing at reclaimed memory.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the

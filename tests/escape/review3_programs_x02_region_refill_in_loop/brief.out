@@ -1,1 +1,1 @@
-$DIR/main.p:16:11: cannot keep the closure mk(42 + i) returns past this iteration of the loop: it is stored in first, declared outside the loop (main.p:14)
+$DIR/main.p:16:11: cannot keep p past this iteration of the loop: it points into the region of mk(42 + i), and it is stored in first, declared outside the loop (main.p:14)

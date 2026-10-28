@@ -1,10 +1,10 @@
 $DIR/main.p:9:12: cannot store own(3)() in package variable saved, which outlives h's frame
     own(3)() points into the closure own(3) returns, built in h's frame. own(3)
-    returns a closure, which it builds in a region of its caller's frame, h's
-    (at main.p:9); the closure lives as long as that frame (section 4.5). When h
-    returns, its frame is reclaimed, but package variables live for the whole
-    program, so package variable saved would be left pointing at reclaimed
-    memory.
+    returns a closure, which it builds, with the variables it uses, in a region
+    of its caller's frame, h's (at main.p:9); they live as long as that frame
+    (section 11.5). When h returns, its frame is reclaimed, but package
+    variables live for the whole program, so package variable saved would be
+    left pointing at reclaimed memory.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the

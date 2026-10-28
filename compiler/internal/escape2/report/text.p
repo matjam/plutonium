@@ -75,6 +75,11 @@ type viewErr struct {
 	loop    ast.Node    // sinkLoop: the loop whose iterations reuse l
 	iterVar *types2.Var // sinkLoop with a closure: the loop's variable it uses
 
+	// sinkRegionLoop: the view kept is a pointer into the region, not a
+	// closure (section 11.5, "Refilling"), and where it is stored.
+	regionPtr bool
+	held      ast.Expr
+
 	exprType types2.Type     // the type of expr, if known
 	qual     *types2.Package // the package the messages are relative to
 }
@@ -391,6 +396,13 @@ func (r *reporter) viewDiag(e *viewErr) *diag.Diagnostic {
 		r.loopDiag(d, e, x, add)
 	case sinkRegionLoop:
 		d.Code = diag.ClosureRegionLoop
+		if e.regionPtr {
+			// The address of a variable in the region is a view of
+			// this frame, checked like a loop variable's (E3006).
+			d.Code = diag.LoopFrameView
+			r.regionPtrDiag(d, e, x, add)
+			break
+		}
 		r.regionLoopDiag(d, e, add)
 	case sinkBox:
 		d.Code = diag.StaleView
@@ -656,6 +668,26 @@ func (r *reporter) regionLoopDiag(d *diag.Diagnostic, e *viewErr, add func(strin
 		}
 	}
 	add(compat.Concat(text, fix))
+}
+
+// regionPtrDiag explains a pointer into the region of a call in a loop,
+// kept past the iteration (E3006): the call returns the address of a
+// variable a closure it returns captures, which lives in the region, and
+// the call refills the region on the next iteration (section 11.5).
+func (r *reporter) regionPtrDiag(d *diag.Diagnostic, e *viewErr, x string, add func(string)) {
+	call := "the call"
+	if ce, ok := e.l.node.(*ast.CallExpr); ok {
+		call = shortExpr(ce)
+	}
+	where := e.dst
+	if e.held != nil {
+		if _, isID := ast.Unparen(e.held).(*ast.Ident); !isID {
+			where = exprText(e.held)
+		}
+	}
+	d.Msg = compat.Sprintfb("cannot keep %s past this iteration of the loop: it points into the region of %s, and it is stored in %s", compat.ArgS(x), compat.ArgS(call), compat.ArgS(where))
+	add(compat.Sprintfb("The pointer %s points to a variable that the closure %s returns uses. A function that returns a closure builds it, with the variables it uses, in a region its caller provides (spec section 11.5). The region of a call in a loop is part of this frame, and the call refills the same region on every iteration, so the variable %s points to on one iteration is overwritten on the next. Keeping %s past the iteration, in %s, would leave it seeing the next iteration's variable, not this one's.", compat.ArgS(x), compat.ArgS(call), compat.ArgS(x), compat.ArgS(x), compat.ArgS(where)))
+	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before the iteration ends, or keep a copy of the value it points to instead of the pointer.", compat.ArgS(x))})
 }
 
 // shortExpr writes a call for a message, shortened as the lowerer does.
