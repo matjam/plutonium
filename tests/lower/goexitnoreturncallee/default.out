@@ -1,0 +1,10 @@
+direct deferred
+drop 1
+true
+drop 2
+transitive deferred
+drop 3
+true
+drop 4
+true
+end

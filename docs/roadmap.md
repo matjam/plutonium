@@ -470,6 +470,26 @@ against the corrected specification. The immediate implementation order is:
      Many messages also changed with the switch and are weaker in places, for example a store of
      `[1]*int{&x}` into a local `src` reported in place of the `copy` into a package vector's slice,
      and a format string reported in place of `&in` (`review2_programs_f26`, `f27`).
+143. **An exit through a function that never returns** (done; section 17.3). A function whose body ends
+     in a panic or a call that never returns counts as never returning, but `rt.ExitTask` before that
+     point still ends the task through its return path. The caller skipped the exit check after such
+     a call and ended the block in an illegal instruction, so the task crashed with SIGILL in place of
+     running its caller's deferred calls and drops. The call now gets the check when the callee may
+     exit, and the code after the check stays unreachable, as escape2's EIR has it. The panic handler
+     is left out of the exit analysis, as its lowering already left it out. Cases
+     `lower/goexitnoreturncallee` and `_o2`.
+144. **One exit cleanup path per frame** (planned; section 17.3, 18.6). Every call that may exit gets its
+     own copy of the frame's exit cleanup: deferred calls, the scopes open there and the frame slots
+     (`leaveForGoexit`, `emitReturnFor`, `finishReturns`). A function holding N owners and making N such
+     calls has code quadratic in N: `big` in a generated probe is 8 KB at N=25, 24 KB at 50, 81 KB at 100
+     and 293 KB at 200 (-O0; -O2 is close from N=100). The plan: memoize an exit landing per cleanup
+     entry, keyed by the entry, its slot count, the move checker's known-empty set restricted to that
+     entry's variables, and `goexitCleared`; each landing releases its entry's slots and jumps to its
+     parent's landing, and one function-level landing runs the deferred calls and the frame release
+     once. Sites whose known-empty sets differ get separate landings, so a variable known to hold
+     nothing is still not dropped (section 18.6). This needs landings built before their predecessors
+     are all known (unsealed blocks in the SSA builder) and per-statement temporaries handled at the
+     innermost landing, so it is left for a change of its own with the `goexit_*` tests as the check.
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a

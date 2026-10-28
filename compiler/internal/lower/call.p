@@ -389,9 +389,19 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 	if pos.IsValid() {
 		call.Pos = pos
 	}
-	s.endCall(call, c.noReturn)
 	if s.callMayGoexit(c, sig) {
+		// A callee that never returns by its body may still end with
+		// Goexit, which returns here with the flag set: the call does
+		// return, and the code after the check is never reached.
+		call.Call.NoReturn = false
+		s.endCall(call, false)
+		leaves := s.cleanupGoexit == nil
 		s.checkGoexit(pos)
+		if c.noReturn && leaves {
+			s.endUnreachable()
+		}
+	} else {
+		s.endCall(call, c.noReturn)
 	}
 
 	var out []value
@@ -446,15 +456,20 @@ func (s *fnState) endCall(call *ssa.Value, noReturn bool) {
 	s.setMem(s.newValue(ssa.OpSelectN, ssa.TMem, call))
 	if noReturn {
 		call.Call.NoReturn = true
-		s.b.Kind = ssa.BlockExit
-		s.b.SetControl(s.mem())
-		s.b = nil
-		// Code after a call that does not return is unreachable; give it
-		// a block so lowering can continue harmlessly.
-		dead := s.newBlock(ssa.BlockInvalid)
-		s.seal(dead)
-		s.startBlock(dead)
+		s.endUnreachable()
 	}
+}
+
+// endUnreachable ends the current block, which control never leaves.
+func (s *fnState) endUnreachable() {
+	s.b.Kind = ssa.BlockExit
+	s.b.SetControl(s.mem())
+	s.b = nil
+	// Code after a call that does not return is unreachable; give it
+	// a block so lowering can continue harmlessly.
+	dead := s.newBlock(ssa.BlockInvalid)
+	s.seal(dead)
+	s.startBlock(dead)
 }
 
 func (s *fnState) selectN(call *ssa.Value, i int, t *ssa.Type) *ssa.Value {

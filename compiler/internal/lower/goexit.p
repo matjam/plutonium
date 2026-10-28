@@ -203,7 +203,7 @@ func (l *Lowerer) analyzeGoexit() {
 					n.method = fn.Name()
 				}
 				gx.funcs[fn] = n
-				if fn == catch || fn == gx.catchFree || fn == gx.catchTimer || fn == gx.taskMain {
+				if fn == catch || fn == gx.catchFree || fn == gx.catchTimer || fn == gx.taskMain || fn == l.panicFn {
 					continue // never ends with Goexit itself
 				}
 				if fn == goexit {
@@ -569,13 +569,17 @@ func (l *Lowerer) deferMayGoexit(s *fnState, call *ast.CallExpr) bool {
 }
 
 // callMayGoexit reports whether the call c, of signature sig, may end with
-// Goexit, so that the caller must check for it.
+// Goexit, so that the caller must check for it. A callee that never
+// returns by its body (noreturn.p) may too: rt.ExitTask returns with the
+// flag set, and the callee leaves through its return path, so the call
+// returns. Only a declared function never returns, and the analysis says
+// whether it may end with Goexit.
 func (s *fnState) callMayGoexit(c callee, sig *types2.Signature) bool {
 	gx := s.l.gx
-	if !gx.active || c.deferred || c.noReturn || s.gxBoundary == gxCatch {
+	if !gx.active || c.deferred || s.gxBoundary == gxCatch {
 		return false
 	}
-	if s.gxBoundary == gxMain {
+	if s.gxBoundary == gxMain && !c.noReturn {
 		return true
 	}
 	if c.sym != nil {
