@@ -86,7 +86,7 @@ func newServer(opts Options, out io.Writer) *server {
 		out:       pu.New(writer{w: out}),
 		log:       pu.New(logger{w: opts.Log, verbose: opts.Verbose}),
 		docs:      map[string]*document{},
-		published: map[string]string{},
+		published: map[string]uint64{},
 	})
 }
 

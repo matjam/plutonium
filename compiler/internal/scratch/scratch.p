@@ -207,6 +207,238 @@ func Drop(key unsafe.Pointer) {
 	}
 }
 
+// A Region is memory for things that are freed together, such as what
+// the language server makes when it checks one package or reads one
+// message: chunks taken from the heap and filled in order, freed all at
+// once by Release. NewRegion makes one, and Use makes it the current
+// allocator. Its chunks start small and double, so that a region holding
+// one short string costs little.
+//
+// HeapFor finds the region a pointer is in, so that a cache the type
+// checker fills lazily on a type comes from the memory the type is in,
+// and is freed with it. Every live region's chunks are recorded for it.
+//
+// In check mode (PLUTO_SCRATCH_CHECK) the chunks are pages of their own,
+// which Release makes inaccessible, so that a pointer into a released
+// region faults where it is used.
+type Region struct {
+	chunks unsafe.Pointer // the chunk being filled, linking to the older ones
+	off    uintptr        // bytes of it in use
+	size   uintptr        // its size
+	used   uintptr        // bytes of all its chunks
+}
+
+const (
+	regionFirst = 4 << 10
+	regionMax   = 1 << 20
+)
+
+// A regionSpan is the memory of one chunk of a live region.
+type regionSpan struct {
+	lo, hi uintptr
+	r      uintptr // the *Region as a number; Release removes the span before it frees the Region
+}
+
+var (
+	spans      unsafe.Pointer // [spansCap]regionSpan, sorted by lo, in the heap
+	spansLen   int
+	spansCap   int
+	regions    int     // live regions
+	regionUsed uintptr // bytes of their chunks
+)
+
+func initOnce() {
+	if !inited {
+		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
+		heap = alloc.Default()
+		inited = true
+	}
+}
+
+// NewRegion returns an empty region. The Region itself is in the heap,
+// and Release frees it.
+func NewRegion() *Region {
+	initOnce()
+	r := (*Region)(heap.Alloc(unsafe.Sizeof(Region{}), unsafe.Alignof(Region{})))
+	if r == nil {
+		panic("scratch: out of memory")
+	}
+	*r = Region{}
+	regions++
+	return r
+}
+
+// Use makes r the current allocator until Restore is called.
+func (r *Region) Use() alloc.Restore { return alloc.Use(r) }
+
+func (r *Region) Alloc(size, align uintptr) unsafe.Pointer {
+	if size == 0 {
+		size = 1
+	}
+	if align < 8 {
+		align = 8
+	}
+	base := uintptr(r.chunks)
+	off := (base+r.off+align-1)&^(align-1) - base
+	if r.chunks == nil || off+size > r.size {
+		if !r.grow(size + align) {
+			return nil
+		}
+		base = uintptr(r.chunks)
+		off = (base+r.off+align-1)&^(align-1) - base
+	}
+	r.off = off + size
+	return unsafe.Add(r.chunks, off)
+}
+
+// grow makes a chunk with room for need bytes the current one: twice the
+// size of the last, up to regionMax, or larger if need is.
+func (r *Region) grow(need uintptr) bool {
+	n := uintptr(regionFirst)
+	if r.size > 0 {
+		n = r.size * 2
+		if n > regionMax {
+			n = regionMax
+		}
+	}
+	if need+bumpHeader > n {
+		n = need + bumpHeader
+	}
+	n = (n + pageSize - 1) &^ (pageSize - 1)
+	var c unsafe.Pointer
+	if check {
+		c = rt.Mmap(n)
+	} else {
+		c = heap.Alloc(n, 16)
+	}
+	if c == nil {
+		return false
+	}
+	*(*unsafe.Pointer)(c) = r.chunks
+	*(*uintptr)(unsafe.Add(c, 8)) = n
+	r.chunks, r.off, r.size = c, bumpHeader, n
+	r.used += n
+	regionUsed += n
+	addSpan(regionSpan{uintptr(c), uintptr(c) + n, uintptr(unsafe.Pointer(r))})
+	return true
+}
+
+// Free does nothing: a region's memory is freed all at once by Release.
+func (r *Region) Free(p unsafe.Pointer, size, align uintptr) {}
+
+// Used returns the bytes of r's chunks.
+func (r *Region) Used() int { return int(r.used) }
+
+// Release frees r's memory and r. Nothing in it may be used afterwards.
+func (r *Region) Release() {
+	if r == nil {
+		return
+	}
+	c := r.chunks
+	for c != nil {
+		next := *(*unsafe.Pointer)(c)
+		n := *(*uintptr)(unsafe.Add(c, 8))
+		removeSpan(uintptr(c))
+		if check {
+			rt.Discard(c, n)
+			if !rt.Mprotect(c, n, rt.ProtNone) {
+				panic("scratch: mprotect failed (PLUTO_SCRATCH_CHECK)")
+			}
+		} else {
+			heap.Free(c, n, 16)
+		}
+		c = next
+	}
+	regionUsed -= r.used
+	regions--
+	*r = Region{}
+	heap.Free(unsafe.Pointer(r), unsafe.Sizeof(Region{}), unsafe.Alignof(Region{}))
+}
+
+// Regions returns how many regions are live and the bytes of their chunks.
+func Regions() (int, int) { return regions, int(regionUsed) }
+
+func span(i int) *regionSpan {
+	return (*regionSpan)(unsafe.Add(spans, uintptr(i)*unsafe.Sizeof(regionSpan{})))
+}
+
+// findSpan returns the index of the first span whose lo is above p.
+func findSpan(p uintptr) int {
+	lo, hi := 0, spansLen
+	for lo < hi {
+		m := int(uint(lo+hi) >> 1)
+		if span(m).lo <= p {
+			lo = m + 1
+		} else {
+			hi = m
+		}
+	}
+	return lo
+}
+
+func addSpan(s regionSpan) {
+	size := unsafe.Sizeof(regionSpan{})
+	if spansLen == spansCap {
+		n := spansCap * 2
+		if n == 0 {
+			n = 256
+		}
+		p := heap.Alloc(uintptr(n)*size, unsafe.Alignof(regionSpan{}))
+		if p == nil {
+			panic("scratch: out of memory")
+		}
+		if spansLen > 0 {
+			copy(unsafe.Slice((*byte)(p), uintptr(spansLen)*size), unsafe.Slice((*byte)(spans), uintptr(spansLen)*size))
+			heap.Free(spans, uintptr(spansCap)*size, unsafe.Alignof(regionSpan{}))
+		}
+		spans, spansCap = p, n
+	}
+	i := findSpan(s.lo)
+	for j := spansLen; j > i; j-- {
+		*span(j) = *span(j - 1)
+	}
+	*span(i) = s
+	spansLen++
+}
+
+func removeSpan(lo uintptr) {
+	i := findSpan(lo) - 1
+	if i < 0 || span(i).lo != lo {
+		panic("scratch: region chunk not recorded")
+	}
+	for j := i; j+1 < spansLen; j++ {
+		*span(j) = *span(j + 1)
+	}
+	spansLen--
+}
+
+// regionOf returns the live region whose memory p is in, or nil.
+func regionOf(p unsafe.Pointer) *Region {
+	if spansLen == 0 {
+		return nil
+	}
+	a := uintptr(p)
+	i := findSpan(a) - 1
+	if i < 0 {
+		return nil
+	}
+	if s := span(i); a < s.hi {
+		return (*Region)(unsafe.Pointer(s.r))
+	}
+	return nil
+}
+
+// HeapFor makes current, until Restore is called, the memory that a cache
+// filled lazily on the object at p should come from: the region p is in,
+// or otherwise the heap, as Heap does. A cache so made is freed with its
+// object, and does not come from memory that lives less long.
+func HeapFor(p unsafe.Pointer) alloc.Restore {
+	if r := regionOf(p); r != nil {
+		return alloc.Use(r)
+	}
+	return Heap()
+}
+
 // homeChunk is the size of the chunks a home takes from the heap: most
 // functions' code fits in a few.
 const homeChunk = 32 << 10
@@ -317,9 +549,12 @@ func Outer() alloc.Restore {
 // Heap makes the heap the current allocator until Restore is called, so
 // that a cache filled lazily by whichever step first asks (the type
 // checker's expanded methods and underlying types) does not come from any
-// step's scratch memory.
+// step's scratch memory or any Region.
 func Heap() alloc.Restore {
 	if depth > 0 {
+		return alloc.Use(heap)
+	}
+	if _, ok := alloc.Default().(*Region); ok {
 		return alloc.Use(heap)
 	}
 	return alloc.Use(alloc.Default())

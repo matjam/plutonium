@@ -7,6 +7,7 @@ package lsp
 
 import (
 	"compiler/compat"
+	"compiler/internal/scratch"
 	"compiler/pu"
 	"pluto/io"
 	"pluto/strconv"
@@ -77,6 +78,9 @@ func (r *reader) fill() bool {
 	if r.err != nil {
 		return false
 	}
+	// The buffer lives across messages, so it grows in the heap and not in
+	// the region of the message being read.
+	defer scratch.Heap().Restore()
 	if r.pos > 0 {
 		n := copy(r.buf, r.buf[r.pos:])
 		r.buf = r.buf[:n]
@@ -220,6 +224,9 @@ type writer struct {
 }
 
 func (w *writer) send(body []byte) error {
+	// What w.w keeps of a write, such as a buffer's growth, outlives the
+	// message being handled.
+	defer scratch.Heap().Restore()
 	header := compat.Sprintfb("Content-Length: %d\r\n\r\n", compat.ArgI(int64(len(body))))
 	if _, err := w.w.Write(compat.Bytes(header)); err != nil {
 		return err

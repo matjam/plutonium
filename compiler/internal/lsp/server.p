@@ -19,9 +19,11 @@ package lsp
 
 import (
 	"compiler/compat"
+	"compiler/internal/scratch"
 	"compiler/pu"
 	"pluto/io"
 	"pluto/path/filepath"
+	"pluto/slices"
 	"pluto/strings"
 	"pluto/syscall"
 	"pluto/time"
@@ -105,7 +107,13 @@ type server struct {
 	exited      bool
 
 	docs      map[string]*document // open documents by path
-	published map[string]string    // path -> diagnostics last published, as JSON
+	published map[string]uint64    // path -> hash of the diagnostics last published, as JSON
+	paths     map[string]string    // the keys of docs and published, interned in the heap
+
+	// The memory of the settings and modes, and of the workspace folders,
+	// once a change has replaced what initialize put in the heap.
+	settingsMem *scratch.Region
+	rootsMem    *scratch.Region
 
 	// The debounce timer: armed after an edit, it fires debounce after
 	// armedAt.
@@ -116,6 +124,7 @@ type server struct {
 type document struct {
 	uri     string
 	version int
+	mem     *scratch.Region // holds the document; closing it frees it
 }
 
 // resetTimer arms the debounce timer, as time.Timer's Reset does.
@@ -137,7 +146,7 @@ func Serve(in io.Reader, out io.Writer, opts Options) error {
 		out:       pu.New(writer{w: out}),
 		log:       pu.New(logger{w: opts.Log, verbose: opts.Verbose}),
 		docs:      map[string]*document{},
-		published: map[string]string{},
+		published: map[string]uint64{},
 	})
 	r := newReader(in)
 	for {
@@ -145,7 +154,11 @@ func Serve(in io.Reader, out io.Writer, opts Options) error {
 			left := opts.Debounce - compat.Since(s.armedAt)
 			if left <= 0 {
 				s.armed = false
+				mem := scratch.NewRegion()
+				use := mem.Use()
 				s.diagnose()
+				use.Restore()
+				mem.Release()
 				continue
 			}
 			if opts.InFd >= 0 {
@@ -160,14 +173,26 @@ func Serve(in io.Reader, out io.Writer, opts Options) error {
 				}
 			}
 		}
+		// Each message is read and handled in memory of its own, freed
+		// once it is handled: what outlives it (the workspace's packages
+		// and texts, the open documents, the settings) goes to the heap
+		// or to a region of its own.
+		mem := scratch.NewRegion()
+		use := mem.Use()
 		m, err := readMessage(r)
 		if err != nil {
+			use.Restore()
 			if err == io.EOF {
-				return nil
+				err = nil
+			} else {
+				err = scratch.Error(err)
 			}
+			mem.Release()
 			return err
 		}
 		s.handle(m)
+		use.Restore()
+		mem.Release()
 		if s.exited {
 			if !s.shutdown {
 				return ErrExitWithoutShutdown
@@ -429,9 +454,13 @@ func (s *server) notification(method string, params *jsonValue, hasParams bool) 
 }
 
 func (s *server) initialize(p *InitializeParams) ([]byte, *rpcError) {
+	// The server's state outlives the message: it goes to the heap.
+	defer scratch.Heap().Restore()
 	if opts := p.InitializationOptions; !opts.isNull() {
 		var d decoder
-		decodeSettings(&d, opts, &s.settings, "")
+		settings := s.settings
+		decodeSettings(&d, opts, &settings, "")
+		s.settings = settings.clone()
 		if d.err != nil {
 			return nil, newError(codeInvalidParams, compat.Concat("initializationOptions: ", d.err.Error()))
 		}
@@ -450,7 +479,7 @@ func (s *server) initialize(p *InitializeParams) ([]byte, *rpcError) {
 		s.addRoot(p.RootURI)
 	}
 	if len(s.ws.roots) == 0 && p.RootPath != "" {
-		s.ws.roots = compat.Append(s.ws.roots, filepath.Clean(p.RootPath))
+		s.ws.roots = compat.Append(s.ws.roots, compat.Concat(filepath.Clean(p.RootPath)))
 	}
 	s.initialized = true
 	s.log.info("initialized", compat.Concat("stdlib=", logValue(stdRoot), " roots=", logValue(compat.Concat("[", compat.Join(s.ws.roots, " "), "]")), " mode=", logValue(modes[0].name)))
@@ -469,7 +498,7 @@ func (s *server) addRoot(uri string) {
 			return
 		}
 	}
-	s.ws.roots = compat.Append(s.ws.roots, p)
+	s.ws.roots = compat.Append(s.ws.roots, compat.Concat(p))
 }
 
 func (s *server) showMessage(typ int, msg string) {
@@ -487,7 +516,14 @@ func (s *server) didOpen(p *DidOpenTextDocumentParams) {
 	if path == "" {
 		return
 	}
-	s.docs[path] = pu.New(document{uri: p.TextDocument.URI, version: p.TextDocument.Version})
+	mem := scratch.NewRegion() // the document outlives the message
+	use := mem.Use()
+	doc := pu.New(document{uri: compat.Concat(p.TextDocument.URI), version: p.TextDocument.Version, mem: mem})
+	use.Restore()
+	if old := s.docs[path]; old != nil {
+		old.mem.Release()
+	}
+	s.docs[s.intern(path)] = doc
 	s.setText(path, compat.Bytes(p.TextDocument.Text))
 	s.diagnose()
 }
@@ -529,18 +565,37 @@ func (s *server) didSave(p *DidSaveTextDocumentParams) {
 
 func (s *server) didClose(p *DidCloseTextDocumentParams) {
 	path := pathFromURI(p.TextDocument.URI)
-	if s.docs[path] == nil {
+	doc := s.docs[path]
+	if doc == nil {
 		return
 	}
 	delete(s.docs, path)
-	delete(s.ws.overlay, path)
+	doc.mem.Release()
+	s.ws.dropOverlay(path)
 	s.ws.invalidate(filepath.Dir(path))
 	s.diagnose()
 }
 
 func (s *server) setText(path string, src []byte) {
-	s.ws.overlay[path] = src
+	s.ws.setOverlay(path, src)
 	s.ws.invalidate(filepath.Dir(path))
+}
+
+// intern returns path in memory that outlives the message being handled,
+// the same copy for the same path every time, so that the keys of the
+// server's maps take no more memory than the files they name.
+func (s *server) intern(path string) string {
+	if p, ok := s.paths[path]; ok {
+		return p
+	}
+	h := scratch.Heap()
+	if s.paths == nil {
+		s.paths = map[string]string{}
+	}
+	p := compat.Concat(path)
+	s.paths[p] = p
+	h.Restore()
+	return p
 }
 
 func (s *server) didChangeConfiguration(p *DidChangeConfigurationParams) {
@@ -564,14 +619,21 @@ func (s *server) didChangeConfiguration(p *DidChangeConfigurationParams) {
 	if d.err != nil {
 		return
 	}
-	modes, err := modesFor(settings)
-	if err != nil {
+	if _, err := modesFor(settings); err != nil {
 		s.showMessage(1, compat.Concat("Plutonium: ", err.Error()))
 		return
 	}
-	s.settings = settings
-	s.ws.modes = modes
+	// The settings outlive the message. The old ones are freed once no
+	// cached package's key names one of their modes.
+	mem := scratch.NewRegion()
+	use := mem.Use()
+	s.settings = settings.clone()
+	s.ws.modes, _ = modesFor(s.settings)
+	use.Restore()
+	old := s.settingsMem
+	s.settingsMem = mem
 	s.ws.invalidateAll()
+	old.Release()
 	s.diagnose()
 }
 
@@ -594,19 +656,35 @@ func (s *server) didChangeWatchedFiles(p *DidChangeWatchedFilesParams) {
 }
 
 func (s *server) didChangeWorkspaceFolders(p *DidChangeWorkspaceFoldersParams) {
+	roots := compat.Clone(s.ws.roots)
 	for _, f := range p.Event.Removed {
 		path := pathFromURI(f.URI)
-		kept := s.ws.roots[:0]
-		for _, r := range s.ws.roots {
+		kept := roots[:0]
+		for _, r := range roots {
 			if r != path {
 				kept = compat.Append(kept, r)
 			}
 		}
-		s.ws.roots = kept
+		roots = kept
 	}
 	for _, f := range p.Event.Added {
-		s.addRoot(f.URI)
+		if path := pathFromURI(f.URI); path != "" && !slices.Contains(roots, path) {
+			roots = compat.Append(roots, path)
+		}
 	}
+	// The folders outlive the message: they get memory of their own, and
+	// the memory of the old ones is freed.
+	mem := scratch.NewRegion()
+	use := mem.Use()
+	kept := compat.Make[string](len(roots))
+	for i, r := range roots {
+		kept[i] = compat.Concat(r)
+	}
+	use.Restore()
+	old := s.rootsMem
+	s.ws.roots = kept
+	s.rootsMem = mem
+	old.Release()
 }
 
 // fileAt returns the checked file of a document and the byte offset of a

@@ -67,6 +67,16 @@ type Settings struct {
 	Tags   []string // additional build tags
 }
 
+// clone copies the settings into the current allocator. The server keeps
+// its settings in the heap, and the decoded ones are views of a message.
+func (s Settings) clone() Settings {
+	c := Settings{Target: compat.Concat(s.Target), Mode: compat.Concat(s.Mode)}
+	for _, t := range s.Tags {
+		c.Tags = compat.Append(c.Tags, compat.Concat(t))
+	}
+	return c
+}
+
 type DidOpenTextDocumentParams struct {
 	TextDocument TextDocumentItem
 }

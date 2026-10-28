@@ -13,6 +13,7 @@ import (
 	"compiler/pu"
 	"pluto/strings"
 	"pluto/sync/atomic"
+	"unsafe"
 )
 
 // Type-checking Named types is subtle, because they may be recursively
@@ -226,7 +227,7 @@ func (n *Named) unpack() *Named {
 		return n
 	}
 
-	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
+	defer scratch.HeapFor(unsafe.Pointer(n)).Restore() // a lazily filled cache lives as long as its type
 
 	// TODO(rfindley): if n.check is non-nil we can avoid locking here, since
 	// type-checking is not concurrent. Evaluate if this is worth doing.
@@ -394,7 +395,7 @@ func (t *Named) Method(i int) *Func {
 
 	assert(t.inst != nil) // only instances should have unexpanded methods
 	orig := t.inst.orig
-	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
+	defer scratch.HeapFor(unsafe.Pointer(t)).Restore() // a lazily filled cache lives as long as its type
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -591,7 +592,7 @@ func (t *Named) String() string { return TypeString(t, nil) }
 // the directCycles check phase.
 func (n *Named) resolveUnderlying() {
 	assert(n.stateHas(lazyLoaded | unpacked))
-	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
+	defer scratch.HeapFor(unsafe.Pointer(n)).Restore() // a lazily filled cache lives as long as its type
 
 	var seen map[*Named]bool // for debugging only
 	_ = seen

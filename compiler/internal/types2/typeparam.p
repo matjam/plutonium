@@ -11,6 +11,7 @@ import (
 	"compiler/internal/scratch"
 	"compiler/pu"
 	"pluto/sync/atomic"
+	"unsafe"
 )
 
 // Note: This is a uint32 rather than a uint64 because the
@@ -136,7 +137,7 @@ func (t *TypeParam) iface() *Interface {
 
 	// If we don't have an interface, wrap constraint into an implicit interface.
 	if ityp == nil {
-		defer scratch.Heap().Restore() // t.bound outlives any scratch step
+		defer scratch.HeapFor(unsafe.Pointer(t)).Restore() // t.bound lives as long as t
 		ityp = NewInterfaceType(nil, compat.Clone([]Type{bound}))
 		ityp.implicit = true
 		t.bound = ityp // update t.bound for next time (optimization)

@@ -8,6 +8,7 @@ import (
 	"compiler/internal/diag"
 	"compiler/internal/directive"
 	"compiler/internal/load"
+	"compiler/internal/scratch"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/parser"
 	"compiler/internal/syntax/scanner"
@@ -29,14 +30,23 @@ import (
 // A package is checked once per build mode, since build tags choose its
 // files. The standard library is checked like any other package and stays
 // cached across edits, since edits do not touch it.
+//
+// Memory: the compiler's allocator never frees, so a server that kept
+// each check's memory would grow with every edit. Each cached package
+// keeps what checking it made in a region of its own (pkg.mem), which
+// dropping the package frees, and each open document's text has a region
+// too (overlayMem). The workspace's own maps and strings come from the
+// heap. The server handles each message in a region it frees afterwards
+// (Serve), so what outlives a message is copied to the heap.
 type workspace struct {
-	fset    *token.FileSet
-	stdRoot string            // directory holding pluto/, the configured standard library
-	overlay map[string][]byte // open documents by path
-	modes   []buildMode       // the configured mode first
-	pkgs    map[pkgKey]*pkg
-	files   map[*token.File]*srcFile // every file of a cached package
-	roots   []string                 // workspace folders
+	fset       *token.FileSet
+	stdRoot    string                     // directory holding pluto/, the configured standard library
+	overlay    map[string][]byte          // open documents by path
+	overlayMem map[string]*scratch.Region // the memory of each overlay text
+	modes      []buildMode                // the configured mode first
+	pkgs       map[pkgKey]*pkg
+	files      map[*token.File]*srcFile // every file of a cached package
+	roots      []string                 // workspace folders
 }
 
 // A buildMode is a set of build tags a package can be checked under.
@@ -89,13 +99,42 @@ func newMode(name string, extra []string) buildMode {
 
 func newWorkspace(stdRoot string, modes []buildMode) *workspace {
 	return pu.New(workspace{
-		fset:    token.NewFileSet(),
-		stdRoot: stdRoot,
-		overlay: map[string][]byte{},
-		modes:   modes,
-		pkgs:    map[pkgKey]*pkg{},
-		files:   map[*token.File]*srcFile{},
+		fset:       token.NewFileSet(),
+		stdRoot:    stdRoot,
+		overlay:    map[string][]byte{},
+		overlayMem: map[string]*scratch.Region{},
+		modes:      modes,
+		pkgs:       map[pkgKey]*pkg{},
+		files:      map[*token.File]*srcFile{},
 	})
+}
+
+// setOverlay makes src the text of the open document at path. The text
+// and its key are copied into memory of their own, and the memory of the
+// text they replace is freed. src may be that text. The caller
+// invalidates the packages that read the old text.
+func (w *workspace) setOverlay(path string, src []byte) {
+	mem := scratch.NewRegion()
+	use := mem.Use()
+	key := compat.Concat(path)
+	text := compat.Clone(src)
+	use.Restore()
+	old := w.overlayMem[path]
+	// The old key is in the old memory: delete it before inserting.
+	delete(w.overlay, path)
+	delete(w.overlayMem, path)
+	w.overlay[key] = text
+	w.overlayMem[key] = mem
+	old.Release()
+}
+
+// dropOverlay closes the open document at path and frees its text. The
+// caller invalidates the packages that read it.
+func (w *workspace) dropOverlay(path string) {
+	mem := w.overlayMem[path]
+	delete(w.overlay, path)
+	delete(w.overlayMem, path)
+	mem.Release()
 }
 
 type pkgKey struct {
@@ -115,6 +154,9 @@ type pkg struct {
 	errors  []checkError
 	deps    []*pkg
 	modRoot string // directory holding the package's pluto.mod, or ""
+	// mem holds everything checking the package made, the pkg included;
+	// drop frees it.
+	mem *scratch.Region
 }
 
 // A srcFile is a parsed file of a package.
@@ -248,6 +290,31 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 	loading[key] = true
 	defer delete(loading, key)
 
+	// The package's memory: what the check makes, until invalidate drops
+	// the package. A dependency checked on the way gets its own.
+	mem := scratch.NewRegion()
+	use := mem.Use()
+	p, err := w.checkIn(key, names, mode, loading)
+	use.Restore()
+	if err != nil {
+		err = scratch.Error(err) // a copy, in the caller's memory
+		mem.Release()
+		return nil, err
+	}
+	p.mem = mem
+	w.pkgs[p.key] = p
+	for _, f := range p.files {
+		w.files[f.tok] = f
+	}
+	return p, nil
+}
+
+// checkIn is check on a cache miss, with the package's region as the
+// current allocator.
+func (w *workspace) checkIn(key pkgKey, names []string, mode buildMode, loading map[pkgKey]bool) (*pkg, error) {
+	key.dir = compat.Concat(key.dir) // the map's key: a copy in the region
+	dir := key.dir
+	tests := key.tests
 	p := pu.New(pkg{key: key})
 	for _, name := range names {
 		if !tests && strings.HasSuffix(name, "_test.p") {
@@ -275,7 +342,7 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 		if f == nil {
 			continue
 		}
-		p.files = compat.Append(p.files, pu.New(srcFile{path: path, text: newText(src), ast: f, tok: w.fset.File(f.Pos()), pkg: p}))
+		p.files = compat.Append(p.files, pu.New(srcFile{path: path, text: newText(src), ast: f, tok: w.fset.File(f.FileStart), pkg: p}))
 	}
 	if len(p.files) == 0 {
 		return nil, compat.NewError(compat.Sprintfb("no Plutonium source files in %s for %s mode", compat.ArgS(dir), compat.ArgS(mode.name)))
@@ -363,10 +430,6 @@ func (w *workspace) check(dir string, mode buildMode, tests bool, loading map[pk
 			p.errors = compat.Append(p.errors, newCheckError(f.path, f.src, d.Pos.Offset, d))
 		}
 	}
-	w.pkgs[key] = p
-	for _, f := range p.files {
-		w.files[f.tok] = f
-	}
 	return p, nil
 }
 
@@ -435,15 +498,21 @@ func (w *workspace) invalidate(dir string) {
 	for p := range gone {
 		delete(w.pkgs, p.key)
 		w.removeFiles(p)
+		p.mem.Release() // p with it
 	}
 }
 
 // invalidateAll drops every cached package.
 func (w *workspace) invalidateAll() {
+	var all []*pkg
 	for _, p := range w.pkgs {
 		w.removeFiles(p)
+		all = compat.Append(all, p)
 	}
 	clear(w.pkgs)
+	for _, p := range all {
+		p.mem.Release()
+	}
 }
 
 func (w *workspace) removeFiles(p *pkg) {

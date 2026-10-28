@@ -13,6 +13,7 @@ import (
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
 	"pluto/slices"
+	"unsafe"
 )
 
 // ----------------------------------------------------------------------------
@@ -162,7 +163,7 @@ func computeInterfaceTypeSet(check *Checker, pos token.Pos, ityp *Interface) *_T
 	if ityp.tset != nil {
 		return ityp.tset
 	}
-	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
+	defer scratch.HeapFor(unsafe.Pointer(ityp)).Restore() // a lazily filled cache lives as long as its type
 
 	// If the interface is not fully set up yet, the type set will
 	// not be complete, which may lead to errors when using the

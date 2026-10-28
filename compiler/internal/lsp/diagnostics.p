@@ -110,16 +110,19 @@ func diagnosticOf(e checkError, t *text) Diagnostic {
 func (s *server) publish(path string, diags []Diagnostic) {
 	w := newJSONWriter()
 	writeDiagnostics(w, diags)
-	key := compat.String(w.bytes())
+	text := w.bytes()
 	if diags == nil {
-		key = "[]"
+		text = compat.Bytes("[]")
 	}
+	// The server keeps a hash of the text rather than the text, which
+	// would be memory to free whenever it changes.
+	key := hashBytes(text)
 	last, sent := s.published[path]
 	open := s.docs[path] != nil
 	if len(diags) == 0 && !open {
 		delete(s.published, path)
 	} else {
-		s.published[path] = key
+		s.published[s.intern(path)] = key
 	}
 	if sent && last == key || !sent && len(diags) == 0 && !open {
 		return
@@ -135,4 +138,14 @@ func (s *server) publish(path string, diags []Diagnostic) {
 	if err := s.out.notify("textDocument/publishDiagnostics", w.bytes()); err != nil {
 		s.log.error("publishing diagnostics", compat.Concat("file=", filepath.Base(path), " error=", logValue(err.Error())))
 	}
+}
+
+// hashBytes returns the 64-bit FNV-1a hash of b.
+func hashBytes(b []byte) uint64 {
+	h := uint64(14695981039346656037)
+	for _, c := range b {
+		h ^= uint64(c)
+		h *= 1099511628211
+	}
+	return h
 }

@@ -12,6 +12,7 @@ import (
 	"compiler/pu"
 	"pluto/strconv"
 	"pluto/strings"
+	"unsafe"
 )
 
 // This file contains a definition of the type-checking context; an opaque type
@@ -108,7 +109,7 @@ func (ctxt *Context) lookup(h string, orig Type, targs []Type) Type {
 // for the hash h.
 func (ctxt *Context) update(h string, orig Type, targs []Type, inst Type) Type {
 	assert(inst != nil)
-	defer scratch.Heap().Restore() // a lazily filled cache outlives any scratch step
+	defer scratch.HeapFor(unsafe.Pointer(ctxt)).Restore() // a lazily filled cache lives as long as its type
 
 	ctxt.mu.Lock()
 	defer ctxt.mu.Unlock()
