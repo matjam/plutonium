@@ -1,0 +1,1 @@
+Bump[int] calls vec.Vec[int].All, which yields the elements by value, while the generic form gives x the type *T: the instance passes an int where a pointer is wanted and crashes (AGENTS.md "Status and next steps", item 3; waiting on a user decision).

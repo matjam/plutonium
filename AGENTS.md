@@ -334,9 +334,12 @@ Work that remains, in order:
    implementation is gone (`15e6515d` deleted it, `9ea1540f` renamed `selfhost/` to `compiler/`;
    `docs/plans/2026-10-26-go-removal.md`). What remains is the list of known gaps under "Build & Test": the
    guards that went with the Go code.
-3. Loose ends from item 132: `hash.Set` takes no owner keys (spec 7.10) and `vec.Fixed` owns nothing; a
-   call of a copy method such as `At` on a container of owners (E3306) points at the library line, not the
-   call; generic ranges over owner containers see `*T` in the generic form.
+3. Loose ends from item 132. `hash.Set` keys and `vec.Fixed` elements stay values, as section 10.9 allows
+   (E3207, with a fix for library types); E3306 from a copy method points at the program's call. Open, for a
+   user decision: generic code over `[T owner any]` that ranges over a `vec.Vec[T]` gets `x` of type `*T`
+   (sections 8.7, 12.10), but its instance with a value type (`Bump[int]`) calls `vec.Vec[int].All`, which
+   yields the elements by value, so the program is miscompiled (it crashes). A fix needs instances of the
+   library's iterators that keep views for a type argument reached through an owner type parameter.
 4. Known: the debug-allocator tests that join with a `WaitGroup` or channel retry a run that took the abandon
    path (D31).
 

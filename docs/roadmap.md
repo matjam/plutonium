@@ -277,8 +277,16 @@ against the corrected specification. The immediate implementation order is:
      (a string) out of a place with `take`, or out of a variable of a generic function over an `owner` type
      parameter, transfers its references instead of leaking them. `hash.Set` keys and `vec.Fixed` elements
      stay values: a key is looked up by value, which would consume an owner, and a `Fixed` is a copyable view
-     that owns nothing. Tests: `testdata/plutonium/containerowners.p` and `takecounted.p` (O0, O2, debug
-     allocator leak report), `internal/build/container_owners_test.go`.
+     that owns nothing. This restriction is intended: section 10.9 lets a type parameter without `owner` take
+     no owner (E3207), and section 7.10 limits only the built-in map. An owner given to such a parameter of the
+     library gets E3207 with a fix that names `vec.Vec` and `hash.Map` (`tests/diag/library_owner_arg`).
+     E3306 from a copy method is reported at the call in the program that reached it, found by following
+     the first caller of each library function (`tests/diag/container_owner_copy`). Open: generic code over
+     `[T owner any]` that ranges over a `vec.Vec[T]` sees `*T` in its generic form, but an instance with a
+     value type (`Bump[int]`) gets the elements by value, and the program is miscompiled (reported to the
+     user for a decision, AGENTS.md "Status and next steps"; known failure `tests/lower/generic_owner_range`).
+     Tests: `testdata/plutonium/containerowners.p` and `takecounted.p` (O0, O2, debug allocator leak report),
+     `internal/build/container_owners_test.go`.
 133. **A `vec.Vec` crosses in a program that imports `pluto/fmt`** (done, `10f54d3e`; sections 8.8, 12.5, 19.3, 19.8,
      F.2; found with item 132). The race analysis recorded the accesses to the default allocator
      (`alloc.SyncSlab`) through package variables only once a program reached the library's string and
