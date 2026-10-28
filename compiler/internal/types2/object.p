@@ -242,6 +242,7 @@ func (*Const) isDependency() {} // a constant may be a dependency of an initiali
 type TypeName struct {
 	object
 	ownerMark bool // Plutonium: declared "type T owner ...", or a type parameter [T owner C]
+	ownerView bool // Plutonium: a type parameter [T owner C] whose code outside the library sees rt.View[T] as *T
 }
 
 // NewTypeName returns a new type name denoting the given typ.

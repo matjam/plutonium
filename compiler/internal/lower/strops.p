@@ -297,6 +297,47 @@ func (s *fnState) reportOwnerCopy(e *ast.CallExpr, T types2.Type) {
 	s.l.report(at, d)
 }
 
+// checkOwnerViews reports an instance of generic code that the compiler
+// cannot compile yet. The code ranges over a container of an owner type
+// parameter T and sees the elements as views, *T (spec sections 8.7,
+// 12.10). Made with a type argument that is not an owner, the instance
+// would call the container's iterator for a value type, which gives the
+// elements by value, and the program would be wrong. Keeping the views in
+// such an instance is roadmap item 145.
+func (l *Lowerer) checkOwnerViews(job *funcJob) {
+	m := job.tmap
+	if m == nil || job.decl == nil {
+		return
+	}
+	for i, tp := range m.tparams {
+		if !types2.OwnerViewTypeParam(tp) || types2.IsOwner(m.targs[i]) {
+			continue
+		}
+		at := job.decl.Pos()
+		if c, ok := l.firstCaller[job.sym]; ok {
+			at, _ = l.programCall(c.from, c.pos)
+		}
+		name := job.decl.Name.Name
+		if fn := l.symFuncs[job.sym]; fn != nil {
+			name = fn.Name()
+		}
+		var sb compat.Builder
+		for j, t := range m.targs {
+			if j > 0 {
+				sb.WriteString(", ")
+			}
+			sb.WriteString(compat.Sprintf("%s", t))
+		}
+		inst := compat.Concat(name, "[", sb.String(), "]")
+		targ := compat.Sprintf("%s", m.targs[i])
+		d := pu.New(diag.Diagnostic{Code: diag.NotYetSupported, Msg: compat.Concat("cannot compile ", inst, " yet: ", tp.Obj().Name(), " is an owner type parameter and ", targ, " is not an owner")})
+		d.Text = compat.Concat("The code of ", name, " ranges over a container of ", tp.Obj().Name(), " and sees its elements as views of type *", tp.Obj().Name(), ", because ", tp.Obj().Name(), " may be an owner. With ", targ, ", which is not an owner, the container gives its elements by value, and this compiler does not yet keep the views in such an instance.")
+		d.Fix = pu.New(diag.Fix{Intro: "Range over the indexes and take a pointer to each element, which works for both kinds of type", Code: "for i := range v.Len() {\n\tp := v.Ptr(i)\n}"})
+		l.report(at, d)
+		return
+	}
+}
+
 // isMapMethod reports whether fn is a method of hash.Map.
 func isMapMethod(fn *types2.Func) bool {
 	if fn == nil || fn.Pkg() == nil || fn.Pkg().Path() != "pluto/hash" {

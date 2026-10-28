@@ -1,2 +1,12 @@
-11 12
-13 14
+$DIR/main.p:25:2: cannot compile Bump[int] yet: T is an owner type parameter and int is not an owner
+    The code of Bump ranges over a container of T and sees its elements as views
+    of type *T, because T may be an owner. With int, which is not an owner, the
+    container gives its elements by value, and this compiler does not yet keep
+    the views in such an instance.
+    Range over the indexes and take a pointer to each element, which works for
+    both kinds of type:
+        for i := range v.Len() {
+            p := v.Ptr(i)
+        }
+    (see "No silent failures" in the Plutonium spec, section 21.2)
+    (run "pluto explain E2500" for a longer explanation)

@@ -164,7 +164,13 @@ func isViewAlias(a *Alias) bool {
 func viewOf(elem, rhs Type) Type {
 	if tp, ok := Unalias(elem).(*TypeParam); ok {
 		if tp.obj.ownerMark {
-			return rhs // the instance decides
+			// The instance decides. Code outside the standard library
+			// sees *elem here, which an instance with a value type does
+			// not yet keep (see OwnerViewTypeParam).
+			if pkg := tp.obj.pkg; pkg != nil && !isStdPath(pkg.path) {
+				tp.obj.ownerView = true
+			}
+			return rhs
 		}
 		return elem // a type parameter that admits no owner stands for a value
 	}
@@ -176,6 +182,14 @@ func viewOf(elem, rhs Type) Type {
 	}
 	return elem
 }
+
+// OwnerViewTypeParam reports whether tp is an owner type parameter whose
+// generic code, outside the standard library, sees rt.View[tp] as *tp: a
+// range over a container of tp gives it views (spec sections 8.7, 12.10).
+// An instance with a value type would get the elements by value from the
+// container's iterator, so the compiler rejects it until it can keep the
+// views (roadmap item 145).
+func OwnerViewTypeParam(tp *TypeParam) bool { return tp.obj.ownerView }
 
 func (a *Alias) cleanup() {
 	// Ensure a.actual is set before types are published,

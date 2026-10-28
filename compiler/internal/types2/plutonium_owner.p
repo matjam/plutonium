@@ -424,7 +424,7 @@ func (check *Checker) ownerTypeArg(tpar *TypeParam, targ Type) *ownerArgError {
 	} else {
 		e.msg = compat.Concat(t, " is an owner and ", p, " does not allow owners")
 	}
-	if pkg := tpar.obj.pkg; pkg != nil && pkg != check.pkg && (pkg.path == "pluto" || strings.HasPrefix(pkg.path, "pluto/")) {
+	if pkg := tpar.obj.pkg; pkg != nil && pkg != check.pkg && isStdPath(pkg.path) {
 		// A standard library declaration: the program cannot mark it owner.
 		e.ex = pu.New(Explanation{
 			Text: compat.Concat("The standard library declares ", p, " without owner: its code copies values of ", p, " freely, so it cannot hold owners. Copying an owner would leave several values that all free the same memory."),
@@ -447,6 +447,11 @@ func (check *Checker) ownerTypeArg(tpar *TypeParam, targ Type) *ownerArgError {
 		}}),
 	})
 	return e
+}
+
+// isStdPath reports whether path names a package of the standard library.
+func isStdPath(path string) bool {
+	return path == "pluto" || strings.HasPrefix(path, "pluto/")
 }
 
 // reportTypeArg reports an error from verify for the type argument at,

@@ -281,12 +281,11 @@ against the corrected specification. The immediate implementation order is:
      no owner (E3207), and section 7.10 limits only the built-in map. An owner given to such a parameter of the
      library gets E3207 with a fix that names `vec.Vec` and `hash.Map` (`tests/diag/library_owner_arg`).
      E3306 from a copy method is reported at the call in the program that reached it, found by following
-     the first caller of each library function (`tests/diag/container_owner_copy`). Open: generic code over
+     the first caller of each library function (`tests/diag/container_owner_copy`). Generic code over
      `[T owner any]` that ranges over a `vec.Vec[T]` sees `*T` in its generic form, but an instance with a
-     value type (`Bump[int]`) gets the elements by value, and the program is miscompiled (reported to the
-     user for a decision, AGENTS.md "Status and next steps"; known failure `tests/lower/generic_owner_range`).
-     Tests: `testdata/plutonium/containerowners.p` and `takecounted.p` (O0, O2, debug allocator leak report),
-     `internal/build/container_owners_test.go`.
+     value type (`Bump[int]`) would get the elements by value; it is rejected with E2500 until item 145
+     keeps the views (`tests/lower/generic_owner_range`). Tests: `testdata/plutonium/containerowners.p`
+     and `takecounted.p` (O0, O2, debug allocator leak report), `internal/build/container_owners_test.go`.
 133. **A `vec.Vec` crosses in a program that imports `pluto/fmt`** (done, `10f54d3e`; sections 8.8, 12.5, 19.3, 19.8,
      F.2; found with item 132). The race analysis recorded the accesses to the default allocator
      (`alloc.SyncSlab`) through package variables only once a program reached the library's string and
@@ -498,6 +497,19 @@ against the corrected specification. The immediate implementation order is:
      nothing is still not dropped (section 18.6). This needs landings built before their predecessors
      are all known (unsealed blocks in the SSA builder) and per-statement temporaries handled at the
      innermost landing, so it is left for a change of its own with the `goexit_*` tests as the check.
+145. **Instances of owner generic code keep their views** (planned; sections 8.7, 10.9, 12.10; found with
+     item 132). In generic code over `[T owner any]`, a range over a `vec.Vec[T]` or the values of a
+     `hash.Map[K, T]` yields views, `*T`, because `T` is an owner there (8.7, 12.10), and an instance keeps
+     the meaning of the generic code (10.9). The library's iterators decide through `rt.View`, which an
+     instance with a value type collapses to the value, so `Bump[int]` would get ints where its code wants
+     `*int`. Until this is done the checker marks such a type parameter (`types2.OwnerViewTypeParam`) and
+     lowering rejects an instance with a value type with E2500 at the program's call
+     (`tests/lower/generic_owner_range`); the rejection also covers a range that uses only the index. The
+     fix: instances of the library's iterators, with their own symbol names, that yield views for a type
+     argument reached through an owner type parameter, carried through the type substitution. Target:
+     `tests/lower/generic_owner_range_views`, a known failure until then. A related gap is not covered by
+     the same check: generic code over an owner `T` that calls a copy method such as `v.At` is accepted
+     for `F[int]`, although in the generic form it copies an owner (E3306 by section 8.7).
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a

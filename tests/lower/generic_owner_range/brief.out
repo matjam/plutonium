@@ -1,0 +1,1 @@
+$DIR/main.p:25:2: cannot compile Bump[int] yet: T is an owner type parameter and int is not an owner
