@@ -1,10 +1,10 @@
 $DIR/main.p:10:46: cannot return f(), which points into the closure inner() returns, built in the function literal's frame
     f() points into the closure inner() returns, built in the function literal's
-    frame. inner() returns a closure, which it builds in a region of its
-    caller's frame, the function literal's (at main.p:10); the closure lives as
-    long as that frame (section 4.5). That frame is reclaimed when the function
-    literal returns, so f() would point at memory that no longer holds the
-    value.
+    frame. inner() returns a closure, which it builds, with the variables it
+    uses, in a region of its caller's frame, the function literal's (at
+    main.p:10); they live as long as that frame (section 11.5). That frame is
+    reclaimed when the function literal returns, so f() would point at memory
+    that no longer holds the value.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
