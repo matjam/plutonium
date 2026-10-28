@@ -34,6 +34,12 @@ const (
 	// the origin of a named type with type parameters, types2.Named.Origin):
 	// a method of pointer receiver *G[P] is reached only by such a pointer.
 	AtomPtrTo
+	// AtomHolds admits a pointer to a value that holds a value of type T
+	// in place (T itself, or a struct or array that holds one, at any
+	// depth), or for T the origin of a generic named type an instance of
+	// it: pluto/fmt's walk calls a method of pointer receiver *T on the
+	// address of such a value's T (eir.Call.Fields).
+	AtomHolds
 )
 
 // An Atom is one type predicate.

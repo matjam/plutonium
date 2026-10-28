@@ -1,1 +1,0 @@
-escape2 does not see fmt call a pointer method of a struct field inside a box (roadmap item 142).

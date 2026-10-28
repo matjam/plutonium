@@ -118,6 +118,7 @@ type solver struct {
 	saturated []bool                            // by input: start it as In(i, Root, GE) (saturate.go)
 	fbDepth   int                               // inside the application of a fallback group (defer.go, dcall.own)
 	filters   map[domain.FilterID]domain.Filter // filterOf's memo
+	meets     map[meetKey]domain.FilterID       // meetFilters' memo
 
 	// Closures callees return (regionlits.go): by region object, the
 	// literals the callee's summary names, the dcalls that called into it,
@@ -824,10 +825,23 @@ func (s *solver) filterTok(t tok, id domain.FilterID, f domain.Filter) (tok, boo
 		}
 		return t, FilterAdmitsObj(&s.f.Objects[t.base], s.ps.Steps(t.path), t.ge, f, s.env.Retyped)
 	case tIn:
-		if t.filt == 0 && !t.ge && !t.fge && !t.deep && !t.arn && t.tag == domain.Root && !t.tagGE {
-			if n := len(s.ps.Steps(t.path)); n <= 15 {
+		if t.ge || t.fge || t.deep || t.arn || t.tag != domain.Root || t.tagGE {
+			break
+		}
+		n := len(s.ps.Steps(t.path))
+		switch {
+		case t.filt == 0:
+			if n <= 15 {
 				t.filt, t.fpos = id, uint8(n)
 			}
+		case t.filt != id && int(t.fpos) == n:
+			// A second filter at the same pointer (an assertion's, then
+			// a candidate's receiver): the pointer passes both.
+			m, ok := s.meetFilters(t.filt, id)
+			if !ok {
+				return t, false
+			}
+			t.filt = m
 		}
 	}
 	return t, true

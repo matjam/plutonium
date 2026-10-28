@@ -386,7 +386,7 @@ func (c *Cache) funcByID(s string) (eir.FuncID, bool) {
 
 // atomOf resolves a type filter's atom by its text: the atoms the program's
 // assertions and dynamic calls' candidates make (solve.AssertFilter,
-// solve.RecvFilter), each filter of a summary a union of them. A text two
+// solve.RecvFilter, solve.HoldsFilter), each filter of a summary a union of them. A text two
 // types share (local types of one name) resolves to none, and the key is
 // read without its filter.
 func (c *Cache) atomOf(text string) (domain.Atom, bool) {
@@ -408,6 +408,7 @@ func (c *Cache) atomOf(text string) (domain.Atom, bool) {
 		for id, f := range c.prog.Funcs {
 			add(solve.RecvFilter(c.prog, eir.FuncID(id), true))
 			add(solve.RecvFilter(c.prog, eir.FuncID(id), false))
+			add(solve.HoldsFilter(c.prog, eir.FuncID(id)))
 			for _, b := range f.Blocks {
 				for i := range b.Instrs {
 					if in := &b.Instrs[i]; in.Op == eir.OpAssert {

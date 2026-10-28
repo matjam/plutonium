@@ -165,8 +165,35 @@ func (s *solver) binding(c *eir.Call, n int, cand eir.FuncID) []uint64 {
 	if c.Kind == eir.CallIface && c.Target != 0 && n > 0 && bind[0] != 0 {
 		// The receiver of an adapter: only a value of its dynamic type
 		// reaches it (D51, RecvFilter).
+		b := uint32(bind[0])
 		if id := RecvFilterID(s.ps.Filters(), s.prog, cand, true); id != 0 {
-			bind[0] = uint64(s.filterNode(uint32(bind[0]), id))
+			bind[0] = uint64(s.filterNode(b, id))
+		}
+		if ValueRecvByData(s.prog, cand) {
+			// A value receiver that is not direct: the value the data
+			// word points at, a load through it. pluto/fmt's walk
+			// gives the method the address of a value of its type
+			// anywhere in the walked value: a load at any offset, at
+			// any field of it (retagNode).
+			load, _ := s.pathOf(compat.Clone([]domain.Step{domain.StepLoad}))
+			n := uint32(bind[0])
+			if c.Fields {
+				bind[0] = uint64(s.retagNode(s.valNode(s.anyNode(n), load, false)))
+			} else {
+				bind[0] = uint64(s.valNode(n, load, false))
+			}
+		}
+		if c.Fields {
+			// pluto/fmt's walk calls a method of pointer receiver *V
+			// on the address of a V the value holds in place, too:
+			// anywhere in a value that holds one (HoldsFilter).
+			if PtrRecv(s.prog, cand) != nil {
+				n := b
+				if id := HoldsFilterID(s.ps.Filters(), s.prog, cand); id != 0 {
+					n = s.filterNode(b, id)
+				}
+				bind[0] = uint64(s.joinNode(uint32(bind[0]), s.anyNode(n)))
+			}
 		}
 	}
 	return bind
@@ -217,7 +244,9 @@ func RecvChoice(env Env, p *eir.Program, c *eir.Call, cand eir.FuncID) int {
 	}
 	pointers, values := false, false
 	for _, T := range insts {
-		if _, ptr := T.Underlying().(*types2.Pointer); ptr {
+		// A box's pointer methods take the box's own word, as a
+		// pointer's do.
+		if _, ptr := T.Underlying().(*types2.Pointer); ptr || isBoxType(T) {
 			pointers = true
 		} else {
 			values = true
@@ -589,4 +618,10 @@ func (s *solver) region(c *eir.Call) uint32 {
 	}
 	seed(c.Target)
 	return o
+}
+
+// isBoxType reports whether T is owned[T], shared[T] or synced[T].
+func isBoxType(T types2.Type) bool {
+	w, ok := types2.Unalias(T).Underlying().(*types2.Wrapper)
+	return ok && w.IsPointer()
 }

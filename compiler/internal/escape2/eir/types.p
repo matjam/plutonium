@@ -528,7 +528,11 @@ type Call struct {
 	// facts about calls are keyed by (escape2/calls.go); the solver does
 	// not read it.
 	Expr *ast.CallExpr
-	gate bool // a call of x86.gateAt for an interrupt gate, whose arguments are not Expr's
+	// Fields, for a CallIface of pluto/fmt's walk (fmtwalk.go), is set when
+	// the walk also calls a method of pointer receiver *V on the address of
+	// a V that what it walks holds in place (a field, an array element).
+	Fields bool
+	gate   bool // a call of x86.gateAt for an interrupt gate, whose arguments are not Expr's
 }
 
 // Facts are what stage B reads of a function, collected while it is built

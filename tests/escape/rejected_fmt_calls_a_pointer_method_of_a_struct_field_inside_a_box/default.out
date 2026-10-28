@@ -6,14 +6,9 @@ $DIR/main.p:16:2: cannot pass o to fmt.Println, which keeps it after returning
     from args[i] to Fprintln (print_linux.p:17), which passes a pointer loaded
     from args[i] to (*printer).doPrint (fmt.p:948), which passes a pointer
     loaded from args[i] to (*printer).printArg (fmt.p:915), which passes arg to
-    (*printer).fmtBytes (fmt.p:731), which passes ptr to (*printer).printKind
-    (value.p:373), which passes ptr to (*printer).printStruct (value.p:189),
-    which passes ptr to (*printer).printValue (value.p:446), which passes ptr to
-    (*printer).printKind (value.p:45), which passes ptr to
-    (*printer).printStruct (value.p:189), which passes ptr to
-    (*printer).printLister (value.p:431), which passes c to c.FmtList (which may
-    call main.(*S).FmtList) (value.p:453), which stores s in package variable
-    kept (main.p:7), so the interface would outlive f's frame.
+    a formatting method of what it walks (which may call main.(*S).FmtList)
+    (fmt.p:671), which stores s in package variable kept (main.p:7), so the
+    interface would outlive f's frame.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the

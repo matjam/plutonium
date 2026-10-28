@@ -469,12 +469,13 @@ against the corrected specification. The immediate implementation order is:
      borrow check sees them. A box passed by value to a parameter of generic type (`save[T Getter](g T)`
      called with `sharedHolder().p`) is lent to the callee: the generic body is analysed once, so what
      it keeps through the type parameter's methods is bounded by what holds the box, as for a counted
-     error (`temporaryboxviews` cases). Still open, each a corpus case marked `knownfail`:
-     - fmt calling a pointer method of a struct field inside a box
-       (`rejected_fmt_calls_a_pointer_method_of_a_struct_field_inside_a_box`).
-     - Two false rejections: a method that keeps its receiver applied to a box the type assertion
-       rules out, and a value method that keeps a pointer the value holds counted as keeping the box.
-     Many messages also changed with the switch and are weaker in places, for example a store of
+     error (`temporaryboxviews` cases). The fmt walk calls a pointer method of `*V` on the address
+     of a `V` the walked value holds in place, such as a struct field inside a box
+     (`rejected_fmt_calls_a_pointer_method_of_a_struct_field_inside_a_box`). A method called after a
+     type assertion is chosen only among the receivers the assertion admits, and a value method's
+     receiver is the value one load past the data word, so a pointer the value holds is not counted
+     as the box (`accepted_type_assertion_and_a_method_that_keeps_its_receiver`,
+     `staysexact_fmt_and_a_value_that_holds_a_type_with_a_method_that_keeps_nil`). Many messages also changed with the switch and are weaker in places, for example a store of
      `[1]*int{&x}` into a local `src` reported in place of the `copy` into a package vector's slice,
      and a format string reported in place of `&in` (`review2_programs_f26`, `f27`).
 143. **An exit through a function that never returns** (done; section 17.3). A function whose body ends

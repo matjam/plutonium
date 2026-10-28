@@ -3,6 +3,7 @@
 package solve
 
 import (
+	"compiler/compat"
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/scratch"
@@ -92,7 +93,7 @@ func atomAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, a domain.Atom, v
 		// value itself, so such a token is what a caller finds where a
 		// callee's key names a field of an interface value's data word.
 		switch a.Kind {
-		case domain.AtomImplements:
+		case domain.AtomImplements, domain.AtomHolds:
 			return true
 		case domain.AtomIs:
 			if p, ok := types2.Unalias(a.T).(*types2.Pointer); ok {
@@ -116,8 +117,125 @@ func atomAdmitsObj(o *eir.Object, steps []domain.Step, ge bool, a domain.Atom, v
 			return true
 		}
 		return contains(U, a.T, box, 0)
+	case domain.AtomHolds:
+		return holds(U, a.T, box, 0)
 	}
 	return true
+}
+
+// holds reports whether a value of type U holds a value of type T in place
+// (AtomHolds): U is T (exact, for a box; of T's shape otherwise, as
+// contains), or for T a generic origin may be an instance of it, or U is a
+// struct, array or union (one of its payloads) that holds one.
+func holds(U, T types2.Type, exact bool, depth int) bool {
+	if n, ok := types2.Unalias(T).(*types2.Named); ok && n.TypeParams().Len() > 0 {
+		if domain.SameOrigin(U, T) || mayInstance(U.Underlying(), n.Origin().Underlying(), 0) {
+			return true
+		}
+	} else if types2.Identical(U, T) || !exact && sameShape(U, T) {
+		return true
+	}
+	if depth > 32 {
+		return true
+	}
+	switch u := U.Underlying().(type) {
+	case *types2.Basic, *types2.Pointer, *types2.Slice, *types2.Map, *types2.Chan, *types2.Signature, *types2.Interface:
+		return false
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if holds(u.Field(i).Type(), T, exact, depth+1) {
+				return true
+			}
+		}
+		return false
+	case *types2.Array:
+		return u.Len() > 0 && holds(u.Elem(), T, exact, depth+1)
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() && holds(v.Payload(), T, exact, depth+1) {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// HoldsFilter is the filter of the receiver of candidate cand of a call of
+// pluto/fmt's walk on the address of a value its argument holds in place
+// (eir.Call.Fields): for a method of pointer receiver *T, "holds T", or for
+// a generic T one of its origin; none for another candidate.
+func HoldsFilter(p *eir.Program, cand eir.FuncID) (domain.Filter, bool) {
+	pt := PtrRecv(p, cand)
+	if pt == nil {
+		return domain.Filter{}, false
+	}
+	if !mentionsTypeParam(pt, nil) {
+		return domain.One(domain.AtomHolds, pt.Elem()), true
+	}
+	if n, ok := types2.Unalias(pt.Elem()).(*types2.Named); ok && n.Origin() != nil {
+		return domain.One(domain.AtomHolds, n.Origin()), true
+	}
+	return domain.Filter{}, false
+}
+
+// PtrRecv is the receiver type of candidate cand when it is a method of a
+// pointer receiver, nil otherwise.
+func PtrRecv(p *eir.Program, cand eir.FuncID) *types2.Pointer {
+	if cand == eir.NoFunc || int(cand) >= len(p.Funcs) {
+		return nil
+	}
+	fn := p.Funcs[cand]
+	if fn.Key.Synth != nil || fn.Key.Obj == nil || len(fn.Inputs) == 0 {
+		return nil
+	}
+	sig, ok := fn.Key.Obj.Type().(*types2.Signature)
+	if !ok || sig.Recv() == nil || fn.Inputs[0].Var != sig.Recv() {
+		return nil
+	}
+	pt, _ := types2.Unalias(sig.Recv().Type()).(*types2.Pointer)
+	return pt
+}
+
+// ValueRecvByData reports whether candidate cand, reached through an
+// interface, is a method of a value receiver whose type is not direct: the
+// data word points at the value, and the method (standing for its adapter,
+// eir.SynthItabAdapter) is given what a load through it reads. Its keys of
+// the receiver are of that value, one load past the data word.
+func ValueRecvByData(p *eir.Program, cand eir.FuncID) bool {
+	if cand == eir.NoFunc || int(cand) >= len(p.Funcs) {
+		return false
+	}
+	fn := p.Funcs[cand]
+	if fn.Key.Synth != nil || fn.Key.Obj == nil || len(fn.Inputs) == 0 {
+		return false
+	}
+	sig, ok := fn.Key.Obj.Type().(*types2.Signature)
+	if !ok || sig.Recv() == nil || fn.Inputs[0].Var != sig.Recv() {
+		return false
+	}
+	T := sig.Recv().Type()
+	if _, ptr := types2.Unalias(T).(*types2.Pointer); ptr {
+		return false
+	}
+	return !mentionsTypeParam(T, nil) && !types2.IsInterface(T) && !directValue(T)
+}
+
+type holdsKey struct {
+	p    *eir.Program
+	cand eir.FuncID
+}
+
+// HoldsFilterID is HoldsFilter interned in table fs (0: none), memoized
+// there.
+func HoldsFilterID(fs *domain.Filters, p *eir.Program, cand eir.FuncID) domain.FilterID {
+	defer scratch.Outer().Restore()
+	return fs.Memo(pu.Box(holdsKey{p, cand}), func() domain.FilterID {
+		if f, ok := HoldsFilter(p, cand); ok {
+			return fs.Intern(f)
+		}
+		return 0
+	})
 }
 
 // wordElem is V when atom a is "is T" for a T whose data word is a pointer
@@ -389,4 +507,122 @@ func AssertFilterID(fs *domain.Filters, T types2.Type) domain.FilterID {
 		}
 		return 0
 	})
+}
+
+type meetKey struct{ a, b domain.FilterID }
+
+// meetFilters returns a filter that admits what both filters a and b admit
+// of a pointer (filterTok), and false when no dynamic type passes both. It
+// is exact when one of them is concrete (concreteAtom): the atoms of that
+// one whose type the other admits. Otherwise it is a.
+func (s *solver) meetFilters(a, b domain.FilterID) (domain.FilterID, bool) {
+	k := meetKey{a, b}
+	if m, ok := s.meets[k]; ok {
+		return m, m != 0
+	}
+	m := a
+	fa, ok1 := s.filterOf(a)
+	fb, ok2 := s.filterOf(b)
+	if ok1 && ok2 {
+		var f domain.Filter
+		exact := true
+		switch {
+		case concrete(fb):
+			f = meetAtoms(fb, fa)
+		case concrete(fa):
+			f = meetAtoms(fa, fb)
+		default:
+			exact = false
+		}
+		if exact {
+			m = 0
+			if len(f.Atoms) > 0 {
+				m = s.ps.Filters().Intern(f)
+				if m == 0 {
+					m = a
+				}
+			}
+		}
+	}
+	if s.meets == nil {
+		s.meets = map[meetKey]domain.FilterID{}
+	}
+	s.meets[k] = m
+	return m, m != 0
+}
+
+// concrete reports whether every atom of f is concrete (concreteAtom).
+func concrete(f domain.Filter) bool {
+	for _, a := range f.Atoms {
+		if !concreteAtom(a) {
+			return false
+		}
+	}
+	return len(f.Atoms) > 0
+}
+
+// concreteAtom reports whether atom a admits a pointer only for the one
+// dynamic type of the interface value it is the data word of, by that
+// type: "is T" for a pointer type or a direct type, or "pointer to an
+// instance of G". "is T" for another T is not: pluto/fmt's walk calls a
+// value method of T on the address of a T a value of another type holds
+// (atomAdmitsObj), and neither is "holds T".
+func concreteAtom(a domain.Atom) bool {
+	switch a.Kind {
+	case domain.AtomPtrTo:
+		return true
+	case domain.AtomIs:
+		if mentionsTypeParam(a.T, nil) {
+			return false
+		}
+		if _, ok := a.T.Underlying().(*types2.Pointer); ok {
+			return true
+		}
+		return directValue(a.T) && !types2.IsInterface(a.T)
+	}
+	return false
+}
+
+// meetAtoms returns the atoms of c (concrete) whose dynamic types some atom
+// of o admits.
+func meetAtoms(c, o domain.Filter) domain.Filter {
+	var f domain.Filter
+	for _, x := range c.Atoms {
+		for _, y := range o.Atoms {
+			if atomAdmitsAtom(x, y) {
+				f.Atoms = compat.Append(f.Atoms, x)
+				break
+			}
+		}
+	}
+	return f
+}
+
+// atomAdmitsAtom reports whether atom y may admit a dynamic type that
+// concrete atom x admits.
+func atomAdmitsAtom(x, y domain.Atom) bool {
+	switch y.Kind {
+	case domain.AtomImplements:
+		i, ok := y.T.Underlying().(*types2.Interface)
+		if !ok || x.Kind != domain.AtomIs || mentionsTypeParam(y.T, nil) {
+			return true
+		}
+		return types2.Implements(x.T, i)
+	case domain.AtomIs:
+		if mentionsTypeParam(y.T, nil) {
+			return true
+		}
+		if x.Kind == domain.AtomIs {
+			return types2.Identical(x.T, y.T)
+		}
+		p, ok := types2.Unalias(y.T).(*types2.Pointer)
+		return ok && domain.SameOrigin(p.Elem(), x.T)
+	case domain.AtomPtrTo:
+		if x.Kind == domain.AtomPtrTo {
+			return domain.SameOrigin(x.T, y.T)
+		}
+		p, ok := types2.Unalias(x.T).(*types2.Pointer)
+		return ok && domain.SameOrigin(p.Elem(), y.T)
+	}
+	return true
 }

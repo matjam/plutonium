@@ -19,7 +19,9 @@ import (
 // before it returns). EIR gives each function of the walk that body in
 // place of its source: a loop over everything reachable from its pointer
 // parameters (offsets anywhere in an object, eir.AnyStep, then loads),
-// calling each formatting method on it through its interface, and walking
+// calling each formatting method on it through its interface (one of a
+// pointer receiver *V also on the address of each V it holds in place,
+// eir.Call.Fields), and walking
 // what the methods return (the values FmtList and FmtSlot return; the
 // strings of String, Error and GoString are only printed). The analysis
 // then checks the methods the walk
@@ -149,7 +151,7 @@ func (b *builder) fmtWalkBody(f *Func, d *declRef) {
 		for _, m := range methods {
 			msig := m.m.Type().(*types2.Signature)
 			args := compat.Make[Reg](msig.Params().Len())
-			res := fb.emitCall(pu.New(Call{Kind: CallIface, Method: m.m, Iface: m.I, Target: v, Sig: msig, Args: args, Implicit: ImplWrapper}), f.Pos)
+			res := fb.emitCall(pu.New(Call{Kind: CallIface, Method: m.m, Iface: m.I, Target: v, Sig: msig, Args: args, Implicit: ImplWrapper, Fields: true}), f.Pos)
 			for i, r := range res {
 				// The walk walks the interface values FmtList and
 				// FmtSlot return; not the strings String, Error and

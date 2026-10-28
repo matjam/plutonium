@@ -23,7 +23,7 @@ func TestJoin(t *testing.T) {
 		2: pu.New(summary.Summary{Inputs: 3, Esc: compat.Append[domain.Key](nil, k(0), k(2)), Store: compat.Append[summary.StorePair](nil, summary.StorePair{Src: k(1), Dst: k(0)}),
 			Res: compat.Append[summary.Result](nil, summary.Result{Heap: compat.Append[domain.PathID](nil, domain.Root)})}),
 	}
-	s := join(nil, ps, funcIDs(1, 2, 3), false, func(id eir.FuncID) *summary.Summary { return sums[id] })
+	s := join(nil, ps, funcIDs(1, 2, 3), false, false, func(id eir.FuncID) *summary.Summary { return sums[id] })
 	if s.Inputs != 3 || len(s.Esc) != 2 || len(s.Store) != 1 || len(s.Res) != 1 || len(s.Res[0].Heap) != 1 {
 		t.Fatalf("join: %+v", s)
 	}

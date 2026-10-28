@@ -1,6 +1,6 @@
 $DIR/main.p:31:10: cannot pass &u to show, which keeps it after returning
     &u is a pointer to u. u is a local variable of f (declared at main.p:30).
-    show passes v to s.String (which may call main.(*T0).String) (main.p:23),
+    show passes v to s.String (which may call main.(*U).String) (main.p:23),
     which stores t in package variable keep (main.p:19), so &u would outlive u.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the

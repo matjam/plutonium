@@ -12,4 +12,3 @@ $DIR/main.p:118:6: cannot pass &in to fmt.Sprintf, which keeps it after returnin
 $DIR/main.p:124:2: cannot pass &in to fmt.Println, which keeps it after returning
 $DIR/main.p:129:2: cannot pass &in to fmt.Println, which keeps it after returning
 $DIR/main.p:134:2: cannot pass []int{...} to fmt.Println, which keeps it after returning
-$DIR/main.p:134:2: cannot pass Outer{...} to fmt.Println, which keeps it after returning

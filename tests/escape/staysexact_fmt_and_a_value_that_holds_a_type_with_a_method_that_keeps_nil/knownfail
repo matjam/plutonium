@@ -1,1 +1,0 @@
-escape2 rejects this: W.String keeps w.P, a pointer the value holds, not one into the boxed copy, but escape2 counts it as keeping Outer{...} (roadmap item 142).

@@ -105,9 +105,9 @@ $DIR/main.p:83:10: cannot pass s to s.String (which may call main.(D).String), w
 
 $DIR/main.p:88:10: cannot pass D{...} to callAny, which keeps it after returning
     D{...} points into in. in is a local variable of DirectAsserted (declared at
-    main.p:87). callAny passes v to s.String (which may call main.(*S).String)
-    (main.p:40), which stores s in package variable keepS (main.p:17), so D{...}
-    would outlive in.
+    main.p:87). callAny passes v to s.String (which may call main.(D).String)
+    (main.p:40), which stores d in package variable keepInner (main.p:28), so
+    D{...} would outlive in.
     Go would move this memory to the heap, and its garbage collector would free
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the

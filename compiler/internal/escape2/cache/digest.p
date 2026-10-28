@@ -216,6 +216,9 @@ func (c *Cache) writeInstr(h *hasher, in *eir.Instr) {
 		h.ints(regsInts(cl.Results))
 		h.int(int64(cl.Implicit))
 		h.int(int64(cl.Site))
+		if cl.Fields {
+			h.str("fields")
+		}
 	}
 }
 

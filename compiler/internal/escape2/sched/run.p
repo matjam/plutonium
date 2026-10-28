@@ -494,7 +494,7 @@ func (e *env) Summary(id eir.FuncID) *summary.Summary {
 // Candidates are the candidates the solver applies at a dynamic call: the
 // virtual function whose summary joins the candidate set (join.go).
 func (e *env) Candidates(f *eir.Func, c *eir.Call) []eir.FuncID {
-	return e.virt.of(e.facts.Candidates(f, c), c.Kind == eir.CallIface)
+	return e.virt.of(e.facts.Candidates(f, c), c.Kind == eir.CallIface, c.Fields)
 }
 
 func (e *env) Contract(name string) (*summary.Summary, bool) {
