@@ -161,6 +161,22 @@ func current() *Task {
 	return getg()
 }
 
+// pinTask disables preemption for the running task, if there is one, and
+// returns it; the caller ends the pin with dec32 or enablePreempt on the
+// result. Until the pin is in place the task may be preempted and resume
+// on another worker, so it reads the task from the current-task slot in one
+// load (getg) and reads the worker (getm) only after the pin. Reading
+// getm().curg instead takes two loads: a preemption between them leaves
+// the old worker's m in hand, whose curg is by then another task, and the
+// pin lands on that task while this one stays preemptible.
+func pinTask() *Task {
+	t := getg()
+	if t != nil {
+		inc32(&t.locks)
+	}
+	return t
+}
+
 func setCurrent(t *Task) {
 	if !hs.started {
 		singleTask = t
@@ -443,11 +459,8 @@ func (*hostedSched) Yield(t *Task) {
 // hostedReady queues t on the current worker's P, or on the global queue
 // from a thread without one, and wakes an idle worker to steal it.
 func hostedReady(t *Task) {
+	cur := pinTask()
 	mp := getm()
-	cur := mp.curg
-	if cur != nil {
-		inc32(&cur.locks)
-	}
 	if pp := mp.p; pp != nil && mp.syscallp == nil {
 		runqput(pp, t)
 	} else {
@@ -872,14 +885,16 @@ func EnterSyscall() {
 	if !hs.started {
 		return
 	}
-	mp := getm()
-	g := mp.curg
+	// The task, then the pin, then the worker (pinTask): until the pin the
+	// task may move to another worker.
+	g := getg()
 	if g == nil || g.insyscall || g.locks != 0 {
 		// With preemption disabled (a panic, a runtime critical section)
 		// the P stays put, so that ExitSyscall never switches away.
 		return
 	}
 	inc32(&g.locks)
+	mp := getm()
 	g.insyscall = true
 	pp := mp.p
 	pp.syscalltick++
@@ -1179,10 +1194,8 @@ func cacheable(total uintptr, a Allocator) bool {
 
 // pinP disables preemption and returns the running worker's P, or nil.
 func pinP() *p {
+	pinTask()
 	mp := getm()
-	if t := mp.curg; t != nil {
-		inc32(&t.locks)
-	}
 	if mp.syscallp != nil {
 		return nil
 	}
@@ -1190,7 +1203,7 @@ func pinP() *p {
 }
 
 func unpinP() {
-	if t := getm().curg; t != nil {
+	if t := getg(); t != nil {
 		dec32(&t.locks)
 	}
 }
@@ -1510,10 +1523,8 @@ func ProcPin() int {
 		}
 		return 0
 	}
+	pinTask()
 	mp := getm()
-	if t := mp.curg; t != nil {
-		inc32(&t.locks)
-	}
 	if pp := mp.p; pp != nil && mp.syscallp == nil {
 		return int(pp.id)
 	}
@@ -1528,7 +1539,7 @@ func ProcUnpin() {
 		}
 		return
 	}
-	if t := getm().curg; t != nil {
+	if t := getg(); t != nil {
 		enablePreempt(t)
 	}
 }

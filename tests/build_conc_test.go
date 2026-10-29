@@ -493,6 +493,59 @@ func TestParallelAlloc(t *testing.T) {
 	}
 }
 
+// TestPinPreempt checks that pinning a task (rt.ProcPin, used by the slab
+// allocator on every allocation) survives async preemption. The pin once
+// read the worker and then the worker's current task in two loads; a
+// preemption between them moved the task to another worker and the pin
+// landed on whichever task the old worker ran next. That task later
+// panicked with "blocking with preemption disabled" when it parked. Many
+// tasks allocating in a tight loop, with fewer workers than tasks, hit that
+// window in most runs before the fix.
+func TestPinPreempt(t *testing.T) {
+	t.Parallel()
+	prog := buildConc(t, `package main
+
+import "pluto/alloc"
+
+type cell struct{ a, b, c, d int }
+
+func worker(id int, ch chan int) {
+	sum := 0
+	for i := 0; i < 4000000; i++ {
+		p := alloc.New[cell]()
+		p.a = i
+		sum += p.a & 1
+		alloc.Free(p)
+		if i%4096 == 0 {
+			ch <- id
+		}
+	}
+	ch <- -1 - sum%1
+}
+
+func main() {
+	const n = 16
+	ch := make(chan int)
+	for i := 0; i < n; i++ {
+		task worker(i, ch)
+	}
+	done := 0
+	for done < n {
+		if v := <-ch; v < 0 {
+			done++
+		}
+	}
+	println("ok")
+}
+`, "-O2")
+	for run := 0; run < 2; run++ {
+		out, status := runExeEnv(t, prog, "PLUTO_MAXPROCS=4")
+		if status != 0 || out != "ok\n" {
+			t.Fatalf("run %d: status %d, output:\n%s", run, status, out)
+		}
+	}
+}
+
 // TestConcDebugAlloc runs concurrent programs that free everything they
 // allocate, channels included, under the debug allocator with leaks
 // failing the program.
