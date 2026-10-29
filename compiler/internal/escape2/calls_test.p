@@ -10,7 +10,6 @@ import (
 	"pluto/strings"
 	"pluto/testing"
 
-	"compiler/internal/escape"
 	"compiler/internal/load"
 	"compiler/internal/moves"
 	"compiler/internal/syntax/ast"
@@ -58,14 +57,14 @@ func main() {
 // argFactsAt returns the facts recorded for the argument of the call in
 // function main whose text, within the call, is arg, and the call's
 // function as written.
-func argFactsAt(t *testing.T, prog *load.Program, calls *escape.Calls, fun string, arg int) *escape.ArgFacts {
+func argFactsAt(t *testing.T, prog *load.Program, calls *moves.Calls, fun string, arg int) *moves.ArgFacts {
 	t.Helper()
 	for _, p := range prog.Packages {
 		if p != prog.Main {
 			continue
 		}
 		for _, f := range p.Files {
-			var found *escape.ArgFacts
+			var found *moves.ArgFacts
 			done := false
 			ast.Inspect(f, func(n ast.Node) bool {
 				c, ok := n.(*ast.CallExpr)
@@ -148,47 +147,79 @@ func TestCallFacts(t *testing.T) {
 	}
 }
 
-// TestCallFactsMoves checks that the move checker's verdicts given this
-// analysis's facts about calls are those it reaches given internal/escape's,
-// on programs that pass views of local owners to calls (the corpus as a
-// whole: go run ./tools/escape2diff -moves).
+// callFactsMoves are the move errors of programs that pass views of local
+// owners to calls, given this analysis's facts about calls: the first line
+// of each, sorted, without the directory. The Go test compared them with
+// the move errors given internal/escape's facts, which were the same; that
+// analysis is gone (18358443), and these are what both gave.
+var callFactsMoves = map[string][]string{
+	"testdata/plutonium/dropsites.p": nil,
+	"testdata/lib/chunked.p":         nil,
+	"testdata/lib/vec.p":             nil,
+	"testdata/lib/vecfixed.p":        nil,
+	// Its errors are escape errors, not move errors.
+	"tests/diag/container_views/main.p": nil,
+	"tests/diag/defer_view_moved/main.p": {
+		"main.p:20:16: o was moved into consume (its parameter takes a Buf by value) at line 21, but the deferred call (line 20) uses it when the function returns",
+		"main.p:26:16: o may have been moved into consume (its parameter takes a Buf by value) at line 28, but the deferred call (line 26) uses it when the function returns",
+	},
+	"tests/diag/moves/main.p": {
+		"main.p:25:10: m was moved to n at line 24, so it can no longer be used here",
+		"main.p:31:10: b may have been moved at line 29, so it cannot be used here",
+		"main.p:34:10: cannot move t.left out of t: t.left is a field, not a variable",
+		"main.p:39:9: out was moved into flush (its parameter takes a Buf by value) at line 39 in the previous iteration of this loop",
+		"main.p:43:23: cannot move c inside a function literal: the literal may run more than once, or never",
+	},
+	"tests/diag/moves_more/main.p": {
+		"main.p:18:2: cannot call f.Drop(): f is a *File, which only points at a File that something else owns",
+		"main.p:27:9: cannot copy the elements of bufs in a range loop: Buf is an owner type",
+		"main.p:32:2: cannot copy elements of type Buf: each element is an owner",
+		"main.p:35:7: cannot assert x to Buf: x is an any, which only lends the value it holds",
+		"main.p:39:11: cannot read v[0]: the elements of v are owners, and v[0] would be a copy",
+		"main.p:43:6: cannot pass one to all as a variadic argument: Buf is an owner type",
+		"main.p:46:10: a slice literal cannot hold owners: Buf is an owner type, and nothing would drop the elements",
+		"main.p:51:3: the deferred call uses f, which is dropped at the end of its block (line 52)",
+		"main.p:62:10: f was moved into eat (its parameter takes a File by value) at line 61, so it can no longer be used here",
+	},
+}
+
+// TestCallFactsMoves checks the move checker's verdicts given this
+// analysis's facts about calls (callFactsMoves).
 func TestCallFactsMoves(t *testing.T) {
 	root := testenv.Root()
-	for _, f := range []string{
-		"testdata/plutonium/dropsites.p",
-		"testdata/lib/chunked.p",
-		"testdata/lib/vec.p",
-		"testdata/lib/vecfixed.p",
-		"tests/diag/container_views/main.p",
-		"tests/diag/defer_view_moved/main.p",
-		"tests/diag/moves/main.p",
-		"tests/diag/moves_more/main.p",
-	} {
+	var files []string
+	for f := range callFactsMoves {
+		files = compat.Append(files, f)
+	}
+	slices.Sort(files)
+	for _, f := range files {
 		src, err := compat.ReadFile(filepath.Join(root, f))
 		if err != nil {
 			t.Fatal(err.Error())
 		}
 		t.Run(f, func(t *testing.T) {
 			prog := loadSrc(t, compat.String(src))
-			oldCalls, _ := escape.Analyze(prog)
-			newCalls, _ := CheckCalls(prog)
-			_, oldErr := moves.AnalyzeWith(prog, oldCalls)
-			_, newErr := moves.AnalyzeWith(prog, newCalls)
-			if got, want := firstLines(newErr), firstLines(oldErr); !slices.Equal(got, want) {
-				t.Errorf("move errors given this analysis's facts:\n%s\ngiven internal/escape's:\n%s", compat.Join(got, "\n"), compat.Join(want, "\n"))
+			calls, _ := CheckCalls(prog)
+			if calls == nil {
+				t.Fatal("no facts")
+			}
+			_, err := moves.AnalyzeWith(prog, calls)
+			if got, want := baseLines(firstLines(err)), callFactsMoves[f]; !slices.Equal(got, want) {
+				t.Errorf("move errors:\n%s\nwant:\n%s", compat.Join(got, "\n"), compat.Join(want, "\n"))
 			}
 		})
 	}
 }
 
-// TestAnalyzeNew checks that the new mode gives this analysis's verdict and
-// its facts about calls.
-func TestAnalyzeNew(t *testing.T) {
+// TestCheckCalls checks that the analysis gives its verdict with its facts
+// about calls: facts and no error for an accepted program, an error for a
+// rejected one.
+func TestCheckCalls(t *testing.T) {
 	ok, bad := loadSrc(t, accepted), loadSrc(t, rejected)
-	if calls, err := Analyze(ok, ModeNew); err != nil || calls == nil {
+	if calls, err := CheckCalls(ok); err != nil || calls == nil {
 		t.Errorf("accepted program: %v, facts %v", err, calls != nil)
 	}
-	if _, err := Analyze(bad, ModeNew); err == nil {
+	if _, err := CheckCalls(bad); err == nil {
 		t.Errorf("rejected program accepted")
 	}
 }
@@ -205,6 +236,19 @@ func firstLines(err error) []string {
 		}
 	}
 	slices.Sort(out)
+	return out
+}
+
+// baseLines returns lines with the directory of each one's position left
+// out: "main.p:3:4: ..." for "/tmp/x/main.p:3:4: ...".
+func baseLines(lines []string) []string {
+	var out []string
+	for _, l := range lines {
+		if pos, msg, ok := strings.Cut(l, ": "); ok {
+			l = filepath.Base(pos) + ": " + msg
+		}
+		out = compat.Append(out, l)
+	}
 	return out
 }
 

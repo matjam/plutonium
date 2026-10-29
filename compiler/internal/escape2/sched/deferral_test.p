@@ -9,6 +9,7 @@ import (
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/solve"
+	"compiler/internal/scratch"
 	"compiler/internal/types2"
 	"compiler/pu"
 )
@@ -118,7 +119,9 @@ func canReadSolve(f *eir.Func, en solve.Env, ws *solve.Workspace) solve.Result {
 		canReadChecked = true
 		for _, c := range []canReadCase{{"leaf", true}, {"b", true}, {"c", true}, {"main", false}} {
 			if got := e.CanRead(f, fs[c.name].f.ID); got != c.want {
+				o := scratch.Outer()
 				canReadErrs = compat.Append(canReadErrs, canReadErr{c.name, got, c.want})
+				o.Restore()
 			}
 		}
 	}

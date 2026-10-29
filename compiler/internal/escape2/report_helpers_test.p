@@ -12,7 +12,6 @@ import (
 
 	"compiler/compat"
 	"compiler/internal/diag"
-	"compiler/internal/escape"
 	"compiler/internal/escape2/report"
 	"compiler/internal/escape2/sched"
 )
@@ -31,18 +30,6 @@ func newMessages(t *testing.T, src string) []string {
 		if filepath.Base(d.Pos.Filename) == "main.p" {
 			out = compat.Append(out, render(d))
 		}
-	}
-	return out
-}
-
-// oldMessages returns internal/escape's escape diagnostics of a program,
-// rendered.
-func oldMessages(t *testing.T, src string) []string {
-	t.Helper()
-	_, err := escape.Analyze(loadSrc(t, src))
-	var out []string
-	for _, d := range escapeDiags(err) {
-		out = compat.Append(out, render(d))
 	}
 	return out
 }

@@ -190,16 +190,22 @@ Compiler unit tests: the Go packages' API-level tests are `_test.p` files in the
 `compiler/` packages, run by `pluto test` and by `tests/compilerunits_test.go`
 (TestCompilerUnits). The light packages (compat, regexp, ssa, opt, arch/amd64) run unless
 `-short`, in about 15 s. escape2, lsp and build take minutes each and 2 to 10 GB, and run
-only with `PLUTO_UNIT_HEAVY=1`, with generation checks on. sched alone builds with
-`-gencheck=false`: its test fakes append to package slices from scratch memory that is reset
-after each step, and the checks stop them. The `internal/build` program tests are Go tests in
+only with `PLUTO_UNIT_HEAVY=1`, with generation checks on. A test that keeps what a step makes
+past the step (a fake solver recording its calls in a package slice) writes it from
+`scratch.Outer()` or `scratch.Heap()`: the step's scratch memory is reset after it. A test that
+loads a corpus program after program makes each one in a `scratch.NewRegion()` released at the
+end of the program's subtest: nothing else frees a load. As of 2026-10-29 the escape analysis
+rejects the checked test builds of sched, summary, solve and escape2 (in types2
+`conversions.p`), and escape2's unchecked one too. The `internal/build` program tests are Go tests in
 `tests/build_*_test.go`.
 
 Known gaps: these guards went with the Go implementation and have no replacement yet.
 - Unit tests left out (list in the go-removal plan, "Phase 2 status"): the external
   `solve_test` package files (pluto test has no external test packages), escape2
   oracle_test and sample_test, refsolve, lsp TestDefinitionExtractedStdlib. Three
-  corpus-sized escape2 tests are knownfail: they pass the memory cap.
+  corpus-sized tests (eir TestBuildCorpus, escape2 TestAdversarial and TestGoldenMessages) are
+  knownfail with generation checks: `scratch.Region.Release` leaves its allocations registered,
+  and they pass the memory cap. Built with `-gencheck=false` the regions bound them.
 - Coverage: `tools/pkgcov` and the per-package floors measured the Go packages. Nothing
   measures the coverage of `compiler/`.
 - The test memory guard (`internal/testguard`). The scale test of the escape analysis is

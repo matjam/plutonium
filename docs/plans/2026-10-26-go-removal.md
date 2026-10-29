@@ -122,25 +122,29 @@ Unit tests restored (2026-10-27). The Go packages' API-level tests at
 `go-cutover` are `_test.p` files in the matching `compiler/` packages, run by
 `pluto test` and by TestCompilerUnits (`tests/compilerunits_test.go`; the heavy
 packages need `PLUTO_UNIT_HEAVY=1`). The heavy packages build with
-generation checks on since 2026-10-28; sched still builds with
-`-gencheck=false` (its test fakes keep package slices in scratch memory
-that is reset after each step). Their times are the checked build plus the
-run on kraken, with another job in the other slot, and the memory is the
-peak of either:
+generation checks on since 2026-10-28, sched too since 2026-10-29, when
+its test fakes stopped appending to package slices from scratch memory.
+Their times are the checked build plus the run on kraken, with another job
+in the other slot, and the memory is the peak of either. On 2026-10-29 the
+escape analysis rejects the checked test builds of sched, summary, solve
+and escape2 in types2 (`conversions.p:89`: "cannot pass &cause to
+(*operand).convertibleTo, which keeps it after returning", and `:97`);
+escape2's is rejected without the checks too. Their rows are the last
+runs that built; the rejected builds peaked at 4.9, 2.8, 3.0 and 5.7 GB:
 
 | Package | Tests | pluto test |
 |---------|-------|------------|
 | ssa | schedule, disjoint, verify (4) | 3.5 s, 370 MB |
 | opt | all 21 | 10 s, 570 MB |
 | arch/amd64 | all 27 (3 run GNU `as`) | 16 s, 650 MB |
-| escape2/domain | all 37 | 170 s, 1.5 GB |
-| escape2/summary | all 8 | 720 s, 5.2 GB |
-| escape2/solve | 68 (internal package files) | 694 s, 5.5 GB |
-| escape2/sched | 60 of 61 | 192 s, 5.8 GB (unchecked) |
-| escape2/eir | build, desugar, corpus | 497 s, 5.7 GB |
+| escape2/domain | all 37 | 163 s, 1.45 GB |
+| escape2/summary | all 8 | 720 s, 5.2 GB (checked build rejected) |
+| escape2/solve | 68 (internal package files) | 694 s, 5.5 GB (checked build rejected) |
+| escape2/sched | 60 of 61 | 192 s, 5.8 GB (unchecked; checked build rejected) |
+| escape2/eir | build, desugar, corpus | 662 s, 5.5 GB |
 | escape2 | cache, calls, report, scale and the rest | 931 s, 12 GB (unchecked; its tests do not build now) |
-| lsp | all 32 | 512 s, 3.3 GB |
-| build | fieldnames, ssatext | 36 min, 9.5 GB |
+| lsp | all 32 | 410 s, 3.2 GB |
+| build | fieldnames, ssatext | 41 min, 9.1 GB |
 
 The `internal/build` program tests (about 190) are Go tests in
 `tests/build_*_test.go`, built through the CLI (Config fields map to `pluto
@@ -160,8 +164,21 @@ Left out, with the reason:
 - arch/amd64 `testing.AllocsPerRun` checks (no counter in `pluto/testing`).
 - `internal/build` main_test.go (Go GC tuning only).
 
-Knownfail (`t.Skip("knownfail: ...")`): eir TestBuildCorpus, escape2
-TestAdversarial and TestMessageDiff. With no GC they pass kraken's 24 GB cap.
+The corpus-sized tests (eir TestBuildCorpus, escape2 TestAdversarial and
+TestGoldenMessages, run with `PLUTO_LONG_TESTS=1`) load each program in a
+`scratch.NewRegion()` released when its subtest ends: with no GC nothing
+else frees a program's load, and without the regions they passed kraken's
+24 GB cap (TestBuildCorpus about 250 programs in, TestAdversarial eight).
+Built with `-gencheck=false` the regions bound them: TestBuildCorpus runs
+the corpus in 200 MB (2026-10-29). Built with generation checks, as
+TestCompilerUnits builds them, they are knownfail: each allocation of a
+custom allocator is registered (`rt.GenCustomAlloc`) and
+`scratch.Region.Release` unregisters none, so TestBuildCorpus passed 20 GB
+240 programs in. The fix belongs in `compiler/internal/scratch` (a Region
+that ends its allocations as `pluto/arena`'s Chunked does). The escape2
+two are not run yet either way: the escape2 test build is rejected (below).
+TestGoldenMessages was TestMessageDiff, which also compared the messages
+with internal/escape's; that analysis is gone.
 
 Bugs found by the ported tests:
 - Fixed: escape2 cache summaries were damaged by UTF-8 replacement in

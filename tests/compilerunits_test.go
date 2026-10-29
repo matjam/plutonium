@@ -17,12 +17,6 @@ type compilerUnit struct {
 	heavy bool
 }
 
-// noGenCheck builds without generation checks. sched's test fakes
-// (fakeSolve in driver_test.p) append to package-level slices from inside
-// scratch.Do, so the slices grow in a scratch arena that is reset after
-// each step, and the generation checks stop the next append (TestCanRead).
-var noGenCheck = []string{"-gencheck=false"}
-
 var compilerUnits = []compilerUnit{
 	{pkg: "compat"},
 	{pkg: "compat/fs"},
@@ -35,7 +29,7 @@ var compilerUnits = []compilerUnit{
 	{pkg: "internal/escape2/domain", heavy: true},
 	{pkg: "internal/escape2/summary", heavy: true},
 	{pkg: "internal/escape2/solve", heavy: true},
-	{pkg: "internal/escape2/sched", flags: noGenCheck, heavy: true},
+	{pkg: "internal/escape2/sched", heavy: true},
 	{pkg: "internal/escape2/eir", heavy: true},
 	{pkg: "internal/escape2", heavy: true},
 	{pkg: "internal/lsp", heavy: true},

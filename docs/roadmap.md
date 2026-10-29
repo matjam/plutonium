@@ -496,7 +496,16 @@ against the corrected specification. The immediate implementation order is:
      stores a view is reported at the call, as a store in the backing array of its destination
      (`rejected_copy_to_heap_slice`, `review3_programs_d13` to `d15`), and the error an `or` clause
      declares carries the views of its call's arguments, so the view is named in place of a format
-     string (`review2_programs_f26`, `f27`).
+     string (`review2_programs_f26`, `f27`). A pointer method that keeps a pointer it loads from its
+     receiver keeps what the pointer points at, not the receiver
+     (`accepted_printing_a_frame_value_while_an_allocator_whose_pointer_method_keeps_a_loaded_pointer_is_current`).
+     The corpus-sized unit tests of escape2 and its EIR (eir TestBuildCorpus, escape2 TestAdversarial
+     and TestGoldenMessages, which replaced TestMessageDiff's comparison with internal/escape) load
+     each program in a `scratch.NewRegion()` released after it. Without generation checks that bounds
+     them (TestBuildCorpus: the corpus in 200 MB). With them they stay knownfail: each allocation of
+     a custom allocator is registered (`rt.GenCustomAlloc`) and `Region.Release` unregisters none,
+     so TestBuildCorpus passed 20 GB 240 programs in. The fix is in `compiler/internal/scratch`
+     (a Region ending its allocations as `pluto/arena`'s Chunked does), not in the tests.
 143. **An exit through a function that never returns** (done; section 17.3). A function whose body ends
      in a panic or a call that never returns counts as never returning, but `rt.ExitTask` before that
      point still ends the task through its return path. The caller skipped the exit check after such

@@ -14,6 +14,7 @@ import (
 	"compiler/compat"
 	"compiler/internal/escape2/contract"
 	"compiler/internal/load"
+	"compiler/internal/scratch"
 	"compiler/internal/testenv"
 	"compiler/internal/types2"
 	"compiler/pu"
@@ -107,14 +108,32 @@ func (cp corpusProgram) load(t *testing.T) (*load.Program, bool) {
 
 // TestBuildCorpus builds EIR for every program of the corpus: no construct
 // of the corpus is unknown to the desugarer.
+//
+// Each program is loaded and built in a region of its own, released when
+// its subtest ends: nothing else frees a program's load and EIR (Go's GC
+// did), and without the regions the test passed 24 GB about 250 programs
+// into the corpus. t's messages are written out as they are made, so they
+// may be made in the region.
 func TestBuildCorpus(t *testing.T) {
-	t.Skip("knownfail: runs out of memory: nothing frees a program's load and EIR (Go's GC did), and the test passes 24 GB about 250 programs into the corpus")
 	// The Go test skipped with -short; pluto/testing has no Short.
 	if compat.Getenv("PLUTO_LONG_TESTS") == "" {
 		t.Skip("builds the whole corpus; set PLUTO_LONG_TESTS=1")
 	}
+	if genChecked {
+		// Built with -gencheck=false the regions bound the test (eir
+		// TestBuildCorpus: the corpus in 200 MB). With generation checks
+		// each allocation of a custom allocator is registered
+		// (rt.GenCustomAlloc) and scratch.Region.Release unregisters none,
+		// so every program's records are kept: TestBuildCorpus passed
+		// 20 GB 240 programs in.
+		t.Skip("knownfail with generation checks: scratch.Region's allocations stay registered after Release; build with -gencheck=false")
+	}
 	for _, cp := range corpus(t) {
 		t.Run(cp.name, func(t *testing.T) {
+			mem := scratch.NewRegion()
+			defer mem.Release()
+			use := mem.Use()
+			defer use.Restore()
 			prog, ok := cp.load(t)
 			if !ok {
 				t.Skip("does not load")

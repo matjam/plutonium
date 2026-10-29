@@ -1,11 +1,12 @@
 // Ported from internal/escape2/escape2_test.go at the go-cutover tag.
-// t.Setenv is compat.SetenvForTest (pluto/os cannot change the
-// environment), and t.TempDir is testenv.TempDir.
+// t.TempDir is testenv.TempDir. The tests of the modes that ran both
+// analyses (ModeFromEnv, Compare, Analyze) went with internal/escape
+// (18358443); isInternal and sites, which the other tests use, are the
+// copies of what escape2.p had.
 
 package escape2
 
 import (
-	"pluto/errors"
 	"pluto/path/filepath"
 	"pluto/strings"
 	"pluto/testing"
@@ -13,7 +14,6 @@ import (
 	"compiler/compat"
 	"compiler/internal/diag"
 	"compiler/internal/load"
-	"compiler/internal/syntax/token"
 	"compiler/internal/testenv"
 	"compiler/internal/types2"
 	"compiler/pu"
@@ -51,110 +51,67 @@ func f() *int {
 func main() { _ = f() }
 `
 
-func TestModeFromEnv(t *testing.T) {
-	for v, want := range map[string]Mode{"": ModeNew, "old": ModeOld, "new": ModeNew, "both": ModeBoth} {
-		restore := compat.SetenvForTest("PLUTO_ESCAPE", v)
-		if got, err := ModeFromEnv(); err != nil || got != want {
-			t.Errorf("PLUTO_ESCAPE=%q: %v, %v; want %v", v, got, err, want)
+// isInternal reports whether err is, or holds, an internal compiler error:
+// a failure of the analysis rather than a verdict. An error that is not a
+// diagnostic counts as one.
+func isInternal(err error) bool {
+	if l, ok := err.(*diag.List); ok {
+		for _, d := range *l {
+			if d.Code == diag.InternalError {
+				return true
+			}
 		}
-		restore()
+		return false
 	}
-	restore := compat.SetenvForTest("PLUTO_ESCAPE", "newer")
-	defer restore()
-	if _, err := ModeFromEnv(); err == nil {
-		t.Errorf("PLUTO_ESCAPE=newer: no error")
+	if d, ok := err.(*diag.Diagnostic); ok {
+		return d.Code == diag.InternalError
 	}
+	return true
 }
 
-func list(sites ...string) error {
-	var l diag.List
-	for _, s := range sites {
-		pos, code, _ := strings.Cut(s, " ")
-		parts := compat.Split(pos, ":")
-		line, col := 0, 0
-		for _, c := range parts[1] {
-			line = line*10 + int(c-'0')
+// sites returns the errors of a verdict other than internal errors, as
+// "file:line code".
+func sites(err error) map[string]bool {
+	out := map[string]bool{}
+	add := func(d *diag.Diagnostic) {
+		if d.Code == diag.InternalError {
+			return
 		}
-		for _, c := range parts[2] {
-			col = col*10 + int(c-'0')
-		}
-		l = compat.Append(l, diag.New(token.Position{Filename: parts[0], Line: line, Column: col}, diag.Code(code), "msg"))
+		out[compat.Sprintfb("%s:%d %s", compat.ArgS(d.Pos.Filename), compat.ArgI(int64(d.Pos.Line)), compat.ArgS(string(d.Code)))] = true
 	}
-	// On the heap: the error is a pointer to the list (escape2.Diagnostics).
-	return pu.New(l).Err()
+	switch e := err.(type) {
+	case nil:
+	case *diag.List:
+		for _, d := range *e {
+			add(d)
+		}
+	case *diag.Diagnostic:
+		add(e)
+	}
+	return out
 }
 
-// TestCompare checks verdict and site comparison.
-func TestCompare(t *testing.T) {
-	prog := pu.New(load.Program{})
-	if d := Compare(prog, nil, nil); d != nil {
-		t.Errorf("both accept: %v", d)
+// TestCheckVerdict checks the verdicts of Check: it accepts a program
+// without escapes, and rejects one that returns a pointer to a local
+// variable with an error at that line, not with an internal error.
+func TestCheckVerdict(t *testing.T) {
+	if err := Check(loadSrc(t, accepted)); err != nil {
+		t.Errorf("accepted program: %v", err)
 	}
-	if d := Compare(prog, list("a.p:1:2 E3001"), list("a.p:1:2 E3001")); d != nil {
-		t.Errorf("same errors: %v", d)
-	}
-	d := Compare(prog, list("a.p:1:2 E3001"), nil)
-	if d == nil || !d.VerdictsDiffer() || len(d.OnlyOld) != 1 || len(d.OnlyNew) != 0 {
-		t.Fatalf("old rejects, new accepts: %+v", d)
-	}
-	if s := d.String(); !strings.Contains(s, "verdicts differ: old rejects, new accepts") || !strings.Contains(s, "old only: a.p:1 E3001") {
-		t.Errorf("report:\n%s", s)
-	}
-	d = Compare(prog, list("a.p:1:2 E3001"), list("a.p:3:4 E3002", "a.p:1:2 E3001"))
-	if d == nil || d.VerdictsDiffer() || len(d.OnlyNew) != 1 || d.OnlyNew[0].Pos != "a.p:3" {
-		t.Errorf("same verdict, extra site: %+v", d)
-	}
-	d = Compare(prog, nil, errors.New("internal compiler error: escape2: not built"))
-	if d == nil || !d.VerdictsDiffer() || d.NewFailed == "" {
-		t.Errorf("new fails: %+v", d)
-	}
-	if s := d.String(); !strings.Contains(s, "new analysis failed") {
-		t.Errorf("report:\n%s", s)
-	}
-}
-
-// TestCompareColumns checks that one error reported at another column of
-// the same line is the same site.
-func TestCompareColumns(t *testing.T) {
-	if d := Compare(pu.New(load.Program{}), list("a.p:5:9 E3001"), list("a.p:5:2 E3001")); d != nil {
-		t.Errorf("same line, other column: %v", d)
-	}
-}
-
-// TestAnalyzeModes checks that the old analysis decides the verdict in the
-// old and both modes, and that both mode reports a difference to the file
-// PLUTO_ESCAPE_DIFF names. While the new analysis is not complete it fails
-// on every program, which both mode reports as a difference.
-func TestAnalyzeModes(t *testing.T) {
-	ok, bad := loadSrc(t, accepted), loadSrc(t, rejected)
-	tmp := testenv.TempDir(t)
-	defer testenv.Remove(tmp)
-	diffFile := filepath.Join(tmp, "diff.txt")
-	restore := compat.SetenvForTest("PLUTO_ESCAPE_DIFF", diffFile)
-	defer restore()
-	for _, mode := range []Mode{ModeOld, ModeBoth} {
-		calls, err := Analyze(ok, mode)
-		if err != nil || calls == nil {
-			t.Errorf("mode %d: accepted program: %v", mode, err)
-		}
-		if _, err := Analyze(bad, mode); err == nil {
-			t.Errorf("mode %d: rejected program accepted", mode)
-		}
-	}
-	data, _ := compat.ReadFile(diffFile)
-	if d := Compare(ok, nil, Check(ok)); d != nil && !strings.Contains(compat.String(data), d.String()) {
-		t.Errorf("both mode did not report\n%s\nin PLUTO_ESCAPE_DIFF; it has\n%s", d, data)
-	}
-}
-
-// TestCheckInternalError checks that a failure of the new analysis is an
-// internal compiler error, never acceptance.
-func TestCheckInternalError(t *testing.T) {
-	err := Check(loadSrc(t, accepted))
+	err := Check(loadSrc(t, rejected))
 	if err == nil {
-		t.Skip("the new analysis is complete enough to accept this program")
+		t.Fatalf("rejected program accepted")
 	}
-	if !isInternal(err) && len(sites(err)) == 0 {
-		t.Errorf("unexpected error: %v", err)
+	if isInternal(err) {
+		t.Fatalf("rejected program: internal error: %v", err)
+	}
+	s := sites(err)
+	if len(s) != 1 {
+		t.Fatalf("rejected program: %d errors, want 1: %v", len(s), err)
+	}
+	for k := range s {
+		if want := compat.Sprintfb(":5 %s", compat.ArgS(string(diag.ReturnFrameView))); !strings.HasSuffix(k, want) {
+			t.Errorf("rejected program: error %s, want one at line 5 with code %s", k, string(diag.ReturnFrameView))
+		}
 	}
 }

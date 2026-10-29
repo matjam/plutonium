@@ -21,6 +21,7 @@ import (
 	"compiler/internal/escape2/domain"
 	"compiler/internal/escape2/summary"
 	"compiler/internal/load"
+	"compiler/internal/scratch"
 	"compiler/internal/testenv"
 	"compiler/internal/types2"
 	"compiler/pu"
@@ -278,9 +279,17 @@ func copyDir(t *testing.T, from, to string) {
 // that the diagnostics are those of a run without a cache. It also checks
 // that the mutations reach every way the driver has of refusing a file.
 func TestAdversarial(t *testing.T) {
-	t.Skip("knownfail: runs out of memory: nothing frees a program's analyses (Go's GC did), and the test passes 24 GB eight programs in")
 	if compat.Getenv("PLUTO_LONG_TESTS") == "" {
 		t.Skip("runs the analysis many times over the corpus; set PLUTO_LONG_TESTS=1")
+	}
+	if genChecked {
+		// Built with -gencheck=false the regions bound the test (eir
+		// TestBuildCorpus: the corpus in 200 MB). With generation checks
+		// each allocation of a custom allocator is registered
+		// (rt.GenCustomAlloc) and scratch.Region.Release unregisters none,
+		// so every program's records are kept: TestBuildCorpus passed
+		// 20 GB 240 programs in.
+		t.Skip("knownfail with generation checks: scratch.Region's allocations stay registered after Release; build with -gencheck=false")
 	}
 	progs := advCorpus(t)
 	stride := 40
@@ -294,6 +303,16 @@ func TestAdversarial(t *testing.T) {
 				continue
 			}
 			t.Run(cp.name, func(t *testing.T) {
+				// The program's load and analyses are made in a region
+				// of its own, released when the subtest ends (after the
+				// directories are removed): nothing else frees them (Go's
+				// GC did), and without the regions the test passed 24 GB
+				// eight programs in. totals outlives the region and is
+				// written from the heap.
+				mem := scratch.NewRegion()
+				defer mem.Release()
+				use := mem.Use()
+				defer use.Restore()
 				prog, ok := cp.load(t)
 				if !ok {
 					t.Skip("does not load")
@@ -326,7 +345,9 @@ func TestAdversarial(t *testing.T) {
 					if cold.diags != "" {
 						tt[4]++
 					}
+					h := scratch.Heap()
 					totals[m.name] = tt
+					h.Restore()
 					testenv.Remove(dir)
 				}
 			})

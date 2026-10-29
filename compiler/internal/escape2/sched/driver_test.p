@@ -11,6 +11,7 @@ import (
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/solve"
 	"compiler/internal/escape2/summary"
+	"compiler/internal/scratch"
 	"compiler/internal/syntax/token"
 	"compiler/internal/testpanic"
 	"compiler/pu"
@@ -74,8 +75,14 @@ var (
 // one key of its own (its ID), and a finding at its position; it uses the
 // arena in proportion to the keys it holds. It records the order of the
 // solves in fakeOrder.
+//
+// The driver runs each solve in scratch memory (scratch.Do), freed when the
+// solve ends, so what a fake adds to a package variable comes from the
+// caller's memory (scratch.Outer), as the real solver's shared tables do.
 func fakeSolve(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
+	r := scratch.Outer()
 	fakeOrder = compat.Append(fakeOrder, f.ID)
+	r.Restore()
 	keys := map[domain.Key]bool{domain.Key(f.ID): true}
 	for _, b := range f.Blocks {
 		for _, in := range b.Instrs {
@@ -212,6 +219,8 @@ var (
 )
 
 func recordSCC(scc []eir.FuncID, st SCCStats) {
+	r := scratch.Outer()
+	defer r.Restore()
 	sccStatsSCCs = compat.Append(sccStatsSCCs, compat.Clone(scc))
 	sccStatsStats = compat.Append(sccStatsStats, st)
 }
@@ -502,7 +511,9 @@ var (
 
 func dynSolve(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
 	if f.ID == dynMain {
-		dynGotCands = env.Candidates(f, dynCall)
+		r := scratch.Outer()
+		dynGotCands = compat.Clone(env.Candidates(f, dynCall))
+		r.Restore()
 	}
 	return fakeSolve(f, env, ws)
 }
