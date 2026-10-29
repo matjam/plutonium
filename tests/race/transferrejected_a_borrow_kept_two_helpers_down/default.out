@@ -1,0 +1,12 @@
+$DIR/main.p:58:11: l is moved to the task started here, but a view of what it holds (&l, line 57) was passed to lend2, which may keep memory reached through it (stash(l.head), line 49) at line 57, where the compiler cannot check its uses
+    An owner may move to another task only when no other alias of the memory it
+    holds is left behind (language spec section 8.8). The view of l made by &l
+    at line 57 went into memory the compiler does not follow, so this task could
+    still use it while the task that receives l does.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not hand it to a call that keeps it
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)

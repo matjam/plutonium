@@ -38,8 +38,8 @@ against the corrected specification. The immediate implementation order is:
      representation has not been selected; hosted pointer tags cannot simply be assumed
      suitable. This is a confirmed source-policy gap.
      Design: [kernel lifetime protection](plans/2026-10-28-kernel-lifetime-protection.md).
-102. **Outstanding aliases during owner transfer** (audited; sections 8.8, 19.3). Probes in `tests/race/transfer*`
-     (nine accepted, 24 rejected) borrow an owner's memory through a field or a helper, then move the
+102. **Outstanding aliases during owner transfer** (done; sections 8.8, 19.3). Probes in `tests/race/transfer*`
+     (ten accepted, 27 rejected) borrow an owner's memory through a field or a helper, then move the
      owner by `take`, a task or a channel send, then use the borrow. A borrow kept in a local variable, a
      copy of it or a field of a local struct is E3313 at the conflicting use, and its last use before the
      transfer is accepted. The audit found and fixed four gaps. The race checker missed `alloc.New[T]()`
@@ -50,10 +50,16 @@ against the corrected specification. The immediate implementation order is:
      the locals it reaches, and a field whose memory leaks no longer owns it, so the transfer is E3501. A
      view of what a local owner holds, passed to a call that may keep it, is E3314 when the owner then
      crosses to another task (`moves/views.p`, `heapPin`). `take(&h.l)` did not make the views of `h.l`
-     stale, and a node reached through another (`l.head.next`) was not a view of `l`. Known failures, each
-     marked `knownfail`: an owner passed by pointer to a helper that hands a view of its memory to a call
-     that keeps it (one case: neither checker follows a view through calls there). The seven cases of a
-     borrow returned by a method of a local owner pass since item 138.
+     stale, and a node reached through another (`l.head.next`) was not a view of `l`. An owner passed by
+     pointer to a helper that hands a view of its memory to a call that keeps it (`lend(&l)` with
+     `func lend(l *List) { stash(l.head) }`) was accepted: the escape analysis says only whether a callee
+     keeps the pointer it is given, not memory loaded through it. `moves/keeps.p` now records, from those
+     facts, which inputs of each function may have memory loaded through them kept, through any number of
+     helpers and methods, and such a call pins the owner's views as `heapPin` does, so a later task or
+     send is E3314. Helpers calling through an interface or a func value are not followed (the escape
+     analysis has no facts for those arguments, and counting them would reject every container that
+     calls its allocator). The seven cases of a borrow returned by a method of a local owner pass since
+     item 138.
 103. **Nonconsuming owner indexing and length receivers** (done; sections 10.14, 11.11,
      13.6). `x[k]`, `x[k] = v`, `v, ok := x[k]` and `len(x)` on an owner type whose Index,
      SetIndex, IndexOk or Len has a value receiver were accepted before, and ran wrong: each call

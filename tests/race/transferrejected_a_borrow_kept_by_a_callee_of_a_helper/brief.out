@@ -1,1 +1,1 @@
-PLACEHOLDER
+$DIR/main.p:55:11: l is moved to the task started here, but a view of what it holds (&l, line 54) was passed to lend, which may keep memory reached through it (stash(l.head), line 49) at line 54, where the compiler cannot check its uses

@@ -1,0 +1,1 @@
+$DIR/main.p:61:8: l is moved by the send on ch here, but a view of what it holds (&l, line 59) was passed to lend, which may keep memory reached through it (stash(l.head), line 49) at line 59, where the compiler cannot check its uses

@@ -897,6 +897,17 @@ func (f *fn) callStores(args []argView) {
 	for _, a := range args {
 		af := f.c.calls.Arg(a.key)
 		how := compat.Concat("passed to ", exprText(a.call.Fun), ", which may keep it")
+		if site, ok := f.c.calleeKeeps(a.call, a.key); ok && af != nil {
+			// The callee may keep memory loaded through the argument
+			// (keeps.p): what the views point to is then kept as if it
+			// were the heap memory of the owner.
+			var held []view
+			for _, w := range a.views {
+				w.inHeap = true
+				held = compat.Append(held, w)
+			}
+			f.heapPin(held, a.call.Pos(), f.c.keepHow(a.call, site))
+		}
 		if af == nil {
 			f.pin(a.views, a.call.Pos(), how)
 			f.heapPin(a.views, a.call.Pos(), how)
@@ -931,7 +942,9 @@ func (f *fn) argViews(call *ast.CallExpr) []argView {
 			return // a func value no method value reaches: it stores nothing
 		}
 		if af != nil && len(af.Into) == 0 && !af.Self {
-			return
+			if _, keeps := f.c.calleeKeeps(call, key); !keeps {
+				return
+			}
 		}
 		if vs := f.viewsTo(val, T); len(vs) > 0 {
 			out = compat.Append(out, argView{call: call, key: key, views: vs})
