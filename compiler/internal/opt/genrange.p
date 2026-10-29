@@ -156,5 +156,5 @@ func genScale(idx, i *ssa.Value) int64 {
 // checkRange ends r's preheader with its check.
 func (g *genPlacer) checkRange(r *genRange) {
 	cont := g.splitAt(r.pre, nil)
-	g.lookup(r.pre, cont, r.v, r.mem, r.guard, g.partsOf(r.base).bits, r.p, r.n)
+	g.lookup(r.pre, cont, r.v, r.mem, r.guard, g.partsOf(r.base), r.p, r.n)
 }

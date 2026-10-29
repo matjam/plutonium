@@ -57,8 +57,11 @@ const genCheck = true
 // address before handing its untagged address to assembly.
 func checkLive(p unsafe.Pointer) {
 	raw := *(*uintptr)(unsafe.Pointer(&p))
-	tag := raw >> 48
-	if tag == 0 {
+	// Untagged: the bits equal their sign extension from bit 47 (genTagOf).
+	// This is inlined into every count and header use, so it spells the
+	// test out rather than adding an inlined call to each site's trace
+	// records.
+	if raw == uintptr(int(raw<<16)>>16) {
 		return
 	}
 	if !GenRegisteredLive(p) {

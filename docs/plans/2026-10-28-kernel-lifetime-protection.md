@@ -1,10 +1,10 @@
 # Kernel lifetime protection (roadmap item 101)
 
-**Status:** approved 2026-10-28 (decision D41; section 6). Phase 0 is done
-(section 7). It adds no language rule. Sections
+**Status:** approved 2026-10-28 (decision D41; section 6). Phases 0 and 1 are
+done (section 7). It adds no language rule. Sections
 1.2 (Design principles), 18.11 (Generation checks), 18.12 (Safe and unsafe
 code), 20.5, 20.6, 20.11 and 21.5 (Kernel and freestanding protection) define
-the subject; `docs/spec/abi.md` section 1.3 defines today's hosted encoding,
+the subject; `docs/spec/abi.md` section 1.3 defines the encoding, canonical XOR since phase 1,
 and decision D8 (2026-10-15) withdrew the unchecked kernel default. This plan
 supersedes nothing. It records the chosen representation (C1) and phases;
 section 6 records the owner's answers to its questions.
@@ -337,3 +337,15 @@ decision D41 in `docs/decisions.md`.
   at its default is rejected; `--gencheck=false` builds it unchecked, as
   before; `--gencheck` (true) stays rejected until phase 2. Every kernel and
   freestanding build in the repository passes `--gencheck=false`.
+- **Phase 1: done.** Hosted builds use the canonical XOR encoding (C1):
+  lowering and opt untag by sign extension from bit 47 and test for a tag
+  by comparing a pointer with its untagged form; the runtime builds and
+  reads tags in the XOR form. Hosted results are unchanged. Measured on
+  kraken against phase 0, building the checked compiler
+  (`-O2 --gencheck`): code size (text, rodata, data) 53,258,566 to
+  53,285,974 bytes (+0.05%; .text +0.17%, .rodata -0.3%); the checked
+  compiler then builds a small checked program in 24.43 s instead of
+  23.32 s (mean of three, +4.8%), and that program's text shrinks from
+  228,210 to 225,786 bytes. The slowdown is the sign-extending untag
+  (shift left, arithmetic shift right) where a mask was one AND. Phase 2
+  measures kernels.

@@ -34,9 +34,11 @@ against the corrected specification. The immediate implementation order is:
      Phase 0 is done: a freestanding or kernel build that does not pass `--gencheck=false` is now
      an error that says to pass it for a deliberate unchecked build, instead of a silent unchecked
      build, and `--gencheck=true` there is still rejected. Every in-repo kernel and freestanding
-     build passes the flag. Remaining: the canonical XOR tag encoding (phase 1), checked kernel
-     builds with a link-time metadata hook on 4-level paging (phase 2), then the early-boot,
-     interrupt and arena work of phases 3 and 4.
+     build passes the flag. Phase 1 is done: tags use the canonical XOR encoding of abi.md
+     section 1.3 (untag is sign extension from bit 47), with hosted results unchanged; the
+     checked compiler is 0.05% larger and about 5% slower (plan section 7 has the numbers).
+     Remaining: checked kernel builds with a link-time metadata hook on 4-level paging (phase
+     2), then the early-boot, interrupt and arena work of phases 3 and 4.
      Design: [kernel lifetime protection](plans/2026-10-28-kernel-lifetime-protection.md).
 102. **Outstanding aliases during owner transfer** (done; sections 8.8, 19.3). Probes in `tests/race/transfer*`
      (ten accepted, 27 rejected) borrow an owner's memory through a field or a helper, then move the

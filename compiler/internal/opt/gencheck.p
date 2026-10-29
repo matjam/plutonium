@@ -20,11 +20,11 @@ import (
 // its tag, computed once where p is defined, and is preceded by a check of
 // p somewhere before it:
 //
-//	t := p >> 48
-//	if t != 0 {
+//	a := int(p<<16) >> 16 // p sign-extended from bit 47: its address
+//	if p != a {           // p has a tag
 //		if !rt.GenRegisteredLive(p) { panicStale(p) }
 //	}
-//	access p &^ tag
+//	access a
 //
 // A check of p stays valid until something that may free (GenFrees):
 // a call to a function that may free, an indirect call, an intrinsic, a
@@ -1103,13 +1103,13 @@ func addrRoot(p *ssa.Value) (*ssa.Value, []*ssa.Value) {
 }
 
 // isUntagPattern reports whether p is a pointer lowering already took the
-// tag off: Bitcast(ShrL(Shl(x, 16), 16)).
+// tag off: Bitcast(ShrA(Shl(x, 16), 16)).
 func isUntagPattern(p *ssa.Value) bool {
 	if p.Op != ssa.OpBitcast {
 		return false
 	}
 	s := p.Args[0]
-	return s.Op == ssa.OpShrL && constEq(s.Args[1], 64-genTagShift) &&
+	return s.Op == ssa.OpShrA && constEq(s.Args[1], 64-genTagShift) &&
 		s.Args[0].Op == ssa.OpShl && constEq(s.Args[0].Args[1], 64-genTagShift)
 }
 
@@ -1142,7 +1142,7 @@ func genPartsAfter(f *ssa.Func, root *ssa.Value) *genParts {
 	p := pu.New(genParts{})
 	p.bits = emit(ssa.OpBitcast, ssa.TI64, root)
 	shl := emit(ssa.OpShl, ssa.TI64, p.bits, shift)
-	p.plain = emit(ssa.OpShrL, ssa.TI64, shl, shift)
+	p.plain = emit(ssa.OpShrA, ssa.TI64, shl, shift)
 	p.addr = emit(ssa.OpBitcast, ssa.TPtr, p.plain)
 	return p
 }
@@ -1199,7 +1199,7 @@ func (g *genPlacer) check(b *ssa.Block, at *ssa.Value, s *genSite) {
 	if x.size > 1 {
 		n = g.f.ConstInt(ssa.TI64, x.size)
 	}
-	g.lookup(b, cont, s.v, mem, s.guard, g.parts[x.root].bits, p, n)
+	g.lookup(b, cont, s.v, mem, s.guard, g.parts[x.root], p, n)
 }
 
 // splitAt splits b before at (at its end if at is nil): the block it
@@ -1237,14 +1237,14 @@ func (g *genPlacer) splitAt(b *ssa.Block, at *ssa.Value) *ssa.Block {
 }
 
 // lookup ends b, which splitAt left without an ending, with the check of
-// the n bytes at p (one byte if n is nil), whose pointer has bits as an
-// integer, when guard holds (nil: always); the check continues to cont.
+// the n bytes at p (one byte if n is nil), whose pointer has the parts
+// parts, when guard holds (nil: always); the check continues to cont.
 // pos gives the positions, and mem is the memory state the lookup reads.
-func (g *genPlacer) lookup(b, cont *ssa.Block, pos, mem, guard, bits, p, n *ssa.Value) {
+func (g *genPlacer) lookup(b, cont *ssa.Block, pos, mem, guard *ssa.Value, parts *genParts, p, n *ssa.Value) {
 	f := g.f
-	i64 := func(c int64) *ssa.Value { return f.ConstInt(ssa.TI64, c) }
-	tag := g.newValue(b, pos, ssa.OpShrL, ssa.TI64, bits, i64(genTagShift))
-	tagged := g.newValue(b, pos, ssa.OpNe, ssa.TBool, tag, i64(0))
+	// A pointer has a tag if and only if its bits differ from its
+	// address, the bits sign-extended from bit 47 (abi.md section 1.3).
+	tagged := g.newValue(b, pos, ssa.OpNe, ssa.TBool, parts.bits, parts.plain)
 	if guard != nil {
 		tagged = g.newValue(b, pos, ssa.OpAnd, ssa.TBool, guard, tagged)
 	}

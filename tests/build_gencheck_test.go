@@ -150,6 +150,91 @@ func TestGenCheckKernelUnchecked(t *testing.T) {
 	}
 }
 
+// TestGenCheckMissedUntag checks the canonical XOR encoding's safety net
+// (abi.md section 1.3): a tagged heap pointer used as an address without
+// its tag removed is not canonical, so the access faults instead of
+// reading memory. Code outside Plutonium sees the raw bits here because
+// they travel as a uintptr made from the pointer's representation, not by
+// a conversion, which would remove the tag.
+func TestGenCheckMissedUntag(t *testing.T) {
+	t.Parallel()
+	const src = `package main
+
+import (
+	"pluto/alloc"
+	"unsafe"
+)
+
+//pu:extern i101_load
+func load(p uintptr) int
+
+func main() {
+	p := alloc.New[int]()
+	*p = 42
+	bits := *(*uintptr)(unsafe.Pointer(&p))
+	a := uintptr(unsafe.Pointer(p))
+	if bits == a {
+		println("untagged")
+		return
+	}
+	println("address", load(a))
+	println("tagged", load(bits))
+	println("not reached")
+}
+`
+	const stub = `# Loads the word at the address in %rdi, as code outside Plutonium would.
+	.text
+	.globl	i101_load
+i101_load:
+	movq	(%rdi), %rax
+	ret
+	.section .note.GNU-stack,"",@progbits
+`
+	for _, opt := range []int{0, 2} {
+		exe := mustBuild(t, map[string]string{"main.p": src, "load_amd64.s": stub}, optFlag(opt), "--gencheck")
+		out, status := runExe(t, exe, false)
+		if status != 2 || !strings.Contains(out, "address 42") || !strings.Contains(out, "runtime error:") ||
+			strings.Contains(out, "tagged") || strings.Contains(out, "not reached") {
+			t.Fatalf("-O%d: status %d, output %q; want the untagged load to read 42 and the tagged one to fault", opt, status, out)
+		}
+	}
+}
+
+// TestGenCheckHighHalfUntag checks that removing a tag is sign extension
+// from bit 47 (abi.md section 1.3): converting a higher-half pointer to
+// uintptr keeps its address, untagged or with a tag XORed into bits
+// 63..48, where zero extension would have cleared its high bits.
+func TestGenCheckHighHalfUntag(t *testing.T) {
+	t.Parallel()
+	const src = `package main
+
+import "unsafe"
+
+//pu:noinline
+func addr(p unsafe.Pointer) uintptr { return uintptr(p) }
+
+func main() {
+	x := uintptr(0xffff800000001230)
+	println("plain", addr(unsafe.Pointer(x)) == x)
+	for _, tag := range []uintptr{1, 0x7fff, 0x8000, 0xffff} {
+		bits := x ^ tag<<48
+		p := *(*unsafe.Pointer)(unsafe.Pointer(&bits))
+		println("tag", tag, addr(p) == x)
+	}
+	y := uintptr(0x00007f0000001230)
+	bits := y ^ 0x1234<<48
+	println("low", addr(*(*unsafe.Pointer)(unsafe.Pointer(&bits))) == y)
+}
+`
+	const want = "plain true\ntag 1 true\ntag 32767 true\ntag 32768 true\ntag 65535 true\nlow true\n"
+	for _, opt := range []int{0, 2} {
+		out, status := runGenCheck(t, src, opt)
+		if status != 0 || out != want {
+			t.Fatalf("-O%d: status %d, output %q; want %q", opt, status, out, want)
+		}
+	}
+}
+
 // TestArenaEpochs checks the arena epochs of a -gencheck build (memory-safety
 // design D4): a view, box, string or error in an arena.Chunked that was
 // reset, released past it or freed panics with where that happened, also

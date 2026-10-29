@@ -298,7 +298,7 @@ func genReadTag(r *genRecord, a uintptr) uint16 {
 //pu:noinline
 func GenRegisteredLive(p unsafe.Pointer) bool {
 	bits := *(*uintptr)(unsafe.Pointer(&p))
-	tag := uint16(bits >> 48)
+	tag := genTagOf(bits)
 	if tag == 0 {
 		return true
 	}
@@ -370,12 +370,12 @@ func genReadLive(a, end uintptr, tag uint16) bool {
 //pu:noinline
 func GenRegisteredRangeLive(p unsafe.Pointer, n uintptr) bool {
 	bits := *(*uintptr)(unsafe.Pointer(&p))
-	if n == 0 || bits>>48 == 0 {
+	if n == 0 || genTagOf(bits) == 0 {
 		return true
 	}
 	a := uintptr(p)
 	end := a + n
-	if end >= a && end <= uintptr(1)<<48 && genFirstLive(a, end, uint16(bits>>48)) {
+	if end >= a && end <= uintptr(1)<<48 && genFirstLive(a, end, genTagOf(bits)) {
 		return true
 	}
 	return genRangeLive(p, n)
@@ -437,7 +437,7 @@ func genRangeLive(p unsafe.Pointer, n uintptr) bool {
 	if end < a || end > uintptr(1)<<48 {
 		return false
 	}
-	tag := uint16(bits >> 48)
+	tag := genTagOf(bits)
 	if genReadLive(a, end, tag) {
 		return true
 	}
@@ -682,7 +682,7 @@ func GenSlabBackingLive(p unsafe.Pointer, owner uintptr) bool {
 func genBacking(p unsafe.Pointer, size uintptr) *genRecord {
 	a := uintptr(p)
 	bits := *(*uintptr)(unsafe.Pointer(&p))
-	want := uint16(bits >> 48)
+	want := genTagOf(bits)
 	page := genPage(a>>16, false)
 	if page == nil {
 		if want != 0 {
@@ -772,7 +772,7 @@ func GenRegister(p unsafe.Pointer, size uintptr, backing unsafe.Pointer, key uin
 	if backing != nil {
 		// The payload may begin after the parent's returned pointer.
 		bits := *(*uintptr)(unsafe.Pointer(&backing))
-		parentPointer := unsafe.Pointer(uintptr(p) | bits>>48<<48)
+		parentPointer := unsafe.Pointer(genRetag(uintptr(p), bits))
 		parent = genBacking(parentPointer, size)
 	}
 	origin := uintptr(p) &^ 15

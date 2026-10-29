@@ -178,9 +178,22 @@ are. A `weak[P]` is the same address as its `P`. Dropping an
 ### 1.3 Generation tags and arena epochs
 
 Ordinary builds require static lifetime proof or automatic protection in every mode (language spec
-sections 18.11 and 21.5). The following hosted encoding tags heap pointers so that a use of memory that has been freed, or that an
-arena has taken back, panics instead of reading or writing whatever the memory holds by then. Bits
-63..48 of a pointer hold a 16-bit tag (user-space addresses use 47 bits):
+sections 18.11 and 21.5). The following encoding tags heap pointers so that a use of memory that has been freed, or that an
+arena has taken back, panics instead of reading or writing whatever the memory holds by then. A
+pointer's address is canonical with 4-level paging: bits 63..48 repeat bit 47, so user-space addresses
+have them clear and higher-half (kernel) addresses have them set. A tagged pointer is its address with
+a 16-bit tag XORed into bits 63..48 (the canonical XOR encoding):
+
+```
+p := a ^ tag<<48
+a := int64(p<<16) >> 16   // p sign-extended from bit 47
+tag := (p ^ a) >> 48
+```
+
+A pointer has a tag exactly when its bits differ from its sign extension. Removing a tag keeps bits
+47..0 and is the identity on an untagged pointer, in either half.
+A pointer whose tag is not removed is not canonical, so using it as an address faults rather than
+reaching memory. Tags mean:
 
 | Tag | Meaning |
 |---|---|
@@ -201,9 +214,9 @@ the same sequence for both kinds of tag (`opt.GenCheck`). The following defines 
 `registeredLive` reads a consistent metadata snapshot whose tables remain valid for the lookup:
 
 ```
-tag := p >> 48
-a := p & (1<<48 - 1)
-if tag != 0 {
+a := int64(p<<16) >> 16
+if p != a {
+	tag := (p ^ a) >> 48
 	if !registeredLive(a, tag) { panicStale(p) }
 }
 access a
@@ -367,7 +380,7 @@ omitted: this is the documented unchecked opt-out, and stale access has no defin
 spec sections 18.11 and 21.5). Freestanding and kernel builds do not select it automatically. Until
 generation checks support them (roadmap item 101), such a build must pass `--gencheck=false`, and one
 that does not is rejected with a message saying so; `--gencheck=true` is rejected too. If this
-hosted pointer encoding cannot represent a target's addresses, the implementation must supply another
+pointer encoding cannot represent a target's addresses (5-level paging, for one), the implementation must supply another
 suitable protection or statically prove safety; otherwise the operation is a compile error. Required
 early-boot/interrupt protection cannot allocate, wait or fail contrary to those contexts' contracts.
 This ABI does not prescribe a new kernel encoding or directive.

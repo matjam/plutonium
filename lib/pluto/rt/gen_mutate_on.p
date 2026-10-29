@@ -41,7 +41,7 @@ func GenTagHeap(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer {
 		vstore16(genEntry(r, b), next)
 	}
 	genWriter.Unlock()
-	return unsafe.Pointer(a | uintptr(next)<<48)
+	return unsafe.Pointer(genWithTag(a, next))
 }
 
 // GenInvalidate clears reclaimed granules before their payload is reused.
@@ -59,7 +59,7 @@ func GenInvalidate(token uintptr, from, to uintptr) {
 func genPointerRecord(p unsafe.Pointer) *genRecord {
 	a := uintptr(p)
 	bits := *(*uintptr)(unsafe.Pointer(&p))
-	tag := uint16(bits >> 48)
+	tag := genTagOf(bits)
 	page := genPage(a>>16, false)
 	if page == nil {
 		return nil
@@ -128,7 +128,7 @@ func GenCustomAlloc(p unsafe.Pointer, size, key uintptr) unsafe.Pointer {
 
 func GenCustomFree(p unsafe.Pointer, size, key uintptr) unsafe.Pointer {
 	bits := *(*uintptr)(unsafe.Pointer(&p))
-	if p == nil || bits>>48 == 0 {
+	if p == nil || genTagOf(bits) == 0 {
 		return p
 	}
 	genWriter.Lock()

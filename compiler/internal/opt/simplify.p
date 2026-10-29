@@ -551,14 +551,15 @@ func simplifyShift(f *ssa.Func, v *ssa.Value) bool {
 		v.CopyOf(a)
 		return true
 	}
-	if v.Op == ssa.OpShrL && w == 64 && f.Pragmas&ssa.PragmaGenCheck != 0 {
-		// The high bits of a frame or static address are zero: the
-		// generation tag of such a pointer (lower/gencheck.go) is 0, and
-		// removing the tag leaves the address as it was.
+	if (v.Op == ssa.OpShrL || v.Op == ssa.OpShrA) && w == 64 && f.Pragmas&ssa.PragmaGenCheck != 0 {
+		// The high bits of a frame or static address are zero: such a
+		// pointer has no generation tag (lower/gencheck.p), and removing
+		// the tag, by sign extension from bit 47, leaves the address as
+		// it was.
 		if cnt >= staticAddrBits && a.Op == ssa.OpBitcast && isStaticAddr(a.Args[0]) {
 			return replaceConst(v, 0)
 		}
-		if 64-cnt >= staticAddrBits && a.Op == ssa.OpShl && constEq(a.Args[1], int64(cnt)) &&
+		if 64-cnt >= staticAddrBits+1 && a.Op == ssa.OpShl && constEq(a.Args[1], int64(cnt)) &&
 			a.Args[0].Op == ssa.OpBitcast && isStaticAddr(a.Args[0].Args[0]) {
 			v.CopyOf(a.Args[0])
 			return true

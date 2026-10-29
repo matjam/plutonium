@@ -305,6 +305,23 @@ func panicSlice(lo, hi, max int) {
 	fatal(nil)
 }
 
+// genTagOf returns the generation tag of a pointer whose bits are bits;
+// 0 is no tag. In the canonical XOR encoding of generation tags (abi.md
+// section 1.3), a pointer's address is its bits sign-extended from bit 47,
+// int(bits<<16) >> 16, and a tagged pointer is its address with the tag
+// XORed into bits 63..48, so a pointer whose tag was not removed is not
+// canonical and faults when used. These helpers spell the sign extension
+// out instead of calling a helper for it: each call inlined into another
+// adds to the trace records of every site it is inlined at.
+func genTagOf(bits uintptr) uint16 { return uint16((bits ^ uintptr(int(bits<<16)>>16)) >> 48) }
+
+// genWithTag returns the bits of the pointer to address a with tag tag.
+func genWithTag(a uintptr, tag uint16) uintptr { return a ^ uintptr(tag)<<48 }
+
+// genRetag returns the bits of the pointer to address a with the tag of
+// the pointer whose bits are bits.
+func genRetag(a, bits uintptr) uintptr { return a ^ (bits ^ uintptr(int(bits<<16)>>16)) }
+
 // panicStaleRange diagnoses the first reclaimed address in a failed range,
 // including a partial arena tail whose starting pointer remains live.
 func panicStaleRange(p unsafe.Pointer, n uintptr) {
@@ -313,12 +330,12 @@ func panicStaleRange(p unsafe.Pointer, n uintptr) {
 	end := a + n
 	if n != 0 && end >= a && end <= uintptr(1)<<48 {
 		for b := a; b < end; b = min(end, (b&^15)+16) {
-			q := unsafe.Pointer(b | bits>>48<<48)
+			q := unsafe.Pointer(genRetag(b, bits))
 			if !GenRegisteredLive(q) {
 				panicStale(q)
 			}
 		}
-		q := unsafe.Pointer((end - 1) | bits>>48<<48)
+		q := unsafe.Pointer(genRetag(end-1, bits))
 		if !GenRegisteredLive(q) {
 			panicStale(q)
 		}
@@ -333,10 +350,10 @@ func panicStaleRange(p unsafe.Pointer, n uintptr) {
 // handed out.
 func panicStale(p unsafe.Pointer) {
 	startPanic()
-	if tag := *(*uintptr)(unsafe.Pointer(&p)) >> 48; tag >= 0x8000 {
+	if tag := genTagOf(*(*uintptr)(unsafe.Pointer(&p))); tag >= 0x8000 {
 		site := arenaEndedSite(p)
 		if site == 0 {
-			site = epochSite(tag)
+			site = epochSite(uintptr(tag))
 		}
 		if site>>63 != 0 {
 			printString("runtime error: use of freed memory: an arena allocation freed")

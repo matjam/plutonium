@@ -31,7 +31,10 @@ func genChunk(pages PageProvider, owner uintptr) unsafe.Pointer {
 //
 //pu:inline
 func genLive(p unsafe.Pointer) bool {
-	return *(*uintptr)(unsafe.Pointer(&p))>>48 == 0 || rt.GenRegisteredLive(p)
+	// Untagged: the bits equal their sign extension from bit 47 (the
+	// canonical XOR encoding, abi.md section 1.3).
+	bits := *(*uintptr)(unsafe.Pointer(&p))
+	return bits == uintptr(int(bits<<16)>>16) || rt.GenRegisteredLive(p)
 }
 
 func genBacking(p unsafe.Pointer, owner uintptr) {
@@ -131,9 +134,10 @@ func genLargeOnce(pages PageProvider, size, align uintptr) (unsafe.Pointer, bool
 		return nil, true
 	}
 	bits := *(*uintptr)(unsafe.Pointer(&tagged))
+	tag := uint16((bits ^ uintptr(int(bits<<16)>>16)) >> 48)
 	t := unsafe.Slice((*uint16)(unsafe.Add(base, 64)), (size+15)/16)
 	for i := range t {
-		t[i] = uint16(bits >> 48)
+		t[i] = tag
 	}
 	return tagged, false
 }

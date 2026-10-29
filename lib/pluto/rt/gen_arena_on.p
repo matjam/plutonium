@@ -84,7 +84,7 @@ func GenTagArena(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer {
 		vstore16(genEntry(r, b), tag)
 	}
 	genWriter.Unlock()
-	return unsafe.Pointer(a | uintptr(tag)<<48)
+	return unsafe.Pointer(genWithTag(a, tag))
 }
 
 // GenArenaExhausted returns, for an extent whose GenTagArena failed, the
@@ -152,7 +152,7 @@ func GenTrimArena(token uintptr, from, pc uintptr) {
 
 func arenaEndedSite(p unsafe.Pointer) uintptr {
 	a := uintptr(p)
-	tag := uint16(*(*uintptr)(unsafe.Pointer(&p)) >> 48)
+	tag := genTagOf(*(*uintptr)(unsafe.Pointer(&p)))
 	for e := (*arenaEnded)(unsafe.Pointer(uintptr(vload64(&arenaEndedHead)))); e != nil; e = e.next {
 		if a >= e.lo && a < e.hi && tag == e.tag {
 			return e.site

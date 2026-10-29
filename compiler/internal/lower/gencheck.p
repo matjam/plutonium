@@ -93,9 +93,11 @@ func (s *fnState) checkedLen(ptr, n *ssa.Value) *ssa.Value {
 func (s *fnState) genCheck(p, n *ssa.Value, pos token.Pos) *ssa.Value {
 	i64 := func(c int64) *ssa.Value { return s.constInt(ssa.TI64, c) }
 	ai := s.newValue(ssa.OpBitcast, ssa.TI64, p)
-	tag := s.newValue(ssa.OpShrL, ssa.TI64, ai, i64(genTagShift))
-	plain := s.newValue(ssa.OpShrL, ssa.TI64, s.newValue(ssa.OpShl, ssa.TI64, ai, i64(64-genTagShift)), i64(64-genTagShift))
-	tagged := s.newValue(ssa.OpNe, ssa.TBool, tag, i64(0))
+	// The canonical XOR encoding (abi.md section 1.3): the address is the
+	// bits sign-extended from bit 47, and a pointer has a tag if and only
+	// if its bits differ from that.
+	plain := s.newValue(ssa.OpShrA, ssa.TI64, s.newValue(ssa.OpShl, ssa.TI64, ai, i64(64-genTagShift)), i64(64-genTagShift))
+	tagged := s.newValue(ssa.OpNe, ssa.TBool, ai, plain)
 	if n != nil {
 		tagged = s.newValue(ssa.OpAnd, ssa.TBool, tagged, s.newValue(ssa.OpNe, ssa.TBool, n, i64(0)))
 	}
@@ -131,7 +133,7 @@ func (s *fnState) untagged(p *ssa.Value) *ssa.Value {
 	}
 	i64 := func(c int64) *ssa.Value { return s.constInt(ssa.TI64, c) }
 	ai := s.newValue(ssa.OpBitcast, ssa.TI64, p)
-	plain := s.newValue(ssa.OpShrL, ssa.TI64, s.newValue(ssa.OpShl, ssa.TI64, ai, i64(64-genTagShift)), i64(64-genTagShift))
+	plain := s.newValue(ssa.OpShrA, ssa.TI64, s.newValue(ssa.OpShl, ssa.TI64, ai, i64(64-genTagShift)), i64(64-genTagShift))
 	if p.Type.IsPtr() {
 		return s.newValue(ssa.OpBitcast, ssa.TPtr, plain)
 	}

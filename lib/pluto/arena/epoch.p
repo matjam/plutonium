@@ -54,7 +54,7 @@ func (a *Chunked) newEpochChunk(size uintptr) *chunk {
 	}
 	// Keep the parent's tag on accesses to this chunk's own header/table.
 	bits := *(*uintptr)(unsafe.Pointer(&raw))
-	c := (*chunk)(unsafe.Pointer(base | bits>>48<<48))
+	c := (*chunk)(unsafe.Pointer(base ^ (bits ^ uintptr(int(bits<<16)>>16))))
 	c.size = size
 	m := c.meta()
 	m.raw, m.dataOff, m.held, m.alignment = raw, off, n, alignment
