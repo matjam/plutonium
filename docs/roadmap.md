@@ -495,18 +495,33 @@ against the corrected specification. The immediate implementation order is:
      exit, and the code after the check stays unreachable, as escape2's EIR has it. The panic handler
      is left out of the exit analysis, as its lowering already left it out. Cases
      `lower/goexitnoreturncallee` and `_o2`.
-144. **One exit cleanup path per frame** (planned; section 17.3, 18.6). Every call that may exit gets its
-     own copy of the frame's exit cleanup: deferred calls, the scopes open there and the frame slots
-     (`leaveForGoexit`, `emitReturnFor`, `finishReturns`). A function holding N owners and making N such
-     calls has code quadratic in N: `big` in a generated probe is 8 KB at N=25, 24 KB at 50, 81 KB at 100
-     and 293 KB at 200 (-O0; -O2 is close from N=100). The plan: memoize an exit landing per cleanup
-     entry, keyed by the entry, its slot count, the move checker's known-empty set restricted to that
-     entry's variables, and `goexitCleared`; each landing releases its entry's slots and jumps to its
-     parent's landing, and one function-level landing runs the deferred calls and the frame release
-     once. Sites whose known-empty sets differ get separate landings, so a variable known to hold
-     nothing is still not dropped (section 18.6). This needs landings built before their predecessors
-     are all known (unsealed blocks in the SSA builder) and per-statement temporaries handled at the
-     innermost landing, so it is left for a change of its own with the `goexit_*` tests as the check.
+144. **One exit cleanup path per frame** (done; sections 17.3, 18.6). Every call that may exit got its
+     own copy of the frame's exit cleanup: deferred calls, the scopes open there and the frame slots,
+     so a function holding N owners and making N such calls had code quadratic in N. Now each such
+     call records the releases its exit needs, in order, with what the move checker knows there, and
+     jumps to landings built once the body is lowered (`exitpath.p`). A landing is one release followed
+     by the landing of the rest, and exits whose remaining releases are the same share it, so the
+     landings form a tree towards one return and the code is linear. A variable known to hold nothing
+     still gets no release (section 18.6). The deferred calls still run first: in a function with
+     defer statements every exit stores the number of its landing and jumps to one block that runs
+     the armed deferred calls and then dispatches on that number. This needs no unsealed blocks, as
+     everything is built at the end of the body. `big` in the generated probe (N owners, N calls
+     that may exit) is now:
+
+     | N   | -O0 before | -O0 after | -O2 before | -O2 after |
+     |-----|-----------:|----------:|-----------:|----------:|
+     | 25  | 8,066      | 3,416     | 14,864     | 7,756     |
+     | 50  | 24,366     | 6,941     | 37,964     | 15,506    |
+     | 100 | 81,341     | 13,991    | 78,133     | 31,006    |
+     | 200 | 292,799    | 28,099    | 286,391    | 62,014    |
+
+     The compiler itself has no calls that may exit: the old and the new compiler build the same
+     compiler source into the same binary, byte for byte, in the same time (992 and 1,046 s of user
+     time with the old, 1,219 and 983 s with the new, alternating in one job). The compiler is now
+     56,141,904 bytes, from 56,042,744 at `d13d9cef` (the new lowering and three other commits).
+     Exits from a range-over-func loop body and from generated code with fewer results keep their
+     own copies, and an ordinary `return` still copies its deferred calls and scope releases. Cases
+     `lower/goexitmanysites` and `_o2`.
 145. **Instances of owner generic code keep their views** (planned; sections 8.7, 10.9, 12.10; found with
      item 132). In generic code over `[T owner any]`, a range over a `vec.Vec[T]` or the values of a
      `hash.Map[K, T]` yields views, `*T`, because `T` is an owner there (8.7, 12.10), and an instance keeps

@@ -668,7 +668,7 @@ func (s *fnState) leaveForGoexit(pos token.Pos) {
 			known[s.goexitCleared] = moves.Held{}
 			empty = known
 		}
-		s.leavingThrough(empty, func() { s.emitReturnFor(pos, true) })
+		s.exitThrough(empty) // exitpath.p
 	}
 	s.b = nil
 }

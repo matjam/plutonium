@@ -1,0 +1,107 @@
+stop 1
+deferred first
+drop 1
+true
+stop 2
+deferred first
+drop 2
+drop 1
+true
+stop 3
+deferred second
+deferred first
+drop 3
+drop 2
+drop 1
+true
+stop 4
+deferred second
+deferred first
+drop 4
+drop 3
+drop 2
+drop 1
+true
+stop 5
+drop 4
+drop 3
+deferred second
+deferred first
+drop 2
+drop 1
+true
+stop 6
+drop 4
+drop 3
+took 2
+drop 2
+deferred second
+deferred first
+drop 1
+true
+stop 7
+drop 4
+drop 3
+took 2
+drop 2
+deferred second
+deferred first
+drop 10
+drop 5
+drop 1
+true
+stop 8
+drop 4
+drop 3
+took 2
+drop 2
+drop 10
+deferred second
+deferred first
+drop 11
+drop 5
+drop 1
+true
+stop 9
+drop 4
+drop 3
+took 2
+drop 2
+drop 10
+drop 11
+deferred second
+deferred first
+drop 5
+drop 1
+true
+stop 10
+drop 4
+drop 3
+took 2
+drop 2
+drop 10
+drop 11
+finished
+deferred second
+deferred first
+drop 5
+drop 1
+false
+stop 11
+param deferred
+drop 31
+drop 30
+true
+stop 12
+param deferred
+drop 32
+drop 31
+drop 30
+true
+stop 13
+withParam finished
+param deferred
+drop 32
+drop 31
+drop 30
+false

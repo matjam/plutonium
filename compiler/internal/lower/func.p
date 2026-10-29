@@ -117,6 +117,7 @@ type fnState struct {
 
 	// String counting (strcount.go, strscope.go).
 	cleanups    []*cleanupEntry
+	exits       []exitSite // the calls that leave for rt.ExitTask (exitpath.p)
 	frameSlots  []countedSlot
 	ownedParams []countedSlot
 	returns     []pendingReturn // returns whose ends wait for the frame slots
@@ -758,6 +759,7 @@ func (s *fnState) emitReturnFor(pos token.Pos, goexit bool) {
 // finishReturns ends every return statement: it releases what the
 // function holds as a whole and returns the result variables.
 func (s *fnState) finishReturns() {
+	s.finishExits()
 	for _, r := range s.returns {
 		s.startBlock(r.b)
 		if r.pos.IsValid() {
