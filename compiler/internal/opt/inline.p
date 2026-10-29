@@ -255,6 +255,15 @@ func inlineInto(f *ssa.Func, funcs map[*ssa.Sym]*ssa.Func, sizes map[*ssa.Func]i
 					note(why, v, g, "it may use the FPU, and the caller may not")
 					continue
 				}
+				if (f.Pragmas^g.Pragmas)&ssa.PragmaGenCheck != 0 && (f.Pragmas|g.Pragmas)&ssa.PragmaNoBounds != 0 {
+					// GenCheck places the generation checks after inlining,
+					// by the caller's pragmas: a checked body inlined into a
+					// //pu:nochecks function would lose its checks, and a
+					// //pu:nochecks body inlined into a checked function
+					// would gain them (spec section 20.3).
+					note(why, v, g, "one of the two functions is marked //pu:nochecks and the other is checked")
+					continue
+				}
 				if v.Call.ABI != g.ABI {
 					// A C call to a Plutonium function: its arguments
 					// are laid out for a different convention.

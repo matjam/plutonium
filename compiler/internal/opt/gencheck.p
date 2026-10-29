@@ -65,7 +65,8 @@ import (
 // Multi-byte accesses check every covered granule and both extent bounds.
 // Their checks use the actual derived address, including interior offsets.
 // Functions marked ssa.PragmaGenMaskOnly (allocator internals and the named
-// runtime metadata/bootstrap hooks) only remove tags.
+// runtime metadata/bootstrap hooks, and //pu:nochecks functions) only
+// remove tags.
 func GenCheck(f *ssa.Func) {
 	if f.Pragmas&(ssa.PragmaGenCheck|ssa.PragmaGenMaskOnly) == 0 {
 		return

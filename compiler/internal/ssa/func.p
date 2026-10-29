@@ -435,7 +435,8 @@ const (
 	// and static addresses in it, at user-space addresses, carry no tag.
 	PragmaGenCheck
 	// PragmaGenMaskOnly is PragmaGenCheck for the runtime and allocator,
-	// which remove tags without checking them.
+	// and for //pu:nochecks functions, which remove tags without checking
+	// them.
 	PragmaGenMaskOnly
 )
 

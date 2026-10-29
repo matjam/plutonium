@@ -49,6 +49,17 @@ func (l *Lowerer) genPragmas(f *ssa.Func, pkgPath string) {
 	f.GenRange = l.funcSym(l.rtFunc("GenRegisteredRangeLive"), nil)
 }
 
+// noChecks marks f for //pu:nochecks (spec section 20.3): no bounds checks
+// and no generation checks. Under GenCheck its heap pointers still carry
+// tags, so it removes them without checking them, as the allocator does.
+func noChecks(f *ssa.Func) {
+	f.Pragmas |= ssa.PragmaNoBounds
+	if f.Pragmas&ssa.PragmaGenCheck != 0 {
+		f.Pragmas &^= ssa.PragmaGenCheck
+		f.Pragmas |= ssa.PragmaGenMaskOnly
+	}
+}
+
 // These compiler-owned runtime hooks only traverse permanent raw metadata
 // or bootstrap the check itself. They cannot recursively check themselves.
 var genRuntimeMetadata = map[string]bool{

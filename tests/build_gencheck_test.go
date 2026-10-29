@@ -235,6 +235,76 @@ func main() {
 	}
 }
 
+// TestGenCheckNoChecks checks //pu:nochecks in a checked build (spec
+// sections 18.12 and 20.3): the function and the function literals in it
+// make no generation checks but still remove the tags of the heap pointers
+// they use (abi.md section 1.3), whether the function is inlined or not. A
+// checked function called from it keeps its own checks, inlined or not.
+func TestGenCheckNoChecks(t *testing.T) {
+	t.Parallel()
+	const src = `package main
+
+import "pluto/alloc"
+
+type Node struct {
+	next *Node
+	val  int
+	vals [4]int
+}
+
+//pu:nochecks
+//pu:noinline
+func fill(n *Node, s []int) int {
+	n.val = 7
+	for i := range s {
+		s[i] = i * 3
+	}
+	n.vals[len(s)-1] += n.val
+	f := func() int { return n.next.val + s[1] }
+	return f()
+}
+
+//pu:nochecks
+//pu:noinline
+func peek(n *Node) int { return n.val }
+
+//pu:nochecks
+func peekInline(n *Node) int { return n.val }
+
+func get(n *Node) int { return n.val }
+
+//pu:nochecks
+//pu:noinline
+func viaChecked(n *Node) int { return get(n) }
+
+var sink int
+
+func main() {
+	a := alloc.New[Node]()
+	b := alloc.New[Node]()
+	a.next = b
+	b.val = 5
+	println("fill", fill(a, a.vals[:]), a.val, a.vals[0], a.vals[3])
+	stale := a
+	alloc.Free(a)
+	c := alloc.New[Node]() // reuses the slot
+	c.val = 9
+	sink += peek(stale)
+	println("peek")
+	sink += peekInline(stale)
+	println("inline")
+	println("checked", viaChecked(stale))
+}
+`
+	for _, opt := range []int{0, 2} {
+		out, status := runGenCheck(t, src, opt)
+		if status != 2 || !strings.Contains(out, "fill 8 7 0 16\npeek\ninline\n") ||
+			!strings.Contains(out, "use of freed memory") || strings.Contains(out, "checked ") {
+			t.Fatalf("-O%d: status %d, output %q; want the nochecks reads to run and the checked one to panic", opt, status, out)
+		}
+	}
+}
+
 // TestArenaEpochs checks the arena epochs of a -gencheck build (memory-safety
 // design D4): a view, box, string or error in an arena.Chunked that was
 // reset, released past it or freed panics with where that happened, also

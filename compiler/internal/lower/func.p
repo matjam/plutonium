@@ -414,8 +414,7 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 		// A function literal inside a //pu:nochecks function is part of its
 		// body: the checks are off in it too (spec section 20.3, Directives).
 		if job.parent.f.Pragmas&ssa.PragmaNoBounds != 0 {
-			f.Pragmas |= ssa.PragmaNoBounds
-			f.Pragmas &^= ssa.PragmaGenCheck
+			noChecks(f)
 		}
 	}
 	for range f.Blocks {
@@ -527,8 +526,7 @@ func (s *fnState) applyPragmas(doc *ast.CommentGroup) {
 		case "noinline":
 			s.f.Pragmas |= ssa.PragmaNoInline
 		case "nochecks":
-			s.f.Pragmas |= ssa.PragmaNoBounds
-			s.f.Pragmas &^= ssa.PragmaGenCheck
+			noChecks(s.f)
 		case "interrupt", "interrupt trap":
 			s.f.Pragmas |= ssa.PragmaInterrupt
 		case "nosimd":
