@@ -505,16 +505,35 @@ func (r *reporter) storeFixes(d *diag.Diagnostic, e *viewErr, l *loc, q types2.Q
 		d.Fix = stmtTempFix(l)
 	case l.kind == lkObject && l.v != nil && l.ref != "":
 		name := l.v.Name()
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store %s itself, changing the type of %s to %s: it then counts a reference of its own", compat.ArgS(name), compat.ArgS(dst), compat.ArgS(typeText(l.typ, q))), Code: compat.Sprintfb("%s = %s", compat.ArgS(dst), compat.ArgS(name))})
+		d.Fix = codeFix(compat.Sprintfb("Store %s itself, changing the type of %s to %s: it then counts a reference of its own", compat.ArgS(name), compat.ArgS(dst), compat.ArgS(typeText(l.typ, q))), dst, name)
 	case l.kind == lkObject && l.v != nil:
 		name := l.v.Name()
-		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store %s itself, changing the type of %s to match: an owned box moves there, and a shared or synced one is counted", compat.ArgS(name), compat.ArgS(dst)), Code: compat.Sprintfb("%s = %s", compat.ArgS(dst), compat.ArgS(name))})
+		d.Fix = codeFix(compat.Sprintfb("Store %s itself, changing the type of %s to match: an owned box moves there, and a shared or synced one is counted", compat.ArgS(name), compat.ArgS(dst)), dst, name)
+	case l.isVarLoc() && !isExpr(dst):
+		name := l.v.Name()
+		T := varType(l, q)
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store values instead of views of %s, or allocate %s with new(%s) and store its owner, an owned[%s], in %s.", compat.ArgS(name), compat.ArgS(name), compat.ArgS(T), compat.ArgS(T), compat.ArgS(dst))})
 	case l.isVarLoc():
 		name := l.v.Name()
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store values instead of views of %s, or allocate %s and store its owner, an owned[%s], which moves there", compat.ArgS(name), compat.ArgS(name), compat.ArgS(varType(l, q))), Code: compat.Sprintfb("%s = new(%s)", compat.ArgS(dst), compat.ArgS(varType(l, q)))})
 	default:
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Store the value itself instead of a view of %s frame, or allocate it so that it lives as long as %s.", compat.ArgS(possessive(l.fn)), compat.ArgS(e.dst))})
 	}
+}
+
+// isExpr reports whether dst, where a store goes, is written as an
+// expression of the program ("s.f", "*p") and not described in words
+// ("the backing array of s", "memory that lives longer"), so that a fix
+// may show code that assigns to it.
+func isExpr(dst string) bool { return !strings.Contains(dst, " ") }
+
+// codeFix is a fix that stores name in dst, with that assignment as its
+// code when dst is an expression.
+func codeFix(intro, dst, name string) *diag.Fix {
+	if !isExpr(dst) {
+		return pu.New(diag.Fix{Intro: compat.Concat(intro, ".")})
+	}
+	return pu.New(diag.Fix{Intro: intro, Code: compat.Sprintfb("%s = %s", compat.ArgS(dst), compat.ArgS(name))})
 }
 
 // stmtTempFix is the fix for a view of an owner temporary that outlives

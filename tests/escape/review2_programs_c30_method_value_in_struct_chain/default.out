@@ -6,8 +6,7 @@ $DIR/main.p:16:14: cannot store &c in memory that lives longer, which outlives c
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    Store values instead of views of c, or allocate c and store its owner, an
-    owned[C], which moves there:
-        memory that lives longer = new(C)
+    Store values instead of views of c, or allocate c with new(C) and store its
+    owner, an owned[C], in memory that lives longer.
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3002" for a longer explanation)

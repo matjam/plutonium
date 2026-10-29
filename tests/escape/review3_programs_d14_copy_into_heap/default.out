@@ -7,8 +7,7 @@ $DIR/main.p:14:2: cannot store &x in the backing array of gv.Slice(), which outl
     it later. Plutonium has no garbage collector and never moves memory to the
     heap behind the program's back, so that every allocation is visible in the
     code.
-    Store values instead of views of x, or allocate x and store its owner, an
-    owned[int], which moves there:
-        the backing array of gv.Slice() = new(int)
+    Store values instead of views of x, or allocate x with new(int) and store
+    its owner, an owned[int], in the backing array of gv.Slice().
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3002" for a longer explanation)
