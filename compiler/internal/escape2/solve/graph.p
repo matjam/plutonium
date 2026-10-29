@@ -669,9 +669,19 @@ func (s *solver) process(n uint32) {
 		return
 	}
 	s.done.s[n] = uint64(len(pts))
+	if s.nodeCons.s[n] != 0 {
+		// Each constraint fires on every new token: decode them once.
+		if cap(s.dtoks) < len(d) {
+			s.dtoks = compat.Make[tok](max(len(d), 2*cap(s.dtoks)))
+		}
+		s.dtoks = s.dtoks[:len(d)]
+		for i, id := range d {
+			s.dtoks[i] = s.tokAt(id)
+		}
+	}
 	for c := s.nodeCons.s[n]; c != 0; c = s.cons.at(c - 1)[3] {
-		for _, id := range d {
-			s.fire(n, c-1, id)
+		for i, id := range d {
+			s.fireTok(n, c-1, id, s.dtoks[i])
 		}
 		if s.find(n) != n {
 			return // merged while firing; the merged node is queued again

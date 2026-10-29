@@ -142,6 +142,7 @@ type solver struct {
 	edgeSeen, consSeen table
 	dsts               table // (In token ID, tag|tagGE<<32) -> storeDst (fire)
 	cuts               table // key -> summary.CutKey of it (addCutPair)
+	dtoks              []tok // process: the new tokens of the node, decoded
 	wide               table // (node<<32|base, path or wideAny): the node's GE and Deep In tokens (addID)
 	places             table // (o<<1|pg, path) -> node
 	derived            table // (node<<2|kind, path) -> node
@@ -927,11 +928,13 @@ func (s *solver) tokNode(t tok) uint32 {
 
 // --- firing complex constraints ---
 
-func (s *solver) fire(n uint32, c uint64, id uint64) {
+func (s *solver) fire(n uint32, c uint64, id uint64) { s.fireTok(n, c, id, s.tokAt(id)) }
+
+// fireTok is fire with token id decoded as t.
+func (s *solver) fireTok(n uint32, c uint64, id uint64, t tok) {
 	s.nsteps++
 	w := s.cons.at(c)
 	kind, a, b := int(w[0]), w[1], w[2]
-	t := s.tokAt(id)
 	switch kind {
 	case cLoad:
 		dst := uint32(a)
