@@ -2,6 +2,8 @@ package build
 
 import (
 	"compiler/compat"
+	"compiler/internal/escape2/eir"
+	"compiler/internal/escape2/solve"
 	"compiler/internal/load"
 	"pluto/bytes"
 	"pluto/os"
@@ -23,6 +25,27 @@ var phases = compat.Getenv("PLUTO_PHASES") != ""
 func init() {
 	if phases {
 		load.Timing = true
+		solve.Measure = measureSolve
+	}
+}
+
+// The escape analysis's solves, for PLUTO_PHASES: how many, their steps
+// (constraint firings and edge transforms) added up, and the solves of
+// at least bigSolve steps, each named as it ends.
+var (
+	solves, solveSteps, bigSolves int64
+)
+
+const bigSolve = 1000000
+
+func measureSolve(f *eir.Func, m solve.Measurement) {
+	solves++
+	solveSteps += int64(m.Steps)
+	if m.Steps >= bigSolve {
+		bigSolves++
+		compat.Fprintfb(os.Stderr, "pluto: escape solve %v: %v steps, %v tokens, %v nodes, %vKB\n",
+			compat.ArgS(f.Name), compat.ArgI(int64(m.Steps)), compat.ArgI(int64(m.Tokens)),
+			compat.ArgI(int64(m.Nodes)), compat.ArgI(int64(m.ArenaBytes/1024)))
 	}
 }
 
@@ -58,6 +81,10 @@ func endPhase() {
 	ms := time.Since(phaseStart).Milliseconds()
 	compat.Fprintfb(os.Stderr, "pluto: phase %v done %vms peak %vMB\n",
 		compat.ArgS(phaseName), compat.ArgI(ms), compat.ArgI(peakKB()/1024))
+	if phaseName == "escape" {
+		compat.Fprintfb(os.Stderr, "pluto: phase escape: %v solves, %v steps, %v solves of %v steps or more\n",
+			compat.ArgI(solves), compat.ArgI(solveSteps), compat.ArgI(bigSolves), compat.ArgI(bigSolve))
+	}
 	if phaseName == "load" {
 		compat.Fprintfb(os.Stderr, "pluto: phase load: parse %vms, types2 %vms\n",
 			compat.ArgI(load.ParseTime.Milliseconds()), compat.ArgI(load.CheckTime.Milliseconds()))
