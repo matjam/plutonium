@@ -8,6 +8,7 @@ import (
 	"compiler/compat"
 	"compiler/internal/ssa"
 	"compiler/pu"
+	"pluto/time"
 )
 
 // A Pass transforms one function.
@@ -36,6 +37,10 @@ type Pipeline struct {
 	// OnStep, if set, is called with the name of each step as it starts:
 	// a program pass, or the first of a run of function passes.
 	OnStep func(name string)
+
+	// OnTime, if set, is called after each step with the name of each of
+	// its passes and the time the pass took over every function.
+	OnTime func(name string, d time.Duration)
 }
 
 type step struct {
@@ -149,18 +154,32 @@ func (p *Pipeline) Run(prog *ssa.Program, after func(pass string, f *ssa.Func)) 
 			}
 			// The inline notes (p.why) name calls by their values, which
 			// copying the functions out (par.go) would change.
-			runFuncs(prog.Funcs, group, p.why == nil)
+			var times []time.Duration
+			if p.OnTime != nil {
+				times = compat.Make[time.Duration](len(group))
+			}
+			runFuncs(prog.Funcs, group, times, p.why == nil)
+			for j, d := range times {
+				p.OnTime(group[j].Name, d)
+			}
 			continue
 		}
 		if st.prog != nil {
 			if p.OnStep != nil {
 				p.OnStep(st.prog.Name)
 			}
+			var start time.Time
+			if p.OnTime != nil {
+				start = time.Now()
+			}
 			if st.inline {
 				inline(prog, p.why)
 				p.inlined = true
 			} else {
 				st.prog.Run(prog)
+			}
+			if p.OnTime != nil {
+				p.OnTime(st.prog.Name, time.Since(start))
 			}
 			if checkSSA {
 				for _, f := range prog.Funcs {

@@ -28,6 +28,7 @@ import (
 	"pluto/slices"
 	"pluto/sort"
 	"pluto/strings"
+	"pluto/time"
 )
 
 // Config controls loading.
@@ -404,6 +405,14 @@ func prefixed(prefix string, err error) error {
 	return compat.Wrap(compat.Sprintfb("%s: %w", compat.ArgS(prefix), compat.ArgW(err)), err)
 }
 
+// Timing, set by the driver for PLUTO_PHASES, makes the loader add up the
+// time it spends parsing in ParseTime and type-checking in CheckTime.
+var Timing bool
+
+// ParseTime and CheckTime are the time spent parsing and type-checking,
+// when Timing is set.
+var ParseTime, CheckTime time.Duration
+
 func (l *loader) load(importPath string, src source, dir string) (*Package, error) {
 	if p := l.packages[importPath]; p != nil {
 		return p, nil
@@ -415,7 +424,14 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 	defer delete(l.loading, importPath)
 
 	pkg := pu.New(Package{Path: importPath, Dir: dir})
+	var start time.Time
+	if Timing {
+		start = time.Now()
+	}
 	l.parse(pkg, src) or return
+	if Timing {
+		ParseTime += time.Since(start)
+	}
 
 	// Load imports first, in a stable order.
 	var paths []string
@@ -463,7 +479,13 @@ func (l *loader) load(importPath string, src source, dir string) (*Package, erro
 		// The first 50 errors.
 		ErrorLimit: 50,
 	})
+	if Timing {
+		start = time.Now()
+	}
 	pkg.Types, _ = conf.Check(importPath, l.fset, pkg.Files, pkg.Info)
+	if Timing {
+		CheckTime += time.Since(start)
+	}
 	// A //pu: comment the compiler would ignore is an error too.
 	list := pu.Alloc[diag.List]()
 	for _, f := range pkg.Files {

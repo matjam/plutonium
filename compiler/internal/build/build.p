@@ -177,28 +177,8 @@ func loadConfig(cfg *Config) (*load.Config, error) {
 	return pu.New(load.Config{Tags: tags, Stdlib: cfg.Stdlib, Sizes: sizes, Preload: preload}), nil
 }
 
-// buildProgram compiles and links a loaded program.
 // lowerProgram runs the front end on a loaded program: the lifetime and
 // race checks, then lowering to SSA.
-// phases says to name each phase of a build on standard error as it
-// starts, so that a memory or time profile taken from outside can be
-// matched to the phases.
-var phases = compat.Getenv("PLUTO_PHASES") != ""
-
-// PhaseHook, when set, is called as each phase starts, after it is named.
-// The self-hosted driver uses it to write its profiles and stop at the
-// phase PLUTO_PROFILE_PHASE names.
-var PhaseHook func(name string)
-
-func phase(name string) {
-	if phases {
-		compat.Fprintfb(os.Stderr, "%v %v\n", compat.ArgS("pluto: phase"), compat.ArgS(name))
-	}
-	if PhaseHook != nil {
-		PhaseHook(name)
-	}
-}
-
 func lowerProgram(cfg *Config, prog *load.Program) (*ssa.Program, error) {
 	// The move checker's account of moves tells lowering where owners are
 	// destroyed. Lowering reports the constructs Plutonium does not
@@ -294,7 +274,9 @@ func runLower(cfg *lower.Config, prog *load.Program) (*ssa.Program, error) {
 	return s.out, s.err
 }
 
+// buildProgram compiles and links a loaded program.
 func buildProgram(cfg *Config, prog *load.Program) error {
+	defer endPhase()
 	sp, err := lowerProgram(cfg, prog)
 	if err != nil {
 		return err
@@ -320,6 +302,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		defer func() { _ = os.RemoveAll(work) }()
 	}
 
+	phase("write")
 	mainObj := filepath.Join(work, "main.o")
 	if cfg.CompileOnly {
 		mainObj = cfg.Output
@@ -331,6 +314,7 @@ func buildProgram(cfg *Config, prog *load.Program) error {
 		return nil
 	}
 
+	phase("link")
 	objs := []string{mainObj}
 	for _, p := range prog.Packages {
 		for i, a := range p.AsmFiles {
@@ -501,6 +485,7 @@ func optimize(cfg *Config, p *ssa.Program, prog *load.Program) error {
 		pipeline.OnStep = func(name string) {
 			compat.Fprintfb(os.Stderr, "%v %v\n", compat.ArgS("pluto: opt step"), compat.ArgS(name))
 		}
+		pipeline.OnTime = passTime
 	}
 	if cfg.InlineNotes != nil {
 		pipeline.ReportInlining()

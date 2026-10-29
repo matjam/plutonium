@@ -3,6 +3,7 @@ package opt
 import (
 	"compiler/internal/scratch"
 	"compiler/internal/ssa"
+	"pluto/time"
 	"unsafe"
 )
 
@@ -19,19 +20,19 @@ import (
 // and dropped, and the code they replaced, go with the step instead of
 // piling up for the rest of the build. With
 // copyOut false, when something outside the functions holds on to their
-// values (the inline notes), they run in place. Hand-written; go2pu keeps
+// values (the inline notes), they run in place. With times non-nil (as
+// long as passes), each pass's time is added to its element. Hand-written; go2pu keeps
 // it in place of a translation of par.go.
-func runFuncs(funcs []*ssa.Func, passes []*Pass, copyOut bool) {
+func runFuncs(funcs []*ssa.Func, passes []*Pass, times []time.Duration, copyOut bool) {
 	if !copyOut {
 		for _, f := range funcs {
-			for _, ps := range passes {
-				ps.Run(f)
-			}
+			runPasses(f, passes, times)
 		}
 		return
 	}
 	var s funcStep
 	s.passes = passes
+	s.times = times
 	for _, f := range funcs {
 		s.f = f
 		scratch.DoHome(unsafe.Pointer(f), &s)
@@ -43,14 +44,29 @@ func runFuncs(funcs []*ssa.Func, passes []*Pass, copyOut bool) {
 type funcStep struct {
 	f      *ssa.Func
 	passes []*Pass
-	cp     *ssa.Copier // made in the step's memory, for ScratchKeep
+	times  []time.Duration // made before the step, so writing it allocates nothing
+	cp     *ssa.Copier     // made in the step's memory, for ScratchKeep
+}
+
+// runPasses runs f through passes, adding the time of each to times when
+// it is not nil.
+func runPasses(f *ssa.Func, passes []*Pass, times []time.Duration) {
+	if times == nil {
+		for _, ps := range passes {
+			ps.Run(f)
+		}
+		return
+	}
+	for i, ps := range passes {
+		start := time.Now()
+		ps.Run(f)
+		times[i] += time.Since(start)
+	}
 }
 
 func (s *funcStep) ScratchWork() {
 	used := scratch.Used()
-	for _, ps := range s.passes {
-		ps.Run(s.f)
-	}
+	runPasses(s.f, s.passes, s.times)
 	// Passes that allocated nothing (gencheck in a build without checks)
 	// left nothing in scratch memory, and copying would only duplicate f.
 	if scratch.Used() != used {
