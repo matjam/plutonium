@@ -140,6 +140,8 @@ type solver struct {
 	head        int
 
 	edgeSeen, consSeen table
+	dsts               table // (In token ID, tag|tagGE<<32) -> storeDst (fire)
+	cuts               table // key -> summary.CutKey of it (addCutPair)
 	wide               table // (node<<32|base, path or wideAny): the node's GE and Deep In tokens (addID)
 	places             table // (o<<1|pg, path) -> node
 	derived            table // (node<<2|kind, path) -> node
@@ -989,9 +991,9 @@ func (s *solver) fire(n uint32, c uint64, id uint64) {
 		case tObj:
 			s.report(s.storeCode(b), t.base, b)
 		case tIn:
-			s.addStorePair(key(asPointer(t)), s.storeDst(d, t), b)
+			s.addStorePair(key(asPointer(t)), s.storeDstOf(a, d, t), b)
 		default:
-			s.addHeapStore(s.storeDst(d, t))
+			s.addHeapStore(s.storeDstOf(a, d, t))
 		}
 	case cBorrow:
 		if t.kind == tCHeap {
@@ -1140,6 +1142,22 @@ func (s *solver) storeDst(d, t tok) domain.Key {
 	return k
 }
 
+// storeDstOf is storeDst for the In token d of ID did, memoised by d and
+// t's tag: the key depends on nothing else, and making its paths again
+// makes nothing new.
+func (s *solver) storeDstOf(did uint64, d, t tok) domain.Key {
+	k2 := uint64(t.tag)
+	if t.tagGE {
+		k2 |= 1 << 32
+	}
+	if k, ok := s.dsts.get(did, k2); ok {
+		return domain.Key(k)
+	}
+	k := s.storeDst(d, t)
+	s.dsts.put(s.a, did, k2, uint64(k))
+	return k
+}
+
 // storeCode is the code of a frame pointer stored where it outlives the
 // frame: E3002 by the function's own store, E3003 by a callee's.
 func (s *solver) storeCode(why uint64) int {
@@ -1228,12 +1246,23 @@ func (s *solver) addStorePair(src, dst domain.Key, why uint64) {
 
 // addCutPair adds a store pair of an input past MaxRawStorePerInput, cut.
 func (s *solver) addCutPair(src, dst domain.Key, why uint64) {
-	src, dst = summary.CutKey(s.ps, src), summary.CutKey(s.ps, dst)
+	src, dst = s.cutKey(src), s.cutKey(dst)
 	if s.sumSeen.add(s.a, uint64(src)|sCutStore<<60, uint64(dst)) {
 		s.store.push(s.a, uint64(src))
 		s.store.push(s.a, uint64(dst))
 		s.store.push(s.a, why)
 	}
+}
+
+// cutKey is summary.CutKey, memoised: a key's cut depends only on the key
+// and the paths, and cutting a path again makes nothing new.
+func (s *solver) cutKey(k domain.Key) domain.Key {
+	if c, ok := s.cuts.get(uint64(k), 0); ok {
+		return domain.Key(c)
+	}
+	c := summary.CutKey(s.ps, k)
+	s.cuts.put(s.a, uint64(k), 0, uint64(c))
+	return c
 }
 
 // storeSeenAdd de-duplicates store pairs. Keys use 44 bits, so a pair fits
