@@ -497,6 +497,13 @@ func (e *env) Candidates(f *eir.Func, c *eir.Call) []eir.FuncID {
 	return e.virt.of(e.facts.Candidates(f, c), c.Kind == eir.CallIface, c.Fields)
 }
 
+// Members are the functions a dynamic call may reach, by the dispatch rule
+// in force, not joined into a virtual function: for internal/moves, which
+// follows each (escape2's CallFacts).
+func (e *env) Members(f *eir.Func, c *eir.Call) []eir.FuncID {
+	return e.facts.Candidates(f, c)
+}
+
 func (e *env) Contract(name string) (*summary.Summary, bool) {
 	if e.opts.Contract != nil {
 		return e.opts.Contract(name)

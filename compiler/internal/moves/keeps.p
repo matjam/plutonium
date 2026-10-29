@@ -34,10 +34,15 @@ import (
 // for the views the argument holds, as a call that keeps them (views.p,
 // callStores): the owner may not move to another task afterwards.
 //
-// Calls through an interface or a func value have no summary here, and
-// the escape analysis has no facts for their arguments (keepsArg): a helper
-// that hands a view to one is not followed. A view passed directly to one
-// is still taken at its worst (views.p, callStores).
+// A call through an interface, a type parameter's method or a func value,
+// or of a function literal, may reach each of the functions the escape
+// analysis takes as its candidates (Calls.Callees): for an interface
+// method, the methods of that name on the types the program converts to an
+// interface; for a func value, the functions whose values may reach the
+// call. Each is followed as a static callee is, and so are function
+// literals and the bodies of ranges over a function, which have summaries
+// of their own. A func value call whose candidates are not known keeps, at
+// its worst, memory loaded through everything it is passed (keepTargets).
 
 // A keepSite is the call by which a function may keep memory one of its
 // inputs reaches, for messages.
@@ -53,9 +58,17 @@ func (s keepSite) valid() bool { return s.pos.IsValid() }
 // keeps memory loaded through input j, from keeps memory loaded through
 // input in.
 type keepEdge struct {
-	from *types2.Func
+	from ast.Node
 	in   int
 	j    int
+}
+
+// A keepTarget is a function a call may reach, by its node in c.keeps (a
+// *ast.FuncDecl, *ast.FuncLit or *ast.RangeStmt), whose input shift+j is
+// input j of the call.
+type keepTarget struct {
+	node  ast.Node
+	shift int
 }
 
 // maxInputs bounds the inputs a summary follows, one bit each.
@@ -66,71 +79,84 @@ const maxInputs = 64
 // hold (own) and those through which it may hold loaded memory (held).
 type keepScan struct {
 	c      *checker
-	fn     *types2.Func
 	inputs map[*types2.Var]int
 	own    map[*types2.Var]uint64
 	held   map[*types2.Var]uint64
 	change bool
 }
 
-// findKeeps computes c.keeps for every function of prog with a body.
+// findKeeps computes c.keeps for every function of prog with a body, every
+// function literal and every body of a range over a function.
 func (c *checker) findKeeps(prog *load.Program) {
-	c.keeps = map[*types2.Func][]keepSite{}
-	into := map[*types2.Func][]keepEdge{} // the edges, by the function reached
+	c.keeps = map[ast.Node][]keepSite{}
+	c.keepDecls = map[*types2.Func]*ast.FuncDecl{}
+	into := map[ast.Node][]keepEdge{} // the edges, by the function reached
 	type pending struct {
-		fn *types2.Func
+		fn ast.Node
 		j  int
 	}
-	var work []pending
+	type scanned struct {
+		node   ast.Node
+		inputs []*ast.Ident // nil: an input without a name
+		body   *ast.BlockStmt
+	}
+	var funcs []scanned
 	for _, p := range prog.Packages {
 		for _, file := range p.Files {
-			for _, d := range file.Decls {
-				fd, ok := d.(*ast.FuncDecl)
-				if !ok || fd.Body == nil {
-					continue
-				}
-				obj, ok := c.defs[fd.Name].(*types2.Func)
-				if !ok {
-					continue
-				}
-				s := pu.New(keepScan{c: c, fn: obj, inputs: map[*types2.Var]int{}, own: map[*types2.Var]uint64{}, held: map[*types2.Var]uint64{}})
-				n := 0
-				for _, l := range []*ast.FieldList{fd.Recv, fd.Type.Params} {
-					if l == nil {
-						continue
+			ast.Inspect(file, func(n ast.Node) bool {
+				switch x := n.(type) {
+				case *ast.FuncDecl:
+					if obj, ok := c.defs[x.Name].(*types2.Func); ok && x.Body != nil {
+						c.keepDecls[obj] = x
+						funcs = compat.Append(funcs, scanned{node: x, inputs: paramNames(x.Recv, x.Type.Params), body: x.Body})
 					}
-					for _, field := range l.List {
-						if len(field.Names) == 0 {
-							n++
-							continue
-						}
-						for _, name := range field.Names {
-							if v, ok := c.defs[name].(*types2.Var); ok && n < maxInputs && mayView(v.Type()) {
-								s.inputs[v] = n
-							}
-							n++
-						}
+				case *ast.FuncLit:
+					funcs = compat.Append(funcs, scanned{node: x, inputs: paramNames(nil, x.Type.Params), body: x.Body})
+				case *ast.RangeStmt:
+					if !c.rangeBody(x) || x.Tok != token.DEFINE {
+						return true
 					}
-				}
-				if len(s.inputs) == 0 {
-					continue
-				}
-				if len(c.keeps[obj]) < n {
-					ks := compat.Make[keepSite](n)
-					copy(ks, c.keeps[obj])
-					c.keeps[obj] = ks
-				}
-				s.taint(fd.Body)
-				s.calls(fd.Body, func(in int, site keepSite) {
-					if !c.keeps[obj][in].valid() {
-						c.keeps[obj][in] = site
-						work = compat.Append(work, pending{fn: obj, j: in})
+					var in []*ast.Ident
+					for _, e := range []ast.Expr{x.Key, x.Value} {
+						id, _ := e.(*ast.Ident)
+						in = compat.Append(in, id)
 					}
-				}, func(to *types2.Func, j, in int) {
-					into[to] = compat.Append(into[to], keepEdge{from: obj, in: in, j: j})
-				})
+					funcs = compat.Append(funcs, scanned{node: x, inputs: in, body: x.Body})
+				}
+				return true
+			})
+		}
+	}
+	var work []pending
+	for _, sc := range funcs {
+		node := sc.node
+		s := pu.New(keepScan{c: c, inputs: map[*types2.Var]int{}, own: map[*types2.Var]uint64{}, held: map[*types2.Var]uint64{}})
+		for i, name := range sc.inputs {
+			if name == nil || i >= maxInputs {
+				continue
+			}
+			if v, ok := c.defs[name].(*types2.Var); ok && mayView(v.Type()) {
+				s.inputs[v] = i
 			}
 		}
+		if len(s.inputs) == 0 {
+			continue
+		}
+		n := len(sc.inputs)
+		if len(c.keeps[node]) < n {
+			ks := compat.Make[keepSite](n)
+			copy(ks, c.keeps[node])
+			c.keeps[node] = ks
+		}
+		s.taint(sc.body)
+		s.calls(sc.body, func(in int, site keepSite) {
+			if !c.keeps[node][in].valid() {
+				c.keeps[node][in] = site
+				work = compat.Append(work, pending{fn: node, j: in})
+			}
+		}, func(to ast.Node, j, in int) {
+			into[to] = compat.Append(into[to], keepEdge{from: node, in: in, j: j})
+		})
 	}
 	for len(work) > 0 {
 		w := work[len(work)-1]
@@ -144,6 +170,36 @@ func (c *checker) findKeeps(prog *load.Program) {
 			work = compat.Append(work, pending{fn: e.from, j: e.in})
 		}
 	}
+}
+
+// paramNames returns the names of the inputs of a function, the receiver
+// first: nil for one without a name.
+func paramNames(recv, params *ast.FieldList) []*ast.Ident {
+	var out []*ast.Ident
+	for _, l := range []*ast.FieldList{recv, params} {
+		if l == nil {
+			continue
+		}
+		for _, field := range l.List {
+			if len(field.Names) == 0 {
+				out = compat.Append(out, nil)
+				continue
+			}
+			out = compat.Append(out, field.Names...)
+		}
+	}
+	return out
+}
+
+// rangeBody reports whether st ranges over a function, whose body is then
+// a function of its own (section 12.11).
+func (c *checker) rangeBody(st *ast.RangeStmt) bool {
+	T := c.typeOf(st.X)
+	if T == nil {
+		return false
+	}
+	_, ok := T.Underlying().(*types2.Signature)
+	return ok
 }
 
 // bit returns the set holding input i.
@@ -350,7 +406,7 @@ func (s *keepScan) taint(body *ast.BlockStmt) {
 // calls finds, in body, the calls that may keep memory loaded through an
 // input (kept), and the inputs passed to functions that may keep memory
 // loaded through what they are given (edge).
-func (s *keepScan) calls(body *ast.BlockStmt, kept func(in int, site keepSite), edge func(to *types2.Func, j, in int)) {
+func (s *keepScan) calls(body *ast.BlockStmt, kept func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -360,24 +416,28 @@ func (s *keepScan) calls(body *ast.BlockStmt, kept func(in int, site keepSite), 
 		if tv.IsType() || tv.IsBuiltin() {
 			return true
 		}
-		to := s.c.staticCallee(call)
+		targets, known := s.c.keepTargets(call)
+		site := keepSite{pos: call.Pos(), text: exprText(call)}
 		s.c.callArgs(call, func(key, val ast.Expr, j int) {
 			own, held := s.sets(val)
 			if own|held == 0 {
 				return
 			}
-			if held != 0 && to != nil && keepsArg(s.c.calls.Arg(key)) {
-				site := keepSite{pos: call.Pos(), text: exprText(call)}
-				for i := 0; i < maxInputs; i++ {
-					if held&bit(i) != 0 {
-						kept(i, site)
-					}
+			lost := held
+			if !known {
+				lost = own | held // a func value of which nothing is known
+			} else if !keepsArg(s.c.calls.Arg(key)) {
+				lost = 0
+			}
+			for i := 0; i < maxInputs; i++ {
+				if lost&bit(i) != 0 {
+					kept(i, site)
 				}
 			}
-			if to != nil {
+			for _, t := range targets {
 				for i := 0; i < maxInputs; i++ {
 					if (own|held)&bit(i) != 0 {
-						edge(to, j, i)
+						edge(t.node, j+t.shift, i)
 					}
 				}
 			}
@@ -386,20 +446,64 @@ func (s *keepScan) calls(body *ast.BlockStmt, kept func(in int, site keepSite), 
 	})
 }
 
+// keepTargets returns the functions with a body that call may reach, and
+// false if they are not known: a call of a func value the escape analysis
+// recorded no candidates for, or one of whose candidates has no summary
+// here (a method value of an interface, a range body that assigns to
+// variables declared outside it).
+func (c *checker) keepTargets(call *ast.CallExpr) ([]keepTarget, bool) {
+	if to := c.staticCallee(call); to != nil {
+		if d := c.keepDecls[to]; d != nil {
+			return compat.Clone([]keepTarget{{node: d}}), true
+		}
+		return nil, true
+	}
+	cs, ok := c.calls.Callees(call)
+	if !ok {
+		// Not a call the escape analysis has (one in a function the
+		// program does not reach): a method of an interface or a type
+		// parameter keeps nothing found here, a func value the worst.
+		if se := funSelector(call.Fun); se != nil {
+			if sel := c.selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
+				return nil, true
+			}
+		}
+		return nil, false
+	}
+	var out []keepTarget
+	for _, cd := range cs {
+		switch {
+		case cd.Unknown:
+			return nil, false
+		case cd.Fn != nil:
+			if d := c.keepDecls[cd.Fn]; d != nil {
+				out = compat.Append(out, keepTarget{node: d, shift: cd.Shift})
+			}
+		case cd.Lit != nil:
+			out = compat.Append(out, keepTarget{node: cd.Lit, shift: cd.Shift})
+		case cd.Range != nil:
+			if cd.Range.Tok != token.DEFINE && (cd.Range.Key != nil || cd.Range.Value != nil) {
+				return nil, false
+			}
+			out = compat.Append(out, keepTarget{node: cd.Range, shift: cd.Shift})
+		}
+	}
+	return out, true
+}
+
 // keepsArg reports whether a call may keep the pointer of an argument it
-// is given, by what the escape analysis found (af): it may keep it past
-// the call, or store it where the walk does not follow. Only calls of a
-// function or concrete method are asked (calls), and one the analysis has
-// no facts for (af nil) is not counted. Taken at its worst, a call through
-// an interface would make every method of a container that calls its
-// allocator through the Allocator interface (vec.Vec's Push growing its
-// buffer with v.a.Alloc and v.a.Free) keep the memory its receiver holds,
-// and no container with an allocator could move to another task once used.
+// is given, by what the escape analysis found (af) over every function the
+// call may reach: it may store it past the call, or where the walk does not
+// follow. A pointer it only returns is not counted: the result is followed
+// as what the argument holds (sets). One the analysis has no facts for (af
+// nil) is not counted. Through an interface the facts are those of the
+// methods of the types converted to it: vec.Vec's Push growing its buffer
+// with v.a.Alloc gets memory of the allocator back, and keeps it in v.
 func keepsArg(af *ArgFacts) bool {
 	if af == nil {
 		return false
 	}
-	if af.Self {
+	if af.Kept {
 		return true
 	}
 	for _, in := range af.Into {
@@ -478,18 +582,25 @@ func (c *checker) callArgs(call *ast.CallExpr, fn func(key, val ast.Expr, j int)
 	}
 }
 
-// calleeKeeps returns the call by which the callee of call may keep memory
+// calleeKeeps returns the call by which a callee of call may keep memory
 // loaded through its argument key, or false.
 func (c *checker) calleeKeeps(call *ast.CallExpr, key ast.Expr) (keepSite, bool) {
-	to := c.staticCallee(call)
-	if to == nil || len(c.keeps[to]) == 0 {
-		return keepSite{}, false
+	targets, known := c.keepTargets(call)
+	if !known {
+		return keepSite{pos: call.Pos(), text: exprText(call)}, true
 	}
 	var site keepSite
 	found := false
 	c.callArgs(call, func(k, _ ast.Expr, j int) {
-		if k == key && j < len(c.keeps[to]) && c.keeps[to][j].valid() {
-			site, found = c.keeps[to][j], true
+		if k != key || found {
+			return
+		}
+		for _, t := range targets {
+			ks := c.keeps[t.node]
+			if j+t.shift < len(ks) && ks[j+t.shift].valid() {
+				site, found = ks[j+t.shift], true
+				return
+			}
 		}
 	})
 	return site, found

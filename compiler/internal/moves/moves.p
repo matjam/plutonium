@@ -172,7 +172,8 @@ type checker struct {
 	taskBodies map[*ast.BlockStmt]*ast.FuncLit
 	calls      *Calls                      // what calls keep of their arguments (views.go)
 	owned      map[string][]types2.Type    // ownedLeaves, by owner type
-	keeps      map[*types2.Func][]keepSite // what functions keep of the memory their inputs reach (keeps.go)
+	keeps      map[ast.Node][]keepSite        // what functions keep of the memory their inputs reach, by declaration, literal or range body (keeps.p)
+	keepDecls  map[*types2.Func]*ast.FuncDecl // the declarations of the functions with a body (keeps.p)
 }
 
 // report records an error once per position and code.

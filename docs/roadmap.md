@@ -41,7 +41,7 @@ against the corrected specification. The immediate implementation order is:
      2), then the early-boot, interrupt and arena work of phases 3 and 4.
      Design: [kernel lifetime protection](plans/2026-10-28-kernel-lifetime-protection.md).
 102. **Outstanding aliases during owner transfer** (done; sections 8.8, 19.3). Probes in `tests/race/transfer*`
-     (ten accepted, 27 rejected) borrow an owner's memory through a field or a helper, then move the
+     (11 accepted, 30 rejected) borrow an owner's memory through a field or a helper, then move the
      owner by `take`, a task or a channel send, then use the borrow. A borrow kept in a local variable, a
      copy of it or a field of a local struct is E3313 at the conflicting use, and its last use before the
      transfer is accepted. The audit found and fixed four gaps. The race checker missed `alloc.New[T]()`
@@ -58,9 +58,12 @@ against the corrected specification. The immediate implementation order is:
      keeps the pointer it is given, not memory loaded through it. `moves/keeps.p` now records, from those
      facts, which inputs of each function may have memory loaded through them kept, through any number of
      helpers and methods, and such a call pins the owner's views as `heapPin` does, so a later task or
-     send is E3314. Helpers calling through an interface or a func value are not followed (the escape
-     analysis has no facts for those arguments, and counting them would reject every container that
-     calls its allocator). The seven cases of a borrow returned by a method of a local owner pass since
+     send is E3314. A call through an interface method or a func value follows every function the escape
+     analysis takes it may reach: for an interface method, the methods of that name on the types the
+     program converts to an interface; for a func value, the functions whose values reach the call, and
+     the worst case when those are not known. A callee that only returns memory of its receiver, as an
+     allocator's `Alloc` does, does not count as keeping it, so containers that call their allocator are
+     still accepted. The seven cases of a borrow returned by a method of a local owner pass since
      item 138.
 103. **Nonconsuming owner indexing and length receivers** (done; sections 10.14, 11.11,
      13.6). `x[k]`, `x[k] = v`, `v, ok := x[k]` and `len(x)` on an owner type whose Index,

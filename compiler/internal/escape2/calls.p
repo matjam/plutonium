@@ -12,6 +12,7 @@ import (
 	"compiler/internal/escape2/summary"
 	"compiler/internal/moves"
 	"compiler/internal/syntax/ast"
+	"compiler/internal/types2"
 	"compiler/pu"
 )
 
@@ -77,6 +78,9 @@ func callees(env solve.Env, f *eir.Func, c *eir.Call) []callee {
 		if int(id) < len(prog.Funcs) {
 			fn := prog.Funcs[id]
 			if fn.Bodyless {
+				if fn.NoEscape {
+					return callee{sum: noEscapeFacts(fn), inputs: len(fn.Inputs)}
+				}
 				return callee{inputs: len(fn.Inputs)}
 			}
 			sum := env.Summary(id)
@@ -106,6 +110,46 @@ func callees(env solve.Env, f *eir.Func, c *eir.Call) []callee {
 		out = compat.Append(out, one(id))
 	}
 	return out
+}
+
+// noEscapeFacts is what //pu:noescape states of bodyless function f, as
+// the solver takes it (solve/call.go, noEscapeSummary): it keeps no input,
+// except by storing one where another points, and its results may hold
+// what the inputs point to. A store into an input that can hold no pointer
+// (atomic.Xchg32's new value) is left out.
+func noEscapeFacts(f *eir.Func) *summary.Summary {
+	n := len(f.Inputs)
+	sum := pu.New(summary.Summary{Inputs: n})
+	for i := 0; i < n; i++ {
+		for j := 0; j < n; j++ {
+			if i != j && !pointerFree(f.Inputs[j].Type) {
+				sum.Store = compat.Append(sum.Store, summary.StorePair{
+					Src: domain.MakeKey(i, domain.Root, domain.KeyFlags{GE: true}),
+					Dst: domain.MakeKey(j, domain.Root, domain.KeyFlags{GE: true}),
+				})
+			}
+		}
+	}
+	if f.Results > 0 {
+		sum.Res = compat.Make[summary.Result](f.Results)
+	}
+	for r := range sum.Res {
+		for i := 0; i < n; i++ {
+			deep := domain.MakeKey(i, domain.Root, domain.KeyFlags{Deep: true})
+			sum.Res[r].From = compat.Append(sum.Res[r].From, summary.ResultKey{Key: deep, Field: domain.Root})
+		}
+	}
+	return sum
+}
+
+// pointerFree reports whether a value of type T holds no pointer: a
+// number or a boolean.
+func pointerFree(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	b, ok := T.Underlying().(*types2.Basic)
+	return ok && b.Info()&(types2.IsNumeric|types2.IsBoolean) != 0
 }
 
 // A slot is an argument of a call as moves names it: the expressions its
@@ -200,8 +244,103 @@ func funSelector(fun ast.Expr) *ast.SelectorExpr {
 	return se
 }
 
+// A memberEnv gives the functions a dynamic call may reach, not joined
+// into a virtual function (sched's env, Members).
+type memberEnv interface {
+	Members(f *eir.Func, c *eir.Call) []eir.FuncID
+}
+
+// noteCallees records, for a call the program writes that does not name a
+// declared function, the functions it may reach (moves.Callee), for the
+// move checker's summaries of what functions keep (moves/keeps.p).
+func noteCallees(calls *moves.Calls, env solve.Env, f *eir.Func, c *eir.Call) {
+	if c.Implicit != eir.ImplNone && c.Implicit != eir.ImplDefer {
+		return
+	}
+	prog := env.Program()
+	var ids []eir.FuncID
+	switch c.Kind {
+	case eir.CallStatic:
+		if int(c.Callee) < len(prog.Funcs) && prog.Funcs[c.Callee].Key.Obj != nil {
+			return // moves finds it from the source
+		}
+		ids = compat.Clone([]eir.FuncID{c.Callee})
+	case eir.CallIface, eir.CallTypeParam, eir.CallFunc:
+		if c.Kind != eir.CallFunc && c.Method == nil {
+			return // a drop
+		}
+		me, ok := env.(memberEnv)
+		if !ok {
+			calls.AddCallees(c.Expr, compat.Clone([]moves.Callee{{Unknown: true}}))
+			return
+		}
+		ids = me.Members(f, c)
+	default:
+		return
+	}
+	out := compat.MakeCap[moves.Callee](0, len(ids))
+	for _, id := range ids {
+		out = compat.Append(out, moveCallee(prog, id))
+	}
+	calls.AddCallees(c.Expr, out)
+}
+
+// moveCallee names the function id as moves.Callee does.
+func moveCallee(prog *eir.Program, id eir.FuncID) moves.Callee {
+	if id == eir.NoFunc || int(id) >= len(prog.Funcs) {
+		return moves.Callee{Unknown: true}
+	}
+	fn := prog.Funcs[id]
+	if fn.Bodyless {
+		return moves.Callee{} // no body: moves has no summary of it
+	}
+	k := fn.Key
+	switch {
+	case k.Obj != nil:
+		return moves.Callee{Fn: k.Obj.Origin()}
+	case k.Lit != nil:
+		return moves.Callee{Lit: k.Lit}
+	case k.Range != nil:
+		return moves.Callee{Range: k.Range}
+	case k.Synth != nil:
+		m := k.Synth.Method
+		switch k.Synth.Kind {
+		case eir.SynthItabAdapter:
+			// Method is the interface's: the adapter calls the method of
+			// that name on Recv (eir/synth.go, itabAdapterBody).
+			if m != nil && k.Synth.Recv != nil {
+				obj, _, _ := types2.LookupFieldOrMethod(k.Synth.Recv, false, m.Pkg(), m.Name())
+				if fn, ok := obj.(*types2.Func); ok && declared(fn) {
+					return moves.Callee{Fn: fn.Origin()}
+				}
+			}
+		case eir.SynthPromoted, eir.SynthPtrWrapper, eir.SynthMethodExpr:
+			if m != nil && declared(m) {
+				return moves.Callee{Fn: m.Origin()}
+			}
+		case eir.SynthMethodValue:
+			// The record holds the receiver: the call's inputs are the
+			// method's parameters.
+			if m != nil && declared(m) {
+				return moves.Callee{Fn: m.Origin(), Shift: 1}
+			}
+		case eir.SynthVariant:
+			return moves.Callee{} // makes a union value of its argument
+		}
+	}
+	return moves.Callee{Unknown: true}
+}
+
+// declared reports whether m is a method with a declaration, not one an
+// interface declares (whose calls reach further functions).
+func declared(m *types2.Func) bool {
+	sig, ok := m.Type().(*types2.Signature)
+	return ok && (sig.Recv() == nil || !types2.IsInterface(sig.Recv().Type()))
+}
+
 // noteCall records the facts about the arguments of call c of f.
 func noteCall(calls *moves.Calls, env solve.Env, ps domain.Paths, f *eir.Func, c *eir.Call) {
+	noteCallees(calls, env, f, c)
 	sl := slots(c)
 	if len(sl) == 0 {
 		return
@@ -225,6 +364,7 @@ func noteCall(calls *moves.Calls, env solve.Env, ps domain.Paths, f *eir.Func, c
 // merge adds what o says to af.
 func merge(af, o *moves.ArgFacts) {
 	af.Self = af.Self || o.Self
+	af.Kept = af.Kept || o.Kept
 	af.Returned = af.Returned || o.Returned
 	af.Into = compat.Append(af.Into, o.Into...)
 }
@@ -236,7 +376,7 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *moves.ArgFacts {
 	if cd.sum == nil || i >= cd.inputs {
 		// Nothing is known of the callee, or the input is one it does
 		// not have (a candidate of another arity): the worst.
-		af.Self, af.Returned = true, true
+		af.Self, af.Kept, af.Returned = true, true, true
 		af.Into = compat.Append(af.Into, moves.Into{})
 		return af
 	}
@@ -250,7 +390,7 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *moves.ArgFacts {
 	sum := cd.sum
 	for _, k := range sum.Esc {
 		if k.Input() == i && self(k) {
-			af.Self = true
+			af.Self, af.Kept = true, true
 		}
 	}
 	for _, st := range sum.Store {
@@ -258,7 +398,7 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *moves.ArgFacts {
 			continue
 		}
 		if self(st.Src) {
-			af.Self = true
+			af.Self, af.Kept = true, true
 		}
 		var dst ast.Expr
 		direct := false
@@ -292,11 +432,13 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *moves.ArgFacts {
 		fn := d.Fn.Input() == i
 		passed := fn && self(d.Fn)
 		af.Self = af.Self || passed
+		af.Kept = af.Kept || passed
 		for _, a := range d.Args {
 			for _, k := range a.Keys {
 				if k.Input() == i {
 					passed = true
 					af.Self = af.Self || self(k)
+					af.Kept = af.Kept || self(k)
 				}
 			}
 		}

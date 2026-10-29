@@ -1,0 +1,1 @@
+$DIR/main.p:54:11: l is moved to the task started here, but a view of what it holds (&l, line 53) was passed to lend, which may keep memory reached through it (s.Stash(l.head), line 48) at line 53, where the compiler cannot check its uses
