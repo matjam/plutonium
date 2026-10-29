@@ -37,6 +37,7 @@ against the corrected specification. The immediate implementation order is:
      operations. Keep deliberate unchecked execution distinct. A kernel checking
      representation has not been selected; hosted pointer tags cannot simply be assumed
      suitable. This is a confirmed source-policy gap.
+     Design: [kernel lifetime protection](plans/2026-10-28-kernel-lifetime-protection.md).
 102. **Outstanding aliases during owner transfer** (audited; sections 8.8, 19.3). Probes in `tests/race/transfer*`
      (nine accepted, 24 rejected) borrow an owner's memory through a field or a helper, then move the
      owner by `take`, a task or a channel send, then use the borrow. A borrow kept in a local variable, a
