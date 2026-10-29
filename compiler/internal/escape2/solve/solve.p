@@ -142,6 +142,7 @@ type solver struct {
 	edgeSeen, consSeen table
 	dsts               table // (In token ID, tag|tagGE<<32) -> storeDst (fire)
 	cuts               table // key -> summary.CutKey of it (addCutPair)
+	rawCuts            table // the uncut pairs addCutPair has seen
 	dtoks              []tok // process: the new tokens of the node, decoded
 	wide               table // (node<<32|base, path or wideAny): the node's GE and Deep In tokens (addID)
 	places             table // (o<<1|pg, path) -> node
@@ -989,14 +990,13 @@ func (s *solver) fireTok(n uint32, c uint64, id uint64, t tok) {
 			s.addCons(val, cSink, uint64(s.storeCode(b)|cHeap), b)
 		}
 	case cStoreIn:
-		d := s.tokAt(a)
 		switch t.kind {
 		case tObj:
 			s.report(s.storeCode(b), t.base, b)
 		case tIn:
-			s.addStorePair(key(asPointer(t)), s.storeDstOf(a, d, t), b)
+			s.addStorePair(key(asPointer(t)), s.storeDstOf(a, t), b)
 		default:
-			s.addHeapStore(s.storeDstOf(a, d, t))
+			s.addHeapStore(s.storeDstOf(a, t))
 		}
 	case cBorrow:
 		if t.kind == tCHeap {
@@ -1145,10 +1145,10 @@ func (s *solver) storeDst(d, t tok) domain.Key {
 	return k
 }
 
-// storeDstOf is storeDst for the In token d of ID did, memoised by d and
+// storeDstOf is storeDst for the In token of ID did, memoised by it and
 // t's tag: the key depends on nothing else, and making its paths again
-// makes nothing new.
-func (s *solver) storeDstOf(did uint64, d, t tok) domain.Key {
+// makes nothing new. The token is decoded only on a miss.
+func (s *solver) storeDstOf(did uint64, t tok) domain.Key {
 	k2 := uint64(t.tag)
 	if t.tagGE {
 		k2 |= 1 << 32
@@ -1156,7 +1156,7 @@ func (s *solver) storeDstOf(did uint64, d, t tok) domain.Key {
 	if k, ok := s.dsts.get(did, k2); ok {
 		return domain.Key(k)
 	}
-	k := s.storeDst(d, t)
+	k := s.storeDst(s.tokAt(did), t)
 	s.dsts.put(s.a, did, k2, uint64(k))
 	return k
 }
@@ -1249,6 +1249,10 @@ func (s *solver) addStorePair(src, dst domain.Key, why uint64) {
 
 // addCutPair adds a store pair of an input past MaxRawStorePerInput, cut.
 func (s *solver) addCutPair(src, dst domain.Key, why uint64) {
+	// A pair seen before cuts to a pair added before.
+	if !s.rawCuts.add(s.a, uint64(src), uint64(dst)) {
+		return
+	}
 	src, dst = s.cutKey(src), s.cutKey(dst)
 	if s.sumSeen.add(s.a, uint64(src)|sCutStore<<60, uint64(dst)) {
 		s.store.push(s.a, uint64(src))
