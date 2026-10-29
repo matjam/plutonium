@@ -167,7 +167,9 @@ hi <nil> [104 101 121] 5 A
   `v.Pop()`, `v.Slice()` (a view; any `Push` may invalidate it), `v.Ptr(i)` (a pointer to an element,
   invalidated the same way). `len(v)`, `v[i]`, `v[i] = x` and `for i, x := range v` work through the
   methods `Len`, `Index`, `SetIndex`, `All` (section 11.11). `&v[i]` is E2454 and `v[i].f = 1` is E2455; use
-  `v.Ptr(i).f = 1`. For a fixed size use an array, for a bounded buffer `vec.NewFixed(buf[:])`.
+  `v.Ptr(i).f = 1`. For a fixed size use an array, for a bounded buffer `vec.NewFixed(buf[:])`. An owner type
+  of your own that supports `x[k]` or `len(x)` declares these methods on a pointer receiver
+  (`func (b *Bag) Len() int`): a value receiver would consume the container, and is E2452.
 - `slices.Clone`, `slices.Concat`, `slices.Collect` return a `vec.Vec`. `slices.Delete`, `slices.Sort`,
   `slices.Reverse` work in place on a slice. `copy` and `clear` work as in Go (`clear` on a slice of owners
   drops each).

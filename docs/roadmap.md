@@ -53,12 +53,18 @@ against the corrected specification. The immediate implementation order is:
      marked `knownfail`: an owner passed by pointer to a helper that hands a view of its memory to a call
      that keeps it (one case: neither checker follows a view through calls there). The seven cases of a
      borrow returned by a method of a local owner pass since item 138.
-103. **Nonconsuming owner indexing and length receivers** (planned; sections 11.11,
-     13.6). Visible Index/IndexOk/SetIndex and Len validators lack the owner
-     value-receiver prohibition. Confirm whole-pipeline rejection and add the missing
-     validation where needed, preserving owner pointer receivers and ordinary nonowner
-     value receivers. Source inspection establishes a missing local guard, not a
-     demonstrated native wrong-code result.
+103. **Nonconsuming owner indexing and length receivers** (done; sections 10.14, 11.11,
+     13.6). `x[k]`, `x[k] = v`, `v, ok := x[k]` and `len(x)` on an owner type whose Index,
+     SetIndex, IndexOk or Len has a value receiver were accepted before, and ran wrong: each call
+     dropped the container, the next use went on with it, and it was dropped again at the end of
+     its scope (three drops for two uses, at -O0 and -O2). The type checker now
+     rejects them with E2452 (`BadIndexMethod`), with an explanation and a pointer-receiver fix:
+     `consumingContainerMethod` in `compiler/internal/types2/indexing.p`, called from `indexSig`
+     for every indexing method the type has and from `containerLen`. Generic code was already
+     covered: a consuming method never satisfies an interface method, so `container.Sized` and
+     the other constraints reject such a type argument. Tests: `tests/diag/container_owner_value_receiver`
+     (the four rejections) and `tests/types2/container_owner_receivers` (owner pointer receivers
+     and nonowner value receivers, run).
 104. **`strings.Slice`, `strings.SliceFrom` and E2019** (done, `13c2a00f`; decision D9; sections 7.3, 11.12,
      17.1, F.6). A slice expression on a string is the compile error E2019
      (`StringSliceNotPermitted`, `pspec("11.12", "Slice expressions")`) with a fix that spells the

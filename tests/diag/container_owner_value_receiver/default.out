@@ -1,0 +1,43 @@
+$DIR/main.p:29:10: cannot index r: method Index of owner type Reader has a value receiver, so the call would consume r
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A method with a value receiver consumes
+    its receiver: calling it moves the owner into the method, which drops it
+    when it returns. r[k] and len(r) borrow the container for the call and never
+    move it, so on an owner the methods they call take a pointer receiver.
+    Declare the method with a pointer receiver:
+        func (r *Reader) Index(k int) int
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E2452" for a longer explanation)
+
+$DIR/main.p:31:2: cannot index w: method SetIndex of owner type Writer has a value receiver, so the call would consume w
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A method with a value receiver consumes
+    its receiver: calling it moves the owner into the method, which drops it
+    when it returns. w[k] and len(w) borrow the container for the call and never
+    move it, so on an owner the methods they call take a pointer receiver.
+    Declare the method with a pointer receiver:
+        func (w *Writer) SetIndex(k int, v int)
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E2452" for a longer explanation)
+
+$DIR/main.p:33:11: cannot index l: method IndexOk of owner type Looker has a value receiver, so the call would consume l
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A method with a value receiver consumes
+    its receiver: calling it moves the owner into the method, which drops it
+    when it returns. l[k] and len(l) borrow the container for the call and never
+    move it, so on an owner the methods they call take a pointer receiver.
+    Declare the method with a pointer receiver:
+        func (l *Looker) IndexOk(k int) (int, bool)
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E2452" for a longer explanation)
+
+$DIR/main.p:36:14: cannot take len(s): method Len of owner type Sizer has a value receiver, so the call would consume s
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A method with a value receiver consumes
+    its receiver: calling it moves the owner into the method, which drops it
+    when it returns. s[k] and len(s) borrow the container for the call and never
+    move it, so on an owner the methods they call take a pointer receiver.
+    Declare the method with a pointer receiver:
+        func (s *Sizer) Len() int
+    (see "Indexing library containers" in the Plutonium spec, section 11.11)
+    (run "pluto explain E2452" for a longer explanation)

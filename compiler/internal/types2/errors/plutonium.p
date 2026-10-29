@@ -241,7 +241,9 @@ const (
 	// MissingIndexMethod: an index expression on a container that lacks
 	// the method this use of it calls (Index, SetIndex or IndexOk).
 	MissingIndexMethod
-	// BadIndexMethod: an indexing method with the wrong signature.
+	// BadIndexMethod: an indexing method with the wrong signature, or an
+	// indexing or Len method with a value receiver of owner type, which
+	// would consume the container.
 	BadIndexMethod
 	// IndexMethodMismatch: indexing methods of one type that disagree on
 	// the key or element type.

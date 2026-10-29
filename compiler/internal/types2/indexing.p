@@ -17,6 +17,7 @@ package types2
 // a field or element of x[k] are errors, since the methods return copies.
 
 import (
+	"compiler/compat"
 	"compiler/internal/syntax/ast"
 	. "compiler/internal/types2/errors"
 	"compiler/pu"
@@ -105,9 +106,9 @@ func (check *Checker) indexMethod(x *operand, name string) (sig *Signature, need
 }
 
 // indexSig checks the signature of an indexing method and reports a
-// BadIndexMethod error if it has the wrong shape. It returns the key type
-// and the element type the method uses.
-func (check *Checker) indexSig(at positioner, T Type, name string, sig *Signature) (key, elem Type, ok bool) {
+// BadIndexMethod error if it has the wrong shape or consumes an owner
+// receiver. It returns the key type and the element type the method uses.
+func (check *Checker) indexSig(x *operand, T Type, name string, sig *Signature) (key, elem Type, ok bool) {
 	params, results := sig.Params(), sig.Results()
 	want := ""
 	switch {
@@ -121,7 +122,10 @@ func (check *Checker) indexSig(at positioner, T Type, name string, sig *Signatur
 		want = "must have the form IndexOk(k K) (V, bool)"
 	}
 	if want != "" {
-		check.errorf(at, BadIndexMethod, "cannot index %s: method %s %s", T, pu.Box(name), pu.Box(want))
+		check.errorf(x, BadIndexMethod, "cannot index %s: method %s %s", T, pu.Box(name), pu.Box(want))
+		return nil, nil, false
+	}
+	if check.consumingContainerMethod(x, compat.Concat("index ", ExprString(x.expr)), name, sig) {
 		return nil, nil, false
 	}
 	key = params.At(0).Type()
@@ -231,7 +235,9 @@ func (check *Checker) containerIndex(x *operand, e *indexedExpr) bool {
 }
 
 // containerLen checks len(x) for an x whose type has a Len() int method
-// (LenByMethod). It reports whether x has one.
+// (LenByMethod). It reports whether x has one. A Len that would consume
+// an owner receiver is reported here (BadIndexMethod) and counts as found,
+// so that the caller reports nothing more.
 func (check *Checker) containerLen(x *operand) bool {
 	if w, ok := x.typ().Underlying().(*Wrapper); ok && w.kind != WrapRing {
 		return false
@@ -241,6 +247,58 @@ func (check *Checker) containerLen(x *operand) bool {
 		!Identical(sig.Results().At(0).Type(), Typ[Int]) {
 		return false
 	}
+	check.consumingContainerMethod(x, compat.Concat("take len(", ExprString(x.expr), ")"), LenMethodName, sig)
+	return true
+}
+
+// consumingContainerMethod reports a BadIndexMethod error if sig, the
+// signature of the indexing or Len method name of x, has a value receiver
+// of owner type, and reports whether it did. Such a method consumes its
+// receiver (language spec section 10.14), while x[k] and len(x) borrow the
+// container and never move it, so the method cannot supply them (sections
+// 11.11 and 13.6). The built-in methods of the wrapper types (a ring's
+// Len) are not declared methods and pass.
+func (check *Checker) consumingContainerMethod(x *operand, what, name string, sig *Signature) bool {
+	r := sig.recv
+	if r == nil {
+		return false
+	}
+	switch Unalias(r.typ).(type) {
+	case *Pointer, *Wrapper:
+		return false
+	}
+	if !IsOwner(r.typ) {
+		return false
+	}
+	base := TypeString(r.typ, check.qualifier)
+	if n := asNamed(r.typ); n != nil {
+		base = n.Obj().Name()
+		if tps := n.Origin().TypeParams(); tps.Len() > 0 {
+			base = compat.Concat(base, "[")
+			for i := 0; i < tps.Len(); i++ {
+				if i > 0 {
+					base = compat.Concat(base, ", ")
+				}
+				base = compat.Concat(base, tps.At(i).Obj().Name())
+			}
+			base = compat.Concat(base, "]")
+		}
+	}
+	recv := r.name
+	if recv == "" || recv == "_" {
+		recv = "x"
+	}
+	buf := compat.NewBufferString("")
+	WriteSignature(buf, sig, check.qualifier)
+	xs := ExprString(x.expr)
+	check.explainf(x, BadIndexMethod, pu.New(Explanation{
+		Text: compat.Concat(whatOwners, " A method with a value receiver consumes its receiver: calling it moves the owner into the method, which drops it when it returns. ",
+			xs, "[k] and len(", xs, ") borrow the container for the call and never move it, so on an owner the methods they call take a pointer receiver."),
+		Fixes: compat.Clone([]ExplainFix{{
+			Intro: "Declare the method with a pointer receiver",
+			Code:  compat.Concat("func (", recv, " *", base, ") ", name, buf.String()),
+		}}),
+	}), "cannot %s: method %s of owner type %s has a value receiver, so the call would consume %s", pu.Box(what), pu.Box(name), r.typ, x.expr)
 	return true
 }
 

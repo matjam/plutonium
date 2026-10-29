@@ -1,0 +1,4 @@
+$DIR/main.p:29:10: cannot index r: method Index of owner type Reader has a value receiver, so the call would consume r
+$DIR/main.p:31:2: cannot index w: method SetIndex of owner type Writer has a value receiver, so the call would consume w
+$DIR/main.p:33:11: cannot index l: method IndexOk of owner type Looker has a value receiver, so the call would consume l
+$DIR/main.p:36:14: cannot take len(s): method Len of owner type Sizer has a value receiver, so the call would consume s
