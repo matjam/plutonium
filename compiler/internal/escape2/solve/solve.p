@@ -140,6 +140,7 @@ type solver struct {
 	head        int
 
 	edgeSeen, consSeen table
+	wide               table // (node<<32|base, path or wideAny): the node's GE and Deep In tokens (addID)
 	places             table // (o<<1|pg, path) -> node
 	derived            table // (node<<2|kind, path) -> node
 	objPlaces, objSubs vec   // per object: list heads (+1)

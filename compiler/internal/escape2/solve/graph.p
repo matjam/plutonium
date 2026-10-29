@@ -141,7 +141,11 @@ func (s *solver) has(n uint32, id uint64) bool {
 // token that a GE In token of the node covers is not added (rules.go, "GE
 // subsumption"): everything it leads to, the covering token leads to.
 func (s *solver) addID(n uint32, id uint64) bool {
-	if s.has(n, id) || s.coveredIn(n, id) {
+	if s.has(n, id) {
+		return false
+	}
+	t := s.tokAt(id)
+	if t.kind == tIn && s.coveredIn(n, t, id) {
 		return false
 	}
 	w := int(id / 64)
@@ -150,7 +154,49 @@ func (s *solver) addID(n uint32, id uint64) bool {
 	}
 	s.bits[n].s[w] |= 1 << (id % 64)
 	s.lists[n].push(s.a, id)
+	if t.kind == tIn && (t.ge || t.deep) {
+		k := wideKey(n, t.base)
+		s.wide.add(s.a, k, uint64(t.path))
+		s.wide.add(s.a, k, wideAny)
+	}
 	return true
+}
+
+// The wide table records, for each node and base, the paths of the GE and
+// Deep In tokens the node holds (and wideAny once it holds one), so that
+// coveredIn can skip the lookups of coverers the node cannot hold. Only
+// addID sets a node's bits, and it records them here as it does.
+func wideKey(n uint32, base uint32) uint64 { return uint64(n)<<32 | uint64(base) }
+
+// wideAny is the path word of a node and base that has a wide token: no
+// path is this large.
+const wideAny = 1 << 40
+
+// covChains are the paths coveredBy walks for a token: p[i] is Extend
+// applied to p[i-1] and steps[i-1], from the root, made on first use, and
+// q the same for the tag. Extending a path again returns what the first
+// extension made, so taking the paths from here makes the same paths in
+// the same order as coveredBy does.
+type covChains struct {
+	steps, tsteps []domain.Step
+	p, q          [domain.MaxSteps + 1]domain.PathID
+	np, nq        int // how many of p and q are made
+}
+
+func (s *solver) chainP(ch *covChains, i int) domain.PathID {
+	for ch.np <= i {
+		ch.p[ch.np], _ = s.ps.Extend(ch.p[ch.np-1], ch.steps[ch.np-1])
+		ch.np++
+	}
+	return ch.p[i]
+}
+
+func (s *solver) chainQ(ch *covChains, j int) domain.PathID {
+	for ch.nq <= j {
+		ch.q[ch.nq], _ = s.ps.Extend(ch.q[ch.nq-1], ch.tsteps[ch.nq-1])
+		ch.nq++
+	}
+	return ch.q[j]
 }
 
 func (s *solver) nodeKind(n uint32) int { return int(s.nodeInfo.s[n] & 0xff) }
@@ -159,16 +205,87 @@ func (s *solver) nodeKind(n uint32) int { return int(s.nodeInfo.s[n] & 0xff) }
 // id, that covers token id: a prefix of its path (itself included) with GE,
 // or with Deep when the token's path has more loads than the prefix (or the
 // token is Deep too), and a tag that holds its tag.
-func (s *solver) coveredIn(n uint32, id uint64) bool {
-	t := s.tokAt(id)
+func (s *solver) coveredIn(n uint32, t tok, id uint64) bool {
 	if t.kind != tIn {
 		return false
 	}
+	var ch covChains
+	ch.steps = s.ps.Steps(t.path)
+	ch.tsteps = s.ps.Steps(t.tag)
+	if len(ch.steps) > domain.MaxSteps || len(ch.tsteps) > domain.MaxSteps {
+		return s.coveredInSlow(n, t, id)
+	}
+	ch.np, ch.nq = 1, 1 // the roots, domain.Root
+	_, anyWide := s.wide.get(wideKey(n, t.base), wideAny)
 	// A coverer of a lending rank no lower than t's (counted copy < plain <
 	// lent view): it stands for at least what t does.
 	for r := lendRankTok(t); r <= 2; r++ {
 		if t.dcnt && r != 0 {
 			break // only a DirectCount key covers one (domain.Covers)
+		}
+		if !anyWide {
+			// The node holds no coverer, so coveredBy would find none,
+			// having made the whole of both chains, the tag's first.
+			s.chainQ(&ch, len(ch.tsteps))
+			s.chainP(&ch, len(ch.steps))
+			return false
+		}
+		c := t
+		c.cnt, c.lent = r == 0, r == 2
+		if s.coveredByChains(n, c, id, &ch) {
+			return true
+		}
+	}
+	return false
+}
+
+// coveredByChains is coveredBy with the paths taken from ch, skipping the
+// lookups at a path p when the node holds no wide token of the base at p.
+// It makes the paths coveredBy makes, in the same order.
+func (s *solver) coveredByChains(n uint32, t tok, id uint64, ch *covChains) bool {
+	loads := s.ps.Loads(t.path)
+	wk := wideKey(n, t.base)
+	p := domain.Root
+	for i := 0; ; i++ {
+		_, held := s.wide.get(wk, uint64(p))
+		c := tok{kind: tIn, base: t.base, path: p, ge: true, lent: t.lent, cnt: t.cnt, dcnt: t.dcnt}
+		for {
+			if !held {
+				s.chainQ(ch, len(ch.tsteps))
+			} else {
+				for j := 0; ; j++ {
+					c.tag, c.tagGE = s.chainQ(ch, j), true
+					if s.holdsTok(n, c, id) {
+						return true
+					}
+					if j == len(ch.tsteps) {
+						break
+					}
+				}
+				if !t.tagGE {
+					c.tag, c.tagGE = t.tag, false
+					if s.holdsTok(n, c, id) {
+						return true
+					}
+				}
+			}
+			if c.deep || !t.deep && s.ps.Loads(p) == loads {
+				break
+			}
+			c.ge, c.deep = false, true // then the Deep coverers at p
+		}
+		if i == len(ch.steps) {
+			return false
+		}
+		p = s.chainP(ch, i+1)
+	}
+}
+
+// coveredInSlow is coveredIn for paths longer than covChains holds.
+func (s *solver) coveredInSlow(n uint32, t tok, id uint64) bool {
+	for r := lendRankTok(t); r <= 2; r++ {
+		if t.dcnt && r != 0 {
+			break
 		}
 		c := t
 		c.cnt, c.lent = r == 0, r == 2
