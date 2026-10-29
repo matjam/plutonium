@@ -77,8 +77,9 @@ func sizeClass(n int) int {
 	return k
 }
 
-// take returns a zeroed block of 1<<k words, from the pool if it has one.
-func take(k int) []uint64 {
+// take returns a block of 1<<k words, from the pool if it has one, its
+// first n words zero: the rest is not handed out.
+func take(k, n int) []uint64 {
 	pool.mu.Lock()
 	var b []uint64
 	if f := pool.free[k]; len(f) > 0 {
@@ -91,7 +92,7 @@ func take(k int) []uint64 {
 		defer scratch.Outer().Restore()
 		return compat.Make[uint64](1 << k)
 	}
-	clear(b)
+	clear(b[:n])
 	return b
 }
 
@@ -137,7 +138,7 @@ func (a *arena) Alloc(n int) []uint64 {
 		if a.checked {
 			b = compat.Make[uint64](n)
 		} else {
-			b = take(sizeClass(n))
+			b = take(sizeClass(n), n)
 		}
 		a.big = compat.Append(a.big, b)
 		a.bigSize += n
@@ -146,7 +147,7 @@ func (a *arena) Alloc(n int) []uint64 {
 	}
 	if a.used == 0 || a.pos+n > chunkWords {
 		if a.used == len(a.chunks) {
-			a.chunks = compat.Append(a.chunks, take(chunkClass))
+			a.chunks = compat.Append(a.chunks, take(chunkClass, chunkWords))
 			a.notePeak()
 		} else {
 			clear(a.chunks[a.used])
