@@ -184,6 +184,7 @@ func (w *walker) run() {
 		w.setVar(p, origins{{vp: vpath{root: root{kind: rParam, idx: i}}}})
 	}
 	w.gotos = gotoTargets(w.fn.body)
+	w.noteRecycle()
 	w.block(w.fn.body)
 	w.finish()
 }

@@ -16,6 +16,9 @@ import (
 
 // placeName writes a place as the program would.
 func (fc *frameCheck) placeName(p vpath) string {
+	if isAllocMem(p) {
+		return compat.Concat("the memory allocated from ", fc.placeName(allocMemOwner(p)))
+	}
 	switch p.root.kind {
 	case rGlobal:
 		return fc.a.placeText(p)
@@ -70,7 +73,7 @@ func passive(x *frameAcc) string {
 		return "is moved"
 	case x.free:
 		return "is freed"
-	case x.write:
+	case x.write || x.wrote:
 		return "is written"
 	}
 	return "is read"
@@ -82,7 +85,7 @@ func verb(x *frameAcc) string {
 		return "moves"
 	case x.free:
 		return "frees"
-	case x.write:
+	case x.write || x.wrote:
 		return "writes"
 	}
 	return "reads"
@@ -136,7 +139,7 @@ func (fc *frameCheck) report(c conflictRec) {
 			compat.ArgS(capitalize(fc.partyName(q, false))), compat.ArgS(verb(y)), compat.ArgS(fc.placeName(y.place)), compat.ArgS(fc.accWhere(y)), compat.ArgS(fc.joinText(q, x.pos)), compat.ArgS(place))
 		d.Fix = pu.New(diag.Fix{Intro: "Wait for the task first", Code: compat.Concat(q.task.Scope.Var.Name(), ".Wait()")})
 	case p.task == nil:
-		if x.write {
+		if x.write || x.wrote {
 			d = diag.New(fc.a.pos(x.pos), diag.ScopeRace, "%s is written here while %s may use it", pu.Box(place), pu.Box(fc.partyName(q, false)))
 		} else {
 			d = diag.New(fc.a.pos(x.pos), diag.ScopeRace, "%s is read here while %s may write it", pu.Box(place), pu.Box(fc.partyName(q, false)))

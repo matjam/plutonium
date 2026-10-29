@@ -1,0 +1,19 @@
+$DIR/main.p:27:10: the memory allocated from a is read here while the task started at main.p:21 may write it
+    The task started at main.p:21 writes the memory allocated from a at
+    pluto/arena/fixed.p:90, in (*Fixed).Reset called at main.p:24, and s waits
+    for it at main.p:28. Meanwhile the memory allocated from a is read at
+    main.p:27 in main, so the two may run at the same time, one of them writing:
+    a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using the memory allocated from a:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)

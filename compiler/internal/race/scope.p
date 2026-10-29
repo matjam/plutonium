@@ -157,6 +157,7 @@ type frameAcc struct {
 	free   bool // a write that frees or drops the memory (free.go)
 	move   bool // the starter moves or drops the variable (E3404)
 	drop   bool // by calling its Drop method
+	wrote  bool // a write through a view, kept as a read of its allocator's memory (allocmem.p)
 	locks  lockset
 	pos    token.Pos
 	via    token.Pos // the call in the party's own code that makes it
@@ -483,6 +484,7 @@ func (fc *frameCheck) note(w *walker, x *frameAcc) {
 		x.run = w.running(at)
 	}
 	fc.add(w.party, x)
+	fc.noteAllocMem(w, x)
 }
 
 // add records x as a use by p, unless it is of p's own memory.

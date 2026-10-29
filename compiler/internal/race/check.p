@@ -827,6 +827,9 @@ func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text f
 
 // placeText writes a package variable's place as the program would.
 func (a *analyzer) placeText(p vpath) string {
+	if isAllocMem(p) {
+		return compat.Concat("the memory allocated from ", a.placeText(allocMemOwner(p)))
+	}
 	name := p.root.v.Name()
 	if pkg := p.root.v.Pkg(); pkg != nil && a.prog.Main != nil && pkg != a.prog.Main.Types {
 		name = compat.Concat(pkg.Name(), ".", name)
