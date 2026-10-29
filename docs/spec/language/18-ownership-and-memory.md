@@ -816,6 +816,9 @@ lifetime guarantee. Where static proof is incomplete, suitable runtime protectio
 automatically. If the environment cannot provide it, the unproved operation is a compile error with a
 code-level remedy. Kernel mode alone never disables protection. Early-boot and interrupt checks obey
 their allocation, waiting and failure constraints, including specified metadata allocation contracts.
+An implementation that cannot yet supply the protection for a whole build mode rejects such a build
+unless it selects the unchecked mode, and says so; it never builds one unchecked by default (section
+21.5).
 
 A build explicitly selecting the documented **unchecked mode** opts out of runtime generation and
 epoch protection. A stale access then has no behavior defined by this specification. Static rules

@@ -50,12 +50,14 @@ type Config struct {
 
 	// GenCheck asks for generation checks (abi.md section 1.3): the
 	// allocators tag heap pointers and accesses check the tag. They are
-	// the default of hosted builds; asking for them in a freestanding or
-	// kernel build is an error.
+	// the default of hosted builds. Freestanding and kernel builds do not
+	// support them yet (roadmap item 101), so asking for them there is an
+	// error.
 	GenCheck bool
-	// NoGenCheck builds a hosted program without generation checks: the
+	// NoGenCheck builds a program without generation checks: the
 	// documented unchecked mode (pluto build --gencheck=false), in which a
-	// use of freed heap memory is not detected.
+	// use of freed heap memory is not detected. Until item 101's phase 2,
+	// a freestanding or kernel build must set it (spec section 18.11).
 	NoGenCheck bool
 	// NoDWARF omits the DWARF debugging sections (pluto build -g=false).
 	NoDWARF bool
@@ -120,9 +122,10 @@ var sizes = types2.SizesFor("gc", "amd64")
 // unchecked mode.
 var genCheckDefault = compat.Getenv("PLUTO_GENCHECK") != "0"
 
-// genCheck reports whether a build uses the generation checks. Their tag
-// layout assumes user-space addresses, so they are for hosted builds only
-// (memory-safety design, known hole 9).
+// genCheck reports whether a build uses the generation checks. Check
+// rejects a freestanding or kernel build that does not opt out, because
+// the checks do not support those builds yet (roadmap item 101); such a
+// build here is the deliberate unchecked one.
 func (cfg *Config) genCheck() bool {
 	switch {
 	case cfg.Freestanding || cfg.Kernel:
@@ -147,11 +150,14 @@ func (cfg *Config) Check() error {
 	default:
 		return compat.NewError(compat.Sprintfb("unknown allocator %q (supported: debug)", compat.ArgS(cfg.Alloc)))
 	}
-	if cfg.GenCheck && (cfg.Freestanding || cfg.Kernel) {
-		return fmt.Errorf("--gencheck is for hosted builds only: freestanding and kernel builds have no generation tags")
-	}
 	if cfg.GenCheck && cfg.NoGenCheck {
 		return fmt.Errorf("GenCheck and NoGenCheck both set")
+	}
+	if (cfg.Freestanding || cfg.Kernel) && !cfg.NoGenCheck {
+		if cfg.Kernel {
+			return checkedBuildError("kernel", cfg.GenCheck)
+		}
+		return checkedBuildError("freestanding", cfg.GenCheck)
 	}
 	switch cfg.FieldNames {
 	case "", "on", "off":
@@ -159,6 +165,16 @@ func (cfg *Config) Check() error {
 		return compat.NewError(compat.Sprintfb("unknown --fieldnames setting %q (supported: on, off)", compat.ArgS(cfg.FieldNames)))
 	}
 	return nil
+}
+
+// checkedBuildError is Check's error for a freestanding or kernel build
+// that does not pass --gencheck=false: asked reports whether it asked for
+// the checks with --gencheck=true rather than leaving the default.
+func checkedBuildError(mode string, asked bool) error {
+	if asked {
+		return compat.NewError("generation checks are not supported in " + mode + " builds yet; pass --gencheck=false for a deliberate unchecked build (spec section 18.11, roadmap item 101)")
+	}
+	return compat.NewError(mode + " builds must pass --gencheck=false until generation checks support them; that is a deliberate unchecked build (spec section 18.11, roadmap item 101)")
 }
 
 // loadConfig returns the package loader's configuration for a build.

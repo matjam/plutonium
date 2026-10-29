@@ -151,7 +151,7 @@ func checkBlock(t *testing.T, c *compiler, b *Block) {
 	}
 	args := []string{"build", "--brief=false", "-O", opt, "-o", out}
 	if b.Mode != "" {
-		args = append(args, "--mode", b.Mode, "-c")
+		args = append(args, "--mode", b.Mode, "--gencheck=false", "-c")
 	}
 	msg, err := c.run(dir, "", append(args, ".")...)
 	switch b.Kind {

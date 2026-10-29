@@ -24,7 +24,7 @@ func TestPerCPUHosted(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, level := range []int{0, 2} {
-		out := buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--ldscript", filepath.Join(dir, "user.ld"))
+		out := buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--gencheck=false", "--ldscript", filepath.Join(dir, "user.ld"))
 		stderr, status := runExe(t, out, true)
 		if status != 0 {
 			t.Fatalf("-O%d: exit status %d\n%s", level, status, stderr)
@@ -59,7 +59,7 @@ func TestPerCPUErrors(t *testing.T) {
 			src := "package main\n\n" + tc.decls + "\n\nfunc main() {}\n"
 			flags := []string{"-O2", "-c", "--brief"}
 			if tc.kernel {
-				flags = append(flags, "--mode", "kernel")
+				flags = append(flags, "--mode", "kernel", "--gencheck=false")
 			}
 			r := tryBuild(t, map[string]string{"main.p": src, "panic_handler.p": panicHandlerSource}, flags...)
 			if r.status == 0 || !strings.Contains(r.out, tc.want) {
@@ -109,7 +109,7 @@ func buildPerCPU(t *testing.T, compileOnly bool, ldscript string) (exe, errs str
 		"start_amd64.s": "\t.section .boot, \"ax\"\n\t.globl _start\n_start:\n\thlt\n\t.section .note.GNU-stack,\"\",@progbits\n",
 		"panic.p":       panicHandlerSource,
 	}
-	flags := []string{"-O2", "--mode", "kernel", "--brief"}
+	flags := []string{"-O2", "--mode", "kernel", "--gencheck=false", "--brief"}
 	if compileOnly {
 		flags = append(flags, "-c")
 	}

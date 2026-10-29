@@ -1,2 +1,3 @@
 --mode
 freestanding
+--gencheck=false

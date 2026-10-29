@@ -130,7 +130,7 @@ func TestMainStackErrors(t *testing.T) {
 	t.Run("freestanding", func(t *testing.T) {
 		t.Parallel()
 		src := "package main\n\n//pu:stack 1M\nfunc main() {}\n"
-		errs := buildFails(t, src, "--mode", "freestanding", "--brief")
+		errs := buildFails(t, src, "--mode", "freestanding", "--gencheck=false", "--brief")
 		if !strings.Contains(errs, "not supported in freestanding builds") {
 			t.Fatalf("got errors %q, want the freestanding error", errs)
 		}

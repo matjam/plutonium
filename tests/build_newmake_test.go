@@ -67,7 +67,7 @@ func main() int64 {
 		files[name] = string(data)
 	}
 	dir := writeTree(t, files)
-	r := tryBuildDir(t, dir, "--mode", "freestanding", "--ldscript", filepath.Join(dir, "kernel.ld"), "--format", "binary")
+	r := tryBuildDir(t, dir, "--mode", "freestanding", "--gencheck=false", "--ldscript", filepath.Join(dir, "kernel.ld"), "--format", "binary")
 	if r.status != 0 {
 		t.Fatalf("build: exit status %d\n%s", r.status, r.out)
 	}

@@ -159,7 +159,7 @@ func onPanic(p *rt.Panic) {
 	}
 }
 `
-	if r := tryBuild(t, single(src), "--mode", "kernel", "-c"); r.status != 0 {
+	if r := tryBuild(t, single(src), "--mode", "kernel", "--gencheck=false", "-c"); r.status != 0 {
 		t.Fatalf("build: exit status %d\n%s", r.status, r.out)
 	}
 }

@@ -254,7 +254,7 @@ Typical fixes:
    `pluto run --alloc=debug` for leaks and stale uses (it lists live allocations and exits with status 2).
 5. **Vet** `pluto vet -unsafe ./...` if you touched `unsafe`, `pluto/arch/x86` or `//pu:` directives.
 6. Hosted code needs no `//pu:` directives; the compiler infers lifetimes, locks and what never returns.
-7. In kernel or freestanding work, also `pluto build --mode kernel -c` and read `kernel-mode.md`.
+7. In kernel or freestanding work, also `pluto build --mode kernel --gencheck=false -c` and read `kernel-mode.md`.
 8. If the compiler contradicts the specification, check `known-gaps.md`, then say so rather than working around
    it silently.
 

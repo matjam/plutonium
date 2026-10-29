@@ -364,7 +364,9 @@ its tag; `unsafe.Pointer` keeps it (language spec sections 18.11 and 20.1). A fu
 `//pu:nochecks` makes no checks (language spec section 18.12). With `--gencheck=false`
 (`PLUTO_GENCHECK=0` explicitly selects it for a test run), runtime generation/epoch checks are
 omitted: this is the documented unchecked opt-out, and stale access has no defined behavior (language
-spec sections 18.11 and 21.5). Freestanding and kernel builds do not select it automatically. If this
+spec sections 18.11 and 21.5). Freestanding and kernel builds do not select it automatically. Until
+generation checks support them (roadmap item 101), such a build must pass `--gencheck=false`, and one
+that does not is rejected with a message saying so; `--gencheck=true` is rejected too. If this
 hosted pointer encoding cannot represent a target's addresses, the implementation must supply another
 suitable protection or statically prove safety; otherwise the operation is a compile error. Required
 early-boot/interrupt protection cannot allocate, wait or fail contrary to those contexts' contracts.

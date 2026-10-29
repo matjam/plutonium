@@ -735,6 +735,33 @@ does there; the handle is for `Stop` and `Reset`.
 
 Lands with: one sentence in section 19.6. Nothing to build.
 
+## D41. Kernel lifetime protection uses canonical XOR tags; kernel builds need `--gencheck=false` until it lands (18.11, 21.5, abi.md 1.3)
+
+Question: the seven questions of the kernel lifetime protection plan
+(`docs/plans/2026-10-28-kernel-lifetime-protection.md`, section 6), roadmap item 101.
+
+Decision (final, 2026-10-28):
+1. Checked kernels require 4-level paging. Under LA57 a checked kernel refuses to start, with a message.
+2. The kernel supplies the checks' metadata pages through a hook bound at link time, as `//pu:scheduler` is,
+   not through a run-time setter.
+3. A checked kernel build with no such hook is a link or build error.
+4. `--gencheck=false` and `//pu:nochecks` stay the only opt-outs. There is no named unchecked region.
+5. A checked kernel heap lives in a remappable virtual window. About 25% metadata overhead is accepted for
+   now and is measured in phase 2.
+6. abi.md section 1.3's untag rule becomes sign extension from bit 47 on every target. Lower-half pointers keep
+   their bits.
+7. Until phase 2, a kernel or freestanding build that does not pass `--gencheck=false` is an error that says so
+   and names section 18.11 and item 101.
+
+Why: section 21.5 forbids building a kernel unchecked because the mode was selected, and forbids accepting an
+unprotected access because the hosted encoding cannot represent kernel addresses. Rejecting the build until
+the checks exist keeps unchecked execution an explicit choice. One encoding for every target keeps kernels and
+hosted programs on the same checks (suitable for the PlutoniumOS kernel), and a tagged pointer that skips its
+untag is noncanonical, so it faults instead of reading memory.
+
+Lands with: phase 0 (the rejection) and phase 1 (the encoding in abi.md section 1.3) of item 101. Phases 2 to
+4 follow the plan.
+
 ## Deferred
 
 None. The entry on Linux file names that are not valid UTF-8 is closed by D36.

@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -87,12 +88,65 @@ func TestGenCheck(t *testing.T) {
 	}
 }
 
-func TestGenCheckFreestanding(t *testing.T) {
+// TestGenCheckNonHosted checks that, until generation checks support
+// freestanding and kernel builds (roadmap item 101, phase 2), such a build
+// must pass --gencheck=false: leaving the default or asking for the checks
+// is an error that says how to build unchecked on purpose (spec section
+// 18.11).
+func TestGenCheckNonHosted(t *testing.T) {
 	t.Parallel()
+	cases := []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{"kernel default", []string{"--mode", "kernel"}, "kernel builds must pass --gencheck=false"},
+		{"freestanding default", []string{"--mode", "freestanding"}, "freestanding builds must pass --gencheck=false"},
+		{"none target default", []string{"--target", "x86_64-none"}, "freestanding builds must pass --gencheck=false"},
+		{"kernel checked", []string{"--mode", "kernel", "--gencheck"}, "generation checks are not supported in kernel builds yet; pass --gencheck=false"},
+		{"freestanding checked", []string{"--mode", "freestanding", "--gencheck=true"}, "generation checks are not supported in freestanding builds yet; pass --gencheck=false"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dir := writeProgram(t, "package main\n\nfunc main() {}\n")
+			args := append([]string{"build"}, c.flags...)
+			args = append(args, "-c", "-o", filepath.Join(t.TempDir(), "prog.o"), dir)
+			out, status := runPluto(t, ".", nil, args...)
+			if status != 2 || !strings.Contains(out, c.want) || !strings.Contains(out, "spec section 18.11, roadmap item 101") {
+				t.Fatalf("status %d, output %q; want status 2 and %q naming section 18.11 and item 101", status, out, c.want)
+			}
+		})
+	}
+	// The environment's default does not exempt them either.
 	dir := writeProgram(t, "package main\n\nfunc main() {}\n")
-	out, status := runPluto(t, ".", nil, "build", "--mode", "freestanding", "--gencheck", "-o", filepath.Join(t.TempDir(), "prog"), dir)
-	if status == 0 || !strings.Contains(out, "hosted builds only") {
-		t.Fatalf("status %d, output %q, want an error with hosted builds only", status, out)
+	out, status := runPluto(t, ".", []string{"PLUTO_GENCHECK=0"}, "build", "--mode", "kernel", "-c", "-o", filepath.Join(t.TempDir(), "prog.o"), dir)
+	if status != 2 || !strings.Contains(out, "kernel builds must pass --gencheck=false") {
+		t.Fatalf("PLUTO_GENCHECK=0: status %d, output %q; want the kernel build rejected", status, out)
+	}
+}
+
+// TestGenCheckKernelUnchecked checks that a kernel build that passes
+// --gencheck=false builds as before: unchecked, with no generation check
+// in its code.
+func TestGenCheckKernelUnchecked(t *testing.T) {
+	t.Parallel()
+	for _, level := range []int{0, 2} {
+		dir := writeTree(t, map[string]string{"main.p": kernelProgram, "panic_handler.p": panicHandlerSource})
+		asm := filepath.Join(t.TempDir(), "listing.s")
+		r := tryBuildDir(t, dir, optFlag(level), "--mode", "kernel", "--gencheck=false", "-c", "-S", asm)
+		if r.status != 0 {
+			t.Fatalf("-O%d: exit status %d\n%s", level, r.status, r.out)
+		}
+		data, err := os.ReadFile(asm)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, bad := range []string{"GenRegisteredLive", "GenRegisteredRangeLive", "panicStale"} {
+			if strings.Contains(string(data), bad) {
+				t.Errorf("-O%d: unchecked kernel listing calls %s", level, bad)
+			}
+		}
 	}
 }
 

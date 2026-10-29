@@ -470,7 +470,7 @@ func TestTraceFreestanding(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, level := range []int{0, 2} {
-		_, got, status := buildAndRun(t, files, optFlag(level), "--mode", "freestanding")
+		_, got, status := buildAndRun(t, files, optFlag(level), "--mode", "freestanding", "--gencheck=false")
 		if status != 3 {
 			t.Errorf("O%d: exit status %d, want 3 (from the panic handler)", level, status)
 		}
@@ -538,8 +538,8 @@ func TestKernelScheduler(t *testing.T) {
 		t.Run(strings.TrimPrefix(optFlag(level), "-"), func(t *testing.T) {
 			t.Parallel()
 			// The ELF image builds too.
-			buildProgram(t, dir, optFlag(level), "--mode", "kernel")
-			image := buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--format", "binary")
+			buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--gencheck=false")
+			image := buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--gencheck=false", "--format", "binary")
 			if got := bootKernel(t, qemu, image); got != want {
 				t.Errorf("serial output differs\n--- got ---\n%s--- want ---\n%s", got, want)
 			}
@@ -566,7 +566,7 @@ func TestKernelInterrupts(t *testing.T) {
 	for _, level := range []int{0, 2} {
 		t.Run(strings.TrimPrefix(optFlag(level), "-"), func(t *testing.T) {
 			t.Parallel()
-			image := buildProgram(t, dir, optFlag(level), "--mode", "freestanding",
+			image := buildProgram(t, dir, optFlag(level), "--mode", "freestanding", "--gencheck=false",
 				"--ldscript", filepath.Join(dir, "kernel.ld"), "--format", "binary")
 			if got := bootKernel(t, qemu, image); got != want {
 				t.Errorf("serial output differs\n--- got ---\n%s--- want ---\n%s", got, want)

@@ -85,7 +85,11 @@ func (scheduler) InInterrupt() bool { return false }
 		for _, declaration := range []string{"func init() { task worker() }", "type S owner struct { active bool }; func (s *S) Drop() { if s.active { task worker() } }; var _ = new(S{true})"} {
 			t.Run(mode+"/"+declaration, func(t *testing.T) {
 				t.Parallel()
-				out := buildFails(t, source+declaration, "-c", "--mode", mode)
+				flags := []string{"-c", "--mode", mode}
+				if mode != "hosted" {
+					flags = append(flags, "--gencheck=false")
+				}
+				out := buildFails(t, source+declaration, flags...)
 				if !strings.Contains(out, "E2587") {
 					t.Fatalf("missing task diagnostic: %q", out)
 				}

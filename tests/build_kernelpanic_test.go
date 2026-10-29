@@ -72,7 +72,7 @@ panic: kernel nested
 					}
 					tree[name] = string(data)
 				}
-				image := mustBuild(t, tree, optFlag(level), "--mode", "kernel", "--format", "binary")
+				image := mustBuild(t, tree, optFlag(level), "--mode", "kernel", "--gencheck=false", "--format", "binary")
 				want := regexp.MustCompile(`\A` + strings.ReplaceAll(c.want, "FILE", `\./main\.p`) + `\z`)
 				out, status, running := runQEMU(t, qemu, image, want)
 				if !want.MatchString(out) {

@@ -30,13 +30,13 @@ The approved consistency corrections were applied and reviewed in the
 rows remain evidence for their stated scope; they do not certify the whole compiler
 against the corrected specification. The immediate implementation order is:
 
-101. **Ordinary kernel lifetime protection** (planned; sections 1.2, 18.11, 21.5).
-     `compiler/internal/build/build.p` currently forces generation checks off for kernel and
-     freestanding builds and rejects enabling them. Replace that blanket policy with
-     static proof, available automatic protection, or rejection of unsupported unproved
-     operations. Keep deliberate unchecked execution distinct. A kernel checking
-     representation has not been selected; hosted pointer tags cannot simply be assumed
-     suitable. This is a confirmed source-policy gap.
+101. **Ordinary kernel lifetime protection** (in progress; sections 1.2, 18.11, 21.5; decision D41).
+     Phase 0 is done: a freestanding or kernel build that does not pass `--gencheck=false` is now
+     an error that says to pass it for a deliberate unchecked build, instead of a silent unchecked
+     build, and `--gencheck=true` there is still rejected. Every in-repo kernel and freestanding
+     build passes the flag. Remaining: the canonical XOR tag encoding (phase 1), checked kernel
+     builds with a link-time metadata hook on 4-level paging (phase 2), then the early-boot,
+     interrupt and arena work of phases 3 and 4.
      Design: [kernel lifetime protection](plans/2026-10-28-kernel-lifetime-protection.md).
 102. **Outstanding aliases during owner transfer** (done; sections 8.8, 19.3). Probes in `tests/race/transfer*`
      (ten accepted, 27 rejected) borrow an owner's memory through a field or a helper, then move the
@@ -584,7 +584,7 @@ The implementation gaps of
 | 31 | The `or` clause (done) | 99 | 11.27, 4.6 |
 | 32 | Package initialization starts no task (done, D2) | 100 | 15.2, 15.3, 19.1, 19.3 |
 | 33 | `clear` of a slice of owners drops each element (done) | 75 | 13.3 |
-| 34 | Ordinary kernel lifetime protection (planned) | 101 | 1.2, 18.11, 21.5 |
+| 34 | Ordinary kernel lifetime protection (in progress) | 101 | 1.2, 18.11, 21.5 |
 | 35 | Outstanding aliases across owner transfer (audited) | 102 | 8.8, 19.3 |
 | 36 | Nonconsuming owner indexing/length receivers (planned) | 103 | 11.11, 13.6 |
 | 37 | Bounded task-stack inference (planned) | 18 | 19.1 |

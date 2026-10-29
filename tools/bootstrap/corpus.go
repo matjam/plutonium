@@ -37,8 +37,8 @@ func corpus(root string, libEvery int) ([]program, error) {
 		name  string
 		flags []string
 	}{
-		{"sched", []string{"--mode", "kernel"}}, {"smoke", []string{"--mode", "kernel"}},
-		{"gsuser", []string{"--mode", "kernel"}}, {"irq", []string{"--mode", "freestanding", "--ldscript", "kernel.ld"}},
+		{"sched", []string{"--mode", "kernel", "--gencheck=false"}}, {"smoke", []string{"--mode", "kernel", "--gencheck=false"}},
+		{"gsuser", []string{"--mode", "kernel", "--gencheck=false"}}, {"irq", []string{"--mode", "freestanding", "--gencheck=false", "--ldscript", "kernel.ld"}},
 	} {
 		out = append(out, program{name: "kernel/" + k.name, dir: filepath.Join(root, "testdata", "kernel", k.name), flags: k.flags})
 	}

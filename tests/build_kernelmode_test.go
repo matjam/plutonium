@@ -342,7 +342,7 @@ func TestKernelNoXMM(t *testing.T) {
 	for _, level := range []int{0, 2} {
 		dir := writeTree(t, map[string]string{"main.p": kernelProgram, "panic_handler.p": panicHandlerSource})
 		asm := filepath.Join(t.TempDir(), "listing.s")
-		r := tryBuildDir(t, dir, optFlag(level), "--mode", "kernel", "-c", "-S", asm)
+		r := tryBuildDir(t, dir, optFlag(level), "--mode", "kernel", "--gencheck=false", "-c", "-S", asm)
 		if r.status != 0 {
 			t.Fatalf("-O%d: exit status %d\n%s", level, r.status, r.out)
 		}
@@ -393,8 +393,8 @@ func TestKernelSmoke(t *testing.T) {
 			t.Parallel()
 			// The ELF image links with the per-CPU check; the flat binary
 			// is what QEMU's multiboot loader boots.
-			buildProgram(t, dir, optFlag(level), "--mode", "kernel")
-			image := buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--format", "binary")
+			buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--gencheck=false")
+			image := buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--gencheck=false", "--format", "binary")
 			if got := bootKernel(t, qemu, image); got != want {
 				t.Errorf("serial output differs\n--- got ---\n%s--- want ---\n%s", got, want)
 			}

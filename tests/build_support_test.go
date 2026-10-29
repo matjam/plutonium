@@ -238,7 +238,7 @@ func modeCompile(t *testing.T, src string, level int, mode string, brief bool) (
 	t.Helper()
 	dir := writeTree(t, map[string]string{"main.p": src, "panic_handler.p": panicHandlerSource})
 	asm := filepath.Join(t.TempDir(), "listing.s")
-	flags := []string{optFlag(level), "--mode", mode, "-c", "-S", asm}
+	flags := []string{optFlag(level), "--mode", mode, "--gencheck=false", "-c", "-S", asm}
 	if brief {
 		flags = append(flags, "--brief")
 	}

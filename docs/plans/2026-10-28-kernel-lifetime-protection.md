@@ -1,13 +1,13 @@
 # Kernel lifetime protection (roadmap item 101)
 
-**Status:** design proposal, not approved. It adds no language rule. Sections
+**Status:** approved 2026-10-28 (decision D41; section 6). Phase 0 is done
+(section 7). It adds no language rule. Sections
 1.2 (Design principles), 18.11 (Generation checks), 18.12 (Safe and unsafe
 code), 20.5, 20.6, 20.11 and 21.5 (Kernel and freestanding protection) define
 the subject; `docs/spec/abi.md` section 1.3 defines today's hosted encoding,
 and decision D8 (2026-10-15) withdrew the unchecked kernel default. This plan
-supersedes nothing. It records a recommended representation and phases; the
-questions in the last section need the owner's sign-off before any phase that
-depends on them lands.
+supersedes nothing. It records the chosen representation (C1) and phases;
+section 6 records the owner's answers to its questions.
 
 ## 1. What the specification requires
 
@@ -308,27 +308,32 @@ then a kernel build must fail rather than run unprotected.
   deliberate unchecked execution stays visible: a build flag or a function
   directive, never kernel mode.
 
-## 6. Questions that need the owner's sign-off
+## 6. Decisions (owner, 2026-10-28)
 
-These change or add a language or ABI promise.
+The owner answered the open questions on 2026-10-28. They are recorded as
+decision D41 in `docs/decisions.md`.
 
-1. **Paging mode.** May checked kernel builds require 4-level paging, and
-   should a checked kernel refuse to start (or panic at boot) under LA57?
-2. **New kernel hook.** May the runtime require a kernel-supplied metadata
-   page source, for example `rt.SetMetadataPages(alloc.PageProvider)` or
-   reuse of the first `alloc.NewSlab` provider? Section 21.5 currently
-   defines no hook.
-3. **Missing hook.** Does a checked kernel without that source fail to
-   build, or panic at the first tagged allocation?
-4. **Opt-out shape.** Do `--gencheck=false` and `//pu:nochecks` stay the
-   only opt-outs, or do kernels get a named unchecked region? Section 21.5
-   rules out a fine-grained annotation as a routine remedy.
-5. **Heap layout.** May the language require that a checked kernel heap
-   live in a remappable virtual window (because retired ranges consume
-   address space), and accept roughly 25% metadata overhead?
-6. **Hosted ABI.** Phase 1 changes abi.md 1.3's stated untag from zero to
-   sign extension for every target. Lower-half pointers keep their bits,
-   but the documented rule changes.
-7. **Phase 0 breakage.** Is it acceptable that kernel builds without
-   `--gencheck=false` stop building between phase 0 and phase 2, which is
-   what section 21.5 implies?
+1. **Paging mode.** Checked kernels require 4-level paging. Under LA57 a
+   checked kernel refuses to start, with a message that says why.
+2. **Kernel hook.** The kernel supplies the metadata pages through a hook
+   bound at link time, as `//pu:scheduler` binds the scheduler, not through
+   a run-time setter such as `rt.SetMetadataPages`.
+3. **Missing hook.** A checked kernel build with no hook is a link or build
+   error, not a panic at the first tagged allocation.
+4. **Opt-outs.** `--gencheck=false` and `//pu:nochecks` stay the only
+   opt-outs. Kernels get no named unchecked region.
+5. **Heap layout.** A checked kernel heap must live in a remappable virtual
+   window. About 25% metadata overhead is accepted for now; phase 2
+   measures it.
+6. **Hosted ABI.** The untag rule of abi.md section 1.3 becomes sign
+   extension from bit 47 on every target. Lower-half bits are unchanged.
+7. **Phase 0 breakage.** Accepted. Kernel and freestanding builds must pass
+   `--gencheck=false` until phase 2. The error says so and points to
+   section 18.11 and roadmap item 101.
+
+## 7. Progress
+
+- **Phase 0: done.** A kernel or freestanding build that leaves `--gencheck`
+  at its default is rejected; `--gencheck=false` builds it unchecked, as
+  before; `--gencheck` (true) stays rejected until phase 2. Every kernel and
+  freestanding build in the repository passes `--gencheck=false`.

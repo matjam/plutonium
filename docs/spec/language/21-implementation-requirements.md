@@ -141,7 +141,11 @@ without them. An implementation provides the choice per build, and `//pu:nocheck
 it opts out of the full lifetime guarantee while preserving all static rules. Kernel mode is not an
 implicit opt-out. Every normal build requires static proof or suitable automatic protection. If the
 target cannot provide protection and proof is incomplete, compilation rejects the operation with its
-reason and a code-level remedy. A routine remedy must not be a safety-disabling annotation.
+reason and a code-level remedy. A routine remedy must not be a safety-disabling annotation. An
+implementation that cannot yet provide the protection for any build of a mode rejects each build of
+that mode that does not select the unchecked mode, with a message that says how to select it; it does
+not build such a program unchecked. The per-build unchecked mode and `//pu:nochecks` are the only
+opt-outs.
 
 Checks and metadata used during early boot or interrupts obey those contexts' allocation, waiting and
 failure constraints and their specified allocation contracts. An implementation cannot silently

@@ -159,7 +159,7 @@ func TestBuildFailures(t *testing.T) {
 	checkOutput(t, out, status, 1, false, "nope: no such file or directory\n")
 
 	kernel := writeProgram(t, "package main\n\ntype V struct{ X, Y float64 }\n\nfunc f(p *V) { p.X = p.X + p.Y }\n\nfunc main() {\n\tvar v V\n\tf(&v)\n}\n")
-	out, status = runPluto(t, kernel, nil, "build", "-o", filepath.Join(t.TempDir(), "a.out"), "--mode", "kernel", ".")
+	out, status = runPluto(t, kernel, nil, "build", "-o", filepath.Join(t.TempDir(), "a.out"), "--mode", "kernel", "--gencheck=false", ".")
 	checkOutput(t, out, status, 1, false, "main.p:5:22: float64 arithmetic is not allowed in kernel mode")
 }
 

@@ -230,7 +230,7 @@ func TestHostedDefaultPanic(t *testing.T) {
 func TestFreestandingPanicHandlerRequired(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []string{"freestanding", "kernel"} {
-		errs := buildFails(t, "package main\n\nfunc main() {}\n", "-c", "--mode", mode, "--brief")
+		errs := buildFails(t, "package main\n\nfunc main() {}\n", "-c", "--mode", mode, "--gencheck=false", "--brief")
 		if !strings.Contains(errs, "no panic handler is defined") {
 			t.Errorf("mode %s: errors = %q", mode, errs)
 		}

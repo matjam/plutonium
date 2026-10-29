@@ -9,9 +9,12 @@ copy from: `testdata/kernel/` (smoke, irq, panic, sched, gsuser).
 | Mode | Command | Tags | What changes |
 |---|---|---|---|
 | hosted | `pluto build ./dir` | `amd64 linux hosted` | `pluto/os`, `pluto/syscall` exist; allocator, scheduler and panic handler are built in |
-| freestanding | `pluto build --mode freestanding --target x86_64-none -o k.elf ./dir` | `amd64 none freestanding` | no OS packages; **you** provide the entry point, the panic handler and, for tasks/channels/waiting, a scheduler; no default allocator |
-| kernel | `pluto build --mode kernel ...` | `amd64 none freestanding kernel` | freestanding plus ring-0 code generation: no red zone, **no floating point**, `//pu:percpu`, linked in the top 2 GiB with a default script |
+| freestanding | `pluto build --mode freestanding --gencheck=false --target x86_64-none -o k.elf ./dir` | `amd64 none freestanding` | no OS packages; **you** provide the entry point, the panic handler and, for tasks/channels/waiting, a scheduler; no default allocator |
+| kernel | `pluto build --mode kernel --gencheck=false ...` | `amd64 none freestanding kernel` | freestanding plus ring-0 code generation: no red zone, **no floating point**, `//pu:percpu`, linked in the top 2 GiB with a default script |
 
+- Freestanding and kernel builds **must pass `--gencheck=false`** for now: generation checks do not support them
+  yet (roadmap item 101), and leaving the default is an error rather than a silent unchecked build (section
+  18.11). The build is unchecked: a use of freed heap memory is not detected.
 - `--ldscript file` gives your own linker script, `--format binary` writes a flat image, `-c` writes only the
   object file (the checker uses it), `--fieldnames` records struct field names for `%+v` (off in kernel mode).
 - Files select themselves by tag: `//pu:build kernel` before the package clause, or a name suffix
@@ -481,7 +484,7 @@ func main() {
 
 ## 9. Checklist for kernel code
 
-1. `pluto build --mode kernel -c` the package often; E2520, E2584, E2593 and E2022 are the kernel-specific errors.
+1. `pluto build --mode kernel --gencheck=false -c` the package often; E2520, E2584, E2593 and E2022 are the kernel-specific errors.
 2. Floats only in `//pu:fpu` functions; no `fmt.Sprintf` of floats in kernel paths.
 3. Handlers: atomics and `rt.Lock` only; send with `select`/`default`; no allocation unless the allocator never waits.
 4. Per-CPU state: lone word accesses or an explicit non-migrating region.
