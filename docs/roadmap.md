@@ -502,10 +502,14 @@ against the corrected specification. The immediate implementation order is:
      The corpus-sized unit tests of escape2 and its EIR (eir TestBuildCorpus, escape2 TestAdversarial
      and TestGoldenMessages, which replaced TestMessageDiff's comparison with internal/escape) load
      each program in a `scratch.NewRegion()` released after it. Without generation checks that bounds
-     them (TestBuildCorpus: the corpus in 200 MB). With them they stay knownfail: each allocation of
-     a custom allocator is registered (`rt.GenCustomAlloc`) and `Region.Release` unregisters none,
-     so TestBuildCorpus passed 20 GB 240 programs in. The fix is in `compiler/internal/scratch`
-     (a Region ending its allocations as `pluto/arena`'s Chunked does), not in the tests.
+     them (TestBuildCorpus: the corpus in 200 MB). With them a Region was a custom allocator whose
+     allocations were each registered (`rt.GenCustomAlloc`) and never ended, so TestBuildCorpus
+     passed 20 GB 240 programs in. An address's tags only go up, so the region's addresses also ran
+     out of tags and its Alloc returned nil. Now a Region, a home and the scratch levels are
+     `pluto/arena` Chunked in a checked build: Release ends each allocation, a pointer kept past
+     it panics where it is used, and memory stays flat over many regions
+     (`compiler/internal/scratch` tests, run by TestCompilerUnits). The tests' knownfail skips are
+     gone.
 143. **An exit through a function that never returns** (done; section 17.3). A function whose body ends
      in a panic or a call that never returns counts as never returning, but `rt.ExitTask` before that
      point still ends the task through its return path. The caller skipped the exit check after such

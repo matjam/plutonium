@@ -23,6 +23,7 @@ var compilerUnits = []compilerUnit{
 	{pkg: "internal/regexp"},
 	{pkg: "internal/testpanic"},
 	{pkg: "internal/testrand"},
+	{pkg: "internal/scratch"},
 	{pkg: "internal/ssa"},
 	{pkg: "internal/opt"},
 	{pkg: "internal/arch/amd64"},
@@ -37,8 +38,8 @@ var compilerUnits = []compilerUnit{
 }
 
 // TestCompilerUnits runs pluto test on each compiler package that has unit
-// tests. The light packages take about 40 s in all; the heavy ones about an
-// hour, one at a time.
+// tests. The light packages run in parallel in about 90 s (scratch the
+// longest); the heavy ones about an hour, one at a time.
 func TestCompilerUnits(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the compiler packages' unit tests")

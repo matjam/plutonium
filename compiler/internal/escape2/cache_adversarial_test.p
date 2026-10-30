@@ -282,15 +282,6 @@ func TestAdversarial(t *testing.T) {
 	if compat.Getenv("PLUTO_LONG_TESTS") == "" {
 		t.Skip("runs the analysis many times over the corpus; set PLUTO_LONG_TESTS=1")
 	}
-	if genChecked {
-		// Built with -gencheck=false the regions bound the test (eir
-		// TestBuildCorpus: the corpus in 200 MB). With generation checks
-		// each allocation of a custom allocator is registered
-		// (rt.GenCustomAlloc) and scratch.Region.Release unregisters none,
-		// so every program's records are kept: TestBuildCorpus passed
-		// 20 GB 240 programs in.
-		t.Skip("knownfail with generation checks: scratch.Region's allocations stay registered after Release; build with -gencheck=false")
-	}
 	progs := advCorpus(t)
 	stride := 40
 	if compat.Getenv("PLUTO_ESCAPE_CACHE_FULL") != "" {

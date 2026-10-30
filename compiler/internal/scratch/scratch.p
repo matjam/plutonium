@@ -12,7 +12,6 @@ package scratch
 
 import (
 	"compiler/compat"
-	"compiler/pu"
 	"pluto/alloc"
 	"pluto/os"
 	"pluto/rt"
@@ -111,7 +110,7 @@ func do(s Step, keep alloc.Allocator) {
 // last step with that key kept; filling is the home of the step running.
 var (
 	homes   map[unsafe.Pointer]*home
-	filling home
+	filling *home
 )
 
 // DoHome is Do for a step whose ScratchKeep makes a new version of the
@@ -131,8 +130,8 @@ func DoHome(key unsafe.Pointer, s Step) {
 		heap = alloc.Default()
 		inited = true
 	}
-	filling = home{}
-	do(s, &filling)
+	filling = newHome()
+	do(s, filling)
 	keepHome(key)
 }
 
@@ -140,23 +139,38 @@ func DoHome(key unsafe.Pointer, s Step) {
 // key's previous home, if there was one. With filling empty it does
 // nothing.
 func keepHome(key unsafe.Pointer) {
-	if filling.chunks == nil {
+	h := filling
+	filling = nil
+	if h.empty() {
+		freeHome(h)
 		return
 	}
 	r := alloc.Use(heap)
 	if homes == nil {
 		homes = map[unsafe.Pointer]*home{}
 	}
-	old := homes[key]
-	if old == nil {
-		old = pu.New(home{})
-		homes[key] = old
-	} else {
-		old.drop()
+	if old := homes[key]; old != nil {
+		freeHome(old)
 	}
+	homes[key] = h
 	r.Restore()
-	*old = filling
-	filling = home{}
+}
+
+// newHome returns an empty home. The home itself is in the heap, and
+// freeHome frees its memory and it.
+func newHome() *home {
+	h := (*home)(heap.Alloc(unsafe.Sizeof(home{}), unsafe.Alignof(home{})))
+	if h == nil {
+		panic("scratch: out of memory")
+	}
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(h)), unsafe.Sizeof(home{})))
+	h.init()
+	return h
+}
+
+func freeHome(h *home) {
+	h.drop()
+	heap.Free(unsafe.Pointer(h), unsafe.Sizeof(home{}), unsafe.Alignof(home{}))
 }
 
 // homeKey is the key of the home BeginHome began, and homeUse makes the
@@ -181,9 +195,9 @@ func BeginHome(key unsafe.Pointer) {
 		heap = alloc.Default()
 		inited = true
 	}
-	filling = home{}
+	filling = newHome()
 	homeKey = key
-	homeUse = alloc.Use(&filling)
+	homeUse = alloc.Use(filling)
 }
 
 // EndHome ends what BeginHome began: what was allocated since becomes the
@@ -203,7 +217,8 @@ func EndHome() {
 // version of key's thing it holds again.
 func Drop(key unsafe.Pointer) {
 	if h := homes[key]; h != nil {
-		h.drop()
+		delete(homes, key)
+		freeHome(h)
 	}
 }
 
@@ -211,8 +226,8 @@ func Drop(key unsafe.Pointer) {
 // the language server makes when it checks one package or reads one
 // message: chunks taken from the heap and filled in order, freed all at
 // once by Release. NewRegion makes one, and Use makes it the current
-// allocator. Its chunks start small and double, so that a region holding
-// one short string costs little.
+// allocator. Without generation checks its chunks start small and double,
+// so that a region holding one short string costs little.
 //
 // HeapFor finds the region a pointer is in, so that a cache the type
 // checker fills lazily on a type comes from the memory the type is in,
@@ -220,18 +235,13 @@ func Drop(key unsafe.Pointer) {
 //
 // In check mode (PLUTO_SCRATCH_CHECK) the chunks are pages of their own,
 // which Release makes inaccessible, so that a pointer into a released
-// region faults where it is used.
-type Region struct {
-	chunks unsafe.Pointer // the chunk being filled, linking to the older ones
-	off    uintptr        // bytes of it in use
-	size   uintptr        // its size
-	used   uintptr        // bytes of all its chunks
+// region faults where it is used. With generation checks the memory is
+// pluto/arena's Chunked (mem_on.p), whose Release ends the registration of
+// each allocation, so that using one after Release panics and the
+// registrations do not pile up.
+type Region owner struct {
+	regionMem // Alloc and Free; mem_on.p and mem_off.p
 }
-
-const (
-	regionFirst = 4 << 10
-	regionMax   = 1 << 20
-)
 
 // A regionSpan is the memory of one chunk of a live region.
 type regionSpan struct {
@@ -263,7 +273,8 @@ func NewRegion() *Region {
 	if r == nil {
 		panic("scratch: out of memory")
 	}
-	*r = Region{}
+	clear(unsafe.Slice((*byte)(unsafe.Pointer(r)), unsafe.Sizeof(Region{})))
+	r.init()
 	regions++
 	return r
 }
@@ -271,87 +282,16 @@ func NewRegion() *Region {
 // Use makes r the current allocator until Restore is called.
 func (r *Region) Use() alloc.Restore { return alloc.Use(r) }
 
-func (r *Region) Alloc(size, align uintptr) unsafe.Pointer {
-	if size == 0 {
-		size = 1
-	}
-	if align < 8 {
-		align = 8
-	}
-	base := uintptr(r.chunks)
-	off := (base+r.off+align-1)&^(align-1) - base
-	if r.chunks == nil || off+size > r.size {
-		if !r.grow(size + align) {
-			return nil
-		}
-		base = uintptr(r.chunks)
-		off = (base+r.off+align-1)&^(align-1) - base
-	}
-	r.off = off + size
-	return unsafe.Add(r.chunks, off)
-}
-
-// grow makes a chunk with room for need bytes the current one: twice the
-// size of the last, up to regionMax, or larger if need is.
-func (r *Region) grow(need uintptr) bool {
-	n := uintptr(regionFirst)
-	if r.size > 0 {
-		n = r.size * 2
-		if n > regionMax {
-			n = regionMax
-		}
-	}
-	if need+bumpHeader > n {
-		n = need + bumpHeader
-	}
-	n = (n + pageSize - 1) &^ (pageSize - 1)
-	var c unsafe.Pointer
-	if check {
-		c = rt.Mmap(n)
-	} else {
-		c = heap.Alloc(n, 16)
-	}
-	if c == nil {
-		return false
-	}
-	*(*unsafe.Pointer)(c) = r.chunks
-	*(*uintptr)(unsafe.Add(c, 8)) = n
-	r.chunks, r.off, r.size = c, bumpHeader, n
-	r.used += n
-	regionUsed += n
-	addSpan(regionSpan{uintptr(c), uintptr(c) + n, uintptr(unsafe.Pointer(r))})
-	return true
-}
-
-// Free does nothing: a region's memory is freed all at once by Release.
-func (r *Region) Free(p unsafe.Pointer, size, align uintptr) {}
-
 // Used returns the bytes of r's chunks.
-func (r *Region) Used() int { return int(r.used) }
+func (r *Region) Used() int { return int(r.bytes()) }
 
 // Release frees r's memory and r. Nothing in it may be used afterwards.
 func (r *Region) Release() {
 	if r == nil {
 		return
 	}
-	c := r.chunks
-	for c != nil {
-		next := *(*unsafe.Pointer)(c)
-		n := *(*uintptr)(unsafe.Add(c, 8))
-		removeSpan(uintptr(c))
-		if check {
-			rt.Discard(c, n)
-			if !rt.Mprotect(c, n, rt.ProtNone) {
-				panic("scratch: mprotect failed (PLUTO_SCRATCH_CHECK)")
-			}
-		} else {
-			heap.Free(c, n, 16)
-		}
-		c = next
-	}
-	regionUsed -= r.used
+	r.release()
 	regions--
-	*r = Region{}
 	heap.Free(unsafe.Pointer(r), unsafe.Sizeof(Region{}), unsafe.Alignof(Region{}))
 }
 
@@ -439,73 +379,32 @@ func HeapFor(p unsafe.Pointer) alloc.Restore {
 	return Heap()
 }
 
-// homeChunk is the size of the chunks a home takes from the heap: most
-// functions' code fits in a few.
-const homeChunk = 32 << 10
-
-// A home is memory that DoHome keeps a step's results in: chunks taken
-// from the heap and filled in order, freed together by drop. Each chunk
-// begins with a link to the one taken before it and its own size. In
-// check mode (PLUTO_SCRATCH_CHECK) the chunks are pages of their own,
-// which drop makes inaccessible, so that a pointer to an older version
-// faults where it is used.
-type home struct {
-	chunks unsafe.Pointer // the chunk being filled, linking to the older ones
-	off    uintptr        // bytes of it in use
-	size   uintptr        // its size
+// mapChunk maps n bytes (a multiple of pageSize) aligned to align: pages
+// of their own for a chunk in check mode, which sealChunk frees and makes
+// inaccessible.
+func mapChunk(n, align uintptr) unsafe.Pointer {
+	if align <= pageSize {
+		return rt.Mmap(n)
+	}
+	raw := rt.Mmap(n + align)
+	if raw == nil {
+		return nil
+	}
+	lead := (align - uintptr(raw)&(align-1)) & (align - 1)
+	if lead > 0 {
+		rt.Munmap(raw, lead)
+	}
+	if align > lead {
+		rt.Munmap(unsafe.Add(raw, lead+n), align-lead)
+	}
+	return unsafe.Add(raw, lead)
 }
 
-const homeHeader = 16
-
-func (h *home) Alloc(size, align uintptr) unsafe.Pointer {
-	if align < 8 {
-		align = 8
+func sealChunk(p unsafe.Pointer, n uintptr) {
+	rt.Discard(p, n)
+	if !rt.Mprotect(p, n, rt.ProtNone) {
+		panic("scratch: mprotect failed (PLUTO_SCRATCH_CHECK)")
 	}
-	off := (h.off + align - 1) &^ (align - 1)
-	if h.chunks == nil || off+size > h.size {
-		n := uintptr(homeChunk)
-		if need := homeHeader + size + align; need > n {
-			n = need
-		}
-		var c unsafe.Pointer
-		if check {
-			n = (n + pageSize - 1) &^ (pageSize - 1)
-			c = rt.Mmap(n)
-		} else {
-			c = heap.Alloc(n, 16)
-		}
-		if c == nil {
-			return nil
-		}
-		*(*unsafe.Pointer)(c) = h.chunks
-		*(*uintptr)(unsafe.Add(c, 8)) = n
-		h.chunks, h.size = c, n
-		off = (homeHeader + align - 1) &^ (align - 1)
-	}
-	h.off = off + size
-	return unsafe.Add(h.chunks, off)
-}
-
-// Free does nothing: a home's memory is freed all at once by drop.
-func (h *home) Free(p unsafe.Pointer, size, align uintptr) {}
-
-// drop frees h's chunks.
-func (h *home) drop() {
-	c := h.chunks
-	for c != nil {
-		next := *(*unsafe.Pointer)(c)
-		n := *(*uintptr)(unsafe.Add(c, 8))
-		if check {
-			rt.Discard(c, n)
-			if !rt.Mprotect(c, n, rt.ProtNone) {
-				panic("scratch: mprotect failed (PLUTO_SCRATCH_CHECK)")
-			}
-		} else {
-			heap.Free(c, n, 16)
-		}
-		c = next
-	}
-	h.chunks, h.off, h.size = nil, 0, 0
 }
 
 // Trim returns to the heap the spare memory that the arenas keep for later
@@ -563,7 +462,10 @@ func Heap() alloc.Restore {
 // A Locked allocator is an allocator that several tasks use at once
 // through a lock: the memory of the running step, while workers solve
 // beside each other (Worker), for what they add to state that outlives
-// their steps.
+// their steps. With generation checks it is a custom allocator, whose
+// allocations are registered over those of the allocator behind it: what
+// it allocates from a Do's arena stays registered when the arena releases
+// it, so it suits memory freed one allocation at a time.
 type Locked struct {
 	mu rt.Lock // an allocator's lock, which never parks
 	a  alloc.Allocator
@@ -589,8 +491,12 @@ func (l *Locked) Free(p unsafe.Pointer, size, align uintptr) {
 // A Worker runs steps on a task of its own, beside other workers, in
 // scratch memory of its own. Its steps do not nest. Outer within a step
 // makes outer current, which the workers share.
+//
+// Its Alloc and Free are mem's: a Worker forwarding them would be a custom
+// allocator of its own, whose allocations generation checks register over
+// mem's, and Release, which ends mem's registrations, would leave those.
 type Worker owner struct {
-	scr   mem
+	mem
 	outer *Locked
 	base  memMark // the arena empty, for Reset
 }
@@ -603,8 +509,8 @@ func NewWorker(outer *Locked) Worker {
 		heap = alloc.Default()
 		inited = true
 	}
-	w := Worker{scr: newMem(heap), outer: outer}
-	w.base = w.scr.Mark()
+	w := Worker{mem: newMem(heap), outer: outer}
+	w.base = w.mem.Mark()
 	return w
 }
 
@@ -620,36 +526,32 @@ func (w *Worker) Work(s Step) {
 // Mark, Release and Shared are Do in parts, for a task that calls its
 // step's methods directly rather than through Step: Mark notes the arena,
 // Release frees what was allocated since, and Shared is the outer memory.
-func (w *Worker) Mark() memMark { return w.scr.Mark() }
+func (w *Worker) Mark() memMark { return w.mem.Mark() }
 
-func (w *Worker) Release(m memMark) { w.scr.Release(m) }
+func (w *Worker) Release(m memMark) { w.mem.Release(m) }
 
 func (w *Worker) Shared() *Locked { return w.outer }
 
 // Reset frees everything w's steps allocated.
-func (w *Worker) Reset() { w.scr.Release(w.base) }
+func (w *Worker) Reset() { w.mem.Release(w.base) }
 
 // Drop frees w's memory.
 func (w *Worker) Drop() {
-	w.scr.Release(w.base)
-	w.scr.Trim()
+	w.mem.Release(w.base)
+	w.mem.Trim()
 }
-
-func (w *Worker) Alloc(size, align uintptr) unsafe.Pointer { return w.scr.Alloc(size, align) }
-
-func (w *Worker) Free(p unsafe.Pointer, size, align uintptr) { w.scr.Free(p, size, align) }
 
 // Do runs s.ScratchWork in w's memory and s.ScratchKeep in its outer
 // memory, then frees what ScratchWork allocated.
 func (w *Worker) Do(s Step) {
-	m := w.scr.Mark()
+	m := w.mem.Mark()
 	r := alloc.Use(w)
 	s.ScratchWork()
 	r.Restore()
 	o := alloc.Use(w.outer)
 	s.ScratchKeep()
 	o.Restore()
-	w.scr.Release(m)
+	w.mem.Release(m)
 }
 
 // String returns a copy of s from the current allocator.

@@ -41,15 +41,6 @@ func TestGoldenMessages(t *testing.T) {
 	if compat.Getenv("PLUTO_LONG_TESTS") == "" {
 		t.Skip("loads every diagnostics golden program; set PLUTO_LONG_TESTS=1")
 	}
-	if genChecked {
-		// Built with -gencheck=false the regions bound the test (eir
-		// TestBuildCorpus: the corpus in 200 MB). With generation checks
-		// each allocation of a custom allocator is registered
-		// (rt.GenCustomAlloc) and scratch.Region.Release unregisters none,
-		// so every program's records are kept: TestBuildCorpus passed
-		// 20 GB 240 programs in.
-		t.Skip("knownfail with generation checks: scratch.Region's allocations stay registered after Release; build with -gencheck=false")
-	}
 	dirs := testenv.Glob(filepath.Join(testenv.Root(), "tests/diag/*"))
 	if len(dirs) == 0 {
 		t.Fatalf("no golden programs")

@@ -171,12 +171,12 @@ else frees a program's load, and without the regions they passed kraken's
 24 GB cap (TestBuildCorpus about 250 programs in, TestAdversarial eight).
 Built with `-gencheck=false` the regions bound them: TestBuildCorpus runs
 the corpus in 200 MB (2026-10-29). Built with generation checks, as
-TestCompilerUnits builds them, they are knownfail: each allocation of a
-custom allocator is registered (`rt.GenCustomAlloc`) and
-`scratch.Region.Release` unregisters none, so TestBuildCorpus passed 20 GB
-240 programs in. The fix belongs in `compiler/internal/scratch` (a Region
-that ends its allocations as `pluto/arena`'s Chunked does). The escape2
-two are not run yet either way: the escape2 test build is rejected (below).
+TestCompilerUnits builds them, a Region registered each allocation
+(`rt.GenCustomAlloc`) and `Release` ended none, so TestBuildCorpus passed
+20 GB 240 programs in. A checked Region is now `pluto/arena`'s Chunked,
+which ends its allocations on Release, and its knownfail skips are gone.
+The three are not run checked yet: the escape analysis rejects the checked
+test builds of eir and escape2, and escape2's unchecked one (below).
 TestGoldenMessages was TestMessageDiff, which also compared the messages
 with internal/escape's; that analysis is gone.
 
