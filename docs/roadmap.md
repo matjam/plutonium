@@ -544,7 +544,7 @@ against the corrected specification. The immediate implementation order is:
      Exits from a range-over-func loop body and from generated code with fewer results keep their
      own copies, and an ordinary `return` still copies its deferred calls and scope releases. Cases
      `lower/goexitmanysites` and `_o2`.
-145. **Instances of owner generic code keep their views** (done, `COMMIT`; sections 8.7, 10.9, 12.10;
+145. **Instances of owner generic code keep their views** (done, `d301cd2d`; sections 8.7, 10.9, 12.10;
      found with item 132). In generic code over `[T owner any]`, a range over a `vec.Vec[T]` or the values
      of a `hash.Map[K, T]` yields views, `*T`, because `T` is an owner there (8.7, 12.10), and an instance
      keeps the meaning of the generic code (10.9). The library's iterators decide through `rt.View`, which
