@@ -1,7 +1,6 @@
 // A range over a vec.Vec[T] in generic code over [T owner any] yields views,
 // *T (sections 8.7, 12.10), in every instance: Bump[int] gets pointers to
-// the elements, as Bump[Conn] does. This is the target of roadmap item 145;
-// until then the compiler rejects Bump[int] (tests/lower/generic_owner_range).
+// the elements, as Bump[Conn] does.
 package main
 
 import "pluto/vec"

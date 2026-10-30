@@ -427,7 +427,7 @@ func typeList(targs []types2.Type) string {
 		if i > 0 {
 			sb.WriteByte(',')
 		}
-		sb.WriteString(typeString(t))
+		sb.WriteString(types2.InstanceString(t, func(p *types2.Package) string { return p.Path() }))
 	}
 	return sb.String()
 }
@@ -461,6 +461,7 @@ func directives(doc *ast.CommentGroup) []string {
 // receiver's type arguments for methods of generic types), queueing its body
 // for lowering the first time it is seen.
 func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
+	targs = viewArgs(fn, targs)
 	if sym := l.staticWriteSym(fn, targs); sym != nil {
 		return sym
 	}
@@ -474,6 +475,7 @@ func (l *Lowerer) funcSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 // registration wrappers. Assembly/C linkage keeps its original name.
 func (l *Lowerer) rawFuncSym(fn *types2.Func, targs []types2.Type) *ssa.Sym {
 	fn = fn.Origin()
+	targs = viewArgs(fn, targs)
 	d := l.decls[fn]
 	if d == nil {
 		if en := enumOfMethod(fn); en != nil {
@@ -662,11 +664,60 @@ func newTypeMap(l *Lowerer, fn *types2.Func, targs []types2.Type) *typeMap {
 	if len(tps) != len(targs) {
 		panic(pu.Box(compat.Sprintf("lower: %s has %d type parameters, got %d type arguments", fn, len(tps), len(targs))))
 	}
-	m := pu.New(typeMap{l: l, tparams: tps, targs: targs})
+	m := pu.New(typeMap{l: l, tparams: tps, targs: viewArgs(fn, targs)})
 	if d := l.decls[fn.Origin()]; d != nil {
 		m.start, m.end = d.decl.Pos(), d.decl.End()
 	}
 	return m
+}
+
+// viewArgs returns targs, the type arguments of an instance of fn, with
+// each value type given to an owner type parameter of generic code outside
+// the standard library marked by types2.NewViewArg. In generic code over
+// [T owner any], T is an owner (spec section 8.7): a range over a
+// container of T yields views, *T (section 12.10), and an element may not
+// be copied out of the container. An instance keeps the meaning of the
+// generic code (section 10.9), so the instance with a value type is made
+// with the marked argument, which carries the views into the library code
+// it calls (see types2.NewViewArg) and makes a copy of an element an error
+// as it is for an owner (see elementCopy). The library's own generic code
+// decides for each type argument instead (rt.View), and is left alone.
+func viewArgs(fn *types2.Func, targs []types2.Type) []types2.Type {
+	if len(targs) == 0 || fn.Pkg() == nil {
+		return targs
+	}
+	if path := fn.Pkg().Path(); path == "pluto" || strings.HasPrefix(path, "pluto/") {
+		return targs
+	}
+	sig := fn.Origin().Type().(*types2.Signature)
+	var tps []*types2.TypeParam
+	if rtp := sig.RecvTypeParams(); rtp != nil {
+		for i := 0; i < rtp.Len(); i++ {
+			tps = compat.Append(tps, rtp.At(i))
+		}
+	}
+	if tp := sig.TypeParams(); tp != nil {
+		for i := 0; i < tp.Len(); i++ {
+			tps = compat.Append(tps, tp.At(i))
+		}
+	}
+	var out []types2.Type
+	for i, tp := range tps {
+		if i >= len(targs) {
+			break
+		}
+		t := targs[i]
+		if types2.IsOwnerTypeParam(tp) && !types2.IsOwner(t) && !types2.IsViewArg(t) {
+			if out == nil {
+				out = compat.Clone(targs)
+			}
+			out[i] = types2.NewViewArg(t)
+		}
+	}
+	if out == nil {
+		return targs
+	}
+	return out
 }
 
 func (m *typeMap) subst(T types2.Type) types2.Type {

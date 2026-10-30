@@ -117,17 +117,6 @@ func (check *Checker) rangeStmt(inner stmtContext, rangeStmt *ast.RangeStmt, noN
 	lhs := [2]ast.Expr{sKey, sValue} // sKey, sValue may be nil
 	rhs := [2]Type{key, val}         // key, val may be nil
 
-	// Plutonium: an iteration variable that binds a view, rt.View[T] for
-	// an owner type parameter T, makes the code depend on *T
-	// (OwnerViewTypeParam). One that is absent or blank does not.
-	if check.pkg != nil && !isStdPath(check.pkg.path) {
-		for i, e := range lhs {
-			if id, ok := e.(*ast.Ident); e != nil && (!ok || id.Name != "_") {
-				noteOwnerViews(rhs[i], 0)
-			}
-		}
-	}
-
 	rangeOverInt := x.typ() != nil && isInteger(x.typ()) // x may be invalid, without a type
 
 	if isDef {

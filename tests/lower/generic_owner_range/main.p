@@ -1,8 +1,7 @@
 // A range over a vec.Vec[T] in generic code over [T owner any] yields views,
-// *T (sections 8.7, 12.10). An instance with a value type, Bump[int], does
-// not keep the views yet, so the compiler rejects it (E2500) instead of
-// producing wrong code. Bump[Conn] is fine. The runtime target is
-// tests/lower/generic_owner_range_views.
+// *T (sections 8.7, 12.10). An instance with a value type, Bump[int], keeps
+// the views: f gets a pointer to each element and changes it in place, as
+// Bump[Conn] does.
 package main
 
 import "pluto/vec"

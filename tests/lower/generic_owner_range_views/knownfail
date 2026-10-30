@@ -1,1 +1,0 @@
-The target of roadmap item 145: an instance of generic code over [T owner any] with a value type must keep the views its range sees (sections 8.7, 10.9, 12.10). Until then Bump[int] is rejected with E2500 (tests/lower/generic_owner_range).

@@ -31,6 +31,7 @@ type Alias struct {
 	targs   *TypeList      // type arguments, or nil
 	fromRHS Type           // RHS of type alias declaration; may be an alias
 	actual  Type           // actual (aliased) type; never an alias
+	viewArg bool           // Plutonium: made by NewViewArg
 }
 
 // NewAlias creates a new Alias type with the given type name and rhs.
@@ -164,7 +165,7 @@ func isViewAlias(a *Alias) bool {
 func viewOf(elem, rhs Type) Type {
 	if tp, ok := Unalias(elem).(*TypeParam); ok {
 		if tp.obj.ownerMark {
-			return rhs // the instance decides (see OwnerViewTypeParam)
+			return rhs // the instance decides (see NewViewArg)
 		}
 		return elem // a type parameter that admits no owner stands for a value
 	}
@@ -177,62 +178,40 @@ func viewOf(elem, rhs Type) Type {
 	return elem
 }
 
-// OwnerViewTypeParam reports whether tp is an owner type parameter whose
-// generic code, outside the standard library, uses a value of type
-// rt.View[tp], which it sees as *tp: the element a range over a container
-// of tp binds, or a view an iterator gives (spec sections 8.7, 12.10). An
-// instance with a value type would get the elements by value from the
-// container's iterator, so the compiler rejects it until it can keep the
-// views (roadmap item 145). A range that binds only the index uses no
-// view, and its instances are compiled.
-func OwnerViewTypeParam(tp *TypeParam) bool { return tp.obj.ownerView }
+// NewViewArg returns elem marked as the type argument of an owner type
+// parameter of generic code outside the standard library: an alias of elem
+// that is identical to it in every way but one. An instance of
+// rt.View[T] whose generic form is *T, a view, stays *elem when T is
+// replaced by it, where elem itself would make it elem (spec sections 8.7,
+// 10.9, 12.10). Generic code over [T owner any] sees the elements of a
+// container of T as views, and an instance with a value type keeps that
+// meaning: the compiler makes such instances with the marked argument. The
+// mark is carried through substitution into the library code they call, so
+// a container's iterator made for it yields views. Symbol names written by
+// [InstanceString] and type hashes tell the marked argument apart from elem.
+func NewViewArg(elem Type) *Alias {
+	obj := NewTypeName(nopos, nil, "", nil)
+	a := NewAlias(obj, elem)
+	a.viewArg = true
+	return a
+}
 
-// noteOwnerViews marks each owner type parameter T, declared outside the
-// standard library, for which T mentions rt.View[T] (see
-// OwnerViewTypeParam). depth bounds the walk.
-func noteOwnerViews(T Type, depth int) {
-	if T == nil || depth > 8 {
-		return
+// keepsView reports whether an instance of rt.View whose type argument was
+// from, an owner type parameter, and is to, stays a view (see subster.typ):
+// when from is declared outside the standard library, or to is made by
+// NewViewArg.
+func keepsView(from, to Type) bool {
+	if IsViewArg(to) {
+		return true
 	}
-	depth++
-	switch t := T.(type) {
-	case *Alias:
-		if t.orig != nil && isViewAlias(t.orig) && t.targs.Len() == 1 {
-			if tp, ok := Unalias(t.targs.At(0)).(*TypeParam); ok && tp.obj.ownerMark {
-				if pkg := tp.obj.pkg; pkg != nil && !isStdPath(pkg.path) {
-					tp.obj.ownerView = true
-				}
-			}
-		}
-		for i := 0; i < t.targs.Len(); i++ {
-			noteOwnerViews(t.targs.At(i), depth)
-		}
-	case *Named:
-		targs := t.TypeArgs()
-		for i := 0; i < targs.Len(); i++ {
-			noteOwnerViews(targs.At(i), depth)
-		}
-	case *Pointer:
-		noteOwnerViews(t.base, depth)
-	case *Slice:
-		noteOwnerViews(t.elem, depth)
-	case *Array:
-		noteOwnerViews(t.elem, depth)
-	case *Map:
-		noteOwnerViews(t.key, depth)
-		noteOwnerViews(t.elem, depth)
-	case *Chan:
-		noteOwnerViews(t.elem, depth)
-	case *Tuple:
-		if t != nil {
-			for _, v := range t.vars {
-				noteOwnerViews(v.typ, depth)
-			}
-		}
-	case *Signature:
-		noteOwnerViews(t.params, depth)
-		noteOwnerViews(t.results, depth)
-	}
+	tp, ok := Unalias(from).(*TypeParam)
+	return ok && tp.obj.ownerMark && tp.obj.pkg != nil && !isStdPath(tp.obj.pkg.path)
+}
+
+// IsViewArg reports whether t is a type argument made by [NewViewArg].
+func IsViewArg(t Type) bool {
+	a, ok := t.(*Alias)
+	return ok && a.orig.viewArg
 }
 
 func (a *Alias) cleanup() {

@@ -1,0 +1,15 @@
+$DIR/main.p:9:9: cannot copy an element of type int here: the generic code sees it as an owner
+    The container method At gives an element out by value. The generic code that
+    calls it has a type parameter declared owner, which is an owner in every
+    instance, including this one with a value type, and an owner may not be
+    copied.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    To look at an element, use a method that returns a pointer to it:
+        p := v.Ptr(i)
+    To move an element out, use a method that removes it:
+        x := v.Pop()
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3306" for a longer explanation)

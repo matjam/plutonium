@@ -70,9 +70,6 @@ func (check *Checker) recordTypeAndValue(x ast.Expr, mode operandMode, typ Type,
 		// recorded as type parameters.
 		assert(!isValid(typ) || allBasic(typ, IsConstType))
 	}
-	if check.pkg != nil && !isStdPath(check.pkg.path) {
-		noteOwnerViews(typ, 0) // Plutonium: a use of rt.View[T] (OwnerViewTypeParam)
-	}
 	if m := check.Types; m != nil {
 		m[x] = TypeAndValue{mode, typ, val}
 	}

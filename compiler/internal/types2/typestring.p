@@ -78,6 +78,7 @@ type typeWriter struct {
 	tpSubscripts bool           // if set, write type parameter indices as subscripts
 	pkgInfo      bool           // package-annotate first unexported-type field to avoid confusing type description
 	localSuffix  bool           // Plutonium: tell apart types declared in functions (see SymbolString)
+	viewMarks    bool           // Plutonium: mark type arguments made by NewViewArg (see InstanceString)
 }
 
 // SymbolString is like [TypeString] but gives every type declared inside a
@@ -97,13 +98,27 @@ func SymbolString(typ Type, qf Qualifier) string {
 	return buf.String()
 }
 
+// InstanceString is [SymbolString] for the type arguments in the name of
+// an instance of a generic function: a type argument made by [NewViewArg]
+// is written with the suffix "·view", since its instance differs from the
+// one with the plain type.
+func InstanceString(typ Type, qf Qualifier) string {
+	buf := pu.Alloc[compat.Buffer]()
+	w := newTypeWriter(buf, qf)
+	w.localSuffix = true
+	w.paramNames = false
+	w.viewMarks = true
+	w.typ(typ)
+	return buf.String()
+}
+
 func newTypeWriter(buf *compat.Buffer, qf Qualifier) typeWriter {
-	return typeWriter{buf, make(map[Type]bool), qf, nil, nil, true, false, false, false}
+	return typeWriter{buf, make(map[Type]bool), qf, nil, nil, true, false, false, false, false}
 }
 
 func newTypeHasher(buf *compat.Buffer, ctxt *Context) typeWriter {
 	assert(ctxt != nil)
-	return typeWriter{buf, make(map[Type]bool), nil, ctxt, nil, false, false, false, false}
+	return typeWriter{buf, make(map[Type]bool), nil, ctxt, nil, false, false, false, false, false}
 }
 
 func (w *typeWriter) byte(b byte) {
@@ -413,6 +428,21 @@ func (w *typeWriter) typ(typ Type) {
 		}
 
 	case *Alias:
+		if t.orig.viewArg {
+			// Plutonium: the type it marks (see NewViewArg). An
+			// instance made with it is a different type.
+			w.typ(Unalias(t))
+			if w.ctxt != nil || w.viewMarks {
+				w.string("·view")
+			}
+			break
+		}
+		if w.localSuffix {
+			// Plutonium: a symbol names the type an alias denotes,
+			// which is identical to it.
+			w.typ(Unalias(t))
+			break
+		}
 		w.typeName(t.obj)
 		if list := t.targs.list(); len(list) != 0 {
 			// instantiated type

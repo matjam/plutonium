@@ -1,8 +1,7 @@
 // A range over a vec.Vec[T] in generic code over [T owner any] that binds
 // only the index, or nothing, uses no view of an element, so its instances
 // compile for an owner type and for a value type alike. A range that binds
-// the element is rejected for a value type for now
-// (tests/lower/generic_owner_range).
+// the element gets a view in both (tests/lower/generic_owner_range).
 package main
 
 import "pluto/vec"

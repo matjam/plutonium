@@ -202,7 +202,7 @@ func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident
 	case "CopyValue", "ViewOf":
 		return s.elementCopy(fn, e, T), true
 	case "MustCopy":
-		if types2.IsOwner(T) {
+		if types2.IsOwner(T) || types2.IsViewArg(T) {
 			s.reportOwnerCopy(e, T)
 		}
 		return nil, true
@@ -211,7 +211,7 @@ func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident
 		s.assign(lvalue{ptr: ptr, T: T}, s.exprAs(e.Args[1], T), true)
 		return nil, true
 	case "CopyValues":
-		if types2.IsOwner(T) {
+		if types2.IsOwner(T) || types2.IsViewArg(T) {
 			s.reportOwnerCopy(e, T)
 			return nil, true
 		}
@@ -254,10 +254,12 @@ func (s *fnState) countIntrinsic(fn *types2.Func, e *ast.CallExpr, id *ast.Ident
 // element out of the container's storage at p: a copy of the T there,
 // counted as a copy is. rt.ViewOf yields p itself, a view, when T is an
 // owner. An owner has no copy, so rt.CopyValue of one is an error: the
-// method of the container that called it cannot be used for owners.
+// method of the container that called it cannot be used for owners. A
+// value type given to an owner type parameter (types2.NewViewArg) is
+// treated as an owner here, as the generic code it came from sees it.
 func (s *fnState) elementCopy(fn *types2.Func, e *ast.CallExpr, T types2.Type) []value {
 	p := s.expr(e.Args[0])
-	if types2.IsOwner(T) {
+	if types2.IsOwner(T) || types2.IsViewArg(T) {
 		if fn.Name() == "ViewOf" {
 			return compat.Clone([]value{p})
 		}
@@ -287,6 +289,16 @@ func (s *fnState) reportOwnerCopy(e *ast.CallExpr, T types2.Type) {
 	if method != nil {
 		d.Text = compat.Concat("The container method ", method.Name(), " gives an element out by value. For an owner that would be a second owner of what the element owns, and both would release it.")
 	}
+	if types2.IsViewArg(T) {
+		// A value type given to an owner type parameter: the generic
+		// code sees an owner (spec section 8.7).
+		d.Msg = compat.Sprintf("cannot copy an element of type %s here: the generic code sees it as an owner", T)
+		name := "that was called"
+		if method != nil {
+			name = method.Name()
+		}
+		d.Text = compat.Concat("The container method ", name, " gives an element out by value. The generic code that calls it has a type parameter declared owner, which is an owner in every instance, including this one with a value type, and an owner may not be copied.")
+	}
 	if isMapMethod(method) {
 		d.Fix = pu.New(diag.Fix{Intro: "To look at a value, use a method that returns a pointer to it", Code: "p := m.Ptr(k)"})
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To move a value out, use a method that removes it", Code: "x, ok := m.Remove(k)"})})
@@ -295,47 +307,6 @@ func (s *fnState) reportOwnerCopy(e *ast.CallExpr, T types2.Type) {
 		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "To move an element out, use a method that removes it", Code: "x := v.Pop()"})})
 	}
 	s.l.report(at, d)
-}
-
-// checkOwnerViews reports an instance of generic code that the compiler
-// cannot compile yet. The code ranges over a container of an owner type
-// parameter T and sees the elements as views, *T (spec sections 8.7,
-// 12.10). Made with a type argument that is not an owner, the instance
-// would call the container's iterator for a value type, which gives the
-// elements by value, and the program would be wrong. Keeping the views in
-// such an instance is roadmap item 145.
-func (l *Lowerer) checkOwnerViews(job *funcJob) {
-	m := job.tmap
-	if m == nil || job.decl == nil {
-		return
-	}
-	for i, tp := range m.tparams {
-		if !types2.OwnerViewTypeParam(tp) || types2.IsOwner(m.targs[i]) {
-			continue
-		}
-		at := job.decl.Pos()
-		if c, ok := l.firstCaller[job.sym]; ok {
-			at, _ = l.programCall(c.from, c.pos)
-		}
-		name := job.decl.Name.Name
-		if fn := l.symFuncs[job.sym]; fn != nil {
-			name = fn.Name()
-		}
-		var sb compat.Builder
-		for j, t := range m.targs {
-			if j > 0 {
-				sb.WriteString(", ")
-			}
-			sb.WriteString(compat.Sprintf("%s", t))
-		}
-		inst := compat.Concat(name, "[", sb.String(), "]")
-		targ := compat.Sprintf("%s", m.targs[i])
-		d := pu.New(diag.Diagnostic{Code: diag.NotYetSupported, Msg: compat.Concat("cannot compile ", inst, " yet: ", tp.Obj().Name(), " is an owner type parameter and ", targ, " is not an owner")})
-		d.Text = compat.Concat("The code of ", name, " ranges over a container of ", tp.Obj().Name(), " and sees its elements as views of type *", tp.Obj().Name(), ", because ", tp.Obj().Name(), " may be an owner. With ", targ, ", which is not an owner, the container gives its elements by value, and this compiler does not yet keep the views in such an instance.")
-		d.Fix = pu.New(diag.Fix{Intro: "Range over the indexes and take a pointer to each element, which works for both kinds of type", Code: "for i := range v.Len() {\n\tp := v.Ptr(i)\n}"})
-		l.report(at, d)
-		return
-	}
 }
 
 // isMapMethod reports whether fn is a method of hash.Map.

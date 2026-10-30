@@ -139,6 +139,15 @@ func (subst *subster) typ(typ Type) Type {
 		// to be substituted; i.e., if it is or contains a type parameter
 		// that has a type argument for it.
 		if targs := substList(t.TypeArgs().list(), subst.typ); targs != nil {
+			// Plutonium: rt.View[T] whose generic form is *T, a view,
+			// stays a view in an instance of generic code outside the
+			// standard library, and for a type argument made by
+			// NewViewArg (spec sections 8.7, 10.9).
+			if isViewAlias(orig) && keepsView(t.TypeArgs().At(0), targs[0]) {
+				if _, ok := Unalias(t).(*Pointer); ok {
+					return NewPointer(targs[0])
+				}
+			}
 			return subst.check.newAliasInstance(subst.pos, t.orig, targs, subst.expanding, subst.ctxt)
 		}
 

@@ -1,0 +1,1 @@
+$DIR/main.p:9:9: cannot copy an element of type int here: the generic code sees it as an owner

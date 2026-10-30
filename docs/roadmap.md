@@ -300,9 +300,8 @@ against the corrected specification. The immediate implementation order is:
      library gets E3207 with a fix that names `vec.Vec` and `hash.Map` (`tests/diag/library_owner_arg`).
      E3306 from a copy method is reported at the call in the program that reached it, found by following
      the first caller of each library function (`tests/diag/container_owner_copy`). Generic code over
-     `[T owner any]` that ranges over a `vec.Vec[T]` sees `*T` in its generic form, but an instance with a
-     value type (`Bump[int]`) would get the elements by value; it is rejected with E2500 until item 145
-     keeps the views (`tests/lower/generic_owner_range`). Tests: `testdata/plutonium/containerowners.p`
+     `[T owner any]` that ranges over a `vec.Vec[T]` sees `*T`, and since item 145 an instance with a
+     value type (`Bump[int]`) does too (`tests/lower/generic_owner_range`). Tests: `testdata/plutonium/containerowners.p`
      and `takecounted.p` (O0, O2, debug allocator leak report), `internal/build/container_owners_test.go`.
 133. **A `vec.Vec` crosses in a program that imports `pluto/fmt`** (done, `10f54d3e`; sections 8.8, 12.5, 19.3, 19.8,
      F.2; found with item 132). The race analysis recorded the accesses to the default allocator
@@ -545,21 +544,22 @@ against the corrected specification. The immediate implementation order is:
      Exits from a range-over-func loop body and from generated code with fewer results keep their
      own copies, and an ordinary `return` still copies its deferred calls and scope releases. Cases
      `lower/goexitmanysites` and `_o2`.
-145. **Instances of owner generic code keep their views** (planned; sections 8.7, 10.9, 12.10; found with
-     item 132). In generic code over `[T owner any]`, a range over a `vec.Vec[T]` or the values of a
-     `hash.Map[K, T]` yields views, `*T`, because `T` is an owner there (8.7, 12.10), and an instance keeps
-     the meaning of the generic code (10.9). The library's iterators decide through `rt.View`, which an
-     instance with a value type collapses to the value, so `Bump[int]` would get ints where its code wants
-     `*int`. Until this is done the checker marks such a type parameter (`types2.OwnerViewTypeParam`) when
-     the code uses a view: a range that binds the element, or an expression of a type that mentions
-     `rt.View[T]`. Lowering rejects an instance with a value type with E2500 at the program's call
-     (`tests/lower/generic_owner_range`). A range that binds only the index, or nothing, uses no view and
-     compiles for both kinds of type (`tests/lower/generic_owner_range_index`). The
-     fix: instances of the library's iterators, with their own symbol names, that yield views for a type
-     argument reached through an owner type parameter, carried through the type substitution. Target:
-     `tests/lower/generic_owner_range_views`, a known failure until then. A related gap is not covered by
-     the same check: generic code over an owner `T` that calls a copy method such as `v.At` is accepted
-     for `F[int]`, although in the generic form it copies an owner (E3306 by section 8.7).
+145. **Instances of owner generic code keep their views** (done, `COMMIT`; sections 8.7, 10.9, 12.10;
+     found with item 132). In generic code over `[T owner any]`, a range over a `vec.Vec[T]` or the values
+     of a `hash.Map[K, T]` yields views, `*T`, because `T` is an owner there (8.7, 12.10), and an instance
+     keeps the meaning of the generic code (10.9). The library's iterators decide through `rt.View`, which
+     collapses to the value for a value type. Lowering now makes an instance of generic code outside the
+     standard library with each value type argument of an owner type parameter marked as a view argument
+     (`types2.NewViewArg`): an alias of the type that is identical to it, except that `rt.View` of it
+     stays a pointer. The mark goes with the substitution into the library code the instance calls, so
+     `Vec[int].All` made for `Bump[int]` yields `*int`. Symbol names and type hashes add `·view` to a
+     marked argument, so these instances are separate from the ordinary ones. The E2500 rejection and
+     `types2.OwnerViewTypeParam` are gone. Cases `lower/generic_owner_range`, `_views`, `_index` and
+     `lower/generic_owner_map_views` (map values, a nested generic call and a closure). The related gap
+     is closed by the same mark: generic code over an owner `T` that calls a copy method such as `v.At`
+     is E3306 for `F[int]` too (`diag/generic_owner_copy`). Symbol names of alias types now print the
+     aliased type, which fixes a type assertion of a value of an alias type held in an interface: it
+     failed because the type descriptor carried the alias name (`lower/alias_type_assert`).
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
