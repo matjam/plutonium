@@ -170,8 +170,8 @@ type checker struct {
 
 	scoped     *scoped.Info // the scoped tasks of sync.Scope (scope.go)
 	taskBodies map[*ast.BlockStmt]*ast.FuncLit
-	calls      *Calls                      // what calls keep of their arguments (views.go)
-	owned      map[string][]types2.Type    // ownedLeaves, by owner type
+	calls      *Calls                         // what calls keep of their arguments (views.go)
+	owned      map[string][]types2.Type       // ownedLeaves, by owner type
 	keeps      map[ast.Node][]keepSite        // what functions keep of the memory their inputs reach, by declaration, literal or range body (keeps.p)
 	keepDecls  map[*types2.Func]*ast.FuncDecl // the declarations of the functions with a body (keeps.p)
 }
