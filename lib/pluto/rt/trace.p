@@ -76,7 +76,7 @@ func traceback[W Writer](w W, pc, sp, bp uintptr, exact, skipRuntime bool, durin
 			return
 		}
 		name := fw.name()
-		if name == "pluto.main" {
+		if name.is("pluto.main") {
 			// main.main may be inlined into it.
 			printInlinedMain(w, fw.tab, fw.fn, fw.look())
 			return
@@ -84,7 +84,7 @@ func traceback[W Writer](w W, pc, sp, bp uintptr, exact, skipRuntime bool, durin
 		if fw.bottom() {
 			return
 		}
-		if during != nil && name == "pluto/rt.walkDeferred" {
+		if during != nil && name.is("pluto/rt.walkDeferred") {
 			fw.start(fw.tab, during.pc, during.sp, during.bp, during.exact)
 			skipRuntime = during.skipRuntime
 			during = during.During
@@ -149,15 +149,15 @@ func (w *frameWalk) look() uintptr {
 }
 
 // name returns the current frame's function name.
-func (w *frameWalk) name() string {
-	return traceString(w.tab, *(*uint32)(unsafe.Add(w.fn, 12)))
+func (w *frameWalk) name() traceStr {
+	return tableString(w.tab, *(*uint32)(unsafe.Add(w.fn, 12)))
 }
 
 // bottom reports whether the current frame is the first of the main
 // thread's stack or of a task's.
 func (w *frameWalk) bottom() bool {
 	name := w.name()
-	return name == "pluto.main" || name == "pluto/rt.start" || name == "pluto/rt.taskMain"
+	return name.is("pluto.main") || name.is("pluto/rt.start") || name.is("pluto/rt.taskMain")
 }
 
 // next moves the walk to the caller of the current frame. The walk ends at
@@ -260,7 +260,7 @@ func (w *frameWalk) prologueCFA(off uintptr, mask uint8, fp bool) (uintptr, uint
 	}
 	pos := uintptr(0)
 	depth := uintptr(8)
-	for bit := 0; bit < 6; bit++ {
+	for bit := uint(0); bit < 6; bit++ { // unsigned: a shift by it cannot panic
 		if mask&(1<<bit) == 0 {
 			continue
 		}
@@ -379,7 +379,7 @@ func findFunc(tab unsafe.Pointer, pc uintptr) unsafe.Pointer {
 // task (package rt), which a trace leaves out: a function of package rt is
 // not printed, and nor are calls of package rt inlined into the function.
 // It reports whether the next frame is still to be skipped.
-func printFrame[W Writer](w W, tab, fn unsafe.Pointer, name string, pc uintptr, skip bool) bool {
+func printFrame[W Writer](w W, tab, fn unsafe.Pointer, name traceStr, pc uintptr, skip bool) bool {
 	if skip && hasPrefix(name, "pluto/rt.") {
 		return true
 	}
@@ -400,18 +400,18 @@ func printFrame[W Writer](w W, tab, fn unsafe.Pointer, name string, pc uintptr, 
 //
 // With skip set, inlined calls of package rt are not printed, up to the
 // first call that is not (see printFrame).
-func printInlined[W Writer](w W, tab, fn unsafe.Pointer, pc uintptr, last int, skip bool) (string, int) {
+func printInlined[W Writer](w W, tab, fn unsafe.Pointer, pc uintptr, last int, skip bool) (traceStr, int) {
 	file, line, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
 	for inl != 0 {
 		site := inlineSite(tab, fn, inl)
-		name := traceString(tab, *(*uint32)(unsafe.Add(site, 4)))
+		name := tableString(tab, *(*uint32)(unsafe.Add(site, 4)))
 		if skip && hasPrefix(name, "pluto/rt.") {
 			// part of the panic or the parking
 		} else {
 			skip = false
 			printLocation(w, name, file, line)
 		}
-		file = traceString(tab, *(*uint32)(unsafe.Add(site, 8)))
+		file = tableString(tab, *(*uint32)(unsafe.Add(site, 8)))
 		line = int(*(*uint32)(unsafe.Add(site, 12)))
 		if inl == last {
 			break
@@ -429,7 +429,7 @@ func printInlinedMain[W Writer](w W, tab, fn unsafe.Pointer, pc uintptr) {
 	_, _, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
 	for inl != 0 {
 		site := inlineSite(tab, fn, inl)
-		if strequal(traceString(tab, *(*uint32)(unsafe.Add(site, 4))), "main.main") {
+		if tableString(tab, *(*uint32)(unsafe.Add(site, 4))).is("main.main") {
 			printInlined(w, tab, fn, pc, inl, false)
 			return
 		}
@@ -454,28 +454,28 @@ func traceSymbolize(pc uintptr) (string, string, int, bool) {
 	if fn == nil {
 		return "", "", 0, false
 	}
-	name := traceString(tab, *(*uint32)(unsafe.Add(fn, 12)))
+	name := tableString(tab, *(*uint32)(unsafe.Add(fn, 12)))
 	file, line, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
 	if inl != 0 {
-		name = traceString(tab, *(*uint32)(unsafe.Add(inlineSite(tab, fn, inl), 4)))
+		name = tableString(tab, *(*uint32)(unsafe.Add(inlineSite(tab, fn, inl), 4)))
 	}
 	if line <= 0 {
 		return "", "", 0, false
 	}
-	return name, file, line, true
+	return name.str(), file.str(), line, true
 }
 
 // printLocation prints one frame. Generated code with no source position,
 // such as the wrapper that calls a method through an interface, is left
 // out.
-func printLocation[W Writer](w W, name, file string, line int) {
+func printLocation[W Writer](w W, name, file traceStr, line int) {
 	if line <= 0 {
 		return
 	}
 	writeString(w, "    ")
-	writeString(w, name)
+	writeBytes(w, name.p, name.n)
 	writeString(w, " (")
-	writeString(w, file)
+	writeBytes(w, file.p, file.n)
 	writeString(w, ":")
 	writeInt(w, int64(line))
 	writeString(w, ")\n")
@@ -483,10 +483,10 @@ func printLocation[W Writer](w W, name, file string, line int) {
 
 // findLine returns the file, line and inlined call (1-based within the
 // function, or 0) of the code at offset off in fn.
-func findLine(tab, fn unsafe.Pointer, off uintptr) (string, int, int) {
+func findLine(tab, fn unsafe.Pointer, off uintptr) (traceStr, int, int) {
 	p := unsafe.Add(tab, int(*(*uint32)(unsafe.Add(tab, 8)))+int(*(*uint32)(unsafe.Add(fn, 24))))
 	size := uintptr(*(*uint32)(unsafe.Add(fn, 8)))
-	file := ""
+	var file traceStr
 	line := 0
 	inl := 0
 	at := uintptr(0)
@@ -494,7 +494,7 @@ func findLine(tab, fn unsafe.Pointer, off uintptr) (string, int, int) {
 		v := uvarint(&p)
 		line += int(unzigzag(v >> 2))
 		if v&2 != 0 {
-			file = traceString(tab, uint32(uvarint(&p)))
+			file = tableString(tab, uint32(uvarint(&p)))
 		}
 		if v&1 != 0 {
 			inl = int(uvarint(&p))
@@ -523,27 +523,52 @@ func uvarint(p *unsafe.Pointer) uint64 {
 
 func unzigzag(v uint64) int64 { return int64(v>>1) ^ -int64(v&1) }
 
-// traceString returns the string at offset off in the table's strings.
-func traceString(tab unsafe.Pointer, off uint32) string {
+// A traceStr is a string of the trace table: its bytes and length. The
+// code that prints a stack trace handles the table's strings as these, not
+// as strings: a string variable is a counted reference to drop, and
+// dropping one can free, which can fail and panic again, so a panic's path
+// would reach itself (internal/backend/stack.go).
+type traceStr struct {
+	p unsafe.Pointer
+	n int
+}
+
+// tableString returns the string at offset off in the table's strings.
+func tableString(tab unsafe.Pointer, off uint32) traceStr {
 	p := unsafe.Add(tab, int(*(*uint32)(unsafe.Add(tab, 4)))+int(off))
-	n := int(*(*uint16)(p))
-	if n == 0 {
-		return ""
-	}
 	// The compiler wrote the table with valid UTF-8 only: file names are
 	// made valid and cut at a rune boundary (internal/debuginfo/trace.go).
-	return unsafe.String((*byte)(unsafe.Add(p, 2)), n)
+	return traceStr{p: unsafe.Add(p, 2), n: int(*(*uint16)(p))}
+}
+
+// traceString returns the string at offset off in the table's strings.
+func traceString(tab unsafe.Pointer, off uint32) string {
+	return tableString(tab, off).str()
+}
+
+// str returns s as a string, which lives as long as the program.
+func (s traceStr) str() string {
+	if s.n == 0 {
+		return ""
+	}
+	return unsafe.String((*byte)(s.p), s.n)
+}
+
+// is reports whether s is lit.
+func (s traceStr) is(lit string) bool {
+	return s.n == len(lit) && strequal(unsafe.String((*byte)(s.p), s.n), lit)
 }
 
 // hasSuffix and hasPrefix compare bytes: the end of a name such as
 // "shared[T]·release" is not cut at a rune boundary by a shorter suffix
-// that starts with a multi-byte rune ("·defers").
-func hasSuffix(s, suffix string) bool {
-	return len(s) >= len(suffix) && strequal(SliceBytewise(s, len(s)-len(suffix), len(s)), suffix)
+// that starts with a multi-byte rune ("·defers"). They compare views of
+// s's bytes, in range after the length test.
+func hasSuffix(s traceStr, suffix string) bool {
+	return s.n >= len(suffix) && strequal(unsafe.String((*byte)(unsafe.Add(s.p, s.n-len(suffix))), len(suffix)), suffix)
 }
 
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && strequal(SliceBytewise(s, 0, len(prefix)), prefix)
+func hasPrefix(s traceStr, prefix string) bool {
+	return s.n >= len(prefix) && strequal(unsafe.String((*byte)(s.p), len(prefix)), prefix)
 }
 
 func popcount(x uint8) int {

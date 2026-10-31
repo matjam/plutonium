@@ -843,7 +843,7 @@ compiler (2026-10-11).
     `WaitGroup`, `Once`, `Cond` over the scheduler.
 17. **Thread-safe default allocator** (done, `0ebe75d`; sections 18.9 and 19.7): `alloc.SyncSlab` with
     per-processor caches is the hosted default.
-18. **Stack size analysis and `--stackreport`** (step D done, COMMIT_D; step A open; section 19.1
+18. **Stack size analysis and `--stackreport`** (done, `d11cb89e`, COMMIT_A; section 19.1
     item 1): each task statement loads its `Proven` bound from a read-only word, `<thunk>.stack`, that
     the backend fills after it has laid out every frame. The bound is the deepest call path from the
     task's function, plus the frames that land on the task's stack outside the call graph: the
@@ -856,17 +856,20 @@ compiler (2026-10-11).
     indirect call with an open callee set; kernel, freestanding and custom-scheduler builds compute
     no bounds. `pluto build --stackreport` prints one line per task statement. The spec said
     `-stackreport`; the flag is `--stackreport`, and the spec now says so.
-    Today no task is proven: every task can panic, and the runtime's own call graph has cycles. The
-    groups: the panic printers (`panicIndex` through `printString`, `printBytes`, `captureBytes`,
-    `printInt`, `formatUint`, `writePointer`, `hasPrefix`, `decodeRune` in `raise`), whose bounds
-    checks panic again; panic cleanup (`raise`, `strRelease`, `strFree`, `SyncSlab.Free` and its
-    checks, back to `fatal`); the scheduler (`Lock.Unlock` and `ProcUnpin` re-enable preemption and
-    may `Yield`, and `afterSwitch` frees stacks and wakes tasks under such locks); `printMessages`,
-    recursive on `During`; `ifaceEqual` through the `alloc.bootstrap` equality. Checked builds add
-    `genLive`, recursive along a record's parent chain, and the generation checks of the checker's
-    own helpers. Step A breaks the cycles reachable with `--gencheck=false` without changing what
-    the runtime does; the tests that expect proven stacks (`TestStackReport`, `TestStackHighWater`,
-    `TestStackBoundPanics`) are marked as known failures until then. Checked builds stay not computed.
+    With `--gencheck=false` the runtime's call graph has no cycles, so a task that calls nothing
+    unbounded is proven at every optimization level (step A). The cycles it broke, each without
+    changing what the runtime does: the panic printers' bounds checks, which panicked again (the
+    printers and formatters are `//pu:nochecks`, and `decodeRune`, `hasPrefix` and `hasSuffix`
+    read through pointers checked by hand); `printMessages`, recursive on `During`, now a loop; the
+    counted strings on the panic path, whose release can free and so fail (the message is written
+    from its words, a signal's name by `writeSignal`, and the trace code holds the table's strings
+    as `traceStr`, not `string`); `ifaceEqual` through the allocator's own equality (the default
+    allocator's cache compares an `Allocator`'s words); the hosted scheduler's switches, whose
+    finishing could free stacks and wake tasks under locks that may yield (`switchToSched` runs only
+    the scheduler's half). Lowering makes a constant condition a plain jump and registers no frame
+    slot in unreachable code, so a panic under a false build constant leaves no edge. Checked builds
+    stay not computed: `genLive` follows a record's chain of parents recursively, as deep as
+    allocators nest. The compiler itself starts no tasks.
 53. **Scheduler contract for kernels** (done, `7d4cf29`, `d81508d`, `5001093`; section 19.5, abi.md
     section 12, [plan](plans/2026-10-09-scheduler-contract.md)): permit-based park and ready,
     interrupt-safe wake, backend task records, a current-task slot, `rt.Preempt`, link-time binding with

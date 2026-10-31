@@ -4,7 +4,7 @@ $DIR/main.p:55:9: keyboard is an interrupt handler, so it must not wait
     never resume to release it, and the CPU stops.
     keyboard allocates (main.p:55), which calls strAlloc (str.p:189), which
     calls strAllocFrom (str.p:130), which calls allocAt (str.p:148), which calls
-    a.Alloc (rt.p:984), which may be slowAlloc.Alloc, which calls wait
+    a.Alloc (rt.p:1006), which may be slowAlloc.Alloc, which calls wait
     (main.p:43), which may wait.
     a.Alloc calls through an interface, so it counts as calling the Alloc method
     of every type the program converts to rt.Allocator.

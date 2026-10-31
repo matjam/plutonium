@@ -448,12 +448,50 @@ func (*hostedSched) Wake(t *Task) { hostedReady(t) }
 
 func (*hostedSched) Park(t *Task) {
 	noteStackDepth(t)
-	Switch(&t.ctx, &getm().g0)
+	switchToSched(&t.ctx, &getm().g0)
 }
 
 func (*hostedSched) Yield(t *Task) {
 	noteStackDepth(t)
-	Switch(&t.ctx, &getm().g0)
+	switchToSched(&t.ctx, &getm().g0)
+}
+
+// switchToSched is Switch from a task to its worker's scheduling context,
+// g0. A task of the hosted backend switches only to g0, and only g0
+// switches to a task (schedLoop). So when the task resumes here, what
+// switched to it is g0, which has no task, and afterSwitch has nothing to
+// do: its work for a task that was switched out (waking it, freeing its
+// stack) runs on g0's stack. finishFromSched, which never calls
+// afterSwitch, keeps that work out of the call graph of Park and Yield,
+// which the bound on a task's stack walks (internal/backend/stack.go).
+// With Switch there, a runtime lock's Unlock, which may yield, would reach
+// itself through afterSwitch, and no task's stack would have a bound.
+func switchToSched(from, to *Context) {
+	for load32(&to.onCPU) != 0 {
+		pause()
+	}
+	to.onCPU = 1
+	to.prev = from
+	setCurrent(to.task)
+	swapcontext(&from.sp, to.sp)
+	finishFromSched(from)
+}
+
+// finishFromSched is finishSwitch for a task of the hosted backend, which
+// only a scheduling context switches to (switchToSched). It stops the
+// program if a task did.
+func finishFromSched(self *Context) {
+	p := self.prev
+	self.prev = nil
+	if p == nil {
+		return
+	}
+	store32(&p.onCPU, 0)
+	if p.task != nil {
+		const msg = "fatal: the hosted scheduler switched from one task straight to another\n"
+		syscall3(sysWrite, 2, uintptr(unsafe.Pointer(unsafe.StringData(msg))), uintptr(len(msg)))
+		exit(2)
+	}
 }
 
 // hostedReady queues t on the current worker's P, or on the global queue
@@ -936,7 +974,7 @@ func ExitSyscall() {
 	// queue) and let this worker sleep.
 	xadd32(&hs.nmsys, -1)
 	g.status = tYielding
-	Switch(&g.ctx, &mp.g0)
+	switchToSched(&g.ctx, &mp.g0)
 	g.status = tRunning
 	enablePreempt(g)
 }
@@ -1178,7 +1216,7 @@ var stackCache struct {
 
 // cacheable reports whether a stack of total bytes from a may be cached.
 func cacheable(total uintptr, a Allocator) bool {
-	if TrackSites || a != defaultAllocator {
+	if TrackSites || !sameAllocator(a, defaultAllocator) {
 		return false
 	}
 	c := &stackCache
@@ -1189,7 +1227,22 @@ func cacheable(total uintptr, a Allocator) bool {
 		}
 		c.lock.Unlock()
 	}
-	return c.total == total && c.a == a
+	return c.total == total && sameAllocator(c.a, a)
+}
+
+// sameAllocator reports whether a and b are the same allocator value: the
+// same dynamic type and the same data word, the value itself for an
+// allocator of a pointer type. An allocator of another type, held in a
+// copy, matches only the copy it was made from, and its stacks are freed
+// to it, not cached. == would compare the values, which for a struct that
+// holds an interface calls the struct's equality function, which compares
+// the interface: a recursion that leaves no task's stack a bound
+// (internal/backend/stack.go), since freeing a stack is on the path from
+// a task's start (taskMain, afterSwitch).
+func sameAllocator(a, b Allocator) bool {
+	wa := (*[2]unsafe.Pointer)(unsafe.Pointer(&a))
+	wb := (*[2]unsafe.Pointer)(unsafe.Pointer(&b))
+	return wa[0] == wb[0] && wa[1] == wb[1]
 }
 
 // pinP disables preemption and returns the running worker's P, or nil.

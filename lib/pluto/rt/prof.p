@@ -112,7 +112,8 @@ func PCFrames(pc uintptr, out []PCFrame) int {
 		return 0
 	}
 	name := traceString(tab, *(*uint32)(unsafe.Add(fn, 12)))
-	file, line, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
+	f, line, inl := findLine(tab, fn, pc-*(*uintptr)(fn))
+	file := f.str()
 	if name == "pluto.main" && !inlinedMain(tab, fn, inl) {
 		// The program's start, which initialises packages; as in a stack
 		// trace (printInlinedMain), only main.main inlined into it is the

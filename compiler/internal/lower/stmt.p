@@ -4,6 +4,7 @@ package lower
 
 import (
 	"compiler/compat"
+	"compiler/internal/constant"
 	"compiler/internal/diag"
 	"compiler/internal/ssa"
 	"compiler/internal/syntax/ast"
@@ -489,6 +490,18 @@ func (s *fnState) cond(e ast.Expr, yes, no *ssa.Block) {
 			s.cond(x.X, no, yes)
 			return
 		}
+	}
+	if c := s.info.Types[e].Value; !c.IsNil() && c.Kind() == constant.Bool {
+		// A constant condition, such as a build's constant flag, is a
+		// plain jump at every optimization level: the branch it rules out
+		// is unreachable, so the calls in it leave no edge in the call
+		// graph the task stack bounds walk (backend/stack.go).
+		if constant.BoolVal(c) {
+			s.endPlain(yes)
+		} else {
+			s.endPlain(no)
+		}
+		return
 	}
 	s.endIf(s.scalar(e), yes, no)
 }

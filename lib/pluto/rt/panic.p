@@ -149,6 +149,13 @@ func BeginPanic() {
 
 // captureBytes appends n bytes at p to the panic's message, dropping what
 // does not fit.
+//
+// It is on the path of every runtime panic, and a bounds check in it would
+// call panicIndex, which calls it: a cycle that leaves no task's stack a
+// bound (internal/backend/stack.go). msgLen < len(msgBuf) holds at each
+// index, so it has no checks.
+//
+//pu:nochecks
 func captureBytes(p unsafe.Pointer, n int) {
 	for i := 0; i < n && msgLen < len(msgBuf); i++ {
 		msgBuf[msgLen] = *(*byte)(unsafe.Add(p, i))
@@ -170,6 +177,13 @@ func fatal(v any) {
 }
 
 // raise finishes p and calls the panic handler.
+//
+// Every index in it is in range: n <= msgLen <= len(msgBuf), i < n, and
+// the message is at most msgBufSize bytes. It has no checks, so that the
+// path of a panic does not reach the panic functions again
+// (internal/backend/stack.go).
+//
+//pu:nochecks
 func raise(p *Panic) {
 	capturing = false
 	n := msgLen
@@ -187,7 +201,7 @@ func raise(p *Panic) {
 			}
 			i += size
 		}
-		p.Message = unsafe.String(&msgBuf[0], n)
+		setMessage(p, &msgBuf[0], n)
 	}
 	p.CPU = cpuNumber()
 	t := current()
@@ -212,13 +226,24 @@ func raise(p *Panic) {
 				bp[i] = p.Message[i]
 			}
 			if len(p.Message) > 0 {
-				p.Message = unsafe.String(&bp[0], len(p.Message))
+				setMessage(p, &bp[0], len(p.Message))
 			}
 			runDeferred(t, p)
 		}
 	}
 	callPanicHandler(p)
 	lastResort() // the compiler checks that the handler cannot return
+}
+
+// setMessage makes p's message the n bytes at b, a view that nobody counts,
+// as unsafe.String makes it. It stores the string's words: an assignment
+// would release the message it replaces, and the release reaches the
+// allocator's Free, which may panic, from the path of every panic
+// (internal/backend/stack.go). The message it replaces is never counted:
+// a Panic starts with none, and only raise sets it, to such a view.
+func setMessage(p *Panic, b *byte, n int) {
+	w := (*strWords)(unsafe.Pointer(&p.Message))
+	w.p, w.n, w.ctl = b, n, strNonASCII
 }
 
 // runDeferred runs the pending deferred calls of t, the running task, for
@@ -409,10 +434,7 @@ func (p *Panic) Print[W Writer](w W) {
 	}
 	if f.Fault.Kind != NoFault {
 		writeString(w, "[")
-		if name := signalName(f.Fault.Signal); name != "" {
-			writeString(w, "signal ")
-			writeString(w, name)
-		} else {
+		if !writeSignal(w, f.Fault.Signal) {
 			writeString(w, "fault")
 		}
 		writeString(w, " addr=")
@@ -430,15 +452,31 @@ func (p *Panic) Print[W Writer](w W) {
 }
 
 // printMessages writes "panic: " and the message of p, after those of the
-// panics whose deferred calls were running when it happened.
+// panics whose deferred calls were running when it happened, outermost
+// first, each after the first indented by a tab. It is a loop, not a
+// recursion over During, so that the path of a panic has a bounded depth
+// (internal/backend/stack.go).
 func (p *Panic) printMessages[W Writer](w W) {
-	if p.During != nil {
-		p.During.printMessages(w)
-		writeString(w, "\t")
+	depth := 0
+	for q := p.During; q != nil; q = q.During {
+		depth++
 	}
-	writeString(w, "panic: ")
-	writeString(w, p.Message)
-	writeString(w, "\n")
+	for k := depth; k >= 0; k-- {
+		q := p
+		for i := 0; i < k; i++ {
+			q = q.During
+		}
+		if k < depth {
+			writeString(w, "\t")
+		}
+		writeString(w, "panic: ")
+		// The message's words, read in place: a copy of the string would
+		// be a counted reference to drop, and dropping one can free, which
+		// can fail and panic again (internal/backend/stack.go).
+		m := (*strWords)(unsafe.Pointer(&q.Message))
+		writeBytes(w, unsafe.Pointer(m.p), m.n)
+		writeString(w, "\n")
+	}
 }
 
 // PrintTrace writes the stack trace of the code that panicked to w, one

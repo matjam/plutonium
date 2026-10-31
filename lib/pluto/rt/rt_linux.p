@@ -287,19 +287,24 @@ func raiseFault() {
 	raise(&p)
 }
 
-// signalName names a signal for Panic.Print, or returns "".
-func signalName(sig int) string {
+// writeSignal writes "signal " and the name of sig to w for Panic.Print
+// and reports whether it knows sig. It writes constants only: a name
+// returned as a string would be a counted reference to drop, and dropping
+// one can free, which can fail and panic again (internal/backend/stack.go).
+func writeSignal[W Writer](w W, sig int) bool {
 	switch sig {
 	case sigSEGV:
-		return "SIGSEGV: segmentation violation"
+		writeString(w, "signal SIGSEGV: segmentation violation")
 	case sigBUS:
-		return "SIGBUS: bus error"
+		writeString(w, "signal SIGBUS: bus error")
 	case sigFPE:
-		return "SIGFPE: floating-point exception"
+		writeString(w, "signal SIGFPE: floating-point exception")
 	case sigILL:
-		return "SIGILL: illegal instruction"
+		writeString(w, "signal SIGILL: illegal instruction")
+	default:
+		return false
 	}
-	return ""
+	return true
 }
 
 // defaultPanic is the panic handler of a hosted program that does not

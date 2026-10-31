@@ -195,9 +195,43 @@ func (s *fnState) frameSlot(T types2.Type, name string) *ssa.Value {
 // addFrameSlot registers base+off, holding a T, to be released when the
 // function returns.
 func (s *fnState) addFrameSlot(base *ssa.Value, off int64, T types2.Type) {
+	if s.unreachable() {
+		// Code that never runs never fills the slot, so its release at
+		// return would do nothing. Leaving it out keeps the calls of dead
+		// code, such as a panic under a constant false condition, out of
+		// the call graph the task stack bounds walk (backend/stack.go).
+		return
+	}
 	c := countedSlot{base: base, off: off, T: T, pos: s.pos}
 	s.zeroAtEntry(c)
 	s.frameSlots = compat.Append(s.frameSlots, c)
+}
+
+// unreachable reports whether the current block can never run: no path
+// from the entry block reaches it, and none can be added later, because
+// every block that could lead to it was sealed, so all its predecessors
+// are known. The then block of "if c && x" with c a constant false is one:
+// its only predecessor tests x in a block nothing jumps to.
+func (s *fnState) unreachable() bool {
+	if s.b == nil {
+		return false
+	}
+	seen := map[*ssa.Block]bool{s.b: true}
+	work := []*ssa.Block{s.b}
+	for len(work) > 0 {
+		b := work[len(work)-1]
+		work = work[:len(work)-1]
+		if b == s.f.Entry || !s.bs(b).sealed {
+			return false
+		}
+		for _, e := range b.Preds {
+			if !seen[e.B] {
+				seen[e.B] = true
+				work = compat.Append(work, e.B)
+			}
+		}
+	}
+	return true
 }
 
 // zeroAtEntry arranges for a slot to be zeroed when the function is

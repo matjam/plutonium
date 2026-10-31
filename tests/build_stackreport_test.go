@@ -13,31 +13,6 @@ import (
 // the compiler proved it needs, and --stackreport says what each task
 // statement got.
 
-// stackKnownFail says why the tests that expect a proven stack fail for
-// now: the runtime's own call graph, which every task reaches, has cycles
-// (the panic path prints with bounds checks that panic, the scheduler's
-// unlocks may yield), so no task's stack is proven yet. Roadmap item 18,
-// step A, breaks the cycles for builds with --gencheck=false; then this is
-// "" again. As with a corpus case's knownfail note, a test that fails while
-// it is set is skipped, and one that passes is an error.
-const stackKnownFail = "roadmap item 18 step A: the runtime's call graph has cycles, so no task stack is proven yet"
-
-// knownFail reports fails, the failures of a test, under note: skips the
-// test if it is set and the test failed, and fails it if it is set and the
-// test passed.
-func knownFail(t *testing.T, note string, fails []string) {
-	t.Helper()
-	switch {
-	case note != "" && len(fails) > 0:
-		t.Skipf("known failure: %s (%d failures, the first: %s)", note, len(fails), fails[0])
-	case note != "":
-		t.Errorf("passes but is marked as a known failure (%s): clear stackKnownFail", note)
-	}
-	for _, f := range fails {
-		t.Error(f)
-	}
-}
-
 // stackReportLine matches a line of --stackreport.
 var stackReportLine = regexp.MustCompile(`^(\S*main\.p:\d+:\d+): task stack: (?:(\d+) bytes, proven|not computed: (.*))$`)
 
@@ -86,12 +61,15 @@ func leaf(n int) int {
 
 func bounded(done chan<- int) { done <- leaf(3) }
 
+// rec returns n. It calls itself twice, as -O2 turns one self-call in
+// tail position, with an accumulator, into a loop (opt.TailRec).
+//
 //pu:noinline
 func rec(n int) int {
 	if n == 0 {
 		return 0
 	}
-	return rec(n-1) + 1
+	return rec(n-1) + rec(0) + 1
 }
 
 func recursive(done chan<- int) { done <- rec(10) }
@@ -165,7 +143,9 @@ stk_leaf:
 			fails = append(fails, fmt.Sprintf("-O%d: status %d, output:\n%s", level, status, out))
 		}
 	}
-	knownFail(t, stackKnownFail, fails)
+	for _, f := range fails {
+		t.Error(f)
+	}
 }
 
 // TestStackReportGenCheck checks that a build with generation checks
@@ -321,7 +301,9 @@ func TestStackHighWater(t *testing.T) {
 			}
 		}
 	}
-	knownFail(t, stackKnownFail, fails)
+	for _, f := range fails {
+		t.Error(f)
+	}
 }
 
 // TestStackBoundPanics checks that a task with a proven stack that panics,
@@ -346,7 +328,9 @@ func TestStackBoundPanics(t *testing.T) {
 			}
 		}
 	}
-	knownFail(t, stackKnownFail, fails)
+	for _, f := range fails {
+		t.Error(f)
+	}
 }
 
 // panicTask is a program whose one task runs two deferred calls and then

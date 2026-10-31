@@ -540,6 +540,12 @@ func printBool(b bool) {
 // the path of every runtime panic, so with them generic, every function
 // that can panic, Free and Drop among them, would look as though it may
 // end the task, and every release in the program would need a check.
+//
+// The functions that format numbers here and for a Writer below have no
+// bounds checks (//pu:nochecks; every index is within the buffer, as the
+// formatting loops end at its start at the latest). A check would call
+// panicIndex, which prints its index with them: a cycle that would leave
+// no task's stack a bound (internal/backend/stack.go).
 func printInt(v int64) {
 	if v < 0 {
 		printString("-")
@@ -549,12 +555,14 @@ func printInt(v int64) {
 	printUint(uint64(v))
 }
 
+//pu:nochecks
 func printUint(v uint64) {
 	var buf [20]byte
 	i := formatUint(&buf, v)
 	printBytes(unsafe.Pointer(&buf[i]), len(buf)-i)
 }
 
+//pu:nochecks
 func printPointer(p unsafe.Pointer) {
 	var buf [18]byte
 	i := formatPointer(&buf, uintptr(p))
@@ -581,7 +589,10 @@ type Writer interface {
 // the console.
 type Console struct{}
 
-// Write writes p to the console.
+// Write writes p to the console. It has no bounds check, as p[0] is in
+// range when it indexes it, for the reason printUint has none.
+//
+//pu:nochecks
 func (Console) Write(p []byte) (int, error) {
 	if len(p) > 0 {
 		printBytes(unsafe.Pointer(&p[0]), len(p))
@@ -611,12 +622,14 @@ func writeInt[W Writer](w W, v int64) {
 	writeUint(w, uint64(v))
 }
 
+//pu:nochecks
 func writeUint[W Writer](w W, v uint64) {
 	var buf [20]byte
 	i := formatUint(&buf, v)
 	writeBytes(w, unsafe.Pointer(&buf[i]), len(buf)-i)
 }
 
+//pu:nochecks
 func writePointer[W Writer](w W, v uintptr) {
 	var buf [18]byte
 	i := formatPointer(&buf, v)
@@ -624,7 +637,9 @@ func writePointer[W Writer](w W, v uintptr) {
 }
 
 // formatUint writes v in decimal at the end of buf and returns where it
-// starts.
+// starts. A uint64 has at most 20 digits.
+//
+//pu:nochecks
 func formatUint(buf *[20]byte, v uint64) int {
 	i := len(buf)
 	for {
@@ -639,7 +654,9 @@ func formatUint(buf *[20]byte, v uint64) int {
 }
 
 // formatPointer writes v in hexadecimal, with 0x, at the end of buf and
-// returns where it starts.
+// returns where it starts. A uintptr has at most 16 digits.
+//
+//pu:nochecks
 func formatPointer(buf *[18]byte, v uintptr) int {
 	const digits = "0123456789abcdef"
 	i := len(buf)
@@ -720,7 +737,10 @@ func printBegin() {
 }
 
 // printEnd ends the print statement: it writes what is left in the buffer
-// and releases the lock.
+// and releases the lock. Like printBegin, it stays out of line: a copy in
+// every print statement would only make them larger.
+//
+//pu:noinline
 func printEnd() {
 	stmtFlush()
 	if stmtNest > 0 {
@@ -870,10 +890,12 @@ func strcmp(a, b string) int {
 }
 
 // decodeRune decodes the UTF-8 sequence at p[i:n] and returns the rune and
-// its length. Invalid encodings decode as U+FFFD with length 1.
+// its length. Invalid encodings decode as U+FFFD with length 1. The caller
+// passes 0 <= i < n, and it reads only below n, through the pointer: a
+// bounds check would put panicIndex on the path of raise, which decodes
+// the panic's message, and so on its own path (internal/backend/stack.go).
 func decodeRune(p *byte, n, i int) (rune, int) {
-	s := unsafe.Slice(p, n) // bytes: this is what decides whether they are UTF-8
-	b0 := s[i]
+	b0 := *(*byte)(unsafe.Add(unsafe.Pointer(p), i))
 	if b0 < 0x80 {
 		return rune(b0), 1
 	}
@@ -894,7 +916,7 @@ func decodeRune(p *byte, n, i int) (rune, int) {
 		return bad, 1 // truncated sequence
 	}
 	for k := 1; k <= need; k++ {
-		c := s[i+k]
+		c := *(*byte)(unsafe.Add(unsafe.Pointer(p), i+k))
 		if c&0xC0 != 0x80 {
 			return bad, 1
 		}

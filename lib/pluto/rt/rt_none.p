@@ -45,8 +45,8 @@ func selfID() uint64 { return uint64(cpuNumber()) }
 // work from any state (language spec section 17.4).
 const deferOnPanic = false
 
-// signalName names a signal for Panic.Print: there are none.
-func signalName(sig int) string { return "" }
+// writeSignal writes the name of sig for Panic.Print: there are none.
+func writeSignal[W Writer](w W, sig int) bool { return false }
 
 // otherPanicking stops a processor that panics while another handles a
 // panic.
