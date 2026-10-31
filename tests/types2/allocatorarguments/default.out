@@ -555,25 +555,25 @@ package pluto/rt
     pluto/rt/gen_arena_on.p:155:37: unsafe.Pointer
     pluto/rt/gen_arena_on.p:155:46: unsafe.Pointer
     pluto/rt/gen_arena_on.p:156:32: unsafe.Pointer
-  unsafe pluto/rt.GenQuarantine pluto/rt/gen_directory_on.p:88:1
-    pluto/rt/gen_directory_on.p:93:27: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:96:8: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:96:22: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:103:37: unsafe.Sizeof (layout query)
-    pluto/rt/gen_directory_on.p:104:5: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:104:37: unsafe.Pointer
-  unsafe pluto/rt.genMetadata pluto/rt/gen_directory_on.p:113:1
-    pluto/rt/gen_directory_on.p:113:36: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:116:3: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:117:6: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:120:10: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:123:3: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:124:6: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:127:21: unsafe.Pointer
-    pluto/rt/gen_directory_on.p:132:16: unsafe.Pointer
-  unsafe pluto/rt.genBucket pluto/rt/gen_directory_on.p:137:1
-    pluto/rt/gen_directory_on.p:152:26: unsafe.Pointer
-  unsafe pluto/rt.genSlot pluto/rt/gen_directory_on.p:164:1
+  unsafe pluto/rt.GenQuarantine pluto/rt/gen_directory_on.p:92:1
+    pluto/rt/gen_directory_on.p:97:27: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:100:8: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:100:22: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:107:37: unsafe.Sizeof (layout query)
+    pluto/rt/gen_directory_on.p:108:5: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:108:37: unsafe.Pointer
+  unsafe pluto/rt.genMetadata pluto/rt/gen_directory_on.p:119:1
+    pluto/rt/gen_directory_on.p:119:36: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:122:3: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:123:6: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:126:10: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:129:3: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:130:6: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:133:21: unsafe.Pointer
+    pluto/rt/gen_directory_on.p:138:16: unsafe.Pointer
+  unsafe pluto/rt.genBucket pluto/rt/gen_directory_on.p:143:1
+    pluto/rt/gen_directory_on.p:155:26: unsafe.Pointer
+  unsafe pluto/rt.genSlot pluto/rt/gen_directory_on.p:167:1
     pluto/rt/gen_directory_on.p:168:36: unsafe.Add
     pluto/rt/gen_directory_on.p:168:54: unsafe.Pointer
     pluto/rt/gen_directory_on.p:172:26: unsafe.Pointer
@@ -854,6 +854,8 @@ package pluto/rt
     pluto/rt/gen_order_amd64.p:34:66: unsafe.Pointer
   unsafe pluto/rt.vstore16 pluto/rt/gen_order_amd64.p:37:1
     pluto/rt/gen_order_amd64.p:37:66: unsafe.Pointer
+  unsafe pluto/rt.genPages pluto/rt/gen_pages_linux.p:9:1
+    pluto/rt/gen_pages_linux.p:9:33: unsafe.Pointer
   safe pluto/rt.ExitTask pluto/rt/goexit.p:26:1
     calls pluto/rt.getg
       pluto/rt/goexit.p:27:7: call pluto/rt.current

@@ -88,41 +88,105 @@ func TestGenCheck(t *testing.T) {
 	}
 }
 
-// TestGenCheckNonHosted checks that, until generation checks support
-// freestanding and kernel builds (roadmap item 101, phase 2), such a build
-// must pass --gencheck=false: leaving the default or asking for the checks
-// is an error that says how to build unchecked on purpose (spec section
-// 18.11).
+// genMetadataSource is a freestanding program's source of generation
+// metadata memory (abi.md section 1.3), from a static array.
+const genMetadataSource = `package main
+
+import "unsafe"
+
+var metadata [1 << 20]byte
+
+var metadataUsed uintptr
+
+//pu:export pluto_gen_metadata
+func genMetadata(n uintptr) uintptr {
+	if metadataUsed+n > uintptr(len(metadata)) {
+		return 0
+	}
+	p := uintptr(unsafe.Pointer(&metadata)) + metadataUsed
+	metadataUsed += n
+	return p
+}
+`
+
+// TestGenCheckNonHosted checks that freestanding and kernel builds have
+// generation checks by default, as hosted builds do (roadmap item 101,
+// phase 2), and that a checked one must export the source of the
+// runtime's metadata memory: without it, or with the wrong signature, the
+// build fails with E2588 (decision D41). With the source the checked
+// runtime is linked; --gencheck=false and PLUTO_GENCHECK=0 build unchecked
+// without one.
 func TestGenCheckNonHosted(t *testing.T) {
 	t.Parallel()
-	cases := []struct {
+	modes := []struct {
 		name  string
 		flags []string
-		want  string
+		mode  string
 	}{
-		{"kernel default", []string{"--mode", "kernel"}, "kernel builds must pass --gencheck=false"},
-		{"freestanding default", []string{"--mode", "freestanding"}, "freestanding builds must pass --gencheck=false"},
-		{"none target default", []string{"--target", "x86_64-none"}, "freestanding builds must pass --gencheck=false"},
-		{"kernel checked", []string{"--mode", "kernel", "--gencheck"}, "generation checks are not supported in kernel builds yet; pass --gencheck=false"},
-		{"freestanding checked", []string{"--mode", "freestanding", "--gencheck=true"}, "generation checks are not supported in freestanding builds yet; pass --gencheck=false"},
+		{"kernel default", []string{"--mode", "kernel"}, "kernel"},
+		{"freestanding default", []string{"--mode", "freestanding"}, "freestanding"},
+		{"none target default", []string{"--target", "x86_64-none"}, "freestanding"},
+		{"kernel checked", []string{"--mode", "kernel", "--gencheck"}, "kernel"},
+		{"freestanding checked", []string{"--mode", "freestanding", "--gencheck=true"}, "freestanding"},
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
+	build := func(t *testing.T, env []string, files map[string]string, flags ...string) (string, int, string) {
+		t.Helper()
+		dir := writeTree(t, files)
+		asm := filepath.Join(t.TempDir(), "listing.s")
+		args := append([]string{"build"}, flags...)
+		args = append(args, "-c", "-S", asm, "-o", filepath.Join(t.TempDir(), "prog.o"), dir)
+		out, status := runPluto(t, ".", env, args...)
+		data, _ := os.ReadFile(asm)
+		return out, status, string(data)
+	}
+	for _, m := range modes {
+		t.Run(m.name, func(t *testing.T) {
 			t.Parallel()
-			dir := writeProgram(t, "package main\n\nfunc main() {}\n")
-			args := append([]string{"build"}, c.flags...)
-			args = append(args, "-c", "-o", filepath.Join(t.TempDir(), "prog.o"), dir)
-			out, status := runPluto(t, ".", nil, args...)
-			if status != 2 || !strings.Contains(out, c.want) || !strings.Contains(out, "spec section 18.11, roadmap item 101") {
-				t.Fatalf("status %d, output %q; want status 2 and %q naming section 18.11 and item 101", status, out, c.want)
+			// No metadata source: E2588.
+			out, status, _ := build(t, nil, map[string]string{"main.p": kernelProgram, "panic_handler.p": panicHandlerSource}, m.flags...)
+			want := m.mode + ": generation checks need a metadata source; no function is exported as pluto_gen_metadata"
+			if status != 1 || !strings.Contains(out, "E2588") || !strings.Contains(out, want) {
+				t.Fatalf("no source: status %d, output %q; want status 1 and E2588 %q", status, out, want)
+			}
+			// A source with the wrong signature: E2588 at its declaration.
+			wrong := strings.Replace(genMetadataSource, "func genMetadata(n uintptr) uintptr {", "func genMetadata(n, align uintptr) uintptr {", 1)
+			out, status, _ = build(t, nil, map[string]string{"main.p": kernelProgram, "panic_handler.p": panicHandlerSource, "meta.p": wrong}, m.flags...)
+			if status != 1 || !strings.Contains(out, "E2588") || !strings.Contains(out, "meta.p:") ||
+				!strings.Contains(out, "genMetadata, exported as pluto_gen_metadata, must have the signature func(n uintptr) uintptr") {
+				t.Fatalf("wrong signature: status %d, output %q; want status 1 and E2588 at meta.p", status, out)
+			}
+			// With the source, the build is checked.
+			out, status, listing := build(t, nil, map[string]string{"main.p": kernelProgram, "panic_handler.p": panicHandlerSource, "meta.p": genMetadataSource}, m.flags...)
+			if status != 0 {
+				t.Fatalf("with a source: status %d, output %q", status, out)
+			}
+			for _, need := range []string{"GenRegisteredLive", "main.genMetadata:"} {
+				if !strings.Contains(listing, need) {
+					t.Errorf("with a source: the listing does not mention %s", need)
+				}
 			}
 		})
 	}
-	// The environment's default does not exempt them either.
-	dir := writeProgram(t, "package main\n\nfunc main() {}\n")
-	out, status := runPluto(t, ".", []string{"PLUTO_GENCHECK=0"}, "build", "--mode", "kernel", "-c", "-o", filepath.Join(t.TempDir(), "prog.o"), dir)
-	if status != 2 || !strings.Contains(out, "kernel builds must pass --gencheck=false") {
-		t.Fatalf("PLUTO_GENCHECK=0: status %d, output %q; want the kernel build rejected", status, out)
+	// The unchecked builds need no source.
+	for _, c := range []struct {
+		name string
+		env  []string
+		flag string
+	}{
+		{"flag", nil, "--gencheck=false"},
+		{"environment", []string{"PLUTO_GENCHECK=0"}, ""},
+	} {
+		flags := []string{"--mode", "kernel"}
+		if c.flag != "" {
+			flags = append(flags, c.flag)
+		}
+		out, status, listing := build(t, c.env, map[string]string{"main.p": kernelProgram, "panic_handler.p": panicHandlerSource}, flags...)
+		if status != 0 {
+			t.Fatalf("unchecked by %s: status %d, output %q", c.name, status, out)
+		}
+		if strings.Contains(listing, "GenRegisteredLive") {
+			t.Errorf("unchecked by %s: the listing calls GenRegisteredLive", c.name)
+		}
 	}
 }
 

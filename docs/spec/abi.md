@@ -377,9 +377,13 @@ its tag; `unsafe.Pointer` keeps it (language spec sections 18.11 and 20.1). A fu
 `//pu:nochecks` makes no checks (language spec section 18.12). With `--gencheck=false`
 (`PLUTO_GENCHECK=0` explicitly selects it for a test run), runtime generation/epoch checks are
 omitted: this is the documented unchecked opt-out, and stale access has no defined behavior (language
-spec sections 18.11 and 21.5). Freestanding and kernel builds do not select it automatically. Until
-generation checks support them (roadmap item 101), such a build must pass `--gencheck=false`, and one
-that does not is rejected with a message saying so; `--gencheck=true` is rejected too. If this
+spec sections 18.11 and 21.5). Freestanding and kernel builds do not select it automatically. A
+checked freestanding or kernel build gets the memory for the runtime's generation metadata from the
+program, through a function it exports as `pluto_gen_metadata` (section 8): `func(n uintptr) uintptr`
+returns the address of `n` bytes of page-aligned, writable memory that is never returned, or 0 when
+it has none. The runtime calls it with its directory lock held, so it must not allocate. A checked
+build with no such function, or with another signature, is rejected (E2588). Such a build runs only
+with 4-level paging: under 5-level paging (CR4.LA57) it panics at startup, before `main`. If this
 pointer encoding cannot represent a target's addresses (5-level paging, for one), the implementation must supply another
 suitable protection or statically prove safety; otherwise the operation is a compile error. Required
 early-boot/interrupt protection cannot allocate, wait or fail contrary to those contexts' contracts.
@@ -813,6 +817,7 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | static object (a `&T{}` in a package initializer) | `.static.N` (local) |
 | float constant | `pluto.const.<hex>` |
 | per-CPU block's self word (offset 0 of `.percpu`) | `pluto.percpu.self` |
+| a checked freestanding program's source of generation metadata (section 1.3) | `pluto_gen_metadata` |
 
 Symbols contain `/`, `*`, `(`, `[` and `·`, so assembly quotes them: `"pluto/syscall.Syscall"`.
 A `//pu:extern name` function refers to the symbol `name`; a body-less function without it refers to its

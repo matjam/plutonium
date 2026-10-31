@@ -124,9 +124,9 @@ every command (`build`, `run`, `version`, `explain`, `vet`, `test`, `fmt`, `doc`
   environment (`PLUTO_SSACHECK=1 go test ./tests`; the harness passes its environment on).
 - Hosted builds have generation checks by default (`docs/spec/abi.md` section 1.3);
   `pluto build --gencheck=false` (and `pluto test -gencheck=false`) is the unchecked mode, and
-  `PLUTO_GENCHECK=0 go test ./tests` runs the suite in it. Freestanding and kernel builds must pass
-  `--gencheck=false` until generation checks support them (roadmap item 101); without it the build is an
-  error, and `PLUTO_GENCHECK=0` does not change that.
+  `PLUTO_GENCHECK=0 go test ./tests` runs the suite in it. Freestanding and kernel builds are checked
+  by default too, and a checked one must export its metadata source as `pluto_gen_metadata`
+  (abi.md section 1.3; E2588 without it); `--gencheck=false` builds them unchecked with no source.
 - Format Plutonium source (gofmt's rules plus the Plutonium syntax):
   `pluto fmt -l <paths>` lists files that differ, `-w` rewrites them, `-d`
   shows a diff. The formatter is `compiler/internal/syntax/printer` and

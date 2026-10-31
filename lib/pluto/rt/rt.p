@@ -328,7 +328,7 @@ func panicStaleRange(p unsafe.Pointer, n uintptr) {
 	bits := *(*uintptr)(unsafe.Pointer(&p))
 	a := uintptr(p)
 	end := a + n
-	if n != 0 && end >= a && end <= uintptr(1)<<48 {
+	if end > a && (end-1)^a < 1<<47 {
 		for b := a; b < end; b = min(end, (b&^15)+16) {
 			q := unsafe.Pointer(genRetag(b, bits))
 			if !GenRegisteredLive(q) {

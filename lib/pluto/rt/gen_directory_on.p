@@ -63,7 +63,11 @@ type genRecord struct {
 // untagged address. Each entry is 0 or a leaf of genLeafSize interval
 // pointers indexed by bits 31..16. Leaves and intervals are published
 // once, fully initialized, and never freed or replaced, so a lookup is two
-// dependent loads whatever the size of the heap.
+// dependent loads whatever the size of the heap. An interval number i is
+// an address shifted right by 16, so its bits 47..32 are bits 31..16 of
+// i; the bits above them copy bit 47 in a canonical address and are
+// masked off, so the upper half (a kernel's) indexes entries 0x8000 and
+// up and the lower half the rest.
 var genTop [genLeafSize]uint64
 
 const genLeafSize = 1 << 16
@@ -109,18 +113,20 @@ func GenQuarantine(token uintptr) {
 }
 
 // genMetadata bypasses all program allocators, including their locks and
-// registration hooks. Storage is pooled and is never unmapped.
+// registration hooks. Storage comes from genPages (Mmap in hosted builds,
+// the program's metadata source in freestanding and kernel builds), is
+// zero, is pooled and is never returned.
 func genMetadata(n uintptr) unsafe.Pointer {
 	n = (n + 15) &^ 15
 	if n > 65536 {
-		p := Mmap(n)
+		p := genPages(n)
 		if p == nil {
 			panic("out of memory for generation metadata")
 		}
 		return p
 	}
 	if genPoolEnd-genPool < n {
-		p := Mmap(65536)
+		p := genPages(65536)
 		if p == nil {
 			panic("out of memory for generation metadata")
 		}
@@ -135,17 +141,14 @@ func genMetadata(n uintptr) unsafe.Pointer {
 // genBucket returns the leaf slot of interval i, or nil when no leaf
 // covers it. Creating a leaf needs the writer lock.
 func genBucket(i uintptr, create bool) *uint64 {
-	if i>>16 >= genLeafSize {
-		return nil
-	}
-	top := &genTop[i>>16]
+	top := &genTop[i>>16&(genLeafSize-1)]
 	leaf := uintptr(vload64(top))
 	if leaf == 0 {
 		if !create {
 			return nil
 		}
-		// Mmap memory is zero: every slot of a new leaf is empty before
-		// the leaf is published.
+		// Metadata is zero: every slot of a new leaf is empty before the
+		// leaf is published.
 		leaf = uintptr(genMetadata(genLeafSize * 8))
 		store64(top, uint64(leaf))
 	}
@@ -162,10 +165,7 @@ func genBucket(i uintptr, create bool) *uint64 {
 //
 //pu:inline
 func genSlot(i uintptr) *uint64 {
-	if i>>16 >= genLeafSize {
-		return nil
-	}
-	leaf := uintptr(vload64((*uint64)(unsafe.Add(unsafe.Pointer(&genTop), i>>16*8))))
+	leaf := uintptr(vload64((*uint64)(unsafe.Add(unsafe.Pointer(&genTop), i>>16&(genLeafSize-1)*8))))
 	if leaf == 0 {
 		return nil
 	}
@@ -375,7 +375,7 @@ func GenRegisteredRangeLive(p unsafe.Pointer, n uintptr) bool {
 	}
 	a := uintptr(p)
 	end := a + n
-	if end >= a && end <= uintptr(1)<<48 && genFirstLive(a, end, genTagOf(bits)) {
+	if end > a && (end-1)^a < 1<<47 && genFirstLive(a, end, genTagOf(bits)) {
 		return true
 	}
 	return genRangeLive(p, n)
@@ -434,7 +434,7 @@ func genRangeLive(p unsafe.Pointer, n uintptr) bool {
 	bits := *(*uintptr)(unsafe.Pointer(&p))
 	a := uintptr(p)
 	end := a + n
-	if end < a || end > uintptr(1)<<48 {
+	if end <= a || (end-1)^a >= 1<<47 {
 		return false
 	}
 	tag := genTagOf(bits)

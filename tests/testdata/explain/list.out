@@ -266,6 +266,7 @@ E2584  ContextWaits
 E2585  ContextSpawns
 E2586  InitAllocates
 E2587  InitSpawns
+E2588  NoGenMetadata
 E2590  GoCapturingLiteral
 E2591  GoBuiltin
 E2592  BadScheduler

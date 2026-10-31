@@ -909,6 +909,13 @@ func init() {
 			Spec: pspec("15.2", "Package initialization"),
 		}),
 		pu.New(Entry{
+			Code: NoGenMetadata, Name: "NoGenMetadata",
+			Text: "A checked freestanding or kernel build tags heap pointers, and the runtime keeps their generations in metadata it allocates outside the heap. With no operating system to map that memory, the program supplies it: a function exported as pluto_gen_metadata, with the signature func(n uintptr) uintptr, that returns the address of n bytes the runtime keeps for good, or 0 when it has none. The runtime zeroes the memory and calls the function with its writer lock held, so the function must not allocate from the heap. This build exports no such function, or exports one with another signature.",
+			Why:  "The source is bound when the program is linked, like the panic handler, so a kernel cannot start checked without one. The runtime asks for 64 KiB at a time, and 512 KiB for each 4 GiB of address space the heap uses; metadata is about a quarter of the tagged memory.",
+			Fix:  pu.New(Fix{Intro: "Export a metadata source, or build with --gencheck=false for a deliberate unchecked build", Code: "var metadata [4 << 20]byte\nvar metadataUsed uintptr\n\n//pu:export pluto_gen_metadata\nfunc genMetadata(n uintptr) uintptr {\n\tif metadataUsed+n > uintptr(len(metadata)) {\n\t\treturn 0\n\t}\n\tp := uintptr(unsafe.Pointer(&metadata)) + metadataUsed\n\tmetadataUsed += n\n\treturn p\n}"}),
+			Spec: pspec("18.11", "Generation checks"),
+		}),
+		pu.New(Entry{
 			Code: UnknownDirective, Name: "UnknownDirective",
 			Text:    "A comment that starts with //pu: and no space is a directive: an instruction to the compiler. This one has a name the compiler does not know, so it would do nothing. A misspelt directive that was ignored could silently leave out an interrupt handler, a per-CPU variable or an inlining request, so the compiler reports it.\nThe directives are: build, inline, noinline, nochecks, extern, export, section, interrupt (and its form interrupt trap), noreturn, noescape, resultholds, panic, blocking, scheduler, nosimd, fpu, percpu and stack.\nA comment that is only a note should start with // and a space.",
 			Why:     "Go ignores unknown //go: comments, which makes a typo easy to miss. Plutonium directives change what the program means, so a typo must not go unnoticed.",

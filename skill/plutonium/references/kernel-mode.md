@@ -12,9 +12,11 @@ copy from: `testdata/kernel/` (smoke, irq, panic, sched, gsuser).
 | freestanding | `pluto build --mode freestanding --gencheck=false --target x86_64-none -o k.elf ./dir` | `amd64 none freestanding` | no OS packages; **you** provide the entry point, the panic handler and, for tasks/channels/waiting, a scheduler; no default allocator |
 | kernel | `pluto build --mode kernel --gencheck=false ...` | `amd64 none freestanding kernel` | freestanding plus ring-0 code generation: no red zone, **no floating point**, `//pu:percpu`, linked in the top 2 GiB with a default script |
 
-- Freestanding and kernel builds **must pass `--gencheck=false`** for now: generation checks do not support them
-  yet (roadmap item 101), and leaving the default is an error rather than a silent unchecked build (section
-  18.11). The build is unchecked: a use of freed heap memory is not detected.
+- Freestanding and kernel builds have generation checks by default (section 18.11). A checked one must export
+  the runtime's metadata source, `//pu:export pluto_gen_metadata` on a `func(n uintptr) uintptr` that returns
+  `n` bytes of page-aligned memory it never takes back, or 0 (abi.md section 1.3); it must not allocate. Without
+  it the build fails with E2588. A checked kernel refuses to start under 5-level paging. `--gencheck=false`
+  builds unchecked, with no source: a use of freed heap memory is then not detected.
 - `--ldscript file` gives your own linker script, `--format binary` writes a flat image, `-c` writes only the
   object file (the checker uses it), `--fieldnames` records struct field names for `%+v` (off in kernel mode).
 - Files select themselves by tag: `//pu:build kernel` before the package clause, or a name suffix

@@ -68,6 +68,22 @@ func (b *bumpPages) FreePages(p unsafe.Pointer, n uintptr) {}
 
 var pages bumpPages
 
+// Generation metadata, in a checked build: the runtime's source, which it
+// calls with the directory's writer lock held, so it must not allocate.
+var metadata aligned[[4 << 20]byte, 4096]
+
+var metadataUsed uintptr
+
+//pu:export pluto_gen_metadata
+func genMetadata(n uintptr) uintptr {
+	if metadataUsed+n > uintptr(len(metadata)) {
+		return 0
+	}
+	p := uintptr(unsafe.Pointer(&metadata)) + metadataUsed
+	metadataUsed += n
+	return p
+}
+
 // ----------------------------------------------------------------------------
 // The scheduler: the runtime's contract, implemented for one processor.
 

@@ -287,6 +287,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 	l.checkInterrupts()
 	l.checkCDecls()
 	l.lowerExports()
+	l.checkGenMetadata()
 	for {
 		for len(l.queue) > 0 && len(l.errs) < 50 {
 			job := l.queue[0]

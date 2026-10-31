@@ -90,7 +90,7 @@ const buildFlagUsage = `Flags:
   -g, --debug             emit DWARF debugging information (-g=false to omit it) (default true)
       --fieldnames        record struct field names in type descriptors, for %%+v and %%#v (default true, false in kernel mode) (default true)
       --format string     output format: elf or binary (default "elf")
-      --gencheck          check heap pointers' generations on every access, so a use of freed memory panics (--gencheck=false is the unchecked mode, required in freestanding and kernel builds for now) (default true)
+      --gencheck          check heap pointers' generations on every access, so a use of freed memory panics (--gencheck=false is the unchecked mode; a checked freestanding or kernel program exports pluto_gen_metadata) (default true)
   -h, --help              help for %s
       --inlinenotes       print a note for each call to a //pu:inline function that was not inlined, and why
       --ldscript string   linker script (kernel mode has a default, see abi.md section 10.3)
@@ -455,10 +455,9 @@ func buildConfig(c *command, args []string) (*build.Config, error) {
 	mode := c.str("mode")
 	format := c.str("format")
 	genCheck := c.boolean("gencheck")
-	// Unless asked, a hosted build gets generation checks. A freestanding
-	// or kernel build must ask for none with --gencheck=false until the
-	// checks support it (spec section 18.11, roadmap item 101); Check
-	// reports one that does not.
+	// Unless asked, a build gets generation checks (unless PLUTO_GENCHECK
+	// is 0); --gencheck=false is the deliberate unchecked build (spec
+	// section 18.11).
 	askCheck, askNoCheck := c.changed["gencheck"] && genCheck, c.changed["gencheck"] && !genCheck
 	fieldNames := "" // the mode's default
 	if c.changed["fieldnames"] {

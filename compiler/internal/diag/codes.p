@@ -63,6 +63,7 @@ const (
 	ContextSpawns       Code = "E2585" // an interrupt handler or the panic handler can reach a task statement
 	InitAllocates       Code = "E2586" // package initialization in a freestanding build can reach an allocation
 	InitSpawns          Code = "E2587" // package initialization can reach task creation
+	NoGenMetadata       Code = "E2588" // a checked freestanding or kernel build that exports no metadata source
 
 	// Tasks and the scheduler.
 	GoCapturingLiteral Code = "E2590" // go of a function literal that captures variables

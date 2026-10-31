@@ -1,7 +1,7 @@
 # Kernel lifetime protection (roadmap item 101)
 
-**Status:** approved 2026-10-28 (decision D41; section 6). Phases 0 and 1 are
-done (section 7). It adds no language rule. Sections
+**Status:** approved 2026-10-28 (decision D41; section 6). Phases 0, 1 and 2
+are done (section 7). It adds no language rule. Sections
 1.2 (Design principles), 18.11 (Generation checks), 18.12 (Safe and unsafe
 code), 20.5, 20.6, 20.11 and 21.5 (Kernel and freestanding protection) define
 the subject; `docs/spec/abi.md` section 1.3 defines the encoding, canonical XOR since phase 1,
@@ -349,3 +349,40 @@ decision D41 in `docs/decisions.md`.
   228,210 to 225,786 bytes. The slowdown is the sign-extending untag
   (shift left, arithmetic shift right) where a mask was one AND. Phase 2
   measures kernels.
+- **Phase 2: done.** Freestanding and kernel builds are checked by default,
+  and `PLUTO_GENCHECK=0` and `--gencheck=false` build them unchecked.
+  - *Hook (question 2).* The program exports a function as
+    `pluto_gen_metadata`, `func(n uintptr) uintptr`, with the existing
+    `//pu:export`. The runtime of a checked freestanding build declares that
+    symbol with `//pu:extern` (`lib/pluto/rt/gen_pages_none.p`) and takes
+    every directory leaf, interval node and tag table from it, zeroing what
+    it gets; hosted builds keep `rt.Mmap` (`gen_pages_linux.p`). The linker
+    binds the two, so no directive or run-time setter is added. A
+    `//pu:scheduler` method was not used because a kernel need not have a
+    scheduler.
+  - *Missing hook (question 3).* Lowering rejects a checked freestanding
+    build that exports no `pluto_gen_metadata`, or one with another
+    signature, with E2588 (NoGenMetadata).
+  - *Paging (question 1).* An `rt` initializer reads CR4.LA57 when it runs
+    in ring 0 and panics with a message that says to build with
+    `--gencheck=false` under 5-level paging. A kernel-mode program running
+    in ring 3 skips the check.
+  - *Upper half.* The directory indexes its top level with address bits
+    47..32 masked to 16 bits, so a canonical upper-half address uses entries
+    0x8000 and up; range checks test that a range does not cross bit 47
+    instead of comparing with 2^48.
+  - *Tests.* `TestKernelGenCheck` (`testdata/kernel/gencheck`) boots a
+    checked kernel whose heap is in the top 2 GiB: live accesses pass,
+    including in an interrupt handler raised inside the metadata source
+    while the runtime holds `genWriter`, and section 18.11's example panics
+    with "use of freed memory" through the `//pu:panic` handler.
+    `TestKernelScheduler` runs `testdata/kernel/sched` checked and
+    unchecked. `TestGenCheckNonHosted` checks E2588 and the unchecked
+    builds. The LA57 refusal has no QEMU test: the boot code sets up 4-level
+    paging only.
+  - *Measured* on `testdata/kernel/sched` at `-O2`: text grows from 274,610
+    to 429,301 bytes (+56%) and bss from 12,613,800 to 13,401,056 bytes
+    (+787 KiB, mostly the 512 KiB directory top level). At the end of the
+    run the kernel has taken 2,740,224 bytes of heap pages and its source
+    has handed out 983,040 bytes of metadata, of which one 512 KiB leaf is
+    fixed and the rest (448 KiB) is about 17% of the heap pages.

@@ -534,16 +534,20 @@ func TestKernelScheduler(t *testing.T) {
 		"cubes 36\n" +
 		"waited 3\n" +
 		"done\n"
-	for _, level := range []int{0, 2} {
-		t.Run(strings.TrimPrefix(optFlag(level), "-"), func(t *testing.T) {
-			t.Parallel()
-			// The ELF image builds too.
-			buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--gencheck=false")
-			image := buildProgram(t, dir, optFlag(level), "--mode", "kernel", "--gencheck=false", "--format", "binary")
-			if got := bootKernel(t, qemu, image); got != want {
-				t.Errorf("serial output differs\n--- got ---\n%s--- want ---\n%s", got, want)
-			}
-		})
+	// The image runs checked (the default; its metadata comes from
+	// pluto_gen_metadata) and unchecked.
+	for _, check := range []string{"--gencheck=true", "--gencheck=false"} {
+		for _, level := range []int{0, 2} {
+			t.Run(strings.TrimPrefix(optFlag(level), "-")+"/"+strings.TrimPrefix(check, "--"), func(t *testing.T) {
+				t.Parallel()
+				// The ELF image builds too.
+				buildProgram(t, dir, optFlag(level), "--mode", "kernel", check)
+				image := buildProgram(t, dir, optFlag(level), "--mode", "kernel", check, "--format", "binary")
+				if got := bootKernel(t, qemu, image); got != want {
+					t.Errorf("serial output differs\n--- got ---\n%s--- want ---\n%s", got, want)
+				}
+			})
+		}
 	}
 }
 

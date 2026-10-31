@@ -37,8 +37,11 @@ against the corrected specification. The immediate implementation order is:
      build passes the flag. Phase 1 is done: tags use the canonical XOR encoding of abi.md
      section 1.3 (untag is sign extension from bit 47), with hosted results unchanged; the
      checked compiler is 0.05% larger and about 5% slower (plan section 7 has the numbers).
-     Remaining: checked kernel builds with a link-time metadata hook on 4-level paging (phase
-     2), then the early-boot, interrupt and arena work of phases 3 and 4.
+     Phase 2 is done: freestanding and kernel builds are checked by default. A checked one
+     exports its metadata source as `pluto_gen_metadata` (abi.md section 1.3), or the build
+     fails with E2588, and it refuses to start under 5-level paging. A checked kernel boots
+     in QEMU and catches section 18.11's stale view through its panic handler.
+     Remaining: the early-boot, interrupt and arena work of phases 3 and 4.
      Design: [kernel lifetime protection](plans/2026-10-28-kernel-lifetime-protection.md).
 102. **Outstanding aliases during owner transfer** (done; sections 8.8, 19.3). Probes in `tests/race/transfer*`
      (11 accepted, 30 rejected) borrow an owner's memory through a field or a helper, then move the

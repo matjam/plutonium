@@ -91,6 +91,72 @@ panic: kernel nested
 	}
 }
 
+// TestKernelGenCheck boots testdata/kernel/gencheck, a kernel-mode kernel
+// built with generation checks (roadmap item 101, phase 2), under QEMU. Its
+// heap and metadata are static arrays in the upper half. In the live
+// scenario checks of live memory pass, also in an interrupt handler entered
+// while the runtime holds the directory's writer lock, and the kernel
+// leaves QEMU with status 0. In the stale scenario, section 18.11's
+// example, the check catches the use of freed memory and the panic handler
+// leaves QEMU with status 3.
+func TestKernelGenCheck(t *testing.T) {
+	t.Parallel()
+	qemu := needQEMU(t)
+	src := filepath.Join("..", "testdata", "kernel", "gencheck")
+	files := map[string]string{
+		"main.p":       filepath.Join(src, "main.p"),
+		"int_amd64.s":  filepath.Join(src, "int_amd64.s"),
+		"boot_amd64.s": filepath.Join("..", "testdata", "kernel", "smoke", "boot_amd64.s"),
+	}
+	cases := []struct {
+		scenario string
+		want     string // a regular expression
+		status   int    // QEMU's exit status: (code << 1) | 1
+	}{
+		{"live", `scenario live
+upper half true tagged true
+sum 49
+source called true handler saw 42
+metadata used true
+`, 1},
+		{"stale", `scenario stale
+panic: runtime error: use of freed memory[^\n]*
+(.*\n)*`, 7},
+	}
+	for _, c := range cases {
+		for _, level := range []int{0, 2} {
+			for _, check := range []string{"default", "--gencheck=true"} {
+				t.Run(c.scenario+"/O"+string(rune('0'+level))+"/"+strings.TrimPrefix(check, "--"), func(t *testing.T) {
+					t.Parallel()
+					tree := map[string]string{
+						"scenario.p": "package main\n\nconst scenario = \"" + c.scenario + "\"\n",
+					}
+					for name, from := range files {
+						data, err := os.ReadFile(from)
+						if err != nil {
+							t.Fatal(err)
+						}
+						tree[name] = string(data)
+					}
+					flags := []string{optFlag(level), "--mode", "kernel", "--format", "binary"}
+					if check != "default" {
+						flags = append(flags, check)
+					}
+					image := mustBuild(t, tree, flags...)
+					want := regexp.MustCompile(`\A` + c.want + `\z`)
+					out, status, running := runQEMU(t, qemu, image, want)
+					if !want.MatchString(out) {
+						t.Errorf("serial output\n%s\nwant a match for\n%s", out, want)
+					}
+					if running || status != c.status {
+						t.Errorf("QEMU exit status %d (running %v), want %d", status, running, c.status)
+					}
+				})
+			}
+		}
+	}
+}
+
 // syncBuffer is a bytes.Buffer safe for one writer and one reader.
 type syncBuffer struct {
 	mu  sync.Mutex

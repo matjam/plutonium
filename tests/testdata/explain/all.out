@@ -4486,6 +4486,39 @@ Start the task from main or a function main calls:
 
 See "Package initialization" in the Plutonium spec, section 15.2.
 
+E2588: NoGenMetadata
+
+A checked freestanding or kernel build tags heap pointers, and the runtime keeps
+their generations in metadata it allocates outside the heap. With no operating
+system to map that memory, the program supplies it: a function exported as
+pluto_gen_metadata, with the signature func(n uintptr) uintptr, that returns the
+address of n bytes the runtime keeps for good, or 0 when it has none. The
+runtime zeroes the memory and calls the function with its writer lock held, so
+the function must not allocate from the heap. This build exports no such
+function, or exports one with another signature.
+
+The source is bound when the program is linked, like the panic handler, so a
+kernel cannot start checked without one. The runtime asks for 64 KiB at a time,
+and 512 KiB for each 4 GiB of address space the heap uses; metadata is about a
+quarter of the tagged memory.
+
+Export a metadata source, or build with --gencheck=false for a deliberate unchecked build:
+
+    var metadata [4 << 20]byte
+    var metadataUsed uintptr
+
+    //pu:export pluto_gen_metadata
+    func genMetadata(n uintptr) uintptr {
+        if metadataUsed+n > uintptr(len(metadata)) {
+            return 0
+        }
+        p := uintptr(unsafe.Pointer(&metadata)) + metadataUsed
+        metadataUsed += n
+        return p
+    }
+
+See "Generation checks" in the Plutonium spec, section 18.11.
+
 E2590: GoCapturingLiteral
 
 A function literal that uses variables of the function around it reaches them in
