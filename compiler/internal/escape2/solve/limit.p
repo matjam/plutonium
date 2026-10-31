@@ -16,8 +16,13 @@ import (
 // the corpus and the three review suites, 813,235 solves): the largest is
 // main.main of testdata/lib/chunked.p at 67 MB and 17 million steps (26,589
 // nodes from its many calls, 221 tokens); the most tokens of one input are
-// 1,089 (pluto/hash.NewSet).
-const MaxFuncArena = 256 << 20
+// 1,089 (pluto/hash.NewSet). Since the conjunctions of a join's receiver
+// filter and a member's own (sched.join, 2026-10-30), the largest is
+// types2's (*unifier).nify, at 263 to 288 MB in a checked build: its
+// operands' Underlying calls reach Alias.Underlying, whose own Underlying
+// call through an interface gives each round of the recursion its own
+// conjunct, up to the path limits.
+const MaxFuncArena = 512 << 20
 
 // MaxFuncSteps bounds the work of one solve (constraint firings and edge
 // transforms), an implementation limit like MaxFuncArena: a function that

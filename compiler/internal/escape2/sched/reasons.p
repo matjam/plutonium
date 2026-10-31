@@ -34,7 +34,7 @@ func wellFounded(comp []eir.FuncID, env *env, solveOne func(id eir.FuncID) solve
 	derivs := map[eir.FuncID][][]summary.Reason{}
 	for _, id := range comp {
 		r := solveOne(id)
-		findings[id] = r.Findings
+		findings[id] = keepLimit(findings[id], r.Findings)
 		if r.Limit != nil || r.Summary == nil {
 			continue
 		}

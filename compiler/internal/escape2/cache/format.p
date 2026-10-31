@@ -30,7 +30,8 @@ import (
 //	keys     := uvarint(n) key*            (sorted by bytes)
 //	pairs    := uvarint(n) (key key)*      (sorted by bytes)
 //	key      := uvarint(input<<1 | Strict) byte(flags: 1 GE, 2 Borrowed, 4 Counts, 8 DirectCount, 16 FieldsGE, 32 Deep, 64 Filter, 128 Arena) path [filter]
-//	filter   := uvarint(position) uvarint(n) string(atom text)*  (domain.Atom.Text, in the filter's order)
+//	filter   := uvarint(position) atoms
+//	atoms    := uvarint(n) string(atom text)* uvarint(rel) [atoms]  (domain.Atom.Text, in the filter's order; its conjunct rel steps on, when rel is not 0)
 //	path     := uvarint(n) varint(step)*   (StepLoad -2, StepElem -1, field >= 0)
 //	result   := uvarint(n) (key path byte(fieldGE))* paths(heap) paths(counted)
 //	paths    := uvarint(n) path*           (sorted by bytes)
@@ -93,12 +94,25 @@ func appendKey(b []byte, ps domain.Paths, k domain.Key) []byte {
 	b = appendPath(b, ps, k.Path())
 	if hasFilter {
 		b = compat.AppendUvarint(b, uint64(pos))
-		b = compat.AppendUvarint(b, uint64(len(filt.Atoms)))
-		for _, a := range filt.Atoms {
-			b = appendString(b, a.Text())
-		}
+		b = appendFilter(b, ps, filt)
 	}
 	return b
+}
+
+// appendFilter appends filter f's atoms and its conjunct (domain.Filter.Inner).
+func appendFilter(b []byte, ps domain.Paths, f domain.Filter) []byte {
+	for {
+		b = compat.AppendUvarint(b, uint64(len(f.Atoms)))
+		for _, a := range f.Atoms {
+			b = appendString(b, a.Text())
+		}
+		in, ok := ps.Filters().Get(f.Inner)
+		if !ok || f.Rel == 0 {
+			return compat.AppendUvarint(b, 0)
+		}
+		b = compat.AppendUvarint(b, uint64(f.Rel))
+		f = in
+	}
 }
 
 // appendSorted appends n encoded items, sorted by their bytes.
@@ -342,33 +356,58 @@ func (r *reader) key(ps domain.Paths, inputs int) domain.Key {
 	})
 	if fl&flagFilter != 0 {
 		pos := r.uvarint()
-		n := r.count(1)
-		var f domain.Filter
-		known := r.atom != nil
-		for i := 0; i < n && r.err == nil; i++ {
-			text := r.str()
-			if !known {
-				continue
-			}
-			a, ok := r.atom(text)
-			if !ok {
-				known = false
-				continue
-			}
-			f.Atoms = compat.Append(f.Atoms, a)
-		}
+		id, known := r.filter(ps, 0)
 		if r.err != nil {
 			return 0
 		}
-		if n == 0 || pos > uint64(len(ps.Steps(p))) || pos > 15 {
+		if pos > uint64(len(ps.Steps(p))) || pos > 15 {
 			r.fail()
 			return 0
 		}
 		if known {
-			k = k.WithFilter(ps, ps.Filters().Intern(f), int(pos))
+			k = k.WithFilter(ps, id, int(pos))
 		}
 	}
 	return k
+}
+
+// filter reads a filter's atoms and its conjunct, depth conjuncts in, and
+// interns it; known is false when an atom is not resolved (reader.atom).
+// A conjunct that is not resolved is dropped, which only widens.
+func (r *reader) filter(ps domain.Paths, depth int) (domain.FilterID, bool) {
+	n := r.count(1)
+	var f domain.Filter
+	known := r.atom != nil
+	for i := 0; i < n && r.err == nil; i++ {
+		text := r.str()
+		if !known {
+			continue
+		}
+		a, ok := r.atom(text)
+		if !ok {
+			known = false
+			continue
+		}
+		f.Atoms = compat.Append(f.Atoms, a)
+	}
+	rel := r.uvarint()
+	if r.err == nil && (n == 0 || rel > 15 || rel != 0 && depth >= 15) {
+		r.fail()
+	}
+	if r.err != nil {
+		return 0, false
+	}
+	var id domain.FilterID
+	if known {
+		id = ps.Filters().Intern(f)
+	}
+	if rel != 0 {
+		in, ok := r.filter(ps, depth+1)
+		if known && ok {
+			id = ps.Filters().Conj(id, in, int(rel))
+		}
+	}
+	return id, known
 }
 
 // minKey is the fewest bytes a key takes.

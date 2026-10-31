@@ -49,6 +49,23 @@ func limitResult(f *eir.Func, env solve.Env) solve.Result {
 	}
 }
 
+// keepLimit gives the findings of a function's latest solve, next, with
+// prev those of its solve before. A solve past the limits gave the function
+// the top summary, and the join keeps it in the function's summary for good,
+// though a later solve of the SCC's iteration fits in the limits: the
+// function stays past them, its E3010 stays, and its own frame stays
+// unchecked. Without this the last solve's findings hid the E3010, and the
+// top summary's entries showed up as frame errors with no well-founded
+// reason (a chain of the function's recursive calls).
+func keepLimit(prev, next []solve.Finding) []solve.Finding {
+	for _, fd := range prev {
+		if fd.Code == codeEscapeLimit {
+			return compat.Clone([]solve.Finding{fd})
+		}
+	}
+	return next
+}
+
 // topSummary is the summary of a function that may do anything with what
 // it is passed: every input, and everything reachable from it, escapes;
 // every input may be stored into memory every input leads to, and filled

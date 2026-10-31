@@ -142,7 +142,6 @@ type solver struct {
 	edgeSeen, consSeen table
 	dsts               table // (In token ID, tag|tagGE<<32) -> storeDst (fire)
 	cuts               table // key -> summary.CutKey of it (addCutPair)
-	rawCuts            table // the uncut pairs addCutPair has seen
 	dtoks              []tok // process: the new tokens of the node, decoded
 	wide               table // (node<<32|base, path or wideAny): the node's GE and Deep In tokens (addID)
 	places             table // (o<<1|pg, path) -> node
@@ -764,8 +763,18 @@ func (s *solver) keyNodeOf(base uint32, k domain.Key) uint32 {
 		steps := s.ps.Steps(k.Path())
 		if pos <= len(steps) {
 			pre, _ := s.pathOf(steps[:pos])
-			suf, _ := s.pathOf(steps[pos:])
 			base = s.filterNode(s.valNode(base, pre, false), id)
+			rest := steps[pos:]
+			// Its conjuncts (domain.Filter.Inner), each further down
+			// the path; one past the path's end is dropped, which only
+			// widens. An In token through the first filter takes the
+			// whole conjunction (filterTok), and the later ones leave it.
+			for f, ok := s.filterOf(id); ok && f.Inner != 0 && int(f.Rel) <= len(rest); f, ok = s.filterOf(f.Inner) {
+				mid, _ := s.pathOf(rest[:f.Rel])
+				base = s.filterNode(s.valNode(base, mid, false), f.Inner)
+				rest = rest[f.Rel:]
+			}
+			suf, _ := s.pathOf(rest)
 			k = domain.MakeKey(k.Input(), suf, k.Flags())
 		} else {
 			k = k.NoFilter()
@@ -1248,11 +1257,10 @@ func (s *solver) addStorePair(src, dst domain.Key, why uint64) {
 }
 
 // addCutPair adds a store pair of an input past MaxRawStorePerInput, cut.
+// A repeat is found by the cut pair, not by the raw one: a set of every raw
+// pair past the cut held tens of MB, and took (*unifier).nify of types2
+// past MaxFuncArena.
 func (s *solver) addCutPair(src, dst domain.Key, why uint64) {
-	// A pair seen before cuts to a pair added before.
-	if !s.rawCuts.add(s.a, uint64(src), uint64(dst)) {
-		return
-	}
 	src, dst = s.cutKey(src), s.cutKey(dst)
 	if s.sumSeen.add(s.a, uint64(src)|sCutStore<<60, uint64(dst)) {
 		s.store.push(s.a, uint64(src))

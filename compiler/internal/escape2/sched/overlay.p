@@ -79,6 +79,11 @@ func newOverlay(ix *pathIndex) *overlay {
 
 func (o *overlay) isOwn(p domain.PathID) bool { return p >= o.baseLen }
 
+// made reports whether the overlay made p: one of its own paths it has.
+func (o *overlay) made(p domain.PathID) bool {
+	return p >= o.baseLen && int(p-o.baseLen) < len(o.parent)
+}
+
 func (o *overlay) Len() int { return int(o.baseLen) + len(o.parent) }
 
 // Filters is the interner's type filters: a solve makes them in the shared

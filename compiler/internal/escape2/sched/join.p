@@ -118,19 +118,113 @@ func (v *virtuals) changedFunc(id eir.FuncID) {
 // summary returns the join for virtual function id, given the current
 // summary of each member (nil: bottom).
 func (v *virtuals) summary(id eir.FuncID, sum func(eir.FuncID) *summary.Summary) *summary.Summary {
+	return v.summaryIn(nil, id, sum)
+}
+
+// summaryIn is summary for a parallel solve, whose new paths are made in
+// its overlay ov (nil: none, the interner's own). The interner is read
+// only while solves run at once (overlay.go), and a join can make paths
+// (loadKey, fieldsKey): with the interner's, two workers' joins made paths
+// in it at once, which corrupted it. So the join makes its paths in an
+// overlay of its own, dropped after it. A join that holds none of them is
+// cached; one that does is not (the interner does not have them), and its
+// paths are made in ov, the solve's own, committed with it. Neither
+// depends on what another worker did: a join a solve finds in the cache
+// would have made it no path of its own.
+func (v *virtuals) summaryIn(ov *overlay, id eir.FuncID, sum func(eir.FuncID) *summary.Summary) *summary.Summary {
 	i := int(id) - len(v.p.Funcs)
 	if !v.dirty[i] && v.cache[i] != nil {
 		return v.cache[i]
 	}
+	var ps domain.Paths = v.paths
+	var tmp *overlay
+	if ov != nil {
+		tmp = newOverlay(ov.ix)
+		ps = tmp
+	}
 	// The join's work is garbage once it is done: in a solve it runs in
 	// the solve's scratch memory, and only the joined summary, which the
 	// cache keeps past the solve, is copied to the caller's memory.
-	s := join(v.p, v.paths, v.sets[i], v.iface[i], v.field[i], sum)
+	s := join(v.p, ps, v.sets[i], v.iface[i], v.field[i], sum)
+	own := tmp != nil && anyPath(s, tmp.made)
+	if own {
+		made := map[domain.PathID]domain.PathID{}
+		remapSummary(ov, s, func(p domain.PathID) domain.PathID {
+			if !tmp.made(p) {
+				return p
+			}
+			if q, ok := made[p]; ok {
+				return q
+			}
+			q := domain.Root
+			for _, st := range tmp.Steps(p) {
+				q, _ = ov.Extend(q, st)
+			}
+			made[p] = q
+			return q
+		})
+	}
 	r := scratch.Outer()
 	s = clone(s)
 	r.Restore()
-	v.cache[i], v.dirty[i] = s, false
+	if !own {
+		v.cache[i], v.dirty[i] = s, false
+	}
 	return s
+}
+
+// anyPath reports whether a path of s satisfies f.
+func anyPath(s *summary.Summary, f func(domain.PathID) bool) bool {
+	if s == nil {
+		return false
+	}
+	key := func(k domain.Key) bool { return f(k.Path()) }
+	for _, k := range s.Esc {
+		if key(k) {
+			return true
+		}
+	}
+	for _, p := range s.Store {
+		if key(p.Src) || key(p.Dst) {
+			return true
+		}
+	}
+	for _, k := range s.HeapStore {
+		if key(k) {
+			return true
+		}
+	}
+	for r := range s.Res {
+		res := &s.Res[r]
+		for _, rk := range res.From {
+			if key(rk.Key) || f(rk.Field) {
+				return true
+			}
+		}
+		for _, p := range res.Heap {
+			if f(p) {
+				return true
+			}
+		}
+		for _, p := range res.CountedHeap {
+			if f(p) {
+				return true
+			}
+		}
+	}
+	for _, d := range s.Deferred {
+		if key(d.Fn) {
+			return true
+		}
+		for _, a := range d.Args {
+			for _, k := range a.Keys {
+				if key(k) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // join returns the join of the summaries of ids: every entry of each, the
@@ -151,7 +245,17 @@ func join(p *eir.Program, ps domain.Paths, ids []eir.FuncID, iface, fields bool,
 		// A member that only a receiver of its type reaches (a method of
 		// a pointer receiver, an interface adapter, through an interface
 		// a value method): its entries of the receiver take that type's
-		// filter at the receiver (D51, solve.RecvFilter).
+		// filter at the receiver (D51, solve.RecvFilter). An entry with a
+		// filter of its own, further down its path (the member's own call
+		// through an interface, or assertion), keeps both, the receiver's
+		// with the other as its conjunct (domain.Filters.Conj): the
+		// narrowing of section 18.3 of the spec is both. The inner one
+		// alone let the entry stand for every receiver (tabwriter's Write,
+		// a candidate of pluto/fmt's p.w.Write, keeps what its output's
+		// Write keeps, and a caller whose p.w is fmt's appendWriter was
+		// told its buffer is kept); the receiver's alone, for every
+		// destination of the member's own call (appendWriter's Write,
+		// then, keeps what any Appender's Append keeps).
 		recv := func(k domain.Key) domain.Key { return k }
 		if p != nil {
 			fid := solve.RecvFilterID(ps.Filters(), p, id, iface)
@@ -161,17 +265,17 @@ func join(p *eir.Program, ps domain.Paths, ids []eir.FuncID, iface, fields bool,
 				// at (solve.ValueRecvByData): a load past the data
 				// word, which takes the filter (loadKey).
 				recv = func(k domain.Key) domain.Key {
-					if k.Input() != 0 || k.HasFilter() {
+					if k.Input() != 0 {
 						return k
 					}
 					return loadKey(ps, k, fid, fields)
 				}
 			case fid != 0:
 				recv = func(k domain.Key) domain.Key {
-					if k.Input() != 0 || k.HasFilter() {
+					if k.Input() != 0 {
 						return k
 					}
-					return k.WithFilter(ps, fid, 0)
+					return k.WithFilter(ps, recvConj(ps, fid, k, 0), 0)
 				}
 			}
 		}
@@ -304,12 +408,25 @@ func fieldsKey(ps domain.Paths, k domain.Key, fid domain.FilterID) (domain.Key, 
 	return x, true
 }
 
+// recvConj is receiver filter fid with k's own filter as its conjunct
+// (domain.Filters.Conj), k's path shifted by shift steps: fid alone when k
+// has none, or has one at its receiver (the receiver's decides).
+func recvConj(ps domain.Paths, fid domain.FilterID, k domain.Key, shift int) domain.FilterID {
+	in, pos := k.Filter()
+	if in == 0 || pos+shift == 0 {
+		return fid
+	}
+	return ps.Filters().Conj(fid, in, pos+shift)
+}
+
 // loadKey is key k of a value receiver (input 0) as a key of the data word
 // that points at the value (solve.ValueRecvByData): a load, then k's path,
-// with filter fid at the data word. For pluto/fmt's walk (fields), which
-// gives the method the address of a value of its type anywhere in the
-// walked value, it is what a load at any offset reaches (Deep): the place
-// of k's path in the walked value is not known.
+// with filter fid at the data word, and k's own filter past the load as
+// its conjunct (recvConj); with k's own filter alone when fid is 0. For
+// pluto/fmt's walk (fields), which gives the method the address of a value
+// of its type anywhere in the walked value, it is what a load at any
+// offset reaches (Deep): the place of k's path in the walked value is not
+// known, and k's own filter is dropped.
 func loadKey(ps domain.Paths, k domain.Key, fid domain.FilterID, fields bool) domain.Key {
 	f := k.Flags()
 	var x domain.Key
@@ -328,6 +445,12 @@ func loadKey(ps domain.Paths, k domain.Key, fid domain.FilterID, fields bool) do
 			f.GE, f.FieldsGE, f.Deep = true, false, false
 		}
 		x = domain.MakeKey(0, q, f)
+		if in, pos := k.Filter(); in != 0 && !cut {
+			if fid == 0 {
+				return x.WithFilter(ps, in, pos+1)
+			}
+			return x.WithFilter(ps, recvConj(ps, fid, k, 1), 0)
+		}
 	}
 	return x.WithFilter(ps, fid, 0)
 }

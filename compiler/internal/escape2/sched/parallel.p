@@ -175,7 +175,7 @@ func (w *worker) Summary(id eir.FuncID) *summary.Summary {
 		}
 		mu := &w.pf.vmu[i%len(w.pf.vmu)]
 		mu.Lock()
-		s := e.virt.summary(id, func(m eir.FuncID) *summary.Summary { return e.sums[m] })
+		s := e.virt.summaryIn(w.ov, id, func(m eir.FuncID) *summary.Summary { return e.sums[m] })
 		mu.Unlock()
 		return s
 	}
@@ -633,7 +633,7 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 			if o.setsB > r.st.SetBytes {
 				r.st.SetBytes = o.setsB
 			}
-			findings[t.id] = o.res.Findings
+			findings[t.id] = keepLimit(findings[t.id], o.res.Findings)
 			if t.final {
 				if o.derivsOK {
 					r.derivs[t.id] = o.derivs

@@ -27,6 +27,10 @@ var compilerUnits = []compilerUnit{
 	{pkg: "internal/ssa"},
 	{pkg: "internal/opt"},
 	{pkg: "internal/arch/amd64"},
+	// typesprobe links types2 with generation checks: a cheap check that
+	// the escape analysis accepts it, which the heavy escape2 builds
+	// check only in an hour.
+	{pkg: "internal/escape2/typesprobe"},
 	{pkg: "internal/escape2/domain", heavy: true},
 	{pkg: "internal/escape2/summary", heavy: true},
 	{pkg: "internal/escape2/solve", heavy: true},
@@ -38,8 +42,9 @@ var compilerUnits = []compilerUnit{
 }
 
 // TestCompilerUnits runs pluto test on each compiler package that has unit
-// tests. The light packages run in parallel in about 90 s (scratch the
-// longest); the heavy ones about an hour, one at a time.
+// tests. The light packages run in parallel in about 8 min (typesprobe the
+// longest, the others about 90 s); the heavy ones about an hour, one at a
+// time.
 func TestCompilerUnits(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the compiler packages' unit tests")

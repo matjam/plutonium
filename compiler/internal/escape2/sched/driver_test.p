@@ -475,6 +475,71 @@ func caller() {}
 	}
 }
 
+// TestDriverLimitOnce's solver state: whether big has been past the limit.
+var limitOnceHit bool
+
+func limitOnceSolve(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
+	if f.ID == limitBig && !limitOnceHit {
+		limitOnceHit = true
+		return solve.Result{Limit: pu.New(solve.LimitError{Func: f.Name, Bytes: 1 << 30})}
+	}
+	return fakeSolve(f, env, ws)
+}
+
+func limitOnceDerivs(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
+	r := solveFunc(f, env, ws)
+	r.Summary = nil
+	return r
+}
+
+// TestDriverLimitOnce checks a member of a recursive SCC past the solver's
+// limits in one solve of the iteration only: the join keeps the top summary
+// it got, so its E3010 stays, and its later solves' findings (the frame
+// errors the top summary makes) do not take its place. Both drivers.
+func TestDriverLimitOnce(t *testing.T) {
+	withFakes(t)
+	defer restoreFakes()
+	savedSeq := sequential
+	defer func() { sequential = savedSeq }()
+	pkg := typecheck(t, `
+func big(p *int) { other(p) }
+func other(p *int) { big(p) }
+`)
+	for _, seq := range []bool{true, false} {
+		sequential = seq
+		pr := newProg()
+		big := pr.decl(lookupFunc(t, pkg, "big"))
+		other := pr.decl(lookupFunc(t, pkg, "other"))
+		big.callStatic(other, big.heap())
+		other.callStatic(big, other.heap())
+		limitBig, limitOnceHit = big.f.ID, false
+		solveFunc = limitOnceSolve
+		// The final pass gives no summary: big's is the top one, and
+		// other's holds it, whose paths are real ones, which the fake
+		// paths cannot hold for the derivations (summary.EntryDerivs).
+		solveDerivsFunc = limitOnceDerivs
+		res := RunWith(pr.p, Options{})
+		if !limitOnceHit {
+			t.Fatalf("sequential %v: big was never past the limit", seq)
+		}
+		var lim, bigOther int
+		for _, fd := range res.Findings {
+			switch {
+			case fd.Code == codeEscapeLimit && fd.Func == big.f.ID:
+				lim++
+			case fd.Func == big.f.ID:
+				bigOther++
+			}
+		}
+		if lim != 1 || bigOther != 0 {
+			t.Errorf("sequential %v: findings %+v, want only one E3010 at big", seq, res.Findings)
+		}
+		if res.Stats.Iterations < 3 {
+			t.Errorf("sequential %v: %d solves, want big solved again after its limit", seq, res.Stats.Iterations)
+		}
+	}
+}
+
 // TestDriverUnscheduledRead's solver state.
 var unschedA, unschedB eir.FuncID
 

@@ -44,6 +44,34 @@ func TestCutKeyDeep(t *testing.T) {
 	}
 }
 
+// TestCutKeyDeepOneLoad: a Deep key of one load, what a loaded pointer leads
+// to, is cut to Deep on its path through the load, never GE: GE would stand
+// for the loaded pointer itself, and a store of what *p holds into *p would
+// read, cut, as p stored into *p (types2's convertibleTo, whose closures
+// store into *cause what *cause held; a caller passing &cause was then told
+// cause is kept).
+func TestCutKeyDeepOneLoad(t *testing.T) {
+	ps := summarytest.NewPaths()
+	for _, steps := range [][]domain.Step{{7, L}, {7, L, 4}, {7, L, 4, 2}} {
+		k := key(ps, 1, false, steps...).WithDeep()
+		c := CutKey(ps, k)
+		if !c.Deep() || c.GE() || c.Path() != ps.Of(7, L) {
+			t.Fatalf("CutKey(%s Deep) = path %v Deep=%v GE=%v; want Deep on [7 load]", stepsString(steps), ps.Steps(c.Path()), c.Deep(), c.GE())
+		}
+		if !domain.Covers(ps, c, k) {
+			t.Errorf("%s: the cut does not cover the key", stepsString(steps))
+		}
+		if w := compat.AppendPlain(cloneSteps(steps), L); !domain.KeyMatches(ps, c, w) {
+			t.Errorf("%s: the cut does not stand for %s", stepsString(steps), stepsString(w))
+		}
+		for _, w := range [][]domain.Step{{7, L}, {7, L, 4}, {7}} {
+			if domain.KeyMatches(ps, c, w) {
+				t.Errorf("%s: the cut stands for %s, the loaded pointer or its offsets", stepsString(steps), stepsString(w))
+			}
+		}
+	}
+}
+
 // TestCutKeyNoLoad: a key with no load, a place in the input's own object,
 // is cut to FieldsGE on its path: it covers the key and every offset under
 // it, never a pointer found through a load (errors.As: *target = e, a store
@@ -69,6 +97,50 @@ func TestCutKeyNoLoad(t *testing.T) {
 	}
 	if c := CutKey(ps, key(ps, 1, true)); !c.GE() || c.Path() != domain.Root {
 		t.Errorf("a GE key on Root: cut to path %v GE=%v", ps.Steps(c.Path()), c.GE())
+	}
+}
+
+// TestWidenKeepsDeepFilter: a widening that cuts keys short of their type
+// filter (D51) cuts them at the filter's pointer instead, and keeps it. A
+// join of the Write methods called through an interface held entries of a
+// member's own calls through interfaces, filtered past the cut; dropped,
+// they stood for every member's receiver, and pluto/testing's buffer, held
+// by an appendWriter whose Write keeps nothing, was taken for kept.
+func TestWidenKeepsDeepFilter(t *testing.T) {
+	ps := summarytest.NewPaths()
+	const id = domain.FilterID(5)
+	s := &Summary{Inputs: 1}
+	var orig []domain.Key
+	for j := 0; j < 70; j++ {
+		k := key(ps, 0, false, 0, L, 1, L, 2, L, domain.Step(j)).WithFilterRaw(id, 5)
+		orig = compat.AppendPlain(orig, k)
+		s.Esc = compat.AppendPlain(s.Esc, k)
+	}
+	Widen(ps, s)
+	if len(s.Esc) != 1 {
+		t.Fatalf("Widen left %d keys; want 1", len(s.Esc))
+	}
+	c := s.Esc[0]
+	if f, pos := c.Filter(); f != id || pos != 5 {
+		t.Fatalf("the widened key has filter %d at %d; want %d at 5", f, pos, id)
+	}
+	if !c.GE() || c.Path() != ps.Of(0, L, 1, L, 2, L) {
+		t.Errorf("the widened key is path %v GE=%v Deep=%v; want GE on [0 load 1 load 2 load]", ps.Steps(c.Path()), c.GE(), c.Deep())
+	}
+	for _, k := range orig {
+		if !domain.Covers(ps, c, k) {
+			t.Fatalf("the widened key does not cover %v", ps.Steps(k.Path()))
+		}
+	}
+	// The cuts alone: past the filter's pointer, never short of it.
+	k := key(ps, 0, false, 7, L, 3, L, 4, L).WithDeep().WithFilterRaw(id, 4)
+	for _, c := range []domain.Key{CutKey(ps, k), rootKey(ps, k)} {
+		if f, pos := c.Filter(); f != id || pos != 4 || !c.Deep() || c.Path() != ps.Of(7, L, 3, L) {
+			t.Errorf("cut of [7 load 3 load 4 load] Deep, filter at 4: path %v Deep=%v filter %d at %d; want Deep on [7 load 3 load], filter at 4", ps.Steps(c.Path()), c.Deep(), f, pos)
+		}
+		if !domain.Covers(ps, c, k) {
+			t.Errorf("the cut does not cover the key")
+		}
 	}
 }
 

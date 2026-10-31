@@ -81,9 +81,19 @@ func SameOrigin(t, origin types2.Type) bool {
 	return ok && ok2 && n.Origin() == o.Origin()
 }
 
-// A Filter is a union of atoms, in a canonical order.
+// A Filter is a union of atoms, in a canonical order, and a conjunct
+// further down the key's path: Inner, Rel steps past the filtered pointer
+// (0: none). A key has room for one filter, and a join's member whose
+// entry is filtered at a pointer of its own (its own call through an
+// interface) and at its receiver keeps both so (Filters.Conj): the
+// pointers it stands for pass the atoms at the filter's position, then
+// the inner filter Rel steps further. The inner filter has no conjunct of
+// its own (Conj). Admits and every other use of the
+// atoms see the outer filter alone, which only widens.
 type Filter struct {
 	Atoms []Atom
+	Inner FilterID
+	Rel   uint8
 }
 
 // One is the filter of a single atom.
@@ -100,7 +110,7 @@ func (f Filter) Admits(d types2.Type) bool {
 }
 
 func (f Filter) same(g Filter) bool {
-	return slices.EqualFunc(f.Atoms, g.Atoms, Atom.same)
+	return f.Inner == g.Inner && f.Rel == g.Rel && slices.EqualFunc(f.Atoms, g.Atoms, Atom.same)
 }
 
 // FilterID names an interned filter; 0 is none.
@@ -148,8 +158,9 @@ func (fs *Filters) atomText(a Atom) string {
 	return t
 }
 
-// Intern returns the ID of f, adding it when no filter of the same atoms is
-// known; 0 when the table is full or f has no atom or too many.
+// Intern returns the ID of f, adding it when no filter of the same atoms
+// and conjunct is known; 0 when the table is full or f has no atom or too
+// many. A conjunct Intern does not know is dropped.
 func (fs *Filters) Intern(f Filter) FilterID {
 	if fs == nil || len(f.Atoms) == 0 || len(f.Atoms) > MaxAtoms {
 		return 0
@@ -185,7 +196,16 @@ func (fs *Filters) intern(f Filter) FilterID {
 		key.WriteString(x.t)
 		key.WriteByte(0)
 	}
-	f = Filter{Atoms: atoms}
+	if f.Inner != 0 && f.Rel != 0 && int(f.Inner) <= len(fs.keys) {
+		// The conjunct by its own text, so that the text names the
+		// filter whatever the IDs (Canonical).
+		key.WriteByte(1)
+		key.WriteByte(f.Rel)
+		key.WriteString(fs.keys[f.Inner-1])
+	} else {
+		f.Inner, f.Rel = 0, 0
+	}
+	f = Filter{Atoms: atoms, Inner: f.Inner, Rel: f.Rel}
 	k := key.String()
 	list := pu.Alloc[[]Filter]()
 	if l := fs.list.Load(); l != nil {
@@ -223,7 +243,11 @@ func (fs *Filters) Get(id FilterID) (Filter, bool) {
 }
 
 // Union returns the ID of the union of filters a and b; 0 (no filter) when
-// either is 0 or the union is too large.
+// either is 0 or the union is too large. When both have a conjunct at the
+// same distance, the union's conjunct is the union of theirs: (A and then
+// X) or (B and then Y) is within (A or B) and then (X or Y), which keeps
+// both narrowings of section 18.3 and widens only to the cross pairs.
+// Otherwise it has none.
 func (fs *Filters) Union(a, b FilterID) FilterID {
 	if a == b {
 		return a
@@ -245,7 +269,11 @@ func (fs *Filters) Union(a, b FilterID) FilterID {
 	var u FilterID
 	if len(fa.Atoms)+len(fb.Atoms) <= 2*MaxAtoms {
 		all := compat.Append(compat.Clone(fa.Atoms), fb.Atoms...)
-		u = fs.intern(Filter{Atoms: all})
+		f := Filter{Atoms: all}
+		if fa.Inner != 0 && fb.Inner != 0 && fa.Rel == fb.Rel {
+			f.Inner, f.Rel = fs.unionInner(fa.Inner, fb.Inner), fa.Rel
+		}
+		u = fs.intern(f)
 		if g, ok := fs.getLocked(u); ok && len(g.Atoms) > MaxAtoms {
 			u = 0
 		}
@@ -257,6 +285,163 @@ func (fs *Filters) Union(a, b FilterID) FilterID {
 	return u
 }
 
+// UnionAll returns the ID of the union of every filter of ids, as Union
+// would fold them, interned once: 0 (no filter) when one is 0 or the union
+// is too large. Folding with Union interned each partial union, one filter
+// per step: the joins of the compiler's self-build, a hundred receivers'
+// filters each and their conjuncts, filled the table (MaxFilters), and
+// every later filter, Intern's 0, became no filter: what any caller passed
+// to fmt.Errorf was then taken for kept, through the join of every String
+// method.
+func (fs *Filters) UnionAll(ids []FilterID) FilterID {
+	if len(ids) == 0 {
+		return 0
+	}
+	same := true
+	for _, id := range ids {
+		if id == 0 {
+			return 0
+		}
+		same = same && id == ids[0]
+	}
+	if same {
+		return ids[0]
+	}
+	defer scratch.Outer().Restore()
+	u := compat.Clone(ids)
+	slices.Sort(u)
+	u = slices.Compact(u)
+	var atoms, inner []Atom
+	keepInner, rel := true, uint8(0)
+	for i, id := range u {
+		f, ok := fs.Get(id)
+		if !ok {
+			return 0
+		}
+		atoms = compat.Append(atoms, f.Atoms...)
+		if keepInner {
+			g, ok := fs.Get(f.Inner)
+			if !ok || i > 0 && f.Rel != rel {
+				keepInner = false
+			} else {
+				rel = f.Rel
+				inner = compat.Append(inner, g.Atoms...)
+			}
+		}
+	}
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	if fs.tooMany(atoms) {
+		return 0
+	}
+	f := Filter{Atoms: atoms}
+	if keepInner && !fs.tooMany(inner) {
+		if in := fs.intern(Filter{Atoms: inner}); in != 0 {
+			if g, ok := fs.getLocked(in); ok && len(g.Atoms) <= MaxAtoms {
+				f.Inner, f.Rel = in, rel
+			}
+		}
+	}
+	id := fs.intern(f)
+	if g, ok := fs.getLocked(id); !ok || len(g.Atoms) > MaxAtoms {
+		return 0
+	}
+	return id
+}
+
+// tooMany reports whether atoms has more than MaxAtoms distinct texts,
+// under fs.mu: a union that large is no filter, and is not interned.
+func (fs *Filters) tooMany(atoms []Atom) bool {
+	if len(atoms) <= MaxAtoms {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, a := range atoms {
+		seen[fs.atomText(a)] = true
+	}
+	return len(seen) > MaxAtoms
+}
+
+// unionInner is the union of conjuncts a and b (which have none of their
+// own), under fs.mu: 0 (none) when it is too large.
+func (fs *Filters) unionInner(a, b FilterID) FilterID {
+	if a == b {
+		return a
+	}
+	fa, ok1 := fs.getLocked(a)
+	fb, ok2 := fs.getLocked(b)
+	if !ok1 || !ok2 || len(fa.Atoms)+len(fb.Atoms) > 2*MaxAtoms {
+		return 0
+	}
+	u := fs.intern(Filter{Atoms: compat.Append(compat.Clone(fa.Atoms), fb.Atoms...)})
+	if g, ok := fs.getLocked(u); !ok || len(g.Atoms) > MaxAtoms {
+		return 0
+	}
+	return u
+}
+
+// Conj returns the ID of filter outer with conjunct inner rel steps past
+// the pointer outer filters (Filter.Inner): outer when inner is 0, rel is
+// out of range or outer has a conjunct already, which only widens. A
+// conjunct has no conjunct of its own: inner's is dropped, which only
+// widens too. A chain of them, one per call through an interface on the
+// way (a method of types2's Type calling Underlying on a field of its
+// receiver, recursively), made a distinct filter per chain, and the
+// tokens of (*operand).convertibleTo went past MaxFuncArena (E3010).
+func (fs *Filters) Conj(outer, inner FilterID, rel int) FilterID {
+	fo, ok := fs.Get(outer)
+	if !ok || inner == 0 || rel <= 0 || rel > maxFilterPos || fo.Inner != 0 {
+		return outer
+	}
+	fi, ok := fs.Get(inner)
+	if !ok {
+		return outer
+	}
+	defer scratch.Outer().Restore()
+	return fs.Memo(pu.Box(conjKey{outer, inner, rel}), func() FilterID {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+		in := inner
+		if fi.Inner != 0 {
+			if in = fs.intern(Filter{Atoms: fi.Atoms}); in == 0 {
+				return outer
+			}
+		}
+		if c := fs.intern(Filter{Atoms: fo.Atoms, Inner: in, Rel: uint8(rel)}); c != 0 {
+			return c
+		}
+		return outer
+	})
+}
+
+type conjKey struct {
+	outer, inner FilterID
+	rel          int
+}
+
+// InnerOf returns the conjunct of filter id and its distance (0: none).
+func (fs *Filters) InnerOf(id FilterID) (FilterID, int) {
+	f, _ := fs.Get(id)
+	return f.Inner, int(f.Rel)
+}
+
+// Outer returns the ID of filter id without its conjunct, which only
+// widens: id itself when it has none; 0 (no filter) when the table is full.
+func (fs *Filters) Outer(id FilterID) FilterID {
+	f, ok := fs.Get(id)
+	if !ok || f.Inner == 0 {
+		return id
+	}
+	defer scratch.Outer().Restore()
+	return fs.Memo(pu.Box(outerKey{id}), func() FilterID {
+		fs.mu.Lock()
+		defer fs.mu.Unlock()
+		return fs.intern(Filter{Atoms: f.Atoms})
+	})
+}
+
+type outerKey struct{ id FilterID }
+
 func (fs *Filters) getLocked(id FilterID) (Filter, bool) {
 	l := fs.list.Load()
 	if id == 0 || l == nil || int(id) > len(*l) {
@@ -265,7 +450,8 @@ func (fs *Filters) getLocked(id FilterID) (Filter, bool) {
 	return (*l)[id-1], true
 }
 
-// coversID reports whether filter a's atoms include filter b's, memoized.
+// coversID reports whether filter a's atoms include filter b's, and a's
+// conjunct, if any, covers b's at the same distance, memoized.
 func (fs *Filters) coversID(a, b FilterID) bool {
 	fa, ok1 := fs.Get(a)
 	fb, ok2 := fs.Get(b)
@@ -279,8 +465,11 @@ func (fs *Filters) coversID(a, b FilterID) bool {
 		return c
 	}
 	defer scratch.Outer().Restore()
-	c = true
+	c = fa.Inner == 0 || fb.Inner != 0 && fa.Rel == fb.Rel && (fa.Inner == fb.Inner || fs.coversID(fa.Inner, fb.Inner))
 	for _, x := range fb.Atoms {
+		if !c {
+			break
+		}
 		if !slices.ContainsFunc(fa.Atoms, x.same) {
 			c = false
 			break
@@ -381,6 +570,11 @@ func (fs *Filters) Canonical() []FilterID {
 		same = same && old == n
 		(*newList)[n], newKeys[n] = list[old], fs.keys[old]
 		fs.byText[newKeys[n]] = compat.AppendPlain(fs.byText[newKeys[n]], id)
+	}
+	for n := range *newList {
+		if in := (*newList)[n].Inner; in != 0 {
+			(*newList)[n].Inner = rename[in]
+		}
 	}
 	fs.list.Store(newList)
 	fs.keys = newKeys

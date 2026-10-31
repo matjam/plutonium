@@ -199,10 +199,13 @@ past the step (a fake solver recording its calls in a package slice) writes it f
 loads a corpus program after program makes each one in a `scratch.NewRegion()` released at the
 end of the program's subtest: nothing else frees a load. With generation checks a Region, a
 home and the scratch levels are `pluto/arena` Chunked, which ends each allocation's
-registration when it is reset. As of 2026-10-29 the escape analysis rejects the checked test
-builds of sched, summary, solve, escape2 and eir (in types2 `conversions.p` and `unify.p`), and
-escape2's unchecked one too. The `internal/build` program tests are Go tests in
-`tests/build_*_test.go`.
+registration when it is reset. The light package `internal/escape2/typesprobe` links types2
+and `pluto/testing` with generation checks on, in 12 to 15 min and 10 GB on kraken: it is the
+cheap check that the escape analysis accepts the code the heavy escape2 builds check in an
+hour (a rejection of types2's `conversions.p` or `unify.p`, or of `testing.p`, shows there
+first). Run it alone with `pluto test ./compiler/internal/escape2/typesprobe` after a change
+to escape2.
+The `internal/build` program tests are Go tests in `tests/build_*_test.go`.
 
 Known gaps: these guards went with the Go implementation and have no replacement yet.
 - Unit tests left out (list in the go-removal plan, "Phase 2 status"): the external

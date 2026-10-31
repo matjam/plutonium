@@ -236,7 +236,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 				opts.Cache.Solved(id, rec)
 			}
 			st.Solves++
-			findings[id] = r.Findings
+			findings[id] = keepLimit(findings[id], r.Findings)
 			prev := env.sums[id]
 			// Nothing a solve builds outlives it but its result: copy the
 			// summary out and reset the workspace, so that memory is that
