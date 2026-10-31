@@ -364,6 +364,15 @@ func typeString(T types2.Type) string {
 	return types2.SymbolString(T, func(p *types2.Package) string { return p.Path() })
 }
 
+// viewTypeString is typeString with each type argument made by
+// types2.NewViewArg marked "·view", as in instance symbol names. A type
+// with such an argument is identical to the plain one and shares its type
+// descriptor, but its methods are other instances (vec.Vec[int·view].All
+// yields views), so itabs and their adapters are keyed by this string.
+func viewTypeString(T types2.Type) string {
+	return types2.InstanceString(T, func(p *types2.Package) string { return p.Path() })
+}
+
 // typeStr is typeString, remembered for each type: the drop and counting
 // checks key their tables by it and ask about the same types many times.
 func (l *Lowerer) typeStr(T types2.Type) string {
@@ -427,7 +436,7 @@ func typeList(targs []types2.Type) string {
 		if i > 0 {
 			sb.WriteByte(',')
 		}
-		sb.WriteString(types2.InstanceString(t, func(p *types2.Package) string { return p.Path() }))
+		sb.WriteString(viewTypeString(t))
 	}
 	return sb.String()
 }

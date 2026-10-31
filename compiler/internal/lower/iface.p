@@ -158,6 +158,8 @@ type fieldInfo struct {
 type itabInfo struct {
 	T, I    types2.Type
 	sym     *ssa.Sym
+	ikey    string     // the key of the interface descriptor it is listed under (see assertTarget)
+	listed  bool       // in the table that the run time searches (see itabFor)
 	methods []*ssa.Sym // adapters, in interface method order
 	owning  bool       // I is an owning interface: a drop slot follows the methods
 	drop    *ssa.Sym   // the drop slot's adapter, nil when a T needs no drop (owniface.go)
@@ -168,8 +170,8 @@ type typeTable struct {
 	l        *Lowerer
 	descs    map[string]*descInfo
 	itabs    map[string]*itabInfo
-	asserted map[string]types2.Type // interfaces that values are asserted to
-	done     map[string]bool        // (type, interface) pairs already considered
+	asserted map[string]*assertedIface // interfaces that values are asserted to
+	done     map[string]bool           // (type, interface) pairs already considered
 }
 
 func newTypeTable(l *Lowerer) *typeTable {
@@ -177,7 +179,7 @@ func newTypeTable(l *Lowerer) *typeTable {
 		l:        l,
 		descs:    map[string]*descInfo{},
 		itabs:    map[string]*itabInfo{},
-		asserted: map[string]types2.Type{},
+		asserted: map[string]*assertedIface{},
 		done:     map[string]bool{},
 	})
 }
@@ -328,13 +330,83 @@ func (tt *typeTable) unionDesc(data *ssa.Data, key string, u *types2.TaggedUnion
 	data.Relocs = compat.Append(data.Relocs, ssa.DataReloc{Off: descSize + 8, Sym: table.Sym})
 }
 
+// An assertedIface is an interface that values are asserted to, in code
+// whose view type arguments are marks (see assertTarget).
+type assertedIface struct {
+	I     types2.Type
+	marks []types2.Type
+	key   string // the key of its descriptor
+}
+
+// assertTarget returns the interface descriptor that an assertion or
+// conversion to interface I finds an itab with at run time, in code whose
+// type arguments made by types2.NewViewArg are marks, and records I so that
+// finish makes the itabs. A type such as vec.Vec[int] has one descriptor,
+// but its methods depend on the code that asks: in an instance of generic
+// code over [T owner any] made with int, vec.Vec[T] is vec.Vec[int·view],
+// whose Values yields views (spec sections 8.7, 10.9). So such code asks
+// with a descriptor of its own for I, keyed by I and the marks, and finish
+// makes its itabs for the concrete types with each type argument identical
+// to a mark replaced by the mark (withViews). The value does not record
+// which code made it, so a vec.Vec[int] made with a plain int is seen with
+// views there too.
+func (tt *typeTable) assertTarget(I types2.Type, marks []types2.Type) *ssa.Sym {
+	if len(marks) == 0 {
+		key := typeString(I)
+		if tt.asserted[key] == nil {
+			tt.asserted[key] = pu.New(assertedIface{I: I, key: key})
+		}
+		return tt.desc(I)
+	}
+	var sb compat.Builder
+	sb.WriteString(viewTypeString(I))
+	for i, m := range marks {
+		if i == 0 {
+			sb.WriteByte('@')
+		} else {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(viewTypeString(m))
+	}
+	key := sb.String()
+	if tt.asserted[key] == nil {
+		tt.asserted[key] = pu.New(assertedIface{I: I, marks: marks, key: key})
+	}
+	d := tt.descs[key]
+	if d == nil {
+		d = pu.New(descInfo{T: I, sym: tt.l.out.Sym(compat.Concat("type:", key), ssa.SymData)})
+		tt.descs[key] = d
+		tt.describe(d)
+	}
+	return d.sym
+}
+
 // itab returns the itab symbol for concrete type T and interface I.
 func (tt *typeTable) itab(T, I types2.Type) *ssa.Sym {
-	key := compat.Concat(typeString(T), ",", typeString(I))
+	return tt.itabFor(T, I, "")
+}
+
+// itabFor returns the itab symbol for concrete type T and interface I,
+// listed under the interface descriptor with key ikey (see assertTarget),
+// or under I's own descriptor when ikey is "". The key tells apart type
+// arguments made by types2.NewViewArg: the methods of vec.Vec[int·view]
+// yield views where those of vec.Vec[int] yield values, although both
+// types share one descriptor. The run time finds an itab by the two
+// descriptors, so an itab of a type with such arguments is listed only
+// under the descriptor of an assertTarget with marks; I's own descriptor
+// lists the itab of the plain type, which finish makes.
+func (tt *typeTable) itabFor(T, I types2.Type, ikey string) *ssa.Sym {
+	key := compat.Concat(viewTypeString(T), ",", ikey)
+	listed := true
+	if ikey == "" {
+		ikey = typeString(I)
+		key = compat.Concat(viewTypeString(T), ",", viewTypeString(I))
+		listed = viewTypeString(T) == typeString(T)
+	}
 	if it := tt.itabs[key]; it != nil {
 		return it.sym
 	}
-	it := pu.New(itabInfo{T: T, I: I, sym: tt.l.out.Sym(compat.Concat("itab:", key), ssa.SymData)})
+	it := pu.New(itabInfo{T: T, I: I, ikey: ikey, listed: listed, sym: tt.l.out.Sym(compat.Concat("itab:", key), ssa.SymData)})
 	tt.itabs[key] = it
 	tt.desc(T)
 	tt.desc(I)
@@ -368,16 +440,22 @@ func (tt *typeTable) finish() bool {
 	}
 	sort.Strings(ifaces)
 	for _, ik := range ifaces {
-		I := tt.asserted[ik]
-		iface := I.Underlying().(*types2.Interface)
+		a := tt.asserted[ik]
+		iface := a.I.Underlying().(*types2.Interface)
 		for _, T := range concrete {
 			key := compat.Concat(tt.l.typeStr(T), ",", ik)
 			if tt.done[key] {
 				continue
 			}
 			tt.done[key] = true
+			// The type as the asserting code sees it (see assertTarget).
+			T = tt.l.withViews(tt.l.withoutViews(T), a.marks)
 			if types2.Implements(T, iface) {
-				tt.itab(T, I)
+				if len(a.marks) == 0 {
+					tt.itab(T, a.I)
+				} else {
+					tt.itabFor(T, a.I, a.key)
+				}
 			}
 		}
 	}
@@ -454,10 +532,16 @@ func (tt *typeTable) emit() {
 	// The itab table is an open-addressing hash table keyed by the two
 	// descriptors' hashes (see itabSlots), probed linearly; an empty slot
 	// ends a probe.
-	hashes := compat.Make[[2]uint32](len(keys))
-	for i, k := range keys {
+	var listed []string
+	for _, k := range keys {
+		if tt.itabs[k].listed {
+			listed = compat.Append(listed, k)
+		}
+	}
+	hashes := compat.Make[[2]uint32](len(listed))
+	for i, k := range listed {
 		it := tt.itabs[k]
-		hashes[i] = [2]uint32{descHash(typeString(it.T)), descHash(typeString(it.I))}
+		hashes[i] = [2]uint32{descHash(typeString(it.T)), descHash(it.ikey)}
 	}
 	slots := itabSlots(hashes)
 	table := pu.New(ssa.Data{Sym: l.out.Sym("pluto.itabs", ssa.SymData), Align: 8, ReadOnly: true})
@@ -474,7 +558,7 @@ func (tt *typeTable) emit() {
 		if it.drop != nil {
 			data.Relocs = compat.Append(data.Relocs, ssa.DataReloc{Off: int64(itabHeader + 8*len(it.methods)), Sym: it.drop})
 		}
-		data.Relocs = compat.Append(data.Relocs, ssa.DataReloc{Off: 0, Sym: tt.descs[typeString(it.T)].sym}, ssa.DataReloc{Off: 8, Sym: tt.descs[typeString(it.I)].sym})
+		data.Relocs = compat.Append(data.Relocs, ssa.DataReloc{Off: 0, Sym: tt.descs[typeString(it.T)].sym}, ssa.DataReloc{Off: 8, Sym: tt.descs[it.ikey].sym})
 		for j, m := range it.methods {
 			data.Relocs = compat.Append(data.Relocs, ssa.DataReloc{Off: int64(itabHeader + 8*j), Sym: m})
 		}
@@ -482,7 +566,7 @@ func (tt *typeTable) emit() {
 	}
 	for j, i := range slots {
 		if i >= 0 {
-			table.Relocs = compat.Append(table.Relocs, ssa.DataReloc{Off: int64(8 * (j + 1)), Sym: tt.itabs[keys[i]].sym})
+			table.Relocs = compat.Append(table.Relocs, ssa.DataReloc{Off: int64(8 * (j + 1)), Sym: tt.itabs[listed[i]].sym})
 		}
 	}
 	l.out.Data = compat.Append(l.out.Data, table)
@@ -806,9 +890,9 @@ func (s *fnState) ifaceToIface(v value, to types2.Type, pos ast.Node) value {
 	}
 	// The static types guarantee the dynamic type implements `to`; find
 	// its itab at run time.
-	s.l.types.asserted[typeString(to)] = to
+	target := s.l.types.assertTarget(to, s.viewMarks())
 	desc := s.typeDescOf(tab, from)
-	itab := s.callRuntime("convI2I", compat.Clone([]*ssa.Type{ssa.TPtr}), []*ssa.Value{desc, s.symAddr(s.l.types.desc(to))})[0]
+	itab := s.callRuntime("convI2I", compat.Clone([]*ssa.Type{ssa.TPtr}), []*ssa.Value{desc, s.symAddr(target)})[0]
 	s.store(ssa.TPtr, tmp, itab)
 	s.store(ssa.TPtr, s.offPtr(tmp, 8), data)
 	if types2.IsCountedError(to) {
@@ -867,7 +951,7 @@ func adapterSignature(sig *types2.Signature) *types2.Signature {
 // interface I, implemented by concrete type T: it takes the data word,
 // recovers the receiver and calls T's method.
 func (l *Lowerer) itabAdapter(T types2.Type, m *types2.Func) *ssa.Sym {
-	name := compat.Concat(typeString(T), ".", m.Name(), "·i")
+	name := compat.Concat(viewTypeString(T), ".", m.Name(), "·i")
 	if sym := l.funcs[name]; sym != nil {
 		return sym
 	}
@@ -1029,9 +1113,9 @@ func (s *fnState) assertTo(iv value, I, T types2.Type, commaOk bool, pos token.P
 			s.store(ssa.TPtr, s.offPtr(tmp, 8), data)
 			res = aggValue(tmp, T)
 		} else {
-			s.l.types.asserted[typeString(T)] = T
+			target := s.l.types.assertTarget(T, s.viewMarks())
 			desc := s.typeDescOf(tab, I)
-			itab := s.callRuntime("assertItab", compat.Clone([]*ssa.Type{ssa.TPtr}), []*ssa.Value{desc, s.symAddr(s.l.types.desc(T))})[0]
+			itab := s.callRuntime("assertItab", compat.Clone([]*ssa.Type{ssa.TPtr}), []*ssa.Value{desc, s.symAddr(target)})[0]
 			ok = s.newValue(ssa.OpNe, ssa.TBool, itab, s.constInt(ssa.TPtr, 0))
 			tmp := s.temp(T, "iface")
 			s.store(ssa.TPtr, tmp, itab)
@@ -1074,17 +1158,14 @@ func (s *fnState) assertTo(iv value, I, T types2.Type, commaOk bool, pos token.P
 
 // typeMatches tests whether an interface table denotes concrete type T.
 func (s *fnState) typeMatches(tab *ssa.Value, I, T types2.Type) *ssa.Value {
-	var want *ssa.Value
 	iface := I.Underlying().(*types2.Interface)
-	if iface.Empty() {
-		want = s.symAddr(s.l.types.desc(T))
-	} else if !types2.Implements(T, iface) {
+	if !iface.Empty() && !types2.Implements(T, iface) {
 		// Possible in generic code: an I never holds a T.
 		return s.constBool(false)
-	} else {
-		want = s.symAddr(s.l.types.itab(T, I))
 	}
-	match := s.newValue(ssa.OpEq, ssa.TBool, tab, want)
+	// Compare descriptors, not itabs: an I may hold one of several itabs
+	// for T (see assertTarget and itabFor).
+	match := s.newValue(ssa.OpEq, ssa.TBool, s.typeDescOf(tab, I), s.symAddr(s.l.types.desc(T)))
 	// errors.As exposes a borrowed *T for a shared[T] or synced[T]
 	// error (decision D1, section 16.6). Ordinary assertions still test
 	// exact dynamic type identity.
@@ -1191,4 +1272,108 @@ func (goSelf *goClosure_equalFunc_1) Call(s *fnState) {
 	b := s.loadFrom(in[1].v, goSelf.T)
 	eq := s.equal(a, b, goSelf.T, token.NoPos)
 	s.returnValues([]value{scalarValue(eq, types2.Typ[types2.Bool])})
+}
+
+// viewMarks returns the type arguments of the function being compiled
+// that types2.NewViewArg made, one for each type (see assertTarget).
+func (s *fnState) viewMarks() []types2.Type {
+	if s.tmap == nil {
+		return nil
+	}
+	var marks []types2.Type
+	seen := map[string]bool{}
+	for _, t := range s.tmap.targs {
+		if !types2.IsViewArg(t) {
+			continue
+		}
+		k := viewTypeString(t)
+		if !seen[k] {
+			seen[k] = true
+			marks = compat.Append(marks, t)
+		}
+	}
+	return marks
+}
+
+// withViews returns T with each type argument of a named type in it that
+// is identical to one of marks replaced by that mark, as code with those
+// view type arguments sees T (see assertTarget). It looks through
+// pointers and named types only.
+func (l *Lowerer) withViews(T types2.Type, marks []types2.Type) types2.Type {
+	if len(marks) == 0 {
+		return T
+	}
+	return l.mapTypeArgs(T, func(a types2.Type) types2.Type {
+		if types2.IsViewArg(a) {
+			return a
+		}
+		for _, m := range marks {
+			if types2.Identical(a, m) {
+				return m
+			}
+		}
+		return nil
+	})
+}
+
+// withoutViews returns T with each type argument that types2.NewViewArg
+// made replaced by its plain type. It looks through pointers and named
+// types only.
+func (l *Lowerer) withoutViews(T types2.Type) types2.Type {
+	return l.mapTypeArgs(T, func(a types2.Type) types2.Type {
+		if types2.IsViewArg(a) {
+			return types2.Unalias(a)
+		}
+		return nil
+	})
+}
+
+// mapTypeArgs rebuilds T with each type argument a of a named type in it
+// replaced by f(a), or by a rebuilt in turn when f(a) is nil. It returns T
+// itself when nothing changes.
+func (l *Lowerer) mapTypeArgs(T types2.Type, f func(types2.Type) types2.Type) types2.Type {
+	switch t := T.(type) {
+	case *types2.Pointer:
+		if e := l.mapTypeArgs(t.Elem(), f); e != t.Elem() {
+			return types2.NewPointer(e)
+		}
+		return T
+	case *types2.Alias:
+		if types2.IsViewArg(t) {
+			return T
+		}
+		if u := types2.Unalias(t); u != nil {
+			if r := l.mapTypeArgs(u, f); r != u {
+				return r
+			}
+		}
+		return T
+	case *types2.Named:
+		args := t.TypeArgs()
+		if args == nil || args.Len() == 0 {
+			return T
+		}
+		changed := false
+		var out []types2.Type
+		for i := 0; i < args.Len(); i++ {
+			a := args.At(i)
+			r := f(a)
+			if r == nil {
+				r = l.mapTypeArgs(a, f)
+			}
+			if r != a {
+				changed = true
+			}
+			out = compat.Append(out, r)
+		}
+		if !changed {
+			return T
+		}
+		n, err := types2.Instantiate(l.ctxt, t.Origin(), out, false)
+		if err != nil {
+			return T
+		}
+		return n
+	}
+	return T
 }

@@ -923,8 +923,8 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 				if T.Underlying().(*types2.Interface).Empty() {
 					match = s.newValue(ssa.OpNe, ssa.TBool, tab, s.constInt(ssa.TPtr, 0))
 				} else {
-					s.l.types.asserted[typeString(T)] = T
-					itab := s.callRuntime("assertItab", compat.Clone([]*ssa.Type{ssa.TPtr}), []*ssa.Value{s.typeDescOf(tab, I), s.symAddr(s.l.types.desc(T))})[0]
+					target := s.l.types.assertTarget(T, s.viewMarks())
+					itab := s.callRuntime("assertItab", compat.Clone([]*ssa.Type{ssa.TPtr}), []*ssa.Value{s.typeDescOf(tab, I), s.symAddr(target)})[0]
 					match = s.newValue(ssa.OpNe, ssa.TBool, itab, s.constInt(ssa.TPtr, 0))
 				}
 			default:

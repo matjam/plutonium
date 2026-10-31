@@ -560,6 +560,22 @@ against the corrected specification. The immediate implementation order is:
      is E3306 for `F[int]` too (`diag/generic_owner_copy`). Symbol names of alias types now print the
      aliased type, which fixes a type assertion of a value of an alias type held in an interface: it
      failed because the type descriptor carried the alias name (`lower/alias_type_assert`).
+     Follow-up (`COMMIT`): itabs and their adapters were keyed by the plain type name, so
+     `*vec.Vec[int·view]` and `*vec.Vec[int]` shared the adapter of `Values`. Generic code that called it
+     through an interface got the plain instance's ints as pointers (a crash or a wrong sum, depending on
+     which instance was lowered first). Assertions to interfaces failed or matched the wrong case: the
+     two types share one type descriptor, so the run time cannot tell which itab a value needs. Itab and
+     adapter names now carry `·view` (`viewTypeString`), and only plain itabs are listed in the run
+     time's itab table. An assertion or interface conversion in code with view type arguments asks with
+     a descriptor of its own for the interface (`assertTarget`), keyed by the interface and those
+     arguments, and `finish` lists under it the itabs of each concrete type as that code sees it, with
+     each type argument identical to a view argument marked (`withViews`). A value does not record which
+     code made it, so such code sees a `vec.Vec[int]` made by plain code with views too, which is what
+     its own instances do. Type switch cases on concrete types compare descriptors, since one type can
+     now have several itabs for an interface. Method values and method expressions already used the
+     marked instance names. Cases `lower/generic_owner_iface_views`, `_order`,
+     `lower/generic_owner_iface_assert`, `_order`, `lower/generic_owner_iface_concrete` and
+     `lower/generic_owner_method_value_views` (a method value, a method expression and a type switch).
 
 
 Next, finish **item 18**, bounded task-stack inference: lowering still supplies a
