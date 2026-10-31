@@ -17,7 +17,8 @@ var taskStackProcs = []string{"1", "2", "24"}
 
 // TestTaskDeepStack checks that a task can recurse 100,000 calls deep and
 // keep a 128 KiB local array, which overflowed the 64 KiB stacks tasks had
-// before, and that its stack has the room HostedStackSize promises.
+// before, and that its stack has the room HostedStackSize promises when the
+// compiler cannot bound it.
 func TestTaskDeepStack(t *testing.T) {
 	t.Parallel()
 	const src = `package main
@@ -45,7 +46,9 @@ func big() int {
 
 func run(n int, done chan<- int) { done <- depth(n) }
 
-func room(done chan<- bool) { done <- rt.StackLeft() > rt.HostedStackSize-(64<<10) }
+// room calls depth, which recurses, so the compiler cannot bound its
+// stack and it gets the size of a task of unknown need.
+func room(done chan<- bool) { done <- rt.StackLeft() > rt.HostedStackSize-(64<<10) && depth(1) == 1 }
 
 func large(done chan<- int) { done <- big() }
 

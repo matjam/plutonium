@@ -331,7 +331,7 @@ common, and the failure appears only on large inputs.
    not memory. A 64 MiB reservation allows about two million such puroutines in a 47-bit address space.
 3. The overflow message names the size the puroutine had and how to ask for more (`rt.Go(f, size)`).
 
-Kernel builds keep fixed stacks, sized by the analysis or by `rt.Go`, and `-stackreport`.
+Kernel builds keep fixed stacks, sized by the analysis or by `rt.Go`, and `--stackreport`.
 
 ### F9. `bytes.Buffer` is bounded
 

@@ -751,7 +751,10 @@ func spawnFor(j *Join, fn, args unsafe.Pointer, argSize, argAlign uintptr, req S
 	schedSpawn(t)
 }
 
-// taskMain is the first function of every task.
+// taskMain is the first function of every task. The compiler's bound on
+// a task's stack (internal/backend/stack.go) takes its one call through a
+// func value, f(t.arg), to reach the task's own function only: a second
+// one would need the bound to change.
 func taskMain(t *Task, _ uintptr) {
 	finishSwitch(&t.ctx)
 	t.status = tRunning

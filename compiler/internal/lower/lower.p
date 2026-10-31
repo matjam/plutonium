@@ -311,6 +311,7 @@ func Lower(cfg *Config, prog *load.Program) (_ *ssa.Program, err error) {
 	if len(l.errs) == 0 {
 		l.checkPanicHandler()
 		l.checkContexts()
+		l.resolveIndirectCalls()
 	}
 	if len(l.errs) > 0 {
 		return nil, &l.errs

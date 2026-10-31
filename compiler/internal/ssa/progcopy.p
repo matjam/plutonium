@@ -115,6 +115,23 @@ func (pc *ProgramCopier) Program() *Program {
 			}
 		}
 	}
+	if st := old.Stack; st != nil {
+		ns := pu.New(StackInfo{Indirect: map[string][]string{}, Open: map[string]bool{}, Off: strings.Clone(st.Off)})
+		for _, r := range st.Roots {
+			ns.Roots = compat.Append(ns.Roots, StackRoot{Thunk: strings.Clone(r.Thunk), Bound: pc.Sym(r.Bound), Pos: r.Pos})
+		}
+		for name, targets := range st.Indirect {
+			n := compat.Make[string](len(targets))
+			for j, t := range targets {
+				n[j] = strings.Clone(t)
+			}
+			ns.Indirect[strings.Clone(name)] = n
+		}
+		for name := range st.Open {
+			ns.Open[strings.Clone(name)] = true
+		}
+		out.Stack = ns
+	}
 	pc.out = out
 	return out
 }

@@ -16,6 +16,15 @@ type Code struct {
 	Consts []Const // read-only constants the code refers to
 	Asm    string  // machine IR listing, when requested
 	Debug  *FuncDebug
+
+	// The stack the function uses, for the stack bounds of tasks
+	// (backend/stack.go): Frame is the most it uses below the address its
+	// caller's call pushes the return address at, return address included,
+	// leaving out what its callees use; Calls are the functions it calls
+	// directly, and Indirect is set if it calls through a register.
+	Frame    int64
+	Calls    []*ssa.Sym
+	Indirect bool
 }
 
 // A Const is a 16-byte, 16-aligned read-only constant. Its symbol name
@@ -37,6 +46,7 @@ func Compile(f *ssa.Func, listing bool) (*Code, error) {
 	allocate(mf) or return
 	layoutFrame(mf)
 	insertFrame(mf)
+	frame, calls, indirect := stackUse(mf)
 	order := layoutBlocks(mf)
 	code, err := encodeFunc(mf, order)
 	if err != nil {
@@ -44,6 +54,7 @@ func Compile(f *ssa.Func, listing bool) (*Code, error) {
 	}
 	code.Sym = f.Sym
 	code.Consts = mf.consts
+	code.Frame, code.Calls, code.Indirect = frame, calls, indirect
 	if listing {
 		mf.Blocks = order
 		code.Asm = mf.String()

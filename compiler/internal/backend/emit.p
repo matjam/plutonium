@@ -31,6 +31,13 @@ type Config struct {
 	NoTrace bool      // leave the trace table empty
 	NoDWARF bool      // omit the DWARF sections
 	CompDir string    // DWARF's compilation directory
+
+	// AsmStack is the stack use of the program's assembly functions that
+	// the stack bounds of tasks may count on (AsmStack, stack.go).
+	AsmStack map[string]AsmFrame
+	// Stacks receives the stack bound of each task statement, when the
+	// program has any (stack.go).
+	Stacks []StackResult
 }
 
 // An emitter generates one function's code (ScratchWork) and adds it to
@@ -42,7 +49,9 @@ type emitter struct {
 	rodata    *objfile.Section
 	dbg       *debuginfo.Table
 	constDone map[string]bool
-	names     map[string]string // the symbol names copied out of scratch memory
+	names     map[string]string     // the symbol names copied out of scratch memory
+	stacks    map[string]*funcStack // for the stack bounds of tasks, by function
+	aliases   map[string]string     // exported names of functions, for stacks
 
 	f    *ssa.Func
 	code *amd64.Code
@@ -64,6 +73,9 @@ func (e *emitter) ScratchKeep() {
 		return
 	}
 	e.err = e.emit(e.f, e.code)
+	if e.err == nil && e.stacks != nil {
+		e.recordStack(e.f, e.code.Frame, e.code.Calls, e.code.Indirect)
+	}
 	e.code = nil
 }
 
@@ -139,7 +151,18 @@ func Emit(cfg *Config, p *ssa.Program, dbg *debuginfo.Table) (*objfile.Object, e
 	// Each function's code is generated in scratch memory (internal/scratch);
 	// the emitter copies out what the object file and debug information keep.
 	e := pu.New(emitter{cfg: cfg, obj: obj, text: text, dbg: dbg, constDone: map[string]bool{}, names: map[string]string{}})
+	if p.Stack != nil && p.Stack.Off == "" && len(p.Stack.Roots) > 0 {
+		e.stacks, e.aliases = map[string]*funcStack{}, map[string]string{}
+	}
 	e.emitAll(p.Funcs) or return
+	if e.stacks != nil {
+		// Before the data is laid out: the bounds are in its words.
+		cfg.Stacks = e.stackBounds(p)
+	} else if p.Stack != nil {
+		for _, r := range p.Stack.Roots {
+			cfg.Stacks = compat.Append(cfg.Stacks, StackResult{Pos: r.Pos, Thunk: r.Thunk, Why: p.Stack.Off})
+		}
+	}
 
 	dbg.WriteTraceTable(obj, cfg.NoTrace)
 	if !cfg.NoDWARF {

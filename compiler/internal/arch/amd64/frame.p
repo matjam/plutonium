@@ -311,3 +311,50 @@ func insertFrame(f *MFunc) {
 		b.Insts = out
 	}
 }
+
+// stackUse returns the most stack f uses below the address its caller's
+// call pushed the return address at, return address included, and the
+// calls it makes: the functions it calls directly, and whether it calls
+// any through a register. The prologue pushes the return address's
+// neighbours (the frame pointer, the saved registers), realigns RSP by up
+// to maxAlign - 8 bytes when it keeps a frame pointer, and moves RSP down
+// by the frame, which holds the outgoing arguments; probes read only
+// within the frame. Nothing else moves RSP but the pushes of saving and
+// restoring the flags, a word each (MSAVEFLAGS, MRESTOREFLAGS), and the
+// return address of each call, which the callee counts.
+func stackUse(f *MFunc) (int64, []*ssa.Sym, bool) {
+	use := int64(8) // the return address
+	if f.interrupt {
+		use = 0
+	}
+	use += 8 * int64(len(f.usedSaved))
+	if f.frameFP {
+		use += f.maxAlign
+		saved := false
+		for _, r := range f.usedSaved {
+			saved = saved || r == RBP
+		}
+		if !saved {
+			use += 8 // RBP is pushed whether or not usedSaved lists it
+		}
+	}
+	use += f.frameSize
+	use += 8 // pushfq or the push before popfq
+	var calls []*ssa.Sym
+	seen := map[*ssa.Sym]bool{}
+	indirect := false
+	for _, b := range f.Blocks {
+		for _, in := range b.Insts {
+			if in.Op != MCALL {
+				continue
+			}
+			if in.Sym == nil {
+				indirect = true
+			} else if !seen[in.Sym] {
+				seen[in.Sym] = true
+				calls = compat.Append(calls, in.Sym)
+			}
+		}
+	}
+	return use, calls, indirect
+}

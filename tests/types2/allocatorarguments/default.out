@@ -388,56 +388,56 @@ package pluto/rt
   safe pluto/rt.selLock pluto/rt/chan.p:596:1
     calls pluto/rt.inc32
       pluto/rt/chan.p:601:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/chan.p:601:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/chan.p:601:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/chan.p:601:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/chan.p:601:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/chan.p:601:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/chan.p:601:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
   safe pluto/rt.selUnlock pluto/rt/chan.p:607:1
     calls pluto/rt.xchg32
       pluto/rt/chan.p:613:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1066:5: call pluto/rt.xchg32
     calls pluto/rt.futexwakeup
       pluto/rt/chan.p:613:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.getg
       pluto/rt/chan.p:613:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:823:10: call pluto/rt.current
+      pluto/rt/sched.p:826:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.dec32
       pluto/rt/chan.p:613:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.inc32
       pluto/rt/chan.p:613:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:574:2: call pluto/rt.inc32
     calls pluto/rt.schedYield
       pluto/rt/chan.p:613:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.selectPoll pluto/rt/chan.p:621:1
@@ -639,42 +639,42 @@ package pluto/rt
       pluto/rt/gen_directory_on.p:483:2: call pluto/rt.genPoisonSlabLocked
     calls pluto/rt.inc32
       pluto/rt/gen_directory_on.p:482:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/gen_directory_on.p:482:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/gen_directory_on.p:482:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/gen_directory_on.p:482:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/gen_directory_on.p:482:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/gen_directory_on.p:482:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/gen_directory_on.p:482:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/gen_directory_on.p:484:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/gen_directory_on.p:484:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/gen_directory_on.p:484:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.genPoisonSlabLocked pluto/rt/gen_directory_on.p:487:1
@@ -949,7 +949,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store32
       pluto/rt/goexit.p:59:2: may call pluto/rt.m0Main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
@@ -1001,21 +1001,21 @@ package pluto/rt
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexwakeup
       pluto/rt/goexit.p:59:2: may call pluto/rt.m0Main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/goexit.p:59:2: may call pluto/rt.m0Main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedWake
       pluto/rt/goexit.p:59:2: may call pluto/rt.m0Main
@@ -1052,7 +1052,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.printUint
@@ -1259,42 +1259,42 @@ package pluto/rt
   safe pluto/rt.joinEnter pluto/rt/join.p:32:1
     calls pluto/rt.inc32
       pluto/rt/join.p:33:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/join.p:33:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/join.p:33:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/join.p:33:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/join.p:33:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/join.p:33:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/join.p:33:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/join.p:35:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/join.p:35:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/join.p:35:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.joinChain pluto/rt/join.p:41:1
@@ -1308,7 +1308,7 @@ package pluto/rt
   safe pluto/rt.joinExit pluto/rt/join.p:71:1
     calls pluto/rt.inc32
       pluto/rt/join.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.load32
       pluto/rt/join.p:81:3: call pluto/rt.Ready
       pluto/rt/sched.p:548:10: call pluto/rt.load32
@@ -1320,37 +1320,37 @@ package pluto/rt
       pluto/rt/sched.p:551:5: call pluto/rt.schedWake
     calls pluto/rt.getg
       pluto/rt/join.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/join.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/join.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/join.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/join.p:79:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/join.p:79:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/join.p:79:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.JoinWait pluto/rt/join.p:87:1
     calls pluto/rt.inc32
       pluto/rt/join.p:88:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/join.p:96:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:500:2: call pluto/rt.printString
@@ -1365,27 +1365,27 @@ package pluto/rt
       pluto/rt/sched.p:539:2: call pluto/rt.schedPark
     calls pluto/rt.getg
       pluto/rt/join.p:88:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/join.p:88:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/join.p:88:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/join.p:88:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/join.p:88:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/join.p:90:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.casUint64
       pluto/rt/join.p:96:3: call pluto/rt.panicMessage
@@ -1417,7 +1417,7 @@ package pluto/rt
       pluto/rt/sched.p:293:5: call pluto/rt.schedInInterrupt
     calls pluto/rt.schedYield
       pluto/rt/join.p:90:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -1433,41 +1433,41 @@ package pluto/rt
   safe pluto/rt.joinMoved pluto/rt/join.p:109:1
     calls pluto/rt.inc32
       pluto/rt/join.p:110:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/join.p:114:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:500:2: call pluto/rt.printString
     calls pluto/rt.getg
       pluto/rt/join.p:110:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/join.p:110:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/join.p:110:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/join.p:110:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/join.p:110:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/join.p:110:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/join.p:112:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/join.p:112:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/join.p:114:3: call pluto/rt.panicMessage
@@ -1491,7 +1491,7 @@ package pluto/rt
       pluto/rt/panic.p:169:2: call pluto/rt.raise
     calls pluto/rt.schedYield
       pluto/rt/join.p:112:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -1502,42 +1502,42 @@ package pluto/rt
   safe pluto/rt.JoinRunning pluto/rt/join.p:119:1
     calls pluto/rt.inc32
       pluto/rt/join.p:120:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/join.p:120:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/join.p:120:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/join.p:120:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/join.p:120:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/join.p:120:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/join.p:120:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/join.p:122:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/join.p:122:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/join.p:122:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.self pluto/rt/join.p:127:1
@@ -1598,7 +1598,7 @@ package pluto/rt
   safe pluto/rt.WaitScopes pluto/rt/join.p:164:1
     calls pluto/rt.inc32
       pluto/rt/join.p:167:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.cas32
       pluto/rt/join.p:171:4: call pluto/rt.park
       pluto/rt/sched.p:534:5: call pluto/rt.cas32
@@ -1610,23 +1610,23 @@ package pluto/rt
       pluto/rt/sched.p:539:2: call pluto/rt.schedPark
     calls pluto/rt.getg
       pluto/rt/join.p:167:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/join.p:167:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/join.p:167:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/join.p:167:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/join.p:167:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.schedInit
       pluto/rt/join.p:169:15: call pluto/rt.self
@@ -1638,7 +1638,7 @@ package pluto/rt
       pluto/rt/rt.p:500:2: call pluto/rt.printString
     calls pluto/rt.futexwakeup
       pluto/rt/join.p:170:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.schedInInterrupt
       pluto/rt/join.p:171:4: call pluto/rt.park
@@ -1676,7 +1676,7 @@ package pluto/rt
       pluto/rt/panic.p:169:2: call pluto/rt.raise
     calls pluto/rt.schedYield
       pluto/rt/join.p:170:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -3836,42 +3836,42 @@ package pluto/rt
       pluto/rt/poll_linux.p:110:3: call pluto/rt.syscall6
     calls pluto/rt.inc32
       pluto/rt/poll_linux.p:108:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/poll_linux.p:108:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/poll_linux.p:108:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/poll_linux.p:108:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/poll_linux.p:108:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/poll_linux.p:108:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/poll_linux.p:108:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/poll_linux.p:119:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/poll_linux.p:119:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/poll_linux.p:119:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.*PollDesc.Wait pluto/rt/poll_linux.p:135:1
@@ -3886,42 +3886,42 @@ package pluto/rt
       pluto/rt/poll_linux.p:193:2: call pluto/rt.wakeWaiters
     calls pluto/rt.inc32
       pluto/rt/poll_linux.p:191:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/poll_linux.p:191:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/poll_linux.p:191:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/poll_linux.p:191:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/poll_linux.p:191:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/poll_linux.p:191:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/poll_linux.p:191:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/poll_linux.p:195:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/poll_linux.p:195:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/poll_linux.p:195:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.*PollDesc.ready pluto/rt/poll_linux.p:200:1
@@ -3929,42 +3929,42 @@ package pluto/rt
       pluto/rt/poll_linux.p:204:4: call pluto/rt.wakeWaiters
     calls pluto/rt.inc32
       pluto/rt/poll_linux.p:201:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/poll_linux.p:201:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/poll_linux.p:201:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/poll_linux.p:201:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/poll_linux.p:201:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/poll_linux.p:201:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/poll_linux.p:201:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/poll_linux.p:216:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/poll_linux.p:216:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/poll_linux.p:216:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.wakeWaiters pluto/rt/poll_linux.p:222:1
@@ -4740,30 +4740,30 @@ package pluto/rt
       pluto/rt/rt_linux.p:314:38: call pluto/rt.syscall3
     calls pluto/rt.inc32
       pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/rt.p:716:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
   safe pluto/rt.printEnd pluto/rt/rt.p:724:1
     calls pluto/rt.stmtFlush
@@ -4775,28 +4775,28 @@ package pluto/rt
       pluto/rt/rt_linux.p:314:38: call pluto/rt.syscall3
     calls pluto/rt.xchg32
       pluto/rt/rt.p:733:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1066:5: call pluto/rt.xchg32
     calls pluto/rt.futexwakeup
       pluto/rt/rt.p:733:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.getg
       pluto/rt/rt.p:733:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:823:10: call pluto/rt.current
+      pluto/rt/sched.p:826:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.dec32
       pluto/rt/rt.p:733:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.inc32
       pluto/rt/rt.p:733:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:574:2: call pluto/rt.inc32
     calls pluto/rt.schedYield
       pluto/rt/rt.p:733:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.stmtFlush pluto/rt/rt.p:737:1
@@ -5211,7 +5211,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
@@ -5223,35 +5223,35 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.xchg32
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
@@ -5293,7 +5293,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -5320,7 +5320,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
@@ -5335,37 +5335,37 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
@@ -5401,7 +5401,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -5423,7 +5423,7 @@ package pluto/rt
     calls pluto/rt.inc32
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:120:3: call pluto/rt.panicMessage
@@ -5435,32 +5435,32 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
@@ -5490,7 +5490,7 @@ package pluto/rt
     calls pluto/rt.schedYield
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -5610,28 +5610,28 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched.p:393:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched.p:393:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched.p:393:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.noTasksLeft
       pluto/rt/sched.p:394:2: may call pluto/rt.m0Main
@@ -5652,7 +5652,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.newThread
@@ -5968,117 +5968,117 @@ package pluto/rt
     pluto/rt/sched.p:734:17: unsafe.Pointer
     pluto/rt/sched.p:744:45: unsafe.Pointer
     pluto/rt/sched.p:744:77: unsafe.Pointer
-  unsafe pluto/rt.taskMain pluto/rt/sched.p:755:1
-    pluto/rt/sched.p:759:20: unsafe.Pointer
-    pluto/rt/sched.p:760:12: unsafe.Pointer
-    pluto/rt/sched.p:760:28: unsafe.Pointer
-    pluto/rt/sched.p:760:45: unsafe.Pointer
-    pluto/rt/sched.p:761:6: unsafe.Pointer
-  safe pluto/rt.*Lock.Lock pluto/rt/sched.p:798:1
+  unsafe pluto/rt.taskMain pluto/rt/sched.p:758:1
+    pluto/rt/sched.p:762:20: unsafe.Pointer
+    pluto/rt/sched.p:763:12: unsafe.Pointer
+    pluto/rt/sched.p:763:28: unsafe.Pointer
+    pluto/rt/sched.p:763:45: unsafe.Pointer
+    pluto/rt/sched.p:764:6: unsafe.Pointer
+  safe pluto/rt.*Lock.Lock pluto/rt/sched.p:801:1
     calls pluto/rt.inc32
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
-  safe pluto/rt.*Lock.TryLock pluto/rt/sched.p:806:1
+  safe pluto/rt.*Lock.TryLock pluto/rt/sched.p:809:1
     calls pluto/rt.inc32
-      pluto/rt/sched.p:809:3: call pluto/rt.inc32
+      pluto/rt/sched.p:812:3: call pluto/rt.inc32
     calls pluto/rt.getg
-      pluto/rt/sched.p:807:7: call pluto/rt.current
+      pluto/rt/sched.p:810:7: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
-      pluto/rt/sched.p:811:5: call pluto/rt.lockTry
+      pluto/rt/sched.p:814:5: call pluto/rt.lockTry
       pluto/rt/sched_linux.p:1063:37: call pluto/rt.cas32
     calls pluto/rt.dec32
-      pluto/rt/sched.p:815:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:818:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
-      pluto/rt/sched.p:815:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:818:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
-  safe pluto/rt.*Lock.Unlock pluto/rt/sched.p:821:1
+  safe pluto/rt.*Lock.Unlock pluto/rt/sched.p:824:1
     calls pluto/rt.xchg32
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1066:5: call pluto/rt.xchg32
     calls pluto/rt.futexwakeup
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.getg
-      pluto/rt/sched.p:823:10: call pluto/rt.current
+      pluto/rt/sched.p:826:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.dec32
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.inc32
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:574:2: call pluto/rt.inc32
     calls pluto/rt.schedYield
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
-  safe pluto/rt.SpinWait pluto/rt/sched.p:831:1
+  safe pluto/rt.SpinWait pluto/rt/sched.p:834:1
     calls pluto/rt.pause
-      pluto/rt/sched.p:833:3: call pluto/rt.pause
-  unsafe pluto/rt.swapcontext pluto/rt/sched.p:857:1
-    pluto/rt/sched.p:856:1: //pu:noescape
-    pluto/rt/sched.p:857:1: function without a body
-  unsafe pluto/rt.goStartPC pluto/rt/sched.p:858:1
-    pluto/rt/sched.p:858:1: function without a body
-  unsafe pluto/rt.asyncPreemptPC pluto/rt/sched.p:859:1
-    pluto/rt/sched.p:859:1: function without a body
-  unsafe pluto/rt.getsp pluto/rt/sched.p:860:1
+      pluto/rt/sched.p:836:3: call pluto/rt.pause
+  unsafe pluto/rt.swapcontext pluto/rt/sched.p:860:1
+    pluto/rt/sched.p:859:1: //pu:noescape
     pluto/rt/sched.p:860:1: function without a body
-  unsafe pluto/rt.inc32 pluto/rt/sched.p:863:1
-    pluto/rt/sched.p:862:1: //pu:noescape
+  unsafe pluto/rt.goStartPC pluto/rt/sched.p:861:1
+    pluto/rt/sched.p:861:1: function without a body
+  unsafe pluto/rt.asyncPreemptPC pluto/rt/sched.p:862:1
+    pluto/rt/sched.p:862:1: function without a body
+  unsafe pluto/rt.getsp pluto/rt/sched.p:863:1
     pluto/rt/sched.p:863:1: function without a body
-  unsafe pluto/rt.dec32 pluto/rt/sched.p:866:1
+  unsafe pluto/rt.inc32 pluto/rt/sched.p:866:1
     pluto/rt/sched.p:865:1: //pu:noescape
     pluto/rt/sched.p:866:1: function without a body
-  unsafe pluto/rt.load32 pluto/rt/sched.p:869:1
+  unsafe pluto/rt.dec32 pluto/rt/sched.p:869:1
     pluto/rt/sched.p:868:1: //pu:noescape
     pluto/rt/sched.p:869:1: function without a body
-  unsafe pluto/rt.store32 pluto/rt/sched.p:872:1
+  unsafe pluto/rt.load32 pluto/rt/sched.p:872:1
     pluto/rt/sched.p:871:1: //pu:noescape
     pluto/rt/sched.p:872:1: function without a body
-  unsafe pluto/rt.cas32 pluto/rt/sched.p:875:1
+  unsafe pluto/rt.store32 pluto/rt/sched.p:875:1
     pluto/rt/sched.p:874:1: //pu:noescape
     pluto/rt/sched.p:875:1: function without a body
-  unsafe pluto/rt.xadd32 pluto/rt/sched.p:878:1
+  unsafe pluto/rt.cas32 pluto/rt/sched.p:878:1
     pluto/rt/sched.p:877:1: //pu:noescape
     pluto/rt/sched.p:878:1: function without a body
-  unsafe pluto/rt.xchg32 pluto/rt/sched.p:881:1
+  unsafe pluto/rt.xadd32 pluto/rt/sched.p:881:1
     pluto/rt/sched.p:880:1: //pu:noescape
     pluto/rt/sched.p:881:1: function without a body
-  unsafe pluto/rt.load64 pluto/rt/sched.p:884:1
+  unsafe pluto/rt.xchg32 pluto/rt/sched.p:884:1
     pluto/rt/sched.p:883:1: //pu:noescape
     pluto/rt/sched.p:884:1: function without a body
-  unsafe pluto/rt.store64 pluto/rt/sched.p:887:1
+  unsafe pluto/rt.load64 pluto/rt/sched.p:887:1
     pluto/rt/sched.p:886:1: //pu:noescape
     pluto/rt/sched.p:887:1: function without a body
-  unsafe pluto/rt.cas64 pluto/rt/sched.p:890:1
+  unsafe pluto/rt.store64 pluto/rt/sched.p:890:1
     pluto/rt/sched.p:889:1: //pu:noescape
     pluto/rt/sched.p:890:1: function without a body
-  unsafe pluto/rt.xadd64 pluto/rt/sched.p:893:1
+  unsafe pluto/rt.cas64 pluto/rt/sched.p:893:1
     pluto/rt/sched.p:892:1: //pu:noescape
     pluto/rt/sched.p:893:1: function without a body
-  unsafe pluto/rt.pause pluto/rt/sched.p:894:1
-    pluto/rt/sched.p:894:1: function without a body
+  unsafe pluto/rt.xadd64 pluto/rt/sched.p:896:1
+    pluto/rt/sched.p:895:1: //pu:noescape
+    pluto/rt/sched.p:896:1: function without a body
+  unsafe pluto/rt.pause pluto/rt/sched.p:897:1
+    pluto/rt/sched.p:897:1: function without a body
   unsafe pluto/rt.getm pluto/rt/sched_linux.p:143:1
     pluto/rt/sched_linux.p:143:1: function without a body
   unsafe pluto/rt.getg pluto/rt/sched_linux.p:144:1
@@ -6144,7 +6144,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store32
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
@@ -6188,25 +6188,25 @@ package pluto/rt
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedWake
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
@@ -6238,7 +6238,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.printUint
@@ -6369,7 +6369,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:312:2: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getm
       pluto/rt/sched_linux.p:312:2: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:320:3: call pluto/rt.Switch
@@ -6403,19 +6403,19 @@ package pluto/rt
       pluto/rt/sched_linux.p:312:2: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:312:2: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:312:2: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedWake
       pluto/rt/sched_linux.p:312:2: call pluto/rt.schedLoop
@@ -6440,7 +6440,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:312:2: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.printUint
@@ -6532,7 +6532,7 @@ package pluto/rt
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store32
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:537:14: call pluto/rt.runqsteal
@@ -6568,22 +6568,22 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedWake
       pluto/rt/sched_linux.p:320:3: call pluto/rt.Switch
@@ -6610,7 +6610,7 @@ package pluto/rt
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.printUint
@@ -6711,27 +6711,27 @@ package pluto/rt
     calls pluto/rt.cas32
       pluto/rt/sched_linux.p:401:7: call pluto/rt.tasksSettled
       pluto/rt/sched_linux.p:412:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:401:7: call pluto/rt.tasksSettled
       pluto/rt/sched_linux.p:412:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:401:7: call pluto/rt.tasksSettled
       pluto/rt/sched_linux.p:412:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:401:7: call pluto/rt.tasksSettled
       pluto/rt/sched_linux.p:412:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:401:7: call pluto/rt.tasksSettled
       pluto/rt/sched_linux.p:420:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
   safe pluto/rt.tasksSettled pluto/rt/sched_linux.p:409:1
     calls pluto/rt.load32
@@ -6741,34 +6741,34 @@ package pluto/rt
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:412:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.cas32
       pluto/rt/sched_linux.p:412:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:412:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:412:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:412:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:420:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:420:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:420:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.*hostedSched.FreeTask pluto/rt/sched_linux.p:424:1
@@ -6810,22 +6810,22 @@ package pluto/rt
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:445:38: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:467:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:445:38: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:467:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:445:38: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:467:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:445:38: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:469:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.newThread
       pluto/rt/sched_linux.p:445:38: call pluto/rt.hostedReady
@@ -6835,7 +6835,7 @@ package pluto/rt
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:445:38: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:469:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.*hostedSched.Wake pluto/rt/sched_linux.p:447:1
@@ -6872,22 +6872,22 @@ package pluto/rt
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:447:37: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:467:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:447:37: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:467:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:447:37: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:467:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:447:37: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:469:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.newThread
       pluto/rt/sched_linux.p:447:37: call pluto/rt.hostedReady
@@ -6897,7 +6897,7 @@ package pluto/rt
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:447:37: call pluto/rt.hostedReady
       pluto/rt/sched_linux.p:469:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.*hostedSched.Park pluto/rt/sched_linux.p:449:1
@@ -6939,7 +6939,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/sched_linux.p:451:2: call pluto/rt.Switch
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
@@ -6953,7 +6953,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:451:2: call pluto/rt.Switch
@@ -6961,7 +6961,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:451:2: call pluto/rt.Switch
@@ -6969,7 +6969,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:451:2: call pluto/rt.Switch
@@ -6977,7 +6977,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:451:2: call pluto/rt.Switch
@@ -6985,7 +6985,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/sched_linux.p:451:2: call pluto/rt.Switch
@@ -7033,7 +7033,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -7084,7 +7084,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/sched_linux.p:456:2: call pluto/rt.Switch
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
@@ -7098,7 +7098,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:456:2: call pluto/rt.Switch
@@ -7106,7 +7106,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:456:2: call pluto/rt.Switch
@@ -7114,7 +7114,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:456:2: call pluto/rt.Switch
@@ -7122,7 +7122,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:456:2: call pluto/rt.Switch
@@ -7130,7 +7130,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/sched_linux.p:456:2: call pluto/rt.Switch
@@ -7178,7 +7178,7 @@ package pluto/rt
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:377:9: call pluto/rt.shutdownLeave
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -7215,19 +7215,19 @@ package pluto/rt
       pluto/rt/sched_linux.p:605:37: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:467:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:467:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:467:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:469:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.newThread
       pluto/rt/sched_linux.p:471:2: call pluto/rt.wakep
@@ -7235,7 +7235,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:634:3: call pluto/rt.newThread
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:469:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.findRunnable pluto/rt/sched_linux.p:482:1
@@ -7256,7 +7256,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:787:6: call pluto/rt.cas32
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store32
       pluto/rt/sched_linux.p:537:14: call pluto/rt.runqsteal
       pluto/rt/sched_linux.p:821:3: call pluto/rt.store32
@@ -7281,19 +7281,19 @@ package pluto/rt
       pluto/rt/sched_linux.p:1100:2: call pluto/rt.clockGettime
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:496:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.syscall3
       pluto/rt/sched_linux.p:486:4: call pluto/rt.stopm
@@ -7307,7 +7307,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:634:3: call pluto/rt.newThread
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:498:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.printUint
@@ -7342,7 +7342,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:594:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store32
       pluto/rt/sched_linux.p:594:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
@@ -7357,37 +7357,37 @@ package pluto/rt
       pluto/rt/sched_linux.p:594:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:594:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:594:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:594:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:594:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:618:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:594:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:618:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.wakep pluto/rt/sched_linux.p:601:1
@@ -7404,7 +7404,7 @@ package pluto/rt
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store32
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:639:2: call pluto/rt.notewakeup
@@ -7416,32 +7416,32 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:618:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:608:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:618:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.startm pluto/rt/sched_linux.p:613:1
@@ -7451,7 +7451,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:634:3: call pluto/rt.newThread
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store32
       pluto/rt/sched_linux.p:639:2: call pluto/rt.notewakeup
       pluto/rt/sched_linux.p:1087:2: call pluto/rt.store32
@@ -7460,41 +7460,41 @@ package pluto/rt
       pluto/rt/sched_linux.p:1088:2: call pluto/rt.futexwakeup
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:614:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:618:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:618:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.stopm pluto/rt/sched_linux.p:643:1
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:644:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.load32
       pluto/rt/sched_linux.p:648:2: call pluto/rt.checkDead
       pluto/rt/sched_linux.p:662:32: call pluto/rt.load32
@@ -7518,15 +7518,15 @@ package pluto/rt
       pluto/rt/sched_linux.p:711:36: call pluto/rt.cas32
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:644:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:644:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:644:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.syscall3
       pluto/rt/sched_linux.p:648:2: call pluto/rt.checkDead
@@ -7534,11 +7534,11 @@ package pluto/rt
       pluto/rt/rt_linux.p:350:2: call pluto/rt.syscall3
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:649:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:649:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.printUint
       pluto/rt/sched_linux.p:648:2: call pluto/rt.checkDead
@@ -7552,7 +7552,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:704:2: call pluto/rt.TraceTask
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:649:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.checkDead pluto/rt/sched_linux.p:661:1
@@ -7622,7 +7622,7 @@ package pluto/rt
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.xadd32
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:772:3: call pluto/rt.globrunqput
@@ -7630,37 +7630,37 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:774:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:774:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:774:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.runqputslow pluto/rt/sched_linux.p:760:1
@@ -7668,41 +7668,41 @@ package pluto/rt
       pluto/rt/sched_linux.p:766:6: call pluto/rt.cas32
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.xadd32
       pluto/rt/sched_linux.p:772:3: call pluto/rt.globrunqput
       pluto/rt/sched_linux.p:835:2: call pluto/rt.xadd32
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:774:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:774:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:774:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.runqget pluto/rt/sched_linux.p:779:1
@@ -7741,48 +7741,48 @@ package pluto/rt
       pluto/rt/sched_linux.p:851:3: call pluto/rt.runqput
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:851:3: call pluto/rt.runqput
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:851:3: call pluto/rt.runqput
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:851:3: call pluto/rt.runqput
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:851:3: call pluto/rt.runqput
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:770:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:851:3: call pluto/rt.runqput
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:774:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:851:3: call pluto/rt.runqput
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:774:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:851:3: call pluto/rt.runqput
       pluto/rt/sched_linux.p:754:6: call pluto/rt.runqputslow
       pluto/rt/sched_linux.p:774:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.globrunqpop pluto/rt/sched_linux.p:856:1
@@ -7811,7 +7811,7 @@ package pluto/rt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:926:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store64
       pluto/rt/sched_linux.p:930:3: call pluto/rt.acquirep
       pluto/rt/sched_linux.p:710:2: call pluto/rt.store64
@@ -7833,19 +7833,19 @@ package pluto/rt
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:926:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:926:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:926:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:928:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.store32
       pluto/rt/sched_linux.p:930:3: call pluto/rt.acquirep
@@ -7956,7 +7956,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:972:6: call pluto/rt.retake
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store64
       pluto/rt/sched_linux.p:972:6: call pluto/rt.retake
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
@@ -7972,31 +7972,31 @@ package pluto/rt
       pluto/rt/sched_linux.p:972:6: call pluto/rt.retake
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:972:6: call pluto/rt.retake
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:972:6: call pluto/rt.retake
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:972:6: call pluto/rt.retake
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1034:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:972:6: call pluto/rt.retake
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1034:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.retake pluto/rt/sched_linux.p:982:1
@@ -8022,7 +8022,7 @@ package pluto/rt
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store64
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1033:2: call pluto/rt.pidleput
@@ -8040,32 +8040,32 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1034:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:1015:5: call pluto/rt.handoffp
       pluto/rt/sched_linux.p:1034:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.handoffp pluto/rt/sched_linux.p:1023:1
@@ -8081,7 +8081,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:634:3: call pluto/rt.newThread
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.store64
       pluto/rt/sched_linux.p:1033:2: call pluto/rt.pidleput
       pluto/rt/sched_linux.p:725:2: call pluto/rt.store64
@@ -8095,27 +8095,27 @@ package pluto/rt
       pluto/rt/sched_linux.p:1088:2: call pluto/rt.futexwakeup
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:1032:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:1034:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:1034:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.sigpreempt pluto/rt/sched_linux.p:1039:1
@@ -8182,42 +8182,42 @@ package pluto/rt
   safe pluto/rt.cacheable pluto/rt/sched_linux.p:1180:1
     calls pluto/rt.inc32
       pluto/rt/sched_linux.p:1186:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/sched_linux.p:1186:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/sched_linux.p:1186:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/sched_linux.p:1186:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/sched_linux.p:1186:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/sched_linux.p:1186:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/sched_linux.p:1186:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/sched_linux.p:1190:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/sched_linux.p:1190:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/sched_linux.p:1190:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.pinP pluto/rt/sched_linux.p:1196:1
@@ -8300,41 +8300,41 @@ package pluto/rt
   safe pluto/rt.shutdownEnter pluto/rt/shutdown.p:71:1
     calls pluto/rt.inc32
       pluto/rt/shutdown.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/shutdown.p:75:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:500:2: call pluto/rt.printString
     calls pluto/rt.getg
       pluto/rt/shutdown.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/shutdown.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/shutdown.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/shutdown.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/shutdown.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/shutdown.p:72:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/shutdown.p:74:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/shutdown.p:74:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/shutdown.p:75:3: call pluto/rt.panicMessage
@@ -8358,7 +8358,7 @@ package pluto/rt
       pluto/rt/panic.p:169:2: call pluto/rt.raise
     calls pluto/rt.schedYield
       pluto/rt/shutdown.p:74:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -8369,41 +8369,41 @@ package pluto/rt
   safe pluto/rt.shutdownAdmit pluto/rt/shutdown.p:90:1
     calls pluto/rt.inc32
       pluto/rt/shutdown.p:91:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/shutdown.p:95:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:500:2: call pluto/rt.printString
     calls pluto/rt.getg
       pluto/rt/shutdown.p:91:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/shutdown.p:91:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/shutdown.p:91:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/shutdown.p:91:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/shutdown.p:91:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/shutdown.p:91:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/shutdown.p:93:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/shutdown.p:93:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/shutdown.p:95:3: call pluto/rt.panicMessage
@@ -8427,7 +8427,7 @@ package pluto/rt
       pluto/rt/panic.p:169:2: call pluto/rt.raise
     calls pluto/rt.schedYield
       pluto/rt/shutdown.p:93:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -8438,41 +8438,41 @@ package pluto/rt
   safe pluto/rt.shutdownEnded pluto/rt/shutdown.p:101:1
     calls pluto/rt.inc32
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/shutdown.p:108:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:500:2: call pluto/rt.printString
     calls pluto/rt.getg
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/shutdown.p:107:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/shutdown.p:107:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/shutdown.p:108:3: call pluto/rt.panicMessage
@@ -8496,7 +8496,7 @@ package pluto/rt
       pluto/rt/panic.p:169:2: call pluto/rt.raise
     calls pluto/rt.schedYield
       pluto/rt/shutdown.p:107:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -8507,7 +8507,7 @@ package pluto/rt
   safe pluto/rt.shutdownLeave pluto/rt/shutdown.p:116:1
     calls pluto/rt.inc32
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/shutdown.p:120:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:500:2: call pluto/rt.printString
@@ -8522,27 +8522,27 @@ package pluto/rt
       pluto/rt/sched.p:551:5: call pluto/rt.schedWake
     calls pluto/rt.getg
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/shutdown.p:117:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/shutdown.p:120:3: call pluto/rt.panicMessage
@@ -8566,7 +8566,7 @@ package pluto/rt
       pluto/rt/panic.p:169:2: call pluto/rt.raise
     calls pluto/rt.schedYield
       pluto/rt/shutdown.p:119:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -8578,7 +8578,7 @@ package pluto/rt
     calls pluto/rt.inc32
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:108:3: call pluto/rt.panicMessage
@@ -8598,32 +8598,32 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:107:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:107:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
@@ -8653,7 +8653,7 @@ package pluto/rt
     calls pluto/rt.schedYield
       pluto/rt/shutdown.p:138:3: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:107:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -8665,49 +8665,49 @@ package pluto/rt
   safe pluto/rt.CallbackBegin pluto/rt/shutdown.p:147:1
     calls pluto/rt.inc32
       pluto/rt/shutdown.p:148:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/shutdown.p:148:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/shutdown.p:148:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/shutdown.p:148:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/shutdown.p:148:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/shutdown.p:148:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/shutdown.p:148:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/shutdown.p:150:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/shutdown.p:150:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/shutdown.p:150:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.CallbackEnd pluto/rt/shutdown.p:160:1
     calls pluto/rt.inc32
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.printString
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:108:3: call pluto/rt.panicMessage
@@ -8727,32 +8727,32 @@ package pluto/rt
     calls pluto/rt.getg
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.pause
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:105:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:107:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:107:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.casUint64
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
@@ -8782,7 +8782,7 @@ package pluto/rt
     calls pluto/rt.schedYield
       pluto/rt/shutdown.p:161:2: call pluto/rt.shutdownEnded
       pluto/rt/shutdown.p:107:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
@@ -8802,7 +8802,7 @@ package pluto/rt
       pluto/rt/shutdown.p:204:14: call pluto/rt.load64
     calls pluto/rt.inc32
       pluto/rt/shutdown.p:182:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.schedYield
       pluto/rt/shutdown.p:176:8: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:212:3: call pluto/rt.Yield
@@ -8825,23 +8825,23 @@ package pluto/rt
       pluto/rt/sched.p:539:2: call pluto/rt.schedPark
     calls pluto/rt.pause
       pluto/rt/shutdown.p:182:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/shutdown.p:182:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/shutdown.p:182:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/shutdown.p:182:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/shutdown.p:184:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       pluto/rt/shutdown.p:176:8: may call pluto/rt.waitShutdown
@@ -9032,23 +9032,23 @@ package pluto/rt
       pluto/rt/sched.p:539:2: call pluto/rt.schedPark
     calls pluto/rt.pause
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       pluto/rt/shutdown.p:225:2: call pluto/rt.cancelAppTimers
@@ -10189,42 +10189,42 @@ package pluto/rt
       pluto/rt/timer.p:110:12: call pluto/rt.*Timer.stopLocked
     calls pluto/rt.inc32
       pluto/rt/timer.p:109:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/timer.p:109:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/timer.p:109:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/timer.p:109:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/timer.p:109:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/timer.p:109:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/timer.p:109:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/timer.p:111:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/timer.p:111:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/timer.p:111:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.*Timer.stopLocked pluto/rt/timer.p:116:1
@@ -10245,45 +10245,45 @@ package pluto/rt
   safe pluto/rt.cancelAppTimers pluto/rt/timer.p:285:1
     calls pluto/rt.inc32
       pluto/rt/timer.p:292:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.*Timer.stopLocked
       pluto/rt/timer.p:298:4: call pluto/rt.*Timer.Stop
       pluto/rt/timer.p:110:12: call pluto/rt.*Timer.stopLocked
     calls pluto/rt.getg
       pluto/rt/timer.p:292:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/timer.p:292:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/timer.p:292:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/timer.p:292:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/timer.p:292:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/timer.p:292:4: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/timer.p:294:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/timer.p:294:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/timer.p:294:4: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.armGlobal pluto/rt/timer.p:319:1
@@ -10294,7 +10294,7 @@ package pluto/rt
       pluto/rt/timer.p:336:2: call pluto/rt.*timerHeap.run
     calls pluto/rt.inc32
       pluto/rt/timer.p:335:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.schedNow
       pluto/rt/timer.p:336:8: call pluto/rt.Now
       pluto/rt/timer.p:359:27: call pluto/rt.schedNow
@@ -10303,39 +10303,39 @@ package pluto/rt
       pluto/rt/timer.p:323:3: call pluto/rt.schedArmTimer
     calls pluto/rt.getg
       pluto/rt/timer.p:335:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/timer.p:335:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/timer.p:335:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/timer.p:335:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/timer.p:335:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/timer.p:335:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/timer.p:341:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/timer.p:341:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/timer.p:341:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.schedNow pluto/rt/timer.p:350:1
@@ -10414,42 +10414,42 @@ package pluto/rt
       pluto/rt/sched_linux.p:1100:2: call pluto/rt.clockGettime
     calls pluto/rt.inc32
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/timer_linux.p:116:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/timer_linux.p:116:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/timer_linux.p:116:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.runOtherTimers pluto/rt/timer_linux.p:122:1
@@ -10464,51 +10464,51 @@ package pluto/rt
     calls pluto/rt.inc32
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.getg
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:114:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:116:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:116:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.schedYield
       pluto/rt/timer_linux.p:133:6: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:116:2: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   safe pluto/rt.pollTimers pluto/rt/timer_linux.p:148:1
@@ -10526,7 +10526,7 @@ package pluto/rt
       pluto/rt/timer_linux.p:115:2: call pluto/rt.*timerHeap.run
     calls pluto/rt.inc32
       pluto/rt/timer_linux.p:165:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:800:3: call pluto/rt.inc32
+      pluto/rt/sched.p:803:3: call pluto/rt.inc32
     calls pluto/rt.load32
       pluto/rt/timer_linux.p:166:3: call pluto/rt.checkDead
       pluto/rt/sched_linux.p:662:32: call pluto/rt.load32
@@ -10538,23 +10538,23 @@ package pluto/rt
       pluto/rt/sched_linux.p:668:2: call pluto/rt.printString
     calls pluto/rt.getg
       pluto/rt/timer_linux.p:165:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:799:10: call pluto/rt.current
+      pluto/rt/sched.p:802:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.cas32
       pluto/rt/timer_linux.p:165:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1049:5: call pluto/rt.cas32
     calls pluto/rt.pause
       pluto/rt/timer_linux.p:165:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.xchg32
       pluto/rt/timer_linux.p:165:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       pluto/rt/timer_linux.p:165:3: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.syscall3
       pluto/rt/timer_linux.p:166:3: call pluto/rt.checkDead
@@ -10562,11 +10562,11 @@ package pluto/rt
       pluto/rt/rt_linux.p:350:2: call pluto/rt.syscall3
     calls pluto/rt.futexwakeup
       pluto/rt/timer_linux.p:167:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.dec32
       pluto/rt/timer_linux.p:167:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:318:2: call pluto/rt.dec32
     calls pluto/rt.printUint
       pluto/rt/timer_linux.p:166:3: call pluto/rt.checkDead
@@ -10580,7 +10580,7 @@ package pluto/rt
       pluto/rt/sched_linux.p:704:2: call pluto/rt.TraceTask
     calls pluto/rt.schedYield
       pluto/rt/timer_linux.p:167:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:824:3: call pluto/rt.enablePreempt
+      pluto/rt/sched.p:827:3: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
   unsafe pluto/rt.pollerWait pluto/rt/timer_linux.p:185:1

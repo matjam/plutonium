@@ -43,6 +43,7 @@ type Config struct {
 	Listing      io.Writer // if set, receives the machine code listing
 	SSADump      string    // function name (or "all") whose SSA is dumped to stderr after each pass
 	InlineNotes  io.Writer // if set, receives a note for each //pu:inline call left out of line (--inlinenotes)
+	StackReport  io.Writer // if set, receives the stack each task statement gets (--stackreport)
 	Stdlib       fs.FS
 	Verbose      bool
 	KeepWork     bool // keep the temporary directory
@@ -561,6 +562,36 @@ func emitObject(cfg *Config, p *ssa.Program, prog *load.Program) (*objfile.Objec
 			return nil, err
 		}
 	}
-	return backend.Emit(pu.New(backend.Config{Listing: cfg.Listing, NoTrace: cfg.NoTrace,
-		NoDWARF: cfg.NoDWARF || cfg.Strip, CompDir: dir}), p, dbg)
+	bcfg := pu.New(backend.Config{Listing: cfg.Listing, NoTrace: cfg.NoTrace,
+		NoDWARF: cfg.NoDWARF || cfg.Strip, CompDir: dir, AsmStack: map[string]backend.AsmFrame{}})
+	for _, pkg := range prog.Packages {
+		for _, a := range pkg.AsmFiles {
+			backend.AsmStack(compat.String(a.Src), bcfg.AsmStack)
+		}
+	}
+	obj, err := backend.Emit(bcfg, p, dbg)
+	if err == nil && cfg.StackReport != nil {
+		err = writeStackReport(cfg.StackReport, bcfg.Stacks, prog)
+	}
+	return obj, err
+}
+
+// writeStackReport writes the stack each task statement gets (language
+// spec section 19.1): the bound the compiler proved, or why it found none,
+// in which case the task gets the runtime's stack for tasks of unknown
+// need.
+func writeStackReport(w io.Writer, stacks []backend.StackResult, prog *load.Program) error {
+	for _, s := range stacks {
+		pos := prog.Fset.Position(s.Pos)
+		var err error
+		if s.Why == "" {
+			_, err = fmt.Fprintf(w, "%s: task stack: %d bytes, proven\n", pos, s.Bound)
+		} else {
+			_, err = fmt.Fprintf(w, "%s: task stack: not computed: %s\n", pos, s.Why)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

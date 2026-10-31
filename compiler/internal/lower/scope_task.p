@@ -131,7 +131,7 @@ func (s *fnState) scopedTask(e *ast.CallExpr, t *scoped.Task) {
 	pos := e.Pos()
 	s.l.queue = compat.Append(s.l.queue, pu.New(funcJob{sym: thunk, pkg: s.pkg, sig: tsig, parent: s, build: pu.New(goClosure_scopedTask_1{tsig: tsig, slots: slots, litSym: litSym, litSig: litSig, pos: pos})}))
 	rec := s.symAddr(s.l.closureRecord(thunk))
-	s.callRuntime("spawnScoped", nil, []*ssa.Value{join, rec, block, s.constInt(ssa.TI64, off), s.constInt(ssa.TI64, align), s.constInt(ssa.TI64, 0)})
+	s.callRuntime("spawnScoped", nil, []*ssa.Value{join, rec, block, s.constInt(ssa.TI64, off), s.constInt(ssa.TI64, align), s.taskStackBound(thunk, pos)})
 }
 
 // checkViewsApart panics unless the slices o.A and o.B, which tasks of the

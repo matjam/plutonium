@@ -71,6 +71,7 @@ var buildFlags = []flagDef{
 	{"opt", "O", intFlag, "2"},
 	{"output", "o", stringFlag, "a.out"},
 	{"ssa", "", stringFlag, ""},
+	{"stackreport", "", boolFlag, "false"},
 	{"strip", "s", boolFlag, "false"},
 	{"tags", "", sliceFlag, ""},
 	{"target", "", stringFlag, "x86_64-linux"},
@@ -98,6 +99,7 @@ const buildFlagUsage = `Flags:
   -O, --opt int           optimization level: 0, 1 or 2 (default 2)
   -o, --output string     output file (default "a.out")
       --ssa string        dump the SSA of this function (or all) after each pass
+      --stackreport       print the stack each task statement gets: the size the compiler proved, or why it found none
   -s, --strip             omit DWARF and the symbol table (panic traces still work)
       --tags strings      additional build tags
       --target string     target triple: x86_64-linux or x86_64-none (default "x86_64-linux")
@@ -517,6 +519,9 @@ func buildConfig(c *command, args []string) (*build.Config, error) {
 	})
 	if c.boolean("inlinenotes") {
 		cfg.InlineNotes = os.Stderr
+	}
+	if c.boolean("stackreport") {
+		cfg.StackReport = os.Stderr
 	}
 	cfg.StdlibDir = stdlibDir()
 	if err := cfg.Check(); err != nil {

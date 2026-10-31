@@ -4,6 +4,7 @@ package ssa
 
 import (
 	"compiler/compat"
+	"compiler/internal/syntax/token"
 	"compiler/pu"
 	"pluto/sort"
 )
@@ -13,6 +14,40 @@ type Program struct {
 	Funcs []*Func
 	Data  []*Data
 	syms  map[string]*Sym
+
+	// Stack is what the backend needs to compute the stacks of tasks
+	// (language spec section 19.1, item 1), or nil when lowering leaves
+	// every task's stack to the runtime.
+	Stack *StackInfo
+}
+
+// StackInfo describes the task starts whose stack the backend bounds, and
+// the indirect calls of the program as lowering resolved them (language
+// spec section 20.10).
+type StackInfo struct {
+	Roots []StackRoot
+	// Indirect maps the name of each function lowered with indirect calls
+	// to the functions those calls may reach. Inlining moves a call into
+	// another function: the backend takes the indirect calls of a function
+	// to reach what Indirect gives for it and for each function inlined
+	// into it (Func.Inlines).
+	Indirect map[string][]string
+	// Open holds the functions with an indirect call whose callees are not
+	// known: such a call may reach any function.
+	Open map[string]bool
+	// Off, if set, says why no task gets a bound: the roots are recorded
+	// for the report only, without Bound words.
+	Off string
+}
+
+// A StackRoot is a task start: the task statement at Pos starts the
+// function Thunk, and loads its stack bound from Bound, an 8-byte
+// read-only word the backend fills in (0 when it finds no bound), or nil
+// when StackInfo.Off is set.
+type StackRoot struct {
+	Thunk string
+	Bound *Sym
+	Pos   token.Pos
 }
 
 // NewProgram returns an empty program.

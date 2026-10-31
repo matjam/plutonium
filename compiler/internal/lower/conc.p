@@ -606,11 +606,12 @@ func (s *fnState) taskStmt(st *ast.TaskStmt) {
 	s.l.queue = compat.Append(s.l.queue, pu.New(funcJob{sym: thunk, pkg: s.pkg, sig: tsig, parent: s, build: pu.New(goClosure_taskStmt_6{tsig: tsig, args: args, varArr: varArr, varOff: varOff, boxRecv: boxRecv, adopted: adopted || (*dispatch), keepLead: (*dispatch), emit: emit, pos: pos})}))
 
 	rec := s.symAddr(s.l.closureRecord(thunk))
-	// The bound argument is the stack the call is proven to need; 0 until
-	// the compiler computes it (roadmap item 18).
+	// The bound argument is the stack the call is proven to need, or 0
+	// (taskstack.go).
+	bound := s.taskStackBound(thunk, pos)
 	handedOff := s.temp(types2.Typ[types2.Bool], "goargs.handoff")
 	s.store(ssa.TBool, handedOff, s.constBool(false))
-	s.callRuntime("spawnGo", nil, []*ssa.Value{rec, block, s.constInt(ssa.TI64, off), s.constInt(ssa.TI64, max(align, 1)), s.constInt(ssa.TI64, 0), handedOff})
+	s.callRuntime("spawnGo", nil, []*ssa.Value{rec, block, s.constInt(ssa.TI64, off), s.constInt(ssa.TI64, max(align, 1)), bound, handedOff})
 	s.ifThen(s.load(ssa.TBool, handedOff), func() {
 		for _, argument := range args {
 			if temporary := argument.v.tmp; temporary != nil && s.l.needsDrop(argument.v.T) && !temporary.consumed {

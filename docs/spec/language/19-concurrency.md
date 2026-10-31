@@ -63,7 +63,7 @@ knows where the pointers into it are, so it cannot be moved. The size is chosen 
    not allow (the process has an address-space limit), the runtime reserves smaller stacks, never below
    64 KiB, and a program that needs a deeper stack asks for its size with `rt.Go`. In freestanding and
    kernel builds the task gets the default task stack size that the implementation documents (section
-   21.4, Implementation limits). `-stackreport` lists the tasks whose size could not be computed.
+   21.4, Implementation limits). `--stackreport` lists the tasks whose size could not be computed.
 
 **Where a stack comes from.** A task's stack never comes from an allocator that the starting task
 installed with `alloc.Use`, since that may be a local arena that is reset while the new task still runs.

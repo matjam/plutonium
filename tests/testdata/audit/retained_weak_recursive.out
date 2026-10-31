@@ -75,31 +75,31 @@ package main
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:14:37: call main.recursiveB
@@ -325,27 +325,27 @@ package main
     calls pluto/rt.pause
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:15:54: may call pluto/rt.waitShutdown
@@ -569,35 +569,35 @@ package main
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:16:16: call main.recursiveA
@@ -847,27 +847,27 @@ package main
     calls pluto/rt.pause
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1080,31 +1080,31 @@ package main
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:20:47: call main.Maker[T].Discard
@@ -1341,31 +1341,31 @@ package main
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1053:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1054:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1058:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
-      pluto/rt/sched.p:802:2: call pluto/rt.lockAcquire
+      pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
       pluto/rt/sched_linux.p:1059:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
-      pluto/rt/sched.p:822:2: call pluto/rt.lockRelease
+      pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
       pluto/rt/sched_linux.p:1067:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:21:59: call main.Maker[T].Discard
