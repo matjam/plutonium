@@ -560,7 +560,7 @@ against the corrected specification. The immediate implementation order is:
      is E3306 for `F[int]` too (`diag/generic_owner_copy`). Symbol names of alias types now print the
      aliased type, which fixes a type assertion of a value of an alias type held in an interface: it
      failed because the type descriptor carried the alias name (`lower/alias_type_assert`).
-     Follow-up (`COMMIT`): itabs and their adapters were keyed by the plain type name, so
+     Follow-up (`2595613f`): itabs and their adapters were keyed by the plain type name, so
      `*vec.Vec[int·view]` and `*vec.Vec[int]` shared the adapter of `Values`. Generic code that called it
      through an interface got the plain instance's ints as pointers (a crash or a wrong sum, depending on
      which instance was lowered first). Assertions to interfaces failed or matched the wrong case: the
