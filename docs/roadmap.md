@@ -843,7 +843,7 @@ compiler (2026-10-11).
     `WaitGroup`, `Once`, `Cond` over the scheduler.
 17. **Thread-safe default allocator** (done, `0ebe75d`; sections 18.9 and 19.7): `alloc.SyncSlab` with
     per-processor caches is the hosted default.
-18. **Stack size analysis and `--stackreport`** (done, `d11cb89e`, COMMIT_A; section 19.1
+18. **Stack size analysis and `--stackreport`** (done, `d11cb89e`, `17e3bc1c`; section 19.1
     item 1): each task statement loads its `Proven` bound from a read-only word, `<thunk>.stack`, that
     the backend fills after it has laid out every frame. The bound is the deepest call path from the
     task's function, plus the frames that land on the task's stack outside the call graph: the
