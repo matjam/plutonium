@@ -896,7 +896,15 @@ compiler (2026-10-11).
     automatic drops on every path, `take`, `unsafe.Drop`, `owned[T]`,
     `shared`, `synced`, `weak`, owning interfaces, owner unions, the local-arena rule (section 18.9), and
     generation checks and arena epochs (items 71 and 72). Commits: `ca7e064`, `dc808a9`, `01daa4b`,
-    `1b25e7d`, `052c091`. Open: items 78, 85 to 89 and 92, and the library owners of item 51.
+    `1b25e7d`, `052c091`. Audited on 2026-10-31 ([record](verification/2026-10-31-item20-audit.md)): items
+    78, 86 to 89 and 92 are done, the generation checks of item 85 work (what is left in item 85 is speed
+    tuning), and every library owner that item 51 names is an owner with `Drop`. Open: a consuming
+    method used as a method value is accepted, not an error (item 75, section 18.5); generation checks
+    for early boot, interrupts and arenas in kernel builds (item 101 phases 3 and 4, section 18.11); the
+    four view-tracking limits at the end of item 138 (section 18.3); and cases for rules that have none
+    (E3205, E3208, E3209, E3007, the embedded, array and interface forms of E3202, most kinds of E3204,
+    a view converted into a box, a map lent to an ordinary interface, a send in a `select`; the audit
+    lists them).
 24. **Compile-time type-switch folding** (planned; an optimization, sections 12.9 and 21.3): decide
     `switch any(x).(type)` on a type parameter per instantiation; acceptance never depends on it.
 28. **`defer` in loops** (decided; sections 12.19 and 12.11): a `defer` in a loop is E2530; a range-over-func
