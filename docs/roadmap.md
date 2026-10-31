@@ -37,7 +37,7 @@ against the corrected specification. The immediate implementation order is:
      build passes the flag. Phase 1 is done: tags use the canonical XOR encoding of abi.md
      section 1.3 (untag is sign extension from bit 47), with hosted results unchanged; the
      checked compiler is 0.05% larger and about 5% slower (plan section 7 has the numbers).
-     Phase 2 is done: freestanding and kernel builds are checked by default. A checked one
+     Phase 2 is done (58fcd043): freestanding and kernel builds are checked by default. A checked one
      exports its metadata source as `pluto_gen_metadata` (abi.md section 1.3), or the build
      fails with E2588, and it refuses to start under 5-level paging. A checked kernel boots
      in QEMU and catches section 18.11's stale view through its panic handler.

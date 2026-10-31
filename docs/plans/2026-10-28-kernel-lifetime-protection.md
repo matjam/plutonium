@@ -349,7 +349,7 @@ decision D41 in `docs/decisions.md`.
   228,210 to 225,786 bytes. The slowdown is the sign-extending untag
   (shift left, arithmetic shift right) where a mask was one AND. Phase 2
   measures kernels.
-- **Phase 2: done.** Freestanding and kernel builds are checked by default,
+- **Phase 2: done** (58fcd043). Freestanding and kernel builds are checked by default,
   and `PLUTO_GENCHECK=0` and `--gencheck=false` build them unchecked.
   - *Hook (question 2).* The program exports a function as
     `pluto_gen_metadata`, `func(n uintptr) uintptr`, with the existing
