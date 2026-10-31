@@ -299,48 +299,15 @@ func TestAdversarial(t *testing.T) {
 				// directories are removed): nothing else frees them (Go's
 				// GC did), and without the regions the test passed 24 GB
 				// eight programs in. totals outlives the region and is
-				// written from the heap.
+				// written from the heap. The filter tables the cache's
+				// test hooks keep (cache.ForgetEncoded) are the region's,
+				// and are forgotten before it is released.
 				mem := scratch.NewRegion()
 				defer mem.Release()
 				use := mem.Use()
 				defer use.Restore()
-				prog, ok := cp.load(t)
-				if !ok {
-					t.Skip("does not load")
-				}
-				cold := analyse(t, prog, "")
-				base := testenv.TempDir(t)
-				defer testenv.Remove(base)
-				first := analyse(t, prog, base)
-				sameAsCold(t, "writing the cache", cold, first)
-				empty := testenv.TempDir(t)
-				defer testenv.Remove(empty)
-				warm := analyse(t, prog, empty+"/none")
-				sameAsCold(t, "an empty cache", cold, warm)
-				for _, m := range mutations {
-					// Removed at the end of the iteration: a defer may not
-					// run twice in one call.
-					dir := testenv.TempDir(t)
-					copyDir(t, base, dir)
-					m.fn(t, dir)
-					got := analyse(t, prog, dir)
-					sameAsCold(t, m.name, cold, got)
-					// And the run after it, from the files it rewrote.
-					again := analyse(t, prog, dir)
-					sameAsCold(t, m.name+", then again", cold, again)
-					tt := totals[m.name]
-					tt[0] += got.stats.CacheAccepted
-					tt[1] += got.stats.CacheMissed
-					tt[2] += got.stats.CacheRejected
-					tt[3] += got.stats.CacheRedone
-					if cold.diags != "" {
-						tt[4]++
-					}
-					h := scratch.Heap()
-					totals[m.name] = tt
-					h.Restore()
-					testenv.Remove(dir)
-				}
+				defer cache.ForgetEncoded()
+				advProgramRun(t, cp, totals)
 			})
 		}
 	})
@@ -367,6 +334,73 @@ func TestAdversarial(t *testing.T) {
 			t.Errorf("mutation %s: no SCC %s: the suite does not reach that case", n.m, n.what)
 		}
 	}
+}
+
+// advProgramRun runs every mutation on the cache of one program, in the
+// region the subtest made current. It is a function of its own so that
+// its locals are released when it returns: the outcomes hold counted maps
+// and strings made in the region, and a frame releases its counted locals
+// after its deferred calls run, so in the subtest's frame they would be
+// released after the region was.
+func advProgramRun(t *testing.T, cp advProgram, totals map[string][5]int) {
+	prog, ok := cp.load(t)
+	if !ok {
+		t.Skip("does not load")
+	}
+	cold := analyse(t, prog, "")
+	base := testenv.TempDir(t)
+	defer testenv.Remove(base)
+	first := analyse(t, prog, base)
+	sameAsCold(t, "writing the cache", cold, first)
+	empty := testenv.TempDir(t)
+	defer testenv.Remove(empty)
+	warm := analyse(t, prog, empty+"/none")
+	sameAsCold(t, "an empty cache", cold, warm)
+	for _, m := range mutations {
+		advMutation(t, prog, base, cold, m, totals)
+	}
+}
+
+// advMutation runs a mutation in a region nested in the program's,
+// released when it returns: the program's region held all 21 analyses of
+// a program, and lib/strings2 took it past 34 GB in a checked build. The
+// tables the cache's hooks kept from the nested region are forgotten
+// first; those of the program's own analyses stay, as the mutations
+// decode the base files' summaries with them.
+func advMutation(t *testing.T, prog *load.Program, base string, cold outcome, m mutation, totals map[string][5]int) {
+	mem := scratch.NewRegion()
+	defer mem.Release()
+	defer cache.ForgetEncodedFrom(cache.EncodedMark())
+	use := mem.Use()
+	defer use.Restore()
+	advMutationRun(t, prog, base, cold, m, totals)
+}
+
+// advMutationRun is advMutation's work, in a frame of its own: a frame
+// releases its counted locals after its deferred calls (spec section
+// 18.10), so they are released here, before advMutation releases the
+// region they are in.
+func advMutationRun(t *testing.T, prog *load.Program, base string, cold outcome, m mutation, totals map[string][5]int) {
+	dir := testenv.TempDir(t)
+	defer testenv.Remove(dir)
+	copyDir(t, base, dir)
+	m.fn(t, dir)
+	got := analyse(t, prog, dir)
+	sameAsCold(t, m.name, cold, got)
+	// And the run after it, from the files it rewrote.
+	again := analyse(t, prog, dir)
+	sameAsCold(t, m.name+", then again", cold, again)
+	tt := totals[m.name]
+	tt[0] += got.stats.CacheAccepted
+	tt[1] += got.stats.CacheMissed
+	tt[2] += got.stats.CacheRejected
+	tt[3] += got.stats.CacheRedone
+	if cold.diags != "" {
+		tt[4]++
+	}
+	h := scratch.Heap()
+	totals[m.name] = tt
+	h.Restore()
 }
 
 type advNeed struct {

@@ -197,7 +197,10 @@ only with `PLUTO_UNIT_HEAVY=1`, with generation checks on. A test that keeps wha
 past the step (a fake solver recording its calls in a package slice) writes it from
 `scratch.Outer()` or `scratch.Heap()`: the step's scratch memory is reset after it. A test that
 loads a corpus program after program makes each one in a `scratch.NewRegion()` released at the
-end of the program's subtest: nothing else frees a load. With generation checks a Region, a
+end of the program's subtest: nothing else frees a load. The work goes in a function the
+subtest calls, not in the frame that defers the release: a frame releases its counted locals
+(maps, made strings, errors) after its deferred calls, so ones made in the region would be
+released after it (a generation check panic). With generation checks a Region, a
 home and the scratch levels are `pluto/arena` Chunked, which ends each allocation's
 registration when it is reset. The light package `internal/escape2/typesprobe` links types2
 and `pluto/testing` with generation checks on, in 12 to 15 min and 10 GB on kraken: it is the

@@ -41,6 +41,23 @@ func EncodeSummary(ps domain.Paths, s *summary.Summary) []byte {
 // thread here.)
 var encodedWith []*domain.Filters
 
+// ForgetEncoded empties encodedWith. A test that makes each program in a
+// scratch.Region calls it before it releases the region: the tables, and
+// encodedWith's array, are the region's, and the next program's
+// EncodeSummary would read them after the release.
+func ForgetEncoded() { encodedWith = nil }
+
+// EncodedMark returns how many tables encodedWith holds, for
+// ForgetEncodedFrom.
+func EncodedMark() int { return len(encodedWith) }
+
+// ForgetEncodedFrom keeps the first n tables of encodedWith, in an array
+// from the current allocator. A test that runs one analysis in a region
+// nested in the program's calls it, from the program's allocator, before
+// it releases the nested region: the tables EncodeSummary added there, and
+// perhaps encodedWith's array, are the nested region's.
+func ForgetEncodedFrom(n int) { encodedWith = compat.Clone(encodedWith[:n]) }
+
 // testName and testID name a deferred call's origin by its number, for the
 // external tests.
 func testName(id eir.FuncID) string { return strconv.Itoa(int(id)) }

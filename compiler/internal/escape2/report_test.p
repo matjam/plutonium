@@ -136,9 +136,10 @@ func main() { _ = parse() }
 
 // sameAsOldWant holds the message internal/escape wrote for each program of
 // sameAsOld (pluto with PLUTO_ESCAPE=old, before 18358443 removed it), with
-// the directory left out as render leaves it out. The task start has none:
-// its error is lower's E2594 (spec section 12.12), and neither analysis
-// reports one.
+// the directory left out as render leaves it out. The task start is also
+// lower's E2594 (spec section 12.12), which a build reports first, but the
+// analysis reports it too, as internal/escape did (the Go test required
+// both to reject it), in the words of tests/diag/task_func_value.
 var sameAsOldWant = map[string]string{
 	"a struct as an interface": `main.p:8:9: cannot return ParseError{...} as an interface: the interface would hold a copy of it in parse's frame
     Converting a value larger than one word to an interface puts a copy of the
@@ -205,6 +206,24 @@ var sameAsOldWant = map[string]string{
     (see "Loop iterations reuse their storage" in the Plutonium spec, section
     18.4)
     (run "pluto explain E3006" for a longer explanation)`,
+	"closure passed to a task": `main.p:7:2: cannot pass square to a task statement: the new task may outlive out
+    square is a function literal that uses out and n. A function literal that
+    uses variables of the function around it refers to those variables where
+    they live, in main's frame (out is declared at main.p:5). The task started
+    here runs on its own, and may still be running after main returns and out's
+    memory is reclaimed.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Pass a value, which is copied, or an owner, which moves, instead of a view
+    of the frame.
+    Or start it with a sync.Scope, which waits for its tasks before its block
+    ends, so that they may use main's variables:
+        var s sync.Scope
+        s.Task(func() { square() })
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3004" for a longer explanation)`,
 	"return pointer to local": `main.p:8:9: cannot return &c, a pointer to a local variable
     &c is a pointer to c. c is a local variable of load (declared at main.p:6).
     Its memory is reclaimed when load returns, so &c would point at memory that
@@ -276,8 +295,7 @@ var sameAsOldWant = map[string]string{
 }
 
 // TestSameAsOld checks that the messages of the programs of sameAsOld are
-// still the ones internal/escape wrote, word for word, and that the
-// analysis leaves the task start to lower.
+// still the ones internal/escape wrote, word for word.
 func TestSameAsOld(t *testing.T) {
 	for name, src := range sameAsOld {
 		t.Run(strings.ReplaceAll(name, " ", "_"), func(t *testing.T) {

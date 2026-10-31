@@ -125,19 +125,27 @@ func TestBuildCorpus(t *testing.T) {
 			defer mem.Release()
 			use := mem.Use()
 			defer use.Restore()
-			prog, ok := cp.load(t)
-			if !ok {
-				t.Skip("does not load")
-			}
-			p, err := Build(prog)
-			if err != nil {
-				t.Errorf("%s", err.Error())
-				return
-			}
-			for _, m := range receiverValues(p) {
-				t.Errorf("%s", m)
-			}
+			buildCorpusProgram(t, cp)
 		})
+	}
+}
+
+// buildCorpusProgram builds one corpus program in the region its subtest
+// made current. It is a function of its own so that its counted locals (an
+// error Build returns) are released when it returns: a frame releases them
+// after its deferred calls run, which would be after the region's release.
+func buildCorpusProgram(t *testing.T, cp corpusProgram) {
+	prog, ok := cp.load(t)
+	if !ok {
+		t.Skip("does not load")
+	}
+	p, err := Build(prog)
+	if err != nil {
+		t.Errorf("%s", err.Error())
+		return
+	}
+	for _, m := range receiverValues(p) {
+		t.Errorf("%s", m)
 	}
 }
 

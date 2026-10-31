@@ -68,6 +68,14 @@ func goldenMessages(t *testing.T, dir string) bool {
 	defer mem.Release()
 	use := mem.Use()
 	defer use.Restore()
+	return goldenIn(t, dir)
+}
+
+// goldenIn is goldenMessages in the region it made current. It is a
+// function of its own so that its counted locals (an error the analysis
+// returns) are released when it returns: a frame releases them after its
+// deferred calls run, which would be after the region's release.
+func goldenIn(t *testing.T, dir string) bool {
 	name := filepath.Base(dir)
 	cfg := pu.New(load.Config{Tags: load.BuildTags(false, false, nil), Stdlib: testenv.Stdlib(), Sizes: types2.SizesFor("gc", "amd64")})
 	prog, err := load.Load(cfg, dir)
