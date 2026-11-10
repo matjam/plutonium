@@ -362,6 +362,14 @@ func (check *Checker) enumConversion(x *operand, T Type, en *Enum, call *ast.Cal
 		x.invalidate()
 		return
 	}
+	if isEnum(x.typ()) {
+		// An enum is not an integer type for this rule (language spec
+		// section 11.24, Enums): its value goes through its integer type.
+		u := check.sprintf("%s", x.typ().Underlying())
+		check.errorf(x, BadEnumConversion, "cannot convert %s to enum type %s (an enum converts to another enum through its integer type: v, ok := %s(%s(...)))", x, T, T, pu.Box(u))
+		x.invalidate()
+		return
+	}
 
 	if x.mode() == constant_ {
 		val := constant.ToInt(x.val)

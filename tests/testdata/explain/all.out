@@ -3264,6 +3264,9 @@ E2313: BadEnumConversion
 
 Only integers convert to an enum, and a constant converts only if it is the
 value of a member. Anything else would make an enum value that is not a member.
+An enum type is not an integer type for this rule: a value of one enum type
+converts to another through its integer type, in the comma-ok form, v, ok :=
+Shade(uint8(c)).
 
 For example:
 

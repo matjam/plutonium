@@ -357,8 +357,9 @@ b 9 b
 
 - `enum`: a closed set of named integer constants. The first member is 0. Members are selected as
   `Color.Red` and bare in a `case`. No arithmetic, and untyped constants are not assignable (`var c Color = 1`
-  is an error, E2315). Convert an integer with the comma-ok form `c, ok := Color(n)`. `len(Color)` and
-  `for c := range Color` use the members. `String()` is generated.
+  is an error, E2315). Convert an integer with the comma-ok form `c, ok := Color(n)`; another enum goes through
+  its integer type, `s, ok := Shade(uint8(c))` (`Shade(c)` is E2313). `len(Color)` and `for c := range Color` use
+  the members. `String()` is generated.
 - `union`: a tagged union, payloads inline, no allocation. Build with `Shape.Rect{w: 2, h: 3}`,
   `Shape.Dot`, and for a generic union `type Result[T any] union{ Ok T; Err string }` the instance's variant,
   `Result[int].Ok(5)`. Take apart with a type switch (`case Circle:` names the variant; `v` is its

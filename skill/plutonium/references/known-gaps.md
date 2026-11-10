@@ -14,7 +14,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   analysis gives those calls no effects (`review3/o14`). Item 180.
 - A view of a local that has cleanup but is not an owner, used after its scope ends, is not E3313 yet (18.3). Item 146.
 - A type switch, assertion or conversion on an ordinary interface does not yet move or lend as 18.5 says. Item 148.
-- An enum-to-enum conversion such as `Shade(color)` is not E2313 yet (7.12, 11.24). Item 150.
 - `owned`, `shared`, `synced` and `weak` by value in `//pu:extern` or `//pu:export` signatures are not E2511 yet
   (20.4). Item 157.
 - The conversion checks of 11.12 and 11.24 (slicing a type parameter with a string in its type set, packed types and

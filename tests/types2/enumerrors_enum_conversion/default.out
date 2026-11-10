@@ -1,0 +1,14 @@
+$DIR/test.p:7:38: cannot convert Color.Green (constant 1 of enum type Color) to enum type Shade (an enum converts to another enum through its integer type: v, ok := Shade(uint8(...)))
+    Only integers convert to an enum, and a constant converts only if it is the
+    value of a member. Anything else would make an enum value that is not a
+    member. An enum type is not an integer type for this rule: a value of one
+    enum type converts to another through its integer type, in the comma-ok
+    form, v, ok := Shade(uint8(c)).
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2313" for a longer explanation)
+
+$DIR/test.p:10:17: cannot convert c (variable of enum type Color) to enum type Shade (an enum converts to another enum through its integer type: v, ok := Shade(uint8(...)))
+    (explained above; run "pluto explain E2313" for more)
+
+$DIR/test.p:14:46: cannot convert c (variable of enum type Color) to enum type Shade (an enum converts to another enum through its integer type: v, ok := Shade(uint8(...)))
+    (explained above; run "pluto explain E2313" for more)

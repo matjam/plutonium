@@ -408,7 +408,7 @@ func init() {
 		}),
 		pu.New(Entry{
 			Code: CheckerCode(typerr.BadEnumConversion), Name: "BadEnumConversion",
-			Text:    "Only integers convert to an enum, and a constant converts only if it is the value of a member. Anything else would make an enum value that is not a member.",
+			Text:    "Only integers convert to an enum, and a constant converts only if it is the value of a member. Anything else would make an enum value that is not a member. An enum type is not an integer type for this rule: a value of one enum type converts to another through its integer type, in the comma-ok form, v, ok := Shade(uint8(c)).",
 			Spec:    pspec("7.12", "Enums"),
 			Example: "c := Color(7) // Color has no member with value 7",
 		}),

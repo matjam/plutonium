@@ -1412,8 +1412,10 @@ compiler (2026-10-11).
     moving conversion moves at the enclosing call or assignment.
 149. **Follow comma-ok `ok` through direct tests** (planned; sections 11.13, 18.5, D47, finding C3): the move
     analysis knows `ok` on the branches of a direct test, and the E3302 message suggests `if !ok`.
-150. **An enum is not an integer type** (planned; sections 7.12, 11.24, D48, finding C4): `Shade(color)` and
-    the other enum-to-enum conversions are E2313; update the catalog text.
+150. **An enum is not an integer type** (done; sections 7.12, 11.24, D48, finding C4): `Shade(color)` and
+    the other enum-to-enum conversions are E2313; update the catalog text. Constant, comma-ok and plain
+    forms are all E2313, and the message shows the conversion through the integer type. Tests:
+    `tests/types2/enumerrors_enum_conversion` and `enumconversion_through_integer`.
 151. **Defined union and packed types** (planned; sections 7.13, 7.14, 8.2, 10.8, D49, findings C5 and C6):
     `type V U` for a union or packed `U` gets the variants or fields and layout, no methods, and explicit
     conversion.

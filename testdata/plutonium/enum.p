@@ -164,7 +164,7 @@ func main() {
 	}
 	var o2 Order
 	var ok bool
-	o2, ok = Order(c) // from another enum
+	o2, ok = Order(uint8(c)) // from another enum, through its integer type
 	fmt.Printf("Order(c) = %v %t; constant Color(2) = %v\n", o2, ok, Color(2))
 	fmt.Printf("ints %d %d %d\n", int(Color.Blue), uint16(Errno.EIO), int64(Order.Less))
 
