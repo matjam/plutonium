@@ -737,8 +737,15 @@ compiler (2026-10-11).
     `Release` for the entries after the mark, run the entries in reverse order, then check the count, then
     zero the granules and end the epoch. A panicking entry leaves the rest recorded.
 203. **Plain arena counter where no other task can reach** (planned, optimization; sections 21.5, 18.9,
-    abi.md 1.3, D77, finding F4 of audit F; extends item 198): use plain adds for the live-allocation
-    count where the compiler proves that no other task can reach the arena or anything allocated from it.
+    abi.md 1.3, D77, findings F4 of audit F and G6 of audit G; extends item 198): use plain adds for the
+    live-allocation count where the compiler proves that no other task or interrupt handler can reach the
+    arena or anything allocated from it.
+209. **The checks follow arena drop entries** (planned; sections 18.9, 18.3, 19.3, 20.10, 17.1, abi.md 1.3,
+    D82, findings G2, G8 and G13 of audit G; extends item 202): E2584, the race check (frees are writes,
+    E3501, E3404) and the view rules (E3313) follow a `Reset`, `Release` or `Drop` of a Fixed or Chunked
+    arena into the drop glue of every type passed to `New` or `Slice` of that arena, or of every arena
+    where the compiler cannot tell which. A `Slice` of length zero records no entry. The count check after
+    the entries panics only for an allocation still live then, or an entry recorded while they ran.
 158. **Task exit mid-statement and inside `Drop`** (planned; section 17.3, abi.md 12.10, D51, finding B8):
     `rt.ExitTask` drops operands already evaluated, and a `Drop` method it leaves still finishes the
     object's field drops and free.
@@ -792,6 +799,13 @@ compiler (2026-10-11).
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end
     (E3313, E3314), checked once for the generic body.
+208. **Generic code takes the strictest rule any type argument needs** (planned; sections 18.3, 8.7, A,
+    D81, finding G1 of audit G; extends item 204): the view half of item 204 applies to every type
+    parameter, `[T any]` included, so `x := any(t); t = z; use(x)` is E3313 in a generic body; a `T` local
+    counts as having drop glue unless no type in its type set has it (the scope rule of E3313, the
+    declaration order rule and the loop rules); a view obtained from a `T` value is bounded by its holder
+    unless every type in the set is a value or a view (E3313, E3314, E3009); and a method call on a type
+    parameter is checked against that method of every instantiating type.
 173. **Range loops hold a count** (planned; section 12.10, D64, finding D7): the range temporary over a counted
     value holds its own count until the loop ends.
 174. **Owners in for clauses** (planned; sections 12.10, 18.6, D65, finding D8): an owner declared in a for
@@ -1039,6 +1053,12 @@ compiler (2026-10-11).
     finding B6 of the [rulings](verification/2026-11-09-spec-rulings.md)): the race check treats handlers as parties from the first statement that may
     install one or enable interrupts, and does not require locks for data no one writes while a handler
     may run.
+210. **No waiting in a preemption-disabled region** (planned; sections 19.3, 19.1, 17.1, 20.10, abi.md 12.4,
+    D85, finding G5 of audit G; extends items 120 and 156): from each non-migrating region (between
+    `rt.DisablePreemption` and `rt.EnablePreemption`, while an `rt.Lock` is held, or with interrupts
+    disabled), follow every call as the E2584 analysis does and reject a path to an operation that may
+    park, naming each call. The diagnostic needs a code (E2584 is defined for interrupt handlers). The
+    run-time panic "blocking with preemption disabled" stays as the backstop.
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and

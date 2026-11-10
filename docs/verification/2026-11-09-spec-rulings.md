@@ -133,6 +133,45 @@ The audit is [2026-11-09-spec-audit-f.md](2026-11-09-spec-audit-f.md).
 | E1 (verdict) | Completed by F2. | Safe | 18.3 | See F2. |
 | E3 (verdict) | Completed by F1 (the false sentence) and F6 (the example). | Safe | 18.9, 18.13 | See F1. |
 
+## Rulings on audit G
+
+The audit is [2026-11-09-spec-audit-g.md](2026-11-09-spec-audit-g.md).
+
+| Finding | Ruling | Goal | Sections changed (or deciding) | Compiler change |
+|---|---|---|---|---|
+| G1 | Resolved. The D3 view events apply to every conversion of a type-parameter value to an ordinary interface, for every type parameter, `[T any]` and `[T ~int]` included. The other rules that depend on the type argument take the strictest form any permitted type argument needs: a `T` local counts as having drop glue unless no type in its type set has it; a view obtained from a `T` value is bounded by its holder; a method call on a type parameter is checked against that method of every instantiating type (D81). | Safe, Plain | 18.3, 8.7, A | Yes. Item 208, extending item 204. |
+| G1 sweep | The other places generic code meets a kind rule: assignment and copy (8.7 and lowering per instance, plus the view bullet); `&x` and the A1 scope rule, and 18.4 declaration and loop order (fixed by the drop-glue bullet); closures (11.5 per instance, E3305 through 8.7, views through 18.3); sending (19.2, checked per instantiation); composite literals, E3312 (8.7); comparison (8.10, 18.5); temporaries, E3009 (fixed by the view bullet). No other hole. | Safe | 18.3, 8.7, 8.10, 11.5, 18.4, 18.5, 19.2 | Covered by item 208. |
+| G2 | Resolved. E2584, the race check and the view rules follow an arena's `Reset`, `Release` and `Drop` into the drop glue of every type passed to `New` or `Slice` of that arena, or of every arena where the compiler cannot tell which. The Fixed promise is restated: a Fixed arena never calls its parent for bookkeeping; the drops its entries run are ordinary drops, checked like any other (D82). | Safe, Kernel | 18.9, 18.3, 19.3, 20.10; abi.md 1.3 | Yes. Item 209, extending item 202. |
+| G3 | Resolved. A checked kernel or freestanding build on a machine with 5-level paging panics before `main` with "generation checks need 4-level paging". 21.2 states the general rule: a requirement on the machine that only run time can see is checked at startup. The abi.md compile-error clause is removed (D83). | Kernel, Safe | 21.5, 21.2, 17.1, 20.5; abi.md | No: the runtime already panics. |
+| G4 | Resolved. 20.5, 21.5 and F state the `pluto_gen_metadata` hook of checked freestanding builds: it returns page-aligned memory that is never taken back, or 0, and must not allocate; a checked build without it is E2588. Hosted and unchecked builds do not need it (D84). | Kernel, Plain | 20.5, 21.5, F | No: E2588 is implemented. |
+| G5 | Resolved. An operation that may park the task, reachable inside a non-migrating region (preemption disabled, an `rt.Lock` held, or maskable interrupts disabled), is a compile error. The compiler follows calls as E2584 does. The run-time panic "blocking with preemption disabled" stays as the backstop for paths it cannot see, listed in 17.1 and 19.1 (D85). | Safe, Kernel | 19.3, 19.1, 17.1; abi.md 12.4 | Yes. Item 210, extending items 120 and 156. |
+| G6 | Resolved. "No other task or interrupt handler". | Safe | 21.5; abi.md 1.3 | Item 203 text widened. |
+| G7 | Resolved. "arena: out of memory" is listed in 17.1, and 18.9 says a failed `New` or `Slice` panics with it. | Plain | 17.1, 18.9 | No. |
+| G8 | Resolved. An allocation still live when the entries finish, or an entry recorded while they run, makes the call panic; an allocation made and freed within the entries does not. Chapter and ABI now say the same. | Safe, Plain | 18.9; abi.md 1.3 | Part of item 209. |
+| G9 | Resolved. One task waits on a Scope at a time; a second waiter panics with "sync: two tasks wait on one Scope". Listed in 19.4 and 17.1. | Plain | 19.4, 17.1 | No. |
+| G10 | Resolved. 20.9 names E5007: an ELF kernel linked so that the runtime's first word of `.percpu` is not at offset 0 fails to build. | Plain | 20.9 | No. |
+| G11 | Resolved. abi.md, memory-model.md, debugging.md and debug-allocator.md say version 0.4. | Plain | those documents | No. |
+| G12 | Resolved. `rt.DefaultStackSize` is listed in F.1 beside `rt.MinStackSize` (the audit said F.2; both names are in F.1). | Plain | F.1 | No. |
+| G13 | Resolved. A `Slice` of length zero records no entry. | Perf, Plain | 18.9; abi.md 1.3 | Part of item 209. |
+| F1 (gaps) | Completed by G2, G8 and G13. | Safe | as those | See those. |
+| F2 (gap) | Completed by G1. | Safe | 18.3 | See G1. |
+| F4 (gap) | Completed by G6. | Safe | 21.5 | See G6. |
+| F14 (gap) | Completed by G12. | Plain | F.1 | No. |
+| Stale 1 | 18.11 "or freed it" removed (D46). | Plain | 18.11 | No. |
+| Stale 2 | 7.19: freeing into a Fixed or Chunked arena takes no memory back and lowers the count of live allocations (D70). | Plain | 7.19 | No. |
+| Stale 3 | 20.10 states the handler data rule as 19.3 does: only data another party may write while a handler may run must be atomic or locked (D52). | Plain | 20.10 | No. |
+| Stale 4, 5 | The same handler rule in the skill's kernel-mode.md and concurrency.md. | Plain | skill references | No. |
+| Stale 6 | The skill's kernel-mode.md lists every safe function of `pluto/arch/x86` that 20.8 names (D56). | Plain | skill references | No. |
+| Stale 7 | The skill's language tour states the one-word copy rule of 7.9 (D71). | Plain | skill references | No. |
+| Ambiguous 1 | Skill ownership-and-memory.md, the E3313 events: already complete against D61 (moved, dropped, reassigned, a call that may free, an owner field assigned, counted copies). The arena section of the same file states the `Reset` and `Release` event. | Plain | skill references | No. |
+| Ambiguous 2 | Skill kernel-mode.md checklist "Handlers: atomics and `rt.Lock` only" restated as D52. | Plain | skill references | No. |
+| Ambiguous 3 | Skill ownership-and-memory.md said all of `pluto/arch/x86` is unsafe; now names the safe functions. 20.1 said the same and is fixed. | Plain | 20.1, skill references | No. |
+| Skill sweep | The skill references checked against D42 to D80. Fixed: E3212 conversions (D43, D72), arena drop entries and counts (D70, D74), the E2511 box rule (D50), kernel print (D58), Scope rules (D59, D73, G9), default stacks (D80), and the panic list. No example code needed a change. | Plain | skill references | No. |
+| Cross-check 1 | Union equality, abi.md against 7.13 and 8.10: already consistent. | Plain | 7.13, 8.10 | No. |
+| Cross-check 2 | String arguments, abi.md 3.3 against 18.8: already consistent. | Plain | 18.8 | No. |
+| Cross-check 3 | abi.md 4.1 init-time closure regions now say the drop runs once in package cleanup, dropping owners and releasing counted references, as 15.4 says. | Plain | abi.md 4.1, 15.4 | No. |
+| Cross-check 4 | abi.md 12.7 "from the requested allocator" is consistent with 12.1 and 12.6. 19.1 ignored the allocator given to `rt.Go` and now names it. | Plain | 19.1; abi.md 12.7 | No. |
+
 ## Diagnostics that need a code in phase 1
 
 None of these rulings invents a code. They extend E3313 (A1), E3212 (C1), E3302 (C3), E2313 (C4) and E2511
@@ -143,3 +182,9 @@ arena panic to "arena has live allocations" (E3). Audit F adds two errors that n
 outside 64K to 64G (F12, section 20.3) and a program that exceeds an implementation limit (F15, section 21.4).
 The spec calls each "a compile error" until the codes are assigned (item 207). Audit F also widens E3006 (F3) and
 E3313 and E3314 (F2).
+
+Audit G adds one error that needs a code: an operation that may park inside a non-migrating region (G5,
+section 19.3). E2584 is defined only for interrupt handlers, so the spec calls it "a compile error" until a
+code is assigned (item 210). Audit G also widens E3313, E3314 and E3009 (G1), and E2584, E3501 and E3404
+(G2). The panics it lists in 17.1 ("arena: out of memory", "blocking with preemption disabled", "sync: two
+tasks wait on one Scope", "generation checks need 4-level paging") need no code.

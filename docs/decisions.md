@@ -1314,6 +1314,104 @@ Why: a stated floor lets a program know when it must ask for more with `rt.Go`. 
 
 Lands with: sections 21.4, 19.1 and 19.5. No roadmap item: the library already uses this size.
 
+## D81. Generic code takes the strictest rule any type argument needs (18.3, 8.7, A)
+
+Question: audit G1. D75 limited the D3 view events to `[T owner any]`. A `[T any]` parameter admits maps,
+channels and counted boxes, which 7.9 lends uncounted as one-word views, so `x := any(t); t = z; use(x)`
+in a generic body was a use after free that a once-checked body did not reject.
+
+Decision: the D3 events (E3313, E3314) apply to every conversion of a type-parameter value to an ordinary
+interface, for every type parameter, `[T ~int]` included. The other kind rules that depend on the type
+argument take the strictest form any type in the parameter's type set needs. These details were settled
+here:
+- A `T` local counts as having drop glue unless no type in its type set has it. This decides the scope rule
+  of E3313, the declaration order rule of 18.4 and the loop rules for generic code.
+- A view obtained from a `T` value is bounded by its holder unless every type in the set is a value or a
+  view (E3313, E3314, E3009).
+- A method call on a value of a type parameter is checked against that method of every instantiating type,
+  as its summary says.
+- 7.9 is not changed: it states the conversion for a known type, and 18.3 states the generic case.
+
+A sweep of the other places generic code meets a kind rule (assignment, `&x`, loops, closures, sending,
+composite literals, comparison, temporaries) found them decided by 8.7, 8.10, 11.5, 18.5 and 19.2 or by the
+bullets above.
+
+Why: one check per generic body must give one answer that is safe for every instantiation, and the
+strictest answer is the only one that is. Goal: Safe, Plain.
+
+Lands with: sections 18.3 and 8.7, appendix A; roadmap item 208, which extends item 204.
+
+## D82. The checks follow arena drop entries (18.9, 18.3, 19.3, 20.10, 17.1, abi.md 1.3)
+
+Question: audit G2, with G8 and G13. D74's drop entries run drop glue at `Reset`, `Release` and `Drop`,
+but the Fixed paragraph still promised such calls may run where the parent may not, and E2584 did not
+follow them. Separately, the chapter and the ABI disagreed on an allocation made during the entries, and a
+`Slice` of length zero took a table entry.
+
+Decision: E2584, the race check (frees are writes) and the view rules treat a `Reset`, `Release` or
+`Drop` of a Fixed or Chunked arena as dropping, in place, a value of every type with drop glue passed to
+`New` or `Slice` of that arena, or of every arena where the compiler cannot tell which. A Fixed arena never
+calls its parent for bookkeeping; the drops its entries run are ordinary drops, checked by 20.10, 19.3 and
+18.3, and an arena that holds only types without drop glue keeps the old promise in full. These details
+were settled here:
+- The view rules treat `Reset` and `Release` as freeing through every pointer into the arena.
+- An allocation still live when the entries finish, or an entry recorded while they run, makes the call
+  panic with "arena has live allocations". One made and freed within the entries does not.
+- A `Slice` of length zero records no entry.
+- A failed `New` or `Slice` panics with "arena: out of memory", listed in 17.1.
+
+Why: the entries are drops the program asked for by storing values with drop glue, so they must meet
+every rule a drop meets, in a handler as anywhere else. Goal: Safe, Kernel.
+
+Lands with: the sections named above; roadmap item 209, which extends item 202.
+
+## D83. 5-level paging in a checked kernel or freestanding build (21.5, 21.2, 17.1, 20.5, abi.md)
+
+Question: audit G3. abi.md said a checked build on a machine with 5-level paging was a compile error, but
+the compiler cannot see the machine; the runtime panics at startup.
+
+Decision: a checked kernel or freestanding build needs 4-level paging. On a machine with 5-level paging
+enabled it panics before `main` with "generation checks need 4-level paging". 21.2 states the general
+rule: a requirement on the machine that only run time can see is checked at startup and panics before
+`main`. The 21.5 rule that a target which cannot provide a requirement is a compile error stays, since it
+concerns targets the compiler knows.
+
+Why: the check sits where the fact is known, and the program never runs unchecked. Goal: Kernel, Safe.
+
+Lands with: the sections named above. No roadmap item: the runtime already panics this way.
+
+## D84. The generation metadata hook (20.5, 21.5, F)
+
+Question: audit G4. The `pluto_gen_metadata` hook and E2588 were stated only in abi.md.
+
+Decision: a checked freestanding or kernel build exports `pluto_gen_metadata` (`//pu:export`), which takes
+a byte count and returns page-aligned memory that is never taken back, or 0. It must not allocate. A
+checked build without it fails with E2588. Hosted and unchecked builds do not need it. 20.5, 21.5 and F
+state this.
+
+Why: an obligation a program must meet belongs in the language specification. Goal: Kernel, Plain.
+
+Lands with: sections 20.5 and 21.5, appendix F. No roadmap item: E2588 is implemented.
+
+## D85. No waiting in a preemption-disabled region (19.3, 19.1, 17.1, abi.md 12.4)
+
+Question: audit G5. `rt.Park` with preemption disabled panics with "blocking with preemption disabled",
+and no chapter said so.
+
+Decision: an operation that may park the task, reachable inside a non-migrating region (between
+`rt.DisablePreemption` and `rt.EnablePreemption`, while an `rt.Lock` is held, or while maskable interrupts
+are disabled), is a compile error. The operations are the waiting operations of 20.10, plus the `Drop` of a
+`sync.Scope`. The compiler follows calls as the E2584 analysis does, including inserted drops and arena
+entries, and reports a path only where every path to the operation is inside a region. The run-time panic
+stays as the backstop and is listed in 17.1 and 19.1. The error has no code yet: E2584 is defined for
+interrupt handlers.
+
+Why: a task that parks there holds a processor or a spun-on lock while it waits for something that may
+need it; catching this at compile time is the Rust-level answer, and the panic covers what the analysis
+cannot see. Goal: Safe, Kernel.
+
+Lands with: the sections named above; roadmap item 210, which extends items 120 and 156.
+
 ## Deferred
 
 None. The entry on Linux file names that are not valid UTF-8 is closed by D36.
