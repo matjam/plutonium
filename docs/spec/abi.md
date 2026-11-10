@@ -618,9 +618,10 @@ drop word, if there is one. The drop before a call comes after its arguments are
 call built in the region on its previous run can reach those arguments (language spec section 11.5,
 E3101), so dropping and refilling the region cannot change them. A region that turns out to hold nothing
 to release has these drops left out.
-Calls made while initializing packages get regions in static storage. Their stored references are
-released once during normal package cleanup, after their dependent static clients (language spec
-section 15.4); the storage itself retains its program lifetime.
+Calls made while initializing packages get regions in static storage. Each region's drop function runs
+once during normal package cleanup, after their dependent static clients, dropping the owners and
+releasing the counted references the region holds (language spec section 15.4, compiler-created static
+objects); the storage itself retains its program lifetime.
 
 The caller reserves the region in its frame, one per call site, reused on every execution of the call,
 or passes a part of its own region when it may return the call's closures in turn. A call of a known

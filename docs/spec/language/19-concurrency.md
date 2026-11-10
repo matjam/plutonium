@@ -68,7 +68,8 @@ knows where the pointers into it are, so it cannot be moved. The size is chosen 
 **Where a stack comes from.** A task's stack never comes from an allocator that the starting task
 installed with `alloc.Use`, since that may be a local arena that is reset while the new task still runs.
 In a hosted build the runtime supplies the stacks: reserved address space for stacks of unknown need, and
-otherwise the program-wide default allocator, through the runtime's own cache of stacks. A scheduler
+otherwise memory from the allocator given to `rt.Go`, or from the program-wide default allocator when none
+is given, through the runtime's own cache of stacks for the default allocator. A scheduler
 backend that a program binds, such as a kernel's (section 19.5), supplies stack memory itself, from pages
 it owns. `rt.Go(f, size, a)` has an optional third argument, the allocator that the stack comes from
 (the program-wide default when it is omitted); it must outlive the task, and a bound scheduler receives it
