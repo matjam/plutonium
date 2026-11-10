@@ -37,7 +37,8 @@ one covers:
   view-tracking cases left by item 138 (item 179); the escape contract of `rt.ReleaseValues` (item 180);
   the false escape errors in `types2` unit-test builds (item 181); the lowering backstops (item 182); the
   order of evaluation in the rest of lowering (item 183); the allocators the race check does not follow
-  (item 196); a use before a move in one call (item 211).
+  (item 196); a use before a move in one call (item 211); loads of views from shared memory and arena names
+  (items 214 and 217).
 - **Phase 2, test closure.** Tests for untested diagnostic codes and rules (item 184); CI gaps (item 186);
   close item 20 when nothing is left open under it.
 - **Phase 3, checks, kernel and performance evidence.** Item 101 phases 3 and 4; proven task stacks in
@@ -754,6 +755,17 @@ compiler (2026-10-11).
     every object of the arena, since the compiler cannot order objects against marks. An arena is named
     by its variable or field, as a lock is: `workers[i].arena` counts as every arena it may be, and an
     arena behind a parameter or a heap pointer stays item 196.
+214. **A load of a view from shared memory is a crossing** (planned, phase 1, wrong acceptance; sections
+    19.2, 19.3, 20.9, A, memory-model.md 4.1, D96, finding I1 of audit I; extends items 168 and 212): a
+    task's or interrupt handler's load of a pointer, slice, interface, func value or method value (or an
+    aggregate that holds one) from a package variable, a per-CPU variable, the object of a `synced[T]` or a
+    map, or from memory reached through them, crosses to that party, in its own code or a callee, atomic
+    loads included; rule 2 then checks the memory (E3501). Rules 1 and 2 count the memory a package variable
+    owns as part of it. A package variable that holds a `shared[T]` used by two tasks is E2010. So
+    `p = &*b; task reader(); b = new(Node)` is E3501.
+217. **Arena names beyond the precision limits and through a move** (planned, phase 1; section 19.3, D100,
+    finding I7 of audit I; extends item 212): a call on an arena that the 18.3 limits cannot name counts as
+    that call on every arena of the program, and an arena's name follows a move (`b := take(a)`).
 158. **Task exit mid-statement and inside `Drop`** (planned; section 17.3, abi.md 12.10, D51, finding B8):
     `rt.ExitTask` drops operands already evaluated, and a `Drop` method it leaves still finishes the
     object's field drops and free.
@@ -1069,7 +1081,8 @@ compiler (2026-10-11).
 210. **No waiting in a preemption-disabled region** (planned; sections 19.3, 19.1, 17.1, 20.10, abi.md 12.4,
     D85, finding G5 of audit G; extends items 120 and 156): from each non-migrating region (between
     `rt.DisablePreemption` and `rt.EnablePreemption`, while an `rt.Lock` is held, or with interrupts
-    disabled), follow every exact call path and reject a path to an operation that may park, naming each call.
+    disabled), follow every call with a single known target (item 215) and reject a path to an operation that
+    may park, naming each call.
     An interface or func-value call where only some candidates wait, and an allocation or drop where only
     some installed allocators wait, compile; the run-time panic "blocking with preemption disabled"
     catches them (D87, finding H2 of audit H). Regions in the code of `pluto/rt` are not checked (D89,
@@ -1081,6 +1094,18 @@ compiler (2026-10-11).
     clear. The switch inside the scheduler's `Park`, and `Yield`, `Preempt` and `preemptPark`, do not
     call `park` and are not tested. Hosted builds have no such regions; other freestanding builds do not
     test the flag.
+215. **The wait check follows calls with a single known target** (planned; sections 19.3, 19.1, 17.1,
+    20.10, D97, finding I2 of audit I; extends items 210 and 213): from a non-migrating region, follow
+    direct calls, method calls on a concrete type, deferred calls of those, function literals called where
+    written, and inserted drops of known types with the drop entries of a named arena, through any depth.
+    Report a wait every path to which lies inside the region, including one on only some paths of a
+    followed callee. Do not follow interface, func-value, method-value or hook calls, an arena that cannot
+    be named, or allocation and frees into installed allocators.
+216. **`//pu:blocking` functions test at entry** (planned; sections 19.3, 19.1, 17.1, 20.3, 20.10, abi.md
+    12.4, D98, finding I3 of audit I; extends items 210 and 213): insert the test `park` makes
+    (preemption count; in kernel mode RFLAGS.IF) after the prologue of every function marked
+    `//pu:blocking`, and before each call of one without a body, panicking with "blocking with preemption
+    disabled".
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and

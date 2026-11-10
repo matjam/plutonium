@@ -256,6 +256,114 @@ and 208) says "a value whose type contains a type parameter".
 By design, and so not a gap: other freestanding builds do not test the interrupt flag in `park` (19.3,
 abi.md 12.4); a wait there with interrupts disabled and no lock held is not caught.
 
+## Rulings on audit I
+
+The audit is [2026-11-09-spec-audit-i.md](2026-11-09-spec-audit-i.md).
+
+| Finding | Ruling | Goal | Sections changed (or deciding) | Compiler change |
+|---|---|---|---|---|
+| I1 | Resolved. A load, by a task or interrupt handler, of a pointer or any value that holds a view, from a package variable (per-CPU included), the object of a `synced[T]` or a map, or memory reached through them, is a crossing; rule 2 checks the memory. Rules 1 and 2 count the memory a package variable owns as part of it. A package variable holding a `shared[T]` used by two tasks is E2010. `p = &*b; task reader(); b = new(Node)` is E3501 by rule 2 (D96). | Safe | 19.2, 19.3 (rules 1 and 2, Interrupt handlers), 20.9, A; memory-model.md 4.1; skill concurrency | Yes. Item 214, extending items 168 and 212. |
+| I2 | Resolved. One definition by target set: the wait check follows only calls with a single known target (direct calls, concrete method calls, deferred calls of those, function literals called where written, inserted drops of known types with a named arena's drop entries), through any depth, and reports a wait every path to which lies inside the region, even one on only some paths of a followed callee. Interface, func-value, method-value and hook calls, unnamed arenas and allocator calls are not followed. The list-style definition is removed; 19.3 has a reported and a not-followed example (D97). | Plain, Kernel | 19.3, 19.1, 17.1, 20.10; skill concurrency, kernel-mode, errors-and-panics | Yes. Item 215, extending items 210 and 213. |
+| I3 | Resolved. The compiler inserts the `rt.Park` test at the entry of every `//pu:blocking` function, and before each call of one without a body. The silent-hang claim is narrowed to waiting operations: an unmarked spin loop is the program's own bug, and unmarked waiting code outside Plutonium breaks its contract (D98). | Kernel, Safe | 19.3, 19.1, 17.1, 20.3, 20.10; abi.md 12.4; skill | Yes. Item 216, extending items 210 and 213. |
+| I4 | Resolved. "Never accepts on doubt" holds for every safety analysis; the wait check of non-migrating regions is named in 1.2 and chapter 21 as the one check that accepts on doubt, because its failure is a loud panic, not a memory error or race (D99). | Plain | 1.2, 21 | No. |
+| I5 | Resolved. The four bare uses of "region" now say "closure region" (debugging.md, 11.9) or "a stretch of code" (10.10, debug-allocator.md). | Plain | debugging.md, 11.9, 10.10, debug-allocator.md | No. |
+| I6 | Resolved. 8.8 Views that cross names an arena's `Reset`, `Release` or `Drop` as a change; the 1.4 glossary entry names the code of `pluto/rt` as unsafe (18.12). | Plain, Safe | 8.8, 1.4 | No. |
+| I7 | Resolved. Beyond the 18.3 limits a call on an arena counts on every arena of the program; an arena's name follows a move (`b := take(a)`) (D100). | Safe | 19.3 | Yes. Item 217, extending item 212. |
+| I8 | Resolved. An implementation uses the 18.3 limits exactly and may not raise them; a later edition may. 18.3 cites 21.3 (D101). | Plain | 18.3 | No (a conformance test belongs to item 184). |
+| Silent-hang claim (19.3) | Backed by I3 and narrowed to waiting operations. | Kernel | 19.3 | Item 216. |
+| Race freedom through package variables (19.3, memory-model.md 4.1) | Backed by I1: every view a task loads from a package variable is checked by rule 2. | Safe | 19.2, 19.3, memory-model.md 4.1 | Item 214. |
+
+### Attacks on the audit I edits
+
+Each edit was attacked with a program that might slip past it.
+
+- I1, the audit's program: `b = new(Node); p = &*b; task reader(); b = new(Node)` with `reader` reading
+  `p.n`. The load of `p` in `reader` crosses; the `Node` is owned by `b`, which `main` replaces after tasks
+  start, so it is not unchanged package memory, and the drop breaks the type rule. E3501. Closed.
+- I1, through a helper: `reader` calls `get()`, which returns `p`. The load is in a callee of the task,
+  which counts. Closed.
+- I1, an atomic pointer: `var p atomic.Pointer[Node]`, `reader` calls `p.Load()`. An atomic load counts as
+  a load; the access of `p` is atomic, the `Node` still follows rule 2. Closed.
+- I1, an interface: `var cur Device = &dev0` where `dev0` is a heap object `main` later drops. Loading
+  `cur` loads a value that holds a view: rule 2 on the object. Closed.
+- I1, a func value: `var cb func()` assigned a plain function. A plain function holds no view, and a
+  closure that captures variables, or a method value, cannot be stored in a package variable (11.5). A
+  closure in a caller's closure region is a frame view too. Closed.
+- I1, a per-CPU variable holding a pointer: the access is safe by 20.9, the load crosses (20.9 now says
+  so), and the task may migrate while it uses the pointer, which rule 2 allows only for safe memory.
+  Closed.
+- I1, a `synced` box: task A loads `s.p` under `s.mu` and uses `*s.p` after unlocking; task B replaces the
+  owner of that object under `s.mu`. The load from the object of a `synced[T]` crosses, and the replace
+  frees the object while A may use it: E3501. Closed.
+- I1, a map: `var m map[int]owned[Node]`; a task takes `&*m[k]` under the map's guard and uses the
+  pointer after another task deletes the entry, which drops the node. The map contents follow rule 3, and the loaded pointer crosses: E3501. Closed.
+- I1, a `shared[T]` package variable copied by two tasks: before, no rule covered the count. Now E2010.
+  Closed.
+- I1, a handler table filled during initialization with `&devs[i]` (package memory) and with heap records
+  that nothing frees and whose fields are guarded: the first is rule 2 case 2, the second the type rule.
+  Accepted, correctly. A table of heap records that some code frees later: E3501. Closed.
+- I1, a false positive: a slice of `int` built in a package variable by `make` and read by every task.
+  A slice of a non-struct crosses only in the first three cases of rule 2, so this is safe only when the
+  memory is owned by the package variable (an owner such as `vec.Vec`, or an `owned` array) and not written
+  after tasks start. A raw slice of heap memory is rejected: a false positive at worst. Recorded, not a hole.
+- I1, before the first task: `main` loads `p` and stores it in a local before any task starts. No other
+  task exists then, so nothing crosses; a later task that loads `p` crosses on its own load. Closed.
+- I2, a wait on some paths of a callee: `tick` calls `record(n)` directly and `record` sends only when
+  `n > 0`. Reported (the 19.3 example). Closed.
+- I2, a function literal called where written: `func() { ch <- 1 }()` inside the region. One target,
+  followed, reported. Closed.
+- I2, a hook: an unexported func variable assigned `waitForIt` only. Not followed, so it compiles; the
+  park test panics if it waits. Accepted by design (D97).
+- I2, an interface where every implementation waits: before, reported as exact; now not followed, and
+  caught at run time. A narrowing of the compile check, not a hole, since the panic is loud. Accepted by
+  design.
+- I2, a region opened on some paths only: `if fast { rt.DisablePreemption() }; record(n)`. The region is
+  not on every path, so the check does not start; if the wait runs with preemption disabled, the test
+  panics. Closed at run time.
+- I2, a drop in the region: `v = makeOwner()` over an owner of known type whose `Drop` takes a
+  `sync.Mutex`. The inserted drop has one target and is followed: reported. Its `Free` into the installed
+  allocator is not followed. Closed for the known part; the allocator part relies on the test.
+- I3, a `//pu:blocking` function with a body that spins on a flag, called under an `rt.Lock`: the entry
+  test sees the count and panics. Closed.
+- I3, an assembly `hlt` loop marked `//pu:blocking`, called with interrupts disabled in kernel mode: the
+  test before the call reads IF and panics. Closed.
+- I3, the same assembly function not marked: a function without a body counts as not waiting, so nothing
+  tests it, and the processor halts. That breaks the contract of unsafe code (18.12); the claim now says
+  so. Narrowed, recorded.
+- I3, `for {}` under an `rt.Lock`: not a waiting operation; the claim no longer covers it. Narrowed,
+  recorded.
+- I3, the inserted test in a function called legitimately with preemption disabled: the standard library
+  marks only `park`, which makes the same test already. A program that marks a function it calls under a
+  lock gets the panic, which is what the marking asks for. Closed.
+- I4: no rule changed, only the statement of the principle.
+- I5, I6: wording; no program can slip past them.
+- I7, an arena moved to a new variable: `b := take(a); task use(p)` where `p` came from `a.New`, then
+  `b.Reset()`. The name follows the move, so the reset frees the objects of `a`: E3501. Closed.
+- I7, an arena reached through more loads than 18.3 allows: the call counts on every arena. A false
+  positive at worst. Closed.
+- I8, an implementation that tracks four loads: it would accept a program the stated limits reject; it is
+  now not conforming. Closed.
+
+### Known-gaps lines
+
+Added to `skill/plutonium/references/known-gaps.md`:
+
+- The race check does not yet treat a task's or handler's load of a pointer or other view from a package
+  variable, a per-CPU variable, a `synced` object or a map as a crossing, so `p = &*b; task reader(); b =
+  new(Node)` compiles (19.2, 19.3 rules 1 and 2). A package variable holding a `shared[T]` used by two tasks
+  is not yet E2010. Item 214.
+- The race check does not yet name an arena beyond the precision limits as every arena, or follow an
+  arena's name through a move (19.3, Frees are writes). Item 217.
+- A function marked `//pu:blocking` does not yet test preemption and the interrupt flag at entry, or before
+  each call when it has no body, so calling one in a non-migrating region can hang instead of panicking
+  (19.3, 20.3, abi.md 12.4). Item 216.
+
+Changed: the item 210 line says "reached through calls with one known target" and names items 210 and 215.
+
+By design, and so not a gap: a wait behind an interface, a func value, a hook or an allocator inside a
+non-migrating region compiles and panics at run time (D97); a spin loop not marked `//pu:blocking` is not
+caught (D98).
+
 ## Diagnostics that need a code in phase 1
 
 None of these rulings invents a code. They extend E3313 (A1), E3212 (C1), E3302 (C3), E2313 (C4) and E2511
@@ -275,3 +383,7 @@ tasks wait on one Scope", "generation checks need 4-level paging") need no code.
 
 Audit H adds no code. It narrows the G5 error to exact paths (H2), widens E3313, E3501 and E3404 to arena
 frees of every type (H1), and names E3313, E3314 and E3501 for views at an owner transfer (H5).
+
+Audit I adds no code. It widens E3501 to views loaded from package variables, `synced` objects and maps
+(I1) and E2010 to a package variable that holds a `shared[T]` used by two tasks (I1). The wait error of
+G5 (item 210) still needs a code; I2 changes which calls it follows, not its form.

@@ -1568,6 +1568,124 @@ Why: the spec's examples are part of its contract; a wrong one teaches a wrong r
 
 Lands with: the sections named above and `tests/testdata/specexamples/examples.txt`.
 
+## D96. A load of a view from shared memory is a crossing (19.2, 19.3, 20.9, A, memory-model.md 4.1, skill)
+
+Question: audit I1. A task could reach heap memory through a pointer it loaded from a package variable,
+with no crossing in the 19.2 list. Rule 2 never saw the pointer, rule 1 covered only the variable, so
+`p = &*b; task reader(); b = new(Node)` compiled while `reader` used the freed `Node`.
+
+Decision: a pointer, or any value that holds a view (a slice, an interface, a func value, a method value, or
+a struct, array or union that holds one), crosses to the task or interrupt handler that loads it from a
+package variable (a per-CPU variable included), from the object of a `synced[T]` or from the contents of a
+map, or from memory reached through one of those. The load counts in the task's own code and in every
+function it calls, atomic loads included. Rule 2 then decides whether the memory is safe. A package
+variable includes, for rules 1 and 2, the memory it owns: the object of an `owned[T]` it holds and the
+memory of the owners it holds. A package variable whose type holds a `shared[T]` may be used by one task
+only (E2010). The sweep of other ways a task could hold a view with no visible crossing:
+
+- a package func value or closure: a closure that captures variables, and a method value, is a view of a
+  frame and cannot be stored in a package variable (11.5); a plain function holds no view. A func value
+  loaded from one is covered by the new sentence anyway;
+- a package interface: covered by the new sentence, since an interface holds a view;
+- a per-CPU variable: covered, and said in 20.9; `&v` itself stays bounded by its non-migrating region (E2023);
+- a value reached through a `synced` box: covered (the object of a `synced[T]`); a `shared` box cannot
+  cross (E2010), and the new E2010 case covers one in a package variable;
+- a method value stored in a global: not possible (a frame view, 11.5); a method value received another
+  way is covered as a value that holds a view;
+- init-time registration (a handler table): the table itself is rule 1 (written only during
+  initialization); the pointers in it cross when loaded, so the records they point to are safe only by
+  rule 2. Said in rule 1 and under Interrupt handlers.
+
+Why: the race-freedom claim of 19.3 and memory-model.md 4.1 needs every way a task reaches memory to be
+checked. A load is how a task gets a pointer it was not given; treating it as a crossing reuses rule 2
+with no new error. Goal: Safe.
+
+Lands with: item 214, extending items 168 and 212.
+
+## D97. The wait check follows calls with a single known target (19.3, 19.1, 17.1, 20.10, skill)
+
+Question: audit I2. "Exact path" had two definitions in 19.3: every call on the way must reach a wait
+whichever function runs there, and a list of exact calls that included hooks. They disagreed for an
+interface call where every candidate waits, and for hooks.
+
+Decision: one definition, by the call's set of targets. The check of waits in a non-migrating region
+follows only calls with a single known target, through any number of them: direct calls of a named
+function, method calls on a concrete type, deferred calls of those, a function literal called where it is
+written, and the drops the compiler inserts for a value of a known type, with the drop entries of an arena
+the compiler can name. It reports a wait reached that way when every path to the wait lies inside the
+non-migrating region; a wait on only some paths of a followed callee is still reported. It does not follow
+a call with more than one possible target (an interface, a func value, a method value, a hook, an arena it
+cannot name), nor allocation or frees into the installed allocators. Those rely on the run-time test. A
+function literal called where it is written has one target, so it is followed. A hook may be assigned more
+than one function, so it is not, unlike E2584, which keeps hooks exact. 19.3 has one worked example of
+each kind. This replaces the definition of an exact path in D87; the rest of D87 stands.
+
+Why: a definition by target set has no list to drift out of date, and its result does not depend on what
+other code the program converts to an interface. Goal: Plain, Kernel.
+
+Lands with: item 215, extending items 210 and 213.
+
+## D98. `//pu:blocking` functions make the park test at entry (19.3, 19.1, 17.1, 20.3, 20.10, abi.md 12.4, skill)
+
+Question: audit I3. 19.3 claimed that no wait in a non-migrating region hangs the processor in silence,
+but a `//pu:blocking` function that spins or halts never reaches `park`, so nothing tested it.
+
+Decision: the compiler inserts the test that `rt.Park` makes (preemption disabled; in kernel mode also
+interrupts disabled) at the entry of every function marked `//pu:blocking`, after its prologue. A function
+without a body cannot take an inserted test, so the test goes before each call of it, in the caller. The
+claim is narrowed to waiting operations: a loop that spins until other code acts, written without
+`//pu:blocking` (`for {}`, a poll of a flag under an `rt.Lock`), is not a wait the language can see, and if
+it never ends the program has a bug of its own. Code outside Plutonium that waits without the marking
+breaks the contract of a function without a body. An interrupt-safe spin lock is not a wait. The
+standard library marks only `park`, which already tests, so the inserted test is a repeat there.
+
+Why: every waiting operation the language names then ends at one test, so the claim holds as written for
+them. Testing at the call site for body-less functions keeps the test in code the compiler emits. Goal:
+Kernel, Safe.
+
+Lands with: item 216, extending items 210 and 213.
+
+## D99. The one check that accepts on doubt (1.2, 21)
+
+Question: audit I4. Principle 1 said every static analysis never accepts on doubt, and chapter 21's
+introduction said an implementation never accepts a program because it could not decide. D87 made the
+wait check of non-migrating regions accept calls it cannot resolve.
+
+Decision: "never accepts on doubt" holds for every safety analysis. The wait check of non-migrating regions
+is named in both places as the one check that accepts on doubt, because its failure is a loud panic at run
+time, not a memory error or a data race, and a conservative rule would reject the operations tables and
+locked allocation that kernels need. E2584 for interrupt handlers stays conservative.
+
+Why: the principle must be true as stated. Goal: Plain.
+
+Lands with: 1.2 and chapter 21; no compiler change.
+
+## D100. Naming an arena beyond the precision limits and through a move (19.3)
+
+Question: audit I7. Frees are writes named an arena "within the limits of section 18.3" but said nothing
+beyond them, nor what happens to the name when the arena moves.
+
+Decision: beyond the limits of 18.3, a call on an arena the compiler cannot name counts as that call on
+every arena of the program. The name follows a move: after `b := take(a)`, the arena is named by `b`, and
+a call on `b` frees the objects allocated through `a` before the move.
+
+Why: a free that no name covers would let a task keep using memory an arena took back. Goal: Safe.
+
+Lands with: item 217, extending item 212.
+
+## D101. Precision limits are exact (18.3, 21.3)
+
+Question: audit I8. 18.3 said "the limits may be raised; they are never lowered", which let an
+implementation accept programs another rejects.
+
+Decision: an implementation uses the stated limits exactly and may not raise them. A later edition of the
+language may raise them. 18.3 cites 21.3, since acceptance may not depend on the implementation or its
+optimizer.
+
+Why: the same program must be accepted or rejected everywhere. Goal: Plain.
+
+Lands with: 18.3; no compiler change beyond checking the compiler does not exceed the limits (item 184).
+
 ## Deferred
 
 None. The entry on Linux file names that are not valid UTF-8 is closed by D36.
@@ -1583,3 +1701,11 @@ need the later boundaries for data, so a table at every boundary cannot represen
 Large allocation tables remain at their own metadata bases; directory lookup replaces
 the address-mask lookup. That 2026-10-12 revision retained the fixed-arena exemption and
 generation/epoch values. D7 later supersedes the exemption and permits no stale-matching wrap.
+
+### D87: the definition of an exact path
+
+D87 called a path exact when the wait was written in the region or every call on the way must reach a wait
+whichever function runs there, and listed hooks among the exact calls. D97 (audit I2) replaced that with
+one definition by target set: only calls with a single known target are followed, hooks are not, and a
+wait on only some paths of a followed callee is reported. D87's choice that the check accepts what it
+cannot resolve, and leaves it to the run-time panic, stands.
