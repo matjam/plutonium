@@ -5824,6 +5824,14 @@ was taken from. Once the variable is moved, dropped or given a new value, the
 view looks at memory that was released, or at a value that belongs to something
 else.
 
+A view of any other local variable that has drop glue (a string, a box, a map, a
+channel, an allocated error, or a struct, array or union holding one) may not be
+used after the variable's scope ends, where the variable is released: &s of a
+string declared in a block may not be used after the block, or after a break
+leaves the loop that declares it. Use the view inside the block, or declare the
+variable in a block that encloses every use of the view. A local without drop
+glue holds only bits, and only the frame bounds a view of it.
+
 The same holds for text in a local arena (a string made while the arena is the
 default allocator, or by a Builder started with the arena as its allocator):
 converting it to an interface in the function that owns the arena puts a copy in

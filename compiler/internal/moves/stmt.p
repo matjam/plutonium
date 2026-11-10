@@ -17,20 +17,39 @@ func (f *fn) block(b *ast.BlockStmt) {
 		return
 	}
 	f.blocks = compat.Append(f.blocks, b)
+	f.scopes = compat.Append(f.scopes, ast.Node(b))
 	for _, st := range b.List {
 		f.stmt(st, "")
 	}
 	if b != f.topBody {
-		// The owners declared in the block are dropped here: views of
-		// them are stale (views.go).
-		for v, in := range f.declIn {
-			if in == b {
-				f.invalidate(v, move{kind: mvScopeEnd, pos: b.Rbrace})
-			}
-		}
+		// The variables declared in the block are dropped or released
+		// here: views of them are stale (views.p).
+		f.endScope(b, b.Rbrace, "")
 	}
 	f.recordExit(b)
+	f.scopes = f.scopes[:len(f.scopes)-1]
 	f.blocks = f.blocks[:len(f.blocks)-1]
+}
+
+// endScope records that the scope n ends at pos, or that the statement
+// by (break or continue) leaves it there: the views of the variables
+// declared in it are stale from here on (section 18.3, A local's scope).
+func (f *fn) endScope(n ast.Node, pos token.Pos, by string) {
+	for v, in := range f.scopeIn {
+		if in == n {
+			f.invalidate(v, move{kind: mvScopeEnd, pos: pos, to: by, typ: v.Type()})
+		}
+	}
+}
+
+// leaveScopes records that the break or continue st leaves the scopes
+// beyond the first depth, innermost first.
+func (f *fn) leaveScopes(depth int, st *ast.BranchStmt) {
+	for i := len(f.scopes) - 1; i >= depth; i-- {
+		if f.scopes[i] != ast.Node(f.topBody) {
+			f.endScope(f.scopes[i], st.Pos(), st.Tok.String())
+		}
+	}
 }
 
 func (f *fn) stmt(st ast.Stmt, label string) {
@@ -40,7 +59,12 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 	switch st.(type) {
 	case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
 		// The variables of its implicit block are dropped where it ends.
-		defer f.recordExit(st)
+		f.scopes = compat.Append(f.scopes, ast.Node(st))
+		defer func() {
+			f.endScope(st, st.End(), "")
+			f.scopes = f.scopes[:len(f.scopes)-1]
+			f.recordExit(st)
+		}()
 	}
 	switch st := st.(type) {
 	case nil, *ast.EmptyStmt, *ast.BadStmt:
@@ -132,6 +156,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 			}
 			if v, ok := f.c.implicits[cc].(*types2.Var); ok {
 				f.assignVar(v)
+				f.scopeIn[v] = cc
 				if mayView(v.Type()) && f.env != nil {
 					s := f.env[v]
 					s.views = sortViews(whole(f.viewsOf(x)))
@@ -227,6 +252,9 @@ func (f *fn) declStmt(st *ast.DeclStmt) {
 func (f *fn) declared(v *types2.Var) {
 	if len(f.blocks) > 0 {
 		f.declIn[v] = f.blocks[len(f.blocks)-1]
+	}
+	if len(f.scopes) > 0 {
+		f.scopeIn[v] = f.scopes[len(f.scopes)-1]
 	}
 }
 
@@ -464,7 +492,7 @@ func (f *fn) loop(st ast.Node, label string, head, body, post func()) {
 		}
 	}
 	f.env = at
-	t := pu.New(target{label: label, isLoop: true})
+	t := pu.New(target{label: label, isLoop: true, depth: len(f.scopes)})
 	f.targets = compat.Append(f.targets, t)
 	if head != nil {
 		head()
@@ -485,7 +513,7 @@ func (f *fn) loop(st ast.Node, label string, head, body, post func()) {
 // through.
 func (f *fn) clauses(label string, list []ast.Stmt, clause func(ast.Stmt) []ast.Stmt) {
 	entry := f.env.clone()
-	t := pu.New(target{label: label})
+	t := pu.New(target{label: label, depth: len(f.scopes)})
 	f.targets = compat.Append(f.targets, t)
 	var out, prev env
 	hasDefault := false
@@ -500,10 +528,13 @@ func (f *fn) clauses(label string, list []ast.Stmt, clause func(ast.Stmt) []ast.
 		if prev == nil {
 			f.env = entry.clone()
 		}
+		f.scopes = compat.Append(f.scopes, ast.Node(c))
 		body := clause(c)
 		for _, s := range body {
 			f.stmt(s, "")
 		}
+		f.endScope(c, c.End(), "")
+		f.scopes = f.scopes[:len(f.scopes)-1]
 		f.recordExit(c)
 		prev = nil
 		if n := len(body); n > 0 {
@@ -551,6 +582,8 @@ func (f *fn) branch(st *ast.BranchStmt) {
 		if st.Tok == token.CONTINUE && !t.isLoop {
 			continue
 		}
+		// The scopes the branch leaves end here (section 18.4).
+		f.leaveScopes(t.depth, st)
 		if st.Tok == token.BREAK {
 			t.breaks = join(t.breaks, f.env)
 		} else {

@@ -91,7 +91,14 @@ func (c *checker) howMoved(mv *move) string {
 	case mvTake:
 		return compat.Concat("emptied by ", mv.to)
 	case mvScopeEnd:
-		return "dropped at the end of its block"
+		verb := "dropped"
+		if mv.typ != nil && !bounds(mv.typ) {
+			verb = "released"
+		}
+		if mv.to != "" {
+			return compat.Concat(verb, " when ", mv.to, " left its block")
+		}
+		return compat.Concat(verb, " at the end of its block")
 	case mvReclaim:
 		return compat.Concat("reclaimed by ", mv.to)
 	}
@@ -155,6 +162,8 @@ func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic 
 	owns, rule := "owns", "A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from."
 	if isCountedBox(w.of.Type()) {
 		owns, rule = "refers to", "A view obtained through a counted reference held in a local variable may be used only while the variable keeps the reference the view was made from."
+	} else if !isOwner(w.of.Type()) {
+		owns, rule = "holds", "A view of a local variable whose type has drop glue may be used only until the variable's scope ends, where the variable is released."
 	} else if w.stale.kind == mvReclaim {
 		rule = "A view of a local arena's memory may be used only until Reset or Release reclaims it."
 	}
@@ -194,7 +203,11 @@ func (c *checker) lostVerb(mv move) string {
 func (c *checker) pinnedDiag(v *types2.Var, p *pinMark, mv move) *diag.Diagnostic {
 	owner := v.Name()
 	d := c.newDiag(mv.pos, diag.LostView, "%s %s here, but a view of it (%s, line %d) was %s at line %d, where the compiler cannot check its uses", pu.Box(owner), pu.Box(c.lostVerb(mv)), pu.Box(p.text), c.line(p.pos), pu.Box(p.how), c.line(p.where))
-	d.Text = compat.Sprintfb("A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from. The compiler follows views through local variables and their fields, and into the arguments of the calls that store them there, but the view of %s made by %s at line %d went into memory it does not follow, so it cannot check that the view is not used after line %d.", compat.ArgS(owner), compat.ArgS(p.text), compat.ArgI(int64(c.line(p.pos))), compat.ArgI(int64(c.line(mv.pos))))
+	rule := "A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from."
+	if !bounds(v.Type()) {
+		rule = "A view of a local variable whose type has drop glue may be used only until the variable's scope ends, where the variable is released."
+	}
+	d.Text = compat.Sprintfb("%s The compiler follows views through local variables and their fields, and into the arguments of the calls that store them there, but the view of %s made by %s at line %d went into memory it does not follow, so it cannot check that the view is not used after line %d.", compat.ArgS(rule), compat.ArgS(owner), compat.ArgS(p.text), compat.ArgI(int64(c.line(p.pos))), compat.ArgI(int64(c.line(mv.pos))))
 	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Keep the view in a local variable or a field of one, where the compiler follows it, or do not %s while the view is kept", compat.ArgS(strings.TrimPrefix(c.lostVerbBase(mv), "is ")))})
 	return d
 }

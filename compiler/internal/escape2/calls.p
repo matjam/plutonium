@@ -347,13 +347,14 @@ func noteCall(calls *moves.Calls, env solve.Env, ps domain.Paths, f *eir.Func, c
 	}
 	// A dynamic call with no candidates never runs, and keeps nothing.
 	cands := callees(env, f, c)
+	passed := staticFuncs(env, f, c, cands)
 	for i, s := range sl {
 		if s == nil {
 			continue
 		}
 		af := &moves.ArgFacts{}
 		for _, cd := range cands {
-			merge(af, argFacts(ps, cd, sl, i))
+			merge(af, argFacts(ps, cd, sl, i, passed))
 		}
 		for _, x := range s.exprs {
 			calls.Add(x, af)
@@ -369,9 +370,89 @@ func merge(af, o *moves.ArgFacts) {
 	af.Into = compat.Append(af.Into, o.Into...)
 }
 
+// staticFuncs returns, for a static call c of f, the summary of the
+// declared function or capture-free literal each argument is as a func
+// value (a static record, eir's OpClosure with no object), by the callee
+// input it binds to; nil where it is not one, or its summary is not known.
+// It returns nil unless a callee in cands defers a call.
+func staticFuncs(env solve.Env, f *eir.Func, c *eir.Call, cands []callee) []*summary.Summary {
+	if c.Kind != eir.CallStatic {
+		return nil
+	}
+	deferred := false
+	for _, cd := range cands {
+		if cd.sum != nil && len(cd.sum.Deferred) > 0 {
+			deferred = true
+		}
+	}
+	if !deferred {
+		return nil
+	}
+	defs := map[eir.Reg]*eir.Instr{}
+	for _, b := range f.Blocks {
+		for k := range b.Instrs {
+			if x := &b.Instrs[k]; x.Op != eir.OpCall && x.Dst != 0 {
+				defs[x.Dst] = x
+			}
+		}
+	}
+	prog := env.Program()
+	out := compat.Make[*summary.Summary](len(c.Args))
+	for in, r := range c.Args {
+		if r == 0 {
+			continue
+		}
+		for n := 0; n < 8; n++ {
+			d := defs[r]
+			if d == nil {
+				break
+			}
+			if d.Op == eir.OpCopy {
+				r = d.X
+				continue
+			}
+			if d.Op == eir.OpClosure && d.Obj == eir.NoObj && d.Callee != eir.NoFunc && int(d.Callee) < len(prog.Funcs) && !prog.Funcs[d.Callee].Bodyless {
+				out[in] = env.Summary(d.Callee)
+			}
+			break
+		}
+	}
+	return out
+}
+
+// keepsNothing reports whether the summary sum keeps nothing of its input
+// a past the call: it lets no key of a escape, stores none anywhere, and
+// passes none to a call it defers.
+func keepsNothing(sum *summary.Summary, a int) bool {
+	for _, k := range sum.Esc {
+		if k.Input() == a {
+			return false
+		}
+	}
+	for _, st := range sum.Store {
+		if st.Src.Input() == a {
+			return false
+		}
+	}
+	for _, d := range sum.Deferred {
+		if d.Fn.Input() == a {
+			return false
+		}
+		for _, x := range d.Args {
+			for _, k := range x.Keys {
+				if k.Input() == a {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
 // argFacts returns what callee cd's summary says of its input i, given the
-// call's slots.
-func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *moves.ArgFacts {
+// call's slots. passed gives the summary of a static function the call
+// passes for each callee input, for the calls the callee defers (D49).
+func argFacts(ps domain.Paths, cd callee, sl []*slot, i int, passed []*summary.Summary) *moves.ArgFacts {
 	af := pu.New(moves.ArgFacts{})
 	if cd.sum == nil || i >= cd.inputs {
 		// Nothing is known of the callee, or the input is one it does
@@ -428,24 +509,38 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int) *moves.ArgFacts {
 	// a method value's receiver, an address given to the call that made
 	// it), so it keeps nothing of i that moves follows, though its results
 	// may hold what its record does.
+	//
+	// Where the call passes, for the function value, a declared function
+	// or a literal that captures nothing, and that function keeps nothing
+	// of the inputs it is given input i in, the deferred call keeps
+	// nothing of i either.
 	for _, d := range sum.Deferred {
 		fn := d.Fn.Input() == i
-		passed := fn && self(d.Fn)
-		af.Self = af.Self || passed
-		af.Kept = af.Kept || passed
-		for _, a := range d.Args {
-			for _, k := range a.Keys {
-				if k.Input() == i {
-					passed = true
-					af.Self = af.Self || self(k)
-					af.Kept = af.Kept || self(k)
+		var target *summary.Summary
+		if fi := d.Fn.Input(); !fn && ps.Loads(d.Fn.Path()) == 0 && !d.Fn.Deep() && !d.Fn.GE() && fi >= 0 && fi < len(passed) {
+			target = passed[fi]
+		}
+		given := fn && self(d.Fn)
+		af.Self = af.Self || given
+		af.Kept = af.Kept || given
+		for a, x := range d.Args {
+			for _, k := range x.Keys {
+				if k.Input() != i {
+					continue
 				}
+				if target != nil && keepsNothing(target, a) {
+					af.Returned = true
+					continue
+				}
+				given = true
+				af.Self = af.Self || self(k)
+				af.Kept = af.Kept || self(k)
 			}
 		}
-		if passed {
+		if given {
 			af.Into = compat.Append(af.Into, moves.Into{})
 		}
-		if fn || passed {
+		if fn || given {
 			af.Returned = true
 		}
 	}

@@ -447,8 +447,14 @@ type fn struct {
 	targets []*target
 	// blocks are the blocks being walked, innermost last, for deferred
 	// calls that use owners of inner blocks.
-	blocks  []*ast.BlockStmt
-	declIn  map[*types2.Var]*ast.BlockStmt
+	blocks []*ast.BlockStmt
+	declIn map[*types2.Var]*ast.BlockStmt
+	// scopes are the scopes being walked, innermost last: blocks, and the
+	// implicit blocks of if, for, switch and select statements and of
+	// their clauses. scopeIn records the scope each local variable is
+	// declared in, whose end drops or releases it (views.p).
+	scopes  []ast.Node
+	scopeIn map[*types2.Var]ast.Node
 	topBody *ast.BlockStmt
 	// noFacts are the variables for which nothing is known to be empty
 	// (empty.go).
@@ -481,11 +487,14 @@ type target struct {
 	isLoop bool
 	breaks env
 	conts  env
+	// depth is the number of scopes open at the statement, its own
+	// included: break and continue leave the scopes beyond.
+	depth int
 }
 
 // checkFunc checks a function body with signature sig.
 func (c *checker) checkFunc(ft *ast.FuncType, recv *ast.FieldList, body *ast.BlockStmt, sig *types2.Signature) {
-	f := &fn{c: c, sig: sig, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, declIn: map[*types2.Var]*ast.BlockStmt{}, topBody: body,
+	f := &fn{c: c, sig: sig, vars: map[*types2.Var]bool{}, heads: map[ast.Node]env{}, declIn: map[*types2.Var]*ast.BlockStmt{}, scopeIn: map[*types2.Var]ast.Node{}, topBody: body,
 		argKey: keysOf(c, body), checkedAt: map[*ast.Ident]ast.Expr{}}
 	// The function's own variables: parameters, results, and everything
 	// declared in its body outside nested literals.
@@ -544,6 +553,7 @@ func (f *fn) walk(body *ast.BlockStmt) {
 	f.env = env{}
 	f.targets = nil
 	f.blocks = nil
+	f.scopes = nil
 	for _, v := range f.results {
 		f.declaredEmpty(v) // results start with nothing
 	}

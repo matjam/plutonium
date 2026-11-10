@@ -164,6 +164,17 @@ func (f *fn) findNoFacts(body *ast.BlockStmt) {
 			if n.Op == token.AND && !taken[n] && !f.transient(n) {
 				mark(n.X)
 			}
+		case *ast.AssignStmt:
+			// _ = &x keeps the address nowhere.
+			if len(n.Lhs) == len(n.Rhs) {
+				for i, l := range n.Lhs {
+					id, ok := ast.Unparen(l).(*ast.Ident)
+					amp, isAmp := ast.Unparen(n.Rhs[i]).(*ast.UnaryExpr)
+					if ok && id.Name == "_" && isAmp && amp.Op == token.AND {
+						taken[amp] = true
+					}
+				}
+			}
 		case *ast.SliceExpr:
 			if _, ok := f.c.typeOf(n.X).Underlying().(*types2.Array); ok && !f.transient(n) {
 				mark(n.X)

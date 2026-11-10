@@ -1,0 +1,10 @@
+$DIR/main.p:37:11: p holds a view of s (&s, line 35), which was released at the end of its block at line 36, so p can no longer be used here
+$DIR/main.p:46:10: names holds a view of arr (arr[:], line 44), which was released at the end of its block at line 45, so names can no longer be used here
+$DIR/main.p:54:10: show holds a view of x (x.Show, line 52), which was released at the end of its block at line 53, so show can no longer be used here
+$DIR/main.p:61:15: pm holds a view of m (&m, line 59), which was released at the end of its block at line 60, so pm can no longer be used here
+$DIR/main.p:70:11: q holds a view of s (&s, line 67), which was released when break left its block at line 68, so q can no longer be used here
+$DIR/main.p:78:11: r holds a view of s (&s, line 75), which was released at the end of its block at line 77, so r can no longer be used here
+$DIR/main.p:87:11: c holds a view of s (&s, line 85), which was released at the end of its block at line 85, so c can no longer be used here
+$DIR/main.p:95:2: s is released at the end of its block here, but a view of it (&s, line 94) was stored in *pw at line 94, where the compiler cannot check its uses
+$DIR/main.p:103:2: o is released at the end of its block here, but a view of it (&o, line 102) was stored by runOn in memory the compiler does not follow at line 102, where the compiler cannot check its uses
+$DIR/main.p:102:3: cannot pass &o to runOn, which keeps it after returning

@@ -1,0 +1,143 @@
+$DIR/main.p:37:11: p holds a view of s (&s, line 35), which was released at the end of its block at line 36, so p can no longer be used here
+    p looks at memory that s holds, without owning it: the view was made by &s
+    at line 35. A view of a local variable whose type has drop glue may be used
+    only until the variable's scope ends, where the variable is released. At
+    line 36 s was released at the end of its block, so the view may look at
+    memory that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare s in a block that encloses every use of p, or use p only inside the
+    block of s
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:46:10: names holds a view of arr (arr[:], line 44), which was released at the end of its block at line 45, so names can no longer be used here
+    names looks at memory that arr holds, without owning it: the view was made
+    by arr[:] at line 44. A view of a local variable whose type has drop glue
+    may be used only until the variable's scope ends, where the variable is
+    released. At line 45 arr was released at the end of its block, so the view
+    may look at memory that was released, or at a value that now belongs to
+    something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare arr in a block that encloses every use of names, or use names only
+    inside the block of arr
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:54:10: show holds a view of x (x.Show, line 52), which was released at the end of its block at line 53, so show can no longer be used here
+    show looks at memory that x holds, without owning it: the view was made by
+    x.Show at line 52. A view of a local variable whose type has drop glue may
+    be used only until the variable's scope ends, where the variable is
+    released. At line 53 x was released at the end of its block, so the view may
+    look at memory that was released, or at a value that now belongs to
+    something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare x in a block that encloses every use of show, or use show only
+    inside the block of x
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:61:15: pm holds a view of m (&m, line 59), which was released at the end of its block at line 60, so pm can no longer be used here
+    pm looks at memory that m holds, without owning it: the view was made by &m
+    at line 59. A view of a local variable whose type has drop glue may be used
+    only until the variable's scope ends, where the variable is released. At
+    line 60 m was released at the end of its block, so the view may look at
+    memory that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare m in a block that encloses every use of pm, or use pm only inside
+    the block of m
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:70:11: q holds a view of s (&s, line 67), which was released when break left its block at line 68, so q can no longer be used here
+    q looks at memory that s holds, without owning it: the view was made by &s
+    at line 67. A view of a local variable whose type has drop glue may be used
+    only until the variable's scope ends, where the variable is released. At
+    line 68 s was released when break left its block, so the view may look at
+    memory that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare s in a block that encloses every use of q, or use q only inside the
+    block of s
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:78:11: r holds a view of s (&s, line 75), which was released at the end of its block at line 77, so r can no longer be used here
+    r looks at memory that s holds, without owning it: the view was made by &s
+    at line 75. A view of a local variable whose type has drop glue may be used
+    only until the variable's scope ends, where the variable is released. At
+    line 77 s was released at the end of its block, so the view may look at
+    memory that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare s in a block that encloses every use of r, or use r only inside the
+    block of s
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:87:11: c holds a view of s (&s, line 85), which was released at the end of its block at line 85, so c can no longer be used here
+    c looks at memory that s holds, without owning it: the view was made by &s
+    at line 85. A view of a local variable whose type has drop glue may be used
+    only until the variable's scope ends, where the variable is released. At
+    line 85 s was released at the end of its block, so the view may look at
+    memory that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare s in a block that encloses every use of c, or use c only inside the
+    block of s
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:95:2: s is released at the end of its block here, but a view of it (&s, line 94) was stored in *pw at line 94, where the compiler cannot check its uses
+    A view of a local variable whose type has drop glue may be used only until
+    the variable's scope ends, where the variable is released. The compiler
+    follows views through local variables and their fields, and into the
+    arguments of the calls that store them there, but the view of s made by &s
+    at line 94 went into memory it does not follow, so it cannot check that the
+    view is not used after line 95.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not let its block end while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
+$DIR/main.p:103:2: o is released at the end of its block here, but a view of it (&o, line 102) was stored by runOn in memory the compiler does not follow at line 102, where the compiler cannot check its uses
+    A view of a local variable whose type has drop glue may be used only until
+    the variable's scope ends, where the variable is released. The compiler
+    follows views through local variables and their fields, and into the
+    arguments of the calls that store them there, but the view of o made by &o
+    at line 102 went into memory it does not follow, so it cannot check that the
+    view is not used after line 103.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not let its block end while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
+$DIR/main.p:102:3: cannot pass &o to runOn, which keeps it after returning
+    &o is a pointer to o. o is a local variable of main (declared at
+    main.p:101). runOn passes o to f (which may call keep) (main.p:28), which
+    stores o in package variable kept (main.p:26), so &o would outlive o.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If runOn should keep its own copy of o, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[Out] from new, a shared[Out], or
+    a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

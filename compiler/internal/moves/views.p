@@ -229,8 +229,74 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 	out = compat.Append(out, whole(f.held(v, path))...)
 	if o := f.ownerVar(v); o != nil {
 		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), inHeap: box, part: path})
+	} else if o := f.scopeVar(v); o != nil {
+		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), part: path})
 	}
 	return out
+}
+
+// scopeVar returns v if it is a local variable of this function declared
+// in an inner scope whose type has drop glue but is neither an owner nor a
+// counted reference: a view of it is bounded by its scope alone (section
+// 18.3, A local's scope). Owners and counted references are followed
+// through every event that ends their views (ownerVar, countedVar); a
+// variable of the function's top block lasts as long as the frame.
+func (f *fn) scopeVar(v *types2.Var) *types2.Var {
+	if v == nil || !f.vars[v] || bounds(v.Type()) || !cleans(v.Type()) {
+		return nil
+	}
+	if in := f.scopeIn[v]; in == nil || in == ast.Node(f.topBody) {
+		return nil
+	}
+	return v
+}
+
+// cleans reports whether a value of type T has drop glue (sections 18.6 and
+// 18.8): it is an owner, or holds a counted value (a string, a box, a map,
+// a channel, an allocated error), directly or in a struct, array or union.
+// A type parameter is left out here (roadmap item 208).
+func cleans(T types2.Type) bool { return cleansSeen(T, map[types2.Type]bool{}) }
+
+func cleansSeen(T types2.Type, seen map[types2.Type]bool) bool {
+	if T == nil || seen[T] {
+		return false
+	}
+	seen[T] = true
+	if isOwner(T) {
+		return true
+	}
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return false
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Basic:
+		return u.Info()&types2.IsString != 0
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if cleansSeen(u.Field(i).Type(), seen) {
+				return true
+			}
+		}
+	case *types2.Array:
+		return u.Len() > 0 && cleansSeen(u.Elem(), seen)
+	case *types2.Wrapper:
+		switch u.Kind() {
+		case types2.WrapAligned, types2.WrapVolatile, types2.WrapRing:
+			return cleansSeen(u.Elem(), seen)
+		}
+		return u.IsBox()
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() && cleansSeen(v.Payload(), seen) {
+				return true
+			}
+		}
+	case *types2.Chan, *types2.Map:
+		return true
+	case *types2.Interface:
+		return types2.IsCountedError(T)
+	}
+	return false
 }
 
 // partOf returns the part of an owner a view made at path looks at: none
@@ -600,7 +666,7 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 // its heap), and the result holds a pointer or slice of a type the owner
 // may hold, other than an owner (a new value, not a view).
 func (f *fn) loadsOwned(call *ast.CallExpr, w view) bool {
-	if w.inHeap || w.of == nil {
+	if w.inHeap || w.of == nil || !bounds(w.of.Type()) {
 		return false
 	}
 	if f.arenaAlloc(call, w.of) {
@@ -960,7 +1026,10 @@ func (f *fn) argViews(call *ast.CallExpr) []argView {
 // every view of it is stale from here on. If a view of it went where the
 // walk cannot follow, that is the error.
 func (f *fn) invalidate(v *types2.Var, mv move) {
-	if f.env == nil || !bounds(v.Type()) || !f.vars[v] {
+	if f.env == nil || !f.vars[v] {
+		return
+	}
+	if !bounds(v.Type()) && (mv.kind != mvScopeEnd || !cleans(v.Type())) {
 		return
 	}
 	if p := f.env[v].pin; p != nil && f.report {

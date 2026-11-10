@@ -934,4 +934,3 @@ pre:
 known: 208: E3313 does not yet end a view obtained from a value of a type parameter, so the use of i after x = z is not an error
 
 == 18-ownership-and-memory.md 18.3 | var p *string
-known: 146: E3313 covers only owners, and s is a counted string, so the use of *p after the block is not an error yet
