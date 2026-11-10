@@ -22,9 +22,12 @@ import (
 
 // knownEscapeGaps are the programs not rejected yet, with the reason.
 var knownEscapeGaps = map[string]string{
-	// The contract table gives rt.ReleaseValues and ZeroValues no effects,
-	// though they run the elements' Drop methods.
-	"review3/o14_drop_in_vec_of_owners_local": "contract: ReleaseValues/ZeroValues run element drops",
+	// The elements' Drop keeps its receiver, which is in the vec's heap
+	// buffer: a free the generation checks find, not an escape. vec now
+	// drops with clear, and the one escape error is in vec.p (AppendSeq's
+	// local x), not in main.p. rt.ReleaseValues has its drop effect
+	// (item 180).
+	"review3/o14_drop_in_vec_of_owners_local": "the Drop of a heap element keeps it; the escape error is in vec.p",
 }
 
 // rejectedBeforeEscape are the programs a check that runs before the

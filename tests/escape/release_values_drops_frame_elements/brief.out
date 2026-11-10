@@ -1,0 +1,1 @@
+$DIR/main.p:23:2: cannot pass &buf to (*O).Drop, which keeps it after returning

@@ -111,7 +111,22 @@ func (fb *fnb) callResults(e *ast.CallExpr) ([]Reg, []types2.Type) {
 	}
 	c.Args = args
 	types := resultTypes(c.Sig)
-	return fb.freshCounted(fb.ownerCall(c, fb.arenaCall(e, c, fb.emitCall(c, e.Pos()))), types), types // borrow.go, ownerview.go
+	res := fb.emitCall(c, e.Pos())
+	fb.releaseValues(c, e.Pos())
+	return fb.freshCounted(fb.ownerCall(c, fb.arenaCall(e, c, res)), types), types // borrow.go, ownerview.go
+}
+
+// releaseValues adds, after rt.ReleaseValues(p, n), the drop of a T at p:
+// the expansion runs each element's drop glue, its Drop method first, with
+// the element's address (section 18.6; contract.go). ZeroValues writes
+// zeros without dropping, so it has no such effect.
+func (fb *fnb) releaseValues(c *Call, pos token.Pos) {
+	if c.Kind != CallContract || c.Contract != "pluto/rt.ReleaseValues" || len(c.Args) == 0 || c.Sig.Params().Len() == 0 {
+		return
+	}
+	if p, ok := c.Sig.Params().At(0).Type().Underlying().(*types2.Pointer); ok {
+		fb.dropAt(c.Args[0], p.Elem(), pos)
+	}
 }
 
 // specialMethodCall builds the method calls that are not calls of a method:

@@ -155,6 +155,11 @@ func init() {
 	// strings.SliceFrom(s, i) return a substring of s, which shares its
 	// buffer.
 	add(Inline, "", Effect{Results: compat.Clone([][]Ref{compat.Clone([]Ref{self(0)})})}, "pluto/rt.SliceBytewise", "pluto/strings.Slice", "pluto/strings.SliceFrom")
+	// ReleaseValues(p, n) runs the drop glue of the values at p, each
+	// element's Drop method with its address: EIR states that with a drop
+	// of a T at p after the call (eir/call.go releaseValues), which the
+	// table cannot, since the glue depends on T. ZeroValues writes zeros
+	// and drops nothing.
 	add(Inline, "", none,
 		"pluto/rt.ReleaseValues", "pluto/rt.RetainValues", "pluto/rt.ZeroValues", "pluto/rt.NeedsDrop",
 		"pluto/rt.HoldsStrings", "pluto/rt.MustCopy", "pluto/rt.StringControl", "pluto/rt.KnownASCII")
