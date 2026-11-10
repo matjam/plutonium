@@ -814,10 +814,13 @@ Every owner type satisfies the implicit `Drop` of an owning interface, whether o
 method. An interface that embeds an owning interface must itself be declared `owner` (E3202).
 
 A type assertion `x.(T)` from an owning interface to an owner type moves the value out of `x`. In the comma-ok
-form `v, ok := x.(T)`, `x` is moved only where `ok` is true. A type switch with a binding moves `x` into the
-binding in every clause. Asserting an ordinary interface to an owner type is a compile error (E3308), since
-the interface only lends the value and the result would be a second owner; assert it to an interface type
-instead and use the value's methods (section 11.13, Type assertions).
+form `v, ok := x.(T)`, `x` is moved only where `ok` is true, which the compiler follows through direct tests of
+`ok` (section 11.13). An assertion from an owning interface to an ordinary interface type moves nothing: the
+result lends from `x`. A type switch with a binding moves `x` into the binding in every clause except one that
+names a single ordinary interface type, where the binding lends from `x` (section 12.9, Switch statements).
+Asserting an ordinary interface to an owner type, including an owning interface, is a compile error (E3308),
+since the interface only lends the value and the result would be a second owner; assert it to an ordinary
+interface type instead and use the value's methods (section 11.13, Type assertions).
 
 A value-receiver method of an owner type consumes its receiver, so it never satisfies an interface method,
 ordinary or owning (section 8.6). The conversion is a compile error that shows the fix. A pointer-receiver
@@ -1112,6 +1115,8 @@ Assignability).
 - For a non-constant integer `n`, `E(n)` is valid only in the comma-ok form `v, ok := E(n)`: `ok` reports
   whether `n` equals a member's value, and `v` is that member, or the zero value if `ok` is false. Floats and
   other non-integer types do not convert to an enum.
+- An enum type is not an integer type for these rules, so a value of another enum type does not convert
+  directly: `Shade(color)` is an error, and `v, ok := Shade(uint8(color))` goes through the integer.
 - An enum converts to any integer or floating-point type as its underlying integer does.
 
 **Generated operations.**
@@ -1122,7 +1127,8 @@ Assignability).
 | `len(E)` | the number of members, an untyped integer constant |
 | `for v := range E` | each member in declaration order; one iteration variable |
 
-**Other types.** An enum value is an integer everywhere else: it is stored like its underlying type, held
+**Other types.** An enum type is not an integer type. It has the operations and conversions above, and
+is an integer only in its representation: an enum value is stored like its underlying type, held
 directly in an interface's data word, satisfies constraints by its underlying type (`~uint8`), and may be the
 element of a `volatile` or `aligned` type. A packed field of enum type (section 7.14) is a bit field as wide
 as the members need (unsigned, or two's complement if a member is negative); `f bits[E, N]` gives a wider
@@ -1220,7 +1226,16 @@ union; a union cannot contain itself except through a type that holds its compon
 takes precedence over a method of the same name. A variant is not a type: `var x U.V` is an error (E2409), and
 a payload, once selected, has its own payload type. `U{...}` is an error (E2412), as is `U.V{}` for a variant
 without a payload. There are no implicit conversions into a union: `var u U = x` and `u = nil` are errors, and
-a value of another union type with identical variants converts only explicitly (section 8.4, Assignability).
+a value of another union type with identical variants converts only explicitly (section 8.4, Assignability),
+and, when the result is an owner union, only within the package limits of section 11.24 (Conversions).
+
+**Defined from a union.** `type V U`, where `U` is a union type, declares a new union type with the same
+variants, in the same order, with the same payloads and layout, and none of `U`'s methods, as `type F E`
+does for an enum (section 7.12). The variants are selected through `V`: `V.Circle(1)` is a `V`, and a type
+switch on a `V` is a union switch with the same exhaustiveness rule. `V` and `U` have identical variants,
+so they convert to each other explicitly and never implicitly (above). `V` is an owner union if `U` is,
+or if the declaration says `owner` (section 7.18). The same holds for a packed union, which keeps its tag
+field, backing and bit layout.
 
 **Zero value.** The first variant, with its payload's zero value. Put the idle or empty state first.
 
@@ -1314,7 +1329,8 @@ An owner union moves instead of being copied. Dropping it drops the payload of t
 giving it a new variant drops the old payload first. A type switch with a binding on an owner union variable
 (`switch v := s.(type)`) moves the payload into the binding of the clause that runs, which drops it at the end
 of the clause unless it moves on; the variable is empty afterwards. The comma-ok assertion
-`f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true; where it is false `s` keeps it. A
+`f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true; where it is false `s` keeps it
+(section 11.13 says how the compiler follows `ok`). A
 union whose payloads hold counted values (`shared`, `synced`, `weak`, strings, channels, maps) and no owner
 copies, counting each copy, as a struct of them does.
 
@@ -1384,7 +1400,7 @@ func demo(raw uint32) uint32 {
   - `name T`, where `T` is an integer, boolean, floating-point or packed type or an array of those: a
     byte-level field of `T`'s full size, at the next bit position (it need not be byte-aligned, except in a
     big-endian array-backed type; see Byte order).
-  - `name E`, where `E` is an enum type: a bit field as wide as the members of `E` need (unsigned, or two's complement if a member is negative), as section 7.12 (Other types) says.
+  - `name E`, where `E` is an enum type: a bit field as wide as the members of `E` need (unsigned, or two's complement if a member is negative), as section 7.12 (Enums) says.
   - `name aligned[T, N]`, where `T` is one of the types of the byte-level bullet: a byte-level field of `T` that starts on an `N`-byte boundary (see Layout).
   - `_` names reserve bits. The **reserved bits** of a packed type are the bits of its `_` fields and the bits
     of the backing that no field covers.
@@ -1405,6 +1421,9 @@ func demo(raw uint32) uint32 {
   same length (section 11.24, Conversions). Every bit is kept in both directions, the reserved bits included,
   so converting back returns the same value. That is how a raw register value becomes a typed view. Writing a
   field changes only that field's bits.
+- **Defined types.** `type R2 ControlReg` declares a new packed type with the same fields, backing, byte
+  order and bit layout, and none of `ControlReg`'s methods. `R2` and `ControlReg` convert to each other
+  explicitly, every bit kept, and each converts to and from the integer or byte array as above.
 - **Literals** name their fields: `ControlReg{mode: 5, enable: true}`. The reserved bits are zero in a literal
   and in the zero value.
 - **Comparison.** Packed values are comparable. Two packed values are equal when their bits outside the
@@ -1642,10 +1661,19 @@ The library's `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Builder` and `os.File` ar
 
 **Conversions and comparison.** A value of non-owner type converts into an owner type only in the package that
 declares the owner type; an owner converts to a non-owner type by reading its value, without moving it; and
-two owner types with the same underlying type convert by moving (section 11.24, Conversions). An owner type is
+two owner types with the same underlying type convert by moving, only in the package that declares the result
+type or in the package of an operand type defined from it. Pointer conversions that reach an owner and union
+conversions that make one have the same limits (E3212; section 11.24, Conversions). An owner type is
 comparable when its underlying type is, and comparing reads the operands without moving them (section 8.10,
 Comparable types). No other operator applies to an owner, even one with a numeric underlying type: the
 arithmetic is done on the value read out by a conversion, `int32(fd) + 1` (section 11.18, Operators).
+
+**Literals.** A composite literal of an owner struct type makes a new owner, so its limit follows from the fields
+the type exports. The exported fields of an owner struct make its literal public: in another package a literal
+`p.Region{Base: b, Len: n}` is valid when every field of `Region` is exported, and is an error (E3212) when any
+field is unexported, keyed or not, since the omitted unexported fields could hold what the type's invariants
+need. The exported variants of an owner union are public in the same way. A package that wants its owner made
+only through its own functions gives the type an unexported field.
 
 **The zero value** of an owner holds nothing, and dropping it does nothing (section 15.1, The zero value). A
 `Drop` method must treat the zero value as empty.

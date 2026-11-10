@@ -471,7 +471,21 @@ var v2 = f[byte]([]byte{}) // v2 == 2
 
 The type switch guard may be preceded by a simple statement, which executes before the guard is evaluated. The `fallthrough` statement is not permitted in a type switch.
 
-**Owners in type switches.** A case that names an owner type is an error when the switch expression has an ordinary interface type (E3308), because an ordinary interface only lends the value it holds (section 11.13, Type assertions). When the switch expression is a whole variable of an owning interface type and the guard declares a variable, `switch v := x.(type)` moves the value out of `x` into `v` in every clause, the default clause included. The variable `v` is dropped at the end of its clause unless the clause moves it on, and `x` holds nothing afterward. Without a declared variable nothing moves.
+**Owners in type switches.** A case that names an owner type is an error when the switch expression has an ordinary interface type (E3308), because an ordinary interface only lends the value it holds (section 11.13, Type assertions). When the switch expression is a whole variable of an owning interface type and the guard declares a variable, `switch v := x.(type)` moves the value out of `x` into `v` in every clause except one whose single case names an ordinary interface type. The default clause and a clause with several cases move too. The variable `v` is dropped at the end of its clause unless the clause moves it on, and `x` holds nothing afterward on that path. In a clause whose single case names an ordinary interface type, nothing moves: `v` lends from `x`, as an assertion to an ordinary interface does, and `x` keeps the value. The path where no case matches, in a switch without a default clause, moves nothing either. After the switch, `x` holds nothing if every path moved it, holds its value if none did, and otherwise counts as possibly moved (E3302; section 18.5, Moves). Without a declared variable nothing moves.
+
+```go
+type Resource owner interface{ Read(p []byte) (int, error) }
+
+func f(r Resource) {
+	switch v := r.(type) {
+	case io.Writer: // an ordinary interface: v lends from r
+		v.Write(nil)
+	case owned[File]: // an owner type: r moves into v, and v is dropped at the end of the clause
+		v.Sync()
+	}
+	use(r) // error E3302: the owned[File] clause moved r
+}
+```
 
 **Union switches.** A type switch on a union value `u` of type `U` selects the variant that `u` holds. Each case names variants: `U.V` (or `pkg.U.V`, `U[T].V`), or the bare name `V`, which in a case of such a switch denotes the variant whatever else the name denotes in scope. Bare names are accepted nowhere else. In a clause naming one variant, the declared variable has that variant's payload type (`struct{}` for a variant without a payload). In a clause naming several variants, and in the default clause, it has type `U`. A union value is never nil, so there is no `nil` case. Naming a variant twice is an error, and `fallthrough` is not allowed. A union switch with no `default` case must name every variant. Otherwise it is an error (E2414) that lists the missing ones. A union value whose tag names no variant can be made only by unsafe code; an exhaustive switch with no `default` case panics on it. A packed union's tag may hold any value its bits allow, so a switch on a packed union with no `default` case needs variants whose tag values together cover every value the tag field can hold; otherwise the switch is error E2415, reported at the switch (section 7.13, Unions).
 
@@ -797,7 +811,8 @@ The function value and arguments are evaluated as usual in the starting task (se
 - A value is copied.
 - An argument of owner type is moved into the new task. The task drops it when the function returns, unless the function moves it on.
 - A `synced` reference is copied, and the count goes up by one. A string gets a reference of its own.
-- Packed variadic arguments are copied into the new task, so each one crosses as a value.
+- The array that holds the variadic arguments of the call (section 11.15) is copied into the new task, so
+  the slice the function receives is not a view of the starting frame, and each argument crosses as a value.
 - Every argument, and the receiver, must be sendable (section 19.2, The sendable rule), or the statement is an error. A `shared[T]` is not sendable.
 - A view of the starting frame cannot be passed at all (E3004, or E2011 where the type checker sees it directly; a capturing function literal or method value passed as a func-typed argument is E2590 or E2594, as under Closures below), because the task may outlive the frame (section 18.3, Views). Passing the address of a local `sync.WaitGroup` is this error. Use a package-level variable, or a `sync.Scope` (below).
 - A view of other memory crosses only when what it points to cannot change while both tasks may use it (section 19.2, The sendable rule; section 19.3, Data race freedom).

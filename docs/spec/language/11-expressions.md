@@ -2,7 +2,7 @@
 
 An expression specifies the computation of a value by applying operators and functions to operands.
 
-Every expression is either a **place** or a **temporary**. A place is a variable, a field of a place, an element of an array place or of a slice, or the variable a pointer points to. A temporary is a value that an expression makes and that is not stored anywhere yet: the result of a call, a conversion, a concatenation, a composite literal or a receive. A temporary lives until the end of the statement that makes it (section 18.6, Drops).
+Every expression is either a **place** or a **temporary**. A place is a variable, a field of a place, an element of an array place or of a slice, or the variable a pointer points to. A temporary is a value that an expression makes and that is not stored anywhere yet: the result of a call, a conversion, a concatenation, a composite literal or a receive. A temporary lives until the end of the statement that makes it (section 18.6, Drops). Some expressions also make storage in the frame that a value refers to: the array of a slice literal (section 11.3), the object of `&T{...}`, and the array that holds a call's variadic arguments (section 11.15). Only the value is a temporary. That storage is frame storage, which lives until the function returns or the same expression runs again (section 18.8, Strings, gives when its counted contents are released).
 
 An expression whose type is an owner type (section 7.18, Owner types) never copies its value. When the expression is a whole variable and its value is passed on, the variable is **moved** (section 18.5, Moves). The contexts that pass a value on are those of section 18.5 (Moves): assignment, passing as an argument, returning, sending, storing in a field, element or composite literal, converting to an owning interface or to another owner type, a type assertion out of an owning interface, `new(v)`, a task statement and `x.Drop()`. In every other context the owner is read in place: as the operand of a comparison, a selector, an index expression or a method call with a pointer receiver. Values of counted types (strings, `shared`, `synced`, channels, maps) are copied freely and count each copy (section 18.7, Shared ownership; section 18.8, Strings).
 
@@ -11,13 +11,13 @@ An expression whose type is an owner type (section 7.18, Owner types) never copi
 Operands denote the elementary values in an expression. An operand may be a literal, a (possibly qualified) non-blank identifier denoting a constant, variable or function, or a parenthesized expression.
 
 ```
-Operand     = Literal | OperandName [ TypeArgs ] | "(" Expression ")" .
+Operand     = Literal | OperandName | "(" Expression ")" .
 Literal     = BasicLit | CompositeLit | FunctionLit .
 BasicLit    = int_lit | float_lit | rune_lit | string_lit .
 OperandName = identifier | QualifiedIdent .
 ```
 
-An operand name denoting a generic function may be followed by a list of type arguments (section 11.16, Instantiations). The resulting operand is an instantiated function.
+An operand name denoting a generic function may be followed by a list of type arguments (section 11.16, Instantiations). The result is an instantiated function. The grammar has one form for this, `PrimaryExpr TypeArgs` below, which covers `F[int]`, `pkg.F[int]` and `x.Method[int]` alike.
 
 The blank identifier may appear as an operand only on the left-hand side of an assignment (section 12.7, Assignment statements). An operator or keyword where an operand must stand is a syntax error (E1005).
 
@@ -73,7 +73,7 @@ if x == (T{a, b, c}[i]) { … }
 if (x == T{a, b, c}[i]) { … }
 ```
 
-**Struct literals.** For struct literals without keys, the element list must contain an element for each struct field, in the order in which the fields are declared. An unkeyed literal of a struct type from another package is an error if the struct has unexported fields.
+**Struct literals.** For struct literals without keys, the element list must contain an element for each struct field, in the order in which the fields are declared. An unkeyed literal of a struct type from another package is an error if the struct has unexported fields. For an owner struct type from another package, a keyed literal is an error too when the struct has unexported fields (E3212; section 7.18, Owner types).
 
 For struct literals with keys, these rules apply:
 
@@ -669,7 +669,7 @@ Count(&counts, words)
 
 Slice expressions construct a slice from an array, pointer to array or slice operand. A string is not sliced with this syntax (see below). There are two variants: a simple form that specifies a low and high bound, and a full form that also specifies a bound on the capacity.
 
-If the operand type is a type parameter, unless its type set contains string types, all types in the type set must have the same underlying type, and the slice expression must be valid for an operand of that type. If the type set contains string types it may also contain byte slices with underlying type `[]byte`. In this case, the slice expression must be valid for an operand of string type.
+If the operand type is a type parameter, all types in the type set must have the same underlying type, and the slice expression must be valid for an operand of that type. If the type set contains a string type, the slice expression is an error (E2019), as for a string.
 
 **Simple slice expressions.** For an array, pointer to array or slice `a`, the primary expression
 
@@ -786,9 +786,28 @@ yields an additional untyped boolean value. The value of `ok` is `true` if the a
 
 **Unions.** For an expression `u` of union type `U` and a variant `V` of `U`, `u.(U.V)` yields the payload of `V` and panics if `u` holds another variant. The form `p, ok := u.(U.V)` reports instead, with `p` the zero payload when `ok` is false. A bare variant name is not accepted in an assertion (section 7.13, Unions).
 
-**Owners.** An ordinary interface (`any`, `error`, `io.Reader`, any interface type not declared `owner`) only lends the value it holds (section 7.9, Interface types). Asserting an ordinary interface to an owner type is an error (E3308), since the result would be a second owner of the lent value. Assert it to an interface type and use the value's methods instead.
+**Owners.** An ordinary interface (`any`, `error`, `io.Reader`, any interface type not declared `owner`) only lends the value it holds (section 7.9, Interface types). Asserting an ordinary interface to an owner type is an error (E3308), since the result would be a second owner of the lent value. An owning interface is an owner type, so this includes an assertion to an owning interface. Assert it to an ordinary interface type and use the value's methods instead.
 
 A type assertion from an **owning interface** to an owner type moves the value out of the interface. The operand `x` must be a whole variable or a temporary, and it holds nothing afterward. In the comma-ok form `v, ok := x.(T)`, `x` is moved only where `ok` is true, and it is still usable on the path where `ok` is false. The same holds for an owner union: `f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true, and the single-value form `f := s.(Slot.Open)` moves it out and leaves `s` empty (section 7.13, Unions; section 18.5, Moves).
+
+An assertion from an owning interface to an **ordinary interface** type, `x.(I)`, moves nothing. The result lends from `x`, as converting an owner to an ordinary interface does: it is a view of the value `x` holds, and `x` keeps the value and drops it as before (section 18.3, Views). The comma-ok form lends in the same way when `ok` is true.
+
+**Where `ok` is true.** In the comma-ok form, the move happens at the assertion when the assertion holds. The compiler follows `ok` only through direct tests of it, on the variable the assertion declared or assigned, with no assignment to it in between. Such a test is the condition of an `if` statement that is `ok`, `!ok`, or a chain of `&&` or `||` with one of these as an operand. A branch of that `if` statement where the condition's value fixes `ok` is a path where `ok` is known: the then-branch of `if ok` and of `if ok && c`, and the else-branch of `if !ok` and of `if !ok || c`, are paths where `x` was moved; the then-branch of `if !ok` and of `if !ok && c`, and the else-branch of `if ok` and of `if ok || c`, are paths where `x` still holds its value. On every other path, including the then-branch of `if !ok || c`, a branch after `ok` was assigned, and every path when `ok` is `_`, `x` counts as possibly moved, and using it is error E3302 (section 18.5, Moves). The usual form tests `ok` right after the assertion:
+
+```go
+c, ok := r.(Conn)
+if !ok {
+	use(r) // r still holds its value
+	return
+}
+c.Send(nil) // r was moved into c
+
+d, ok2 := q.(Conn)
+failed := !ok2
+if failed {
+	use(q) // error E3302: q is possibly moved; the compiler does not follow ok2 through failed
+}
+```
 
 **Frame copies.** An interface that holds a value larger than a word holds a copy of it in the frame (section 7.9, Interface types). Asserting it to its type yields a copy of that value, which is subject to the rules of its own type.
 
@@ -924,7 +943,7 @@ type parameter list    type arguments    after substitution
 [P comparable]         any               any satisfies (but does not implement) comparable
 ```
 
-An owner type satisfies a constraint only if the constraint is marked `owner` (section 10.9, Type parameter declarations). A type parameter without `owner` cannot be instantiated with an owner type (E3207). A union type is a valid type argument, and unions cannot appear in constraints. A method with type parameters of its own is instantiated with them after its receiver's type arguments (section 10.15, Methods with type parameters).
+An owner type satisfies a constraint only if the constraint is marked `owner` (section 10.9, Type parameter declarations). A type parameter without `owner` cannot be instantiated with an owner type (E3207). A union type is a valid type argument, but union types (section 7.13) cannot appear as terms of a constraint, where `A | B` is a union of type terms. A method with type parameters of its own is instantiated with them after its receiver's type arguments (section 10.15, Methods with type parameters).
 
 When using a generic function or method, type arguments may be provided explicitly, or they may be partially or completely inferred (section 11.17, Type inference) from the context in which the function is used. Provided that they can be inferred, type argument lists may be omitted entirely if the function is
 
@@ -1381,7 +1400,7 @@ func()(x)       // function signature func() x
 func() int(x)   // x is converted to func() int (unambiguous)
 ```
 
-**Constant conversions.** A constant value `x` can be converted to type `T` if `x` is representable by a value of `T` (section 8.5, Representability), or if `x` is an integer or rune constant and `T` is a string type (below). Converting a constant to a type that is not a type parameter yields a typed constant.
+**Constant conversions.** A constant value `x` can be converted to type `T` if `x` is representable by a value of `T` (section 8.5, Representability), or if `x` is an untyped integer or rune constant, or a constant of type `rune`, and `T` is a string type (below). A constant of another integer type does not convert to a string: `const n int = 65; string(n)` is an error. Converting a constant to a type that is not a type parameter yields a typed constant.
 
 ```go
 uint(iota)              // iota value of type uint
@@ -1411,13 +1430,13 @@ the conversion `P(1.1)` results in a non-constant value of type `P`, and the val
 - `x` is assignable to `T` (section 8.4, Assignability).
 - Ignoring struct tags (below), `x`'s type and `T` are not type parameters, are not enum types, and have identical underlying types (section 8.2, Underlying types).
 - Ignoring struct tags, `x`'s type and `T` are pointer types that are not named types, and their pointer base types are not type parameters but have identical underlying types.
-- `x`'s type and `T` are both integer or floating-point types.
+- `x`'s type and `T` are both integer or floating-point types. An enum type is not an integer type for these rules (section 7.12, Enums).
 - `x` is a value of type `rune`, or a slice whose element type is `rune`, and `T` is a string type (below).
 - `x` is a slice, `T` is an array or a pointer to an array, and the slice and array types have identical element types (below).
-- `x` is an integer or an enum value, and `T` is an enum type (below).
+- `x` is an integer value, and `T` is an enum type: a constant that is the value of a member, or a non-constant integer in the comma-ok form only (below).
 - `x` is an enum value, and `T` is an integer or floating-point type.
 - `x` and `T` are related by the rules for packed types (section 7.14, `packed` types) or union types (section 7.13, Unions).
-- `x` is a value, and `T` is an owner type, or `x` is an owner and `T` is not (below).
+- `x` is a value, and `T` is an owner type, or `x` is an owner and `T` is not, and the conversion would be valid between the underlying types (below).
 - `x` is a box (`owned[U]`, `shared[U]` or `synced[U]`) and `T` is `*U` or, in unsafe code, `unsafe.Pointer` (section 7.19): `T` is a view of the object, and nothing is moved or counted.
 - `x` is a `shared[U]` or `synced[U]` reference and `T` is `weak[` that type `]` (section 7.19): the result holds a weak count.
 
@@ -1517,24 +1536,43 @@ t1 := (*[0]string)(t) // t1 == nil
 t2 := (*[1]string)(t) // panics: len([1]string) > len(t)
 ```
 
-**Enums.** `E(c)` for an integer constant `c` is valid if `c` is the value of a member of `E`, and gives that member. For a non-constant integer `n`, `E(n)` is valid only in the comma-ok form `v, ok := E(n)` (or with `=`, or `var v, ok = E(n)`). The value `ok` reports whether `n` equals a member's value, and `v` is that member, or the zero value if `ok` is false (E2314 for the form without `ok`). Floats and other non-integer types do not convert to an enum (E2313). An enum converts to any integer or floating-point type as its underlying integer does. A conversion from one enum type to another goes through the integer type and follows the rules above: `v, ok := Shade(uint8(color))`. See 7.12.
+**Enums.** `E(c)` for an integer constant `c` is valid if `c` is the value of a member of `E`, and gives that member. For a non-constant integer `n`, `E(n)` is valid only in the comma-ok form `v, ok := E(n)` (or with `=`, or `var v, ok = E(n)`). The value `ok` reports whether `n` equals a member's value, and `v` is that member, or the zero value if `ok` is false (E2314 for the form without `ok`). A constant that is not a member's value is an error in the comma-ok form too (E2313): the compiler knows the answer, and `ok` would always be false. Floats and other non-integer types do not convert to an enum (E2313). An enum type is not an integer type for this rule, so `Shade(color)` is E2313 as well. An enum converts to any integer or floating-point type as its underlying integer does. A conversion from one enum type to another goes through the integer type and follows the rules above: `v, ok := Shade(uint8(color))`. See 7.12.
 
-**Owners.** Three rules decide the conversions that involve an owner type (section 7.18, Owner types).
+**Owners.** Three rules decide the conversions that involve an owner type (section 7.18, Owner types). In each, the conversion must also be valid between the underlying types: `Frame("abc")` is an error in any package.
 
-1. Converting a value to an owner type makes a new owner. It is allowed only in the package that declares the owner type, where the invariants of the type are kept. In any other package it is an error (E3212). Converting a constant to an owner type is such a conversion: the result is a non-constant owner value, so `Frame(0)` is not a constant expression and cannot initialize a constant.
+1. Converting a value to an owner type makes a new owner. It is allowed only in the package that declares the owner type, where the invariants of the type are kept. In any other package it is an error (E3212). When the owner type `B` is defined from another owner type `A` (`type B owner A`), a new `B` holds a new `A`, so the conversion is allowed only where a conversion to `A` is allowed too. Converting a constant to an owner type is such a conversion: the result is a non-constant owner value, so `Frame(0)` is not a constant expression and cannot initialize a constant.
 2. Converting an owner to a type that is not an owner reads the value and moves nothing. The result is a plain value with no `Drop`.
-3. Converting an owner to another owner type with the same underlying type moves it.
+3. Converting an owner to another owner type `T` with the same underlying type moves it. The result is a `T` that nobody in `T`'s package made, so the limit of rule 1 applies: the conversion is allowed only in the package that declares `T`, or in the package that declares the operand's type when that type is defined from `T`, directly or through other owner types. In any other package it is an error (E3212). Without the limit, a package could declare `type Fake owner uintptr`, make a `Fake` from any number by rule 1, and convert it to another package's `Frame`.
+
+The same limits hold for the other conversions that can produce an owner:
+
+- A conversion between union types with identical variants (section 7.13, Unions) whose result is an owner union is rule 3.
+- A conversion `(*T)(p)` of a pointer of type `*S`, where `S` or `T` is an owner type, gives both read and write access to the object as a `T`. It is allowed only where a conversion from `S` to `T` and one from `T` to `S` would both be allowed by the rules above, and is E3212 elsewhere. So `(*uintptr)(&f)` for a `Frame` variable `f` compiles only in `Frame`'s package, since a write through the result changes the frame as rule 1 would.
+
+A composite literal of an owner struct type also makes a new owner. Section 7.18 (Owner types) gives its limit: an owner struct's exported fields make its literal public.
 
 ```go
+package p
+
 type Frame owner uintptr                          // a physical page frame
 
 func (f *Frame) Drop() { freeFrame(uintptr(*f)) } // rule 2: reads the number
 func Alloc() Frame     { return Frame(nextFree()) } // rule 1: makes an owner from a number
 ```
 
+```go
+package q
+
+type Fake owner uintptr
+
+func forge() p.Frame {
+	return p.Frame(Fake(0x1000)) // error E3212: p.Frame is declared in package p
+}
+```
+
 Converting an owner to an interface type lends it when the interface is ordinary, and moves it when the interface is owning (section 7.9, Interface types). A value-receiver method of an owner type never satisfies an interface method (section 8.6, Method sets), so the conversion is an error when the interface needs one.
 
-**Packed types and unions.** A packed type converts to and from an integer type of its size and from a byte array of its length (section 7.14, `packed` types). A packed union converts to and from its backing type, and a payload converts back to its union (section 7.13, Unions). A union does not convert implicitly from anything; a value of another union type with identical variants converts explicitly.
+**Packed types and unions.** A packed type converts to and from an integer type of its size or a byte array of its length (section 7.14, `packed` types). A packed union converts to and from its backing type, and a payload converts back to its union (section 7.13, Unions). A union does not convert implicitly from anything; a value of another union type with identical variants converts explicitly.
 
 ### 11.25 Constant expressions
 
@@ -1635,7 +1673,7 @@ The same rule applies to the operands of the left-hand side of an assignment. In
 - An operand that panics (an index out of range, a nil dereference or division by zero) panics at its
   place in this order, respecting argument dependencies. In `f(a[i])`, an invalid index panics before
   `f` is called; it does not postpone the failure until after a call that needs the operand.
-- An owner variable that an expression moves is moved when the call or assignment that takes it is performed. A moved variable cannot be used elsewhere in the same expression (section 11.14, Calls), so the time of the move cannot be observed. The temporaries of an expression are dropped at the end of the statement (section 18.6, Drops).
+- An owner variable that an expression moves is moved when the call or assignment that takes it is performed. A conversion that moves its operand (to another owner type, or to an owning interface) is not such a call: the operand moves when the enclosing call or assignment is performed, as a direct argument does. In `g(B(a))` the variable `a` moves when `g` is called. A moved variable cannot be used elsewhere in the same expression (section 11.14, Calls), so the time of the move cannot be observed. The temporaries of an expression are dropped at the end of the statement (section 18.6, Drops).
 - Floating-point operations within a single expression are evaluated according to the associativity of the operators. Explicit parentheses affect the evaluation by overriding the default associativity. In the expression `x + (y + z)` the addition `y + z` is performed before adding `x`.
 
 At package level, initialization dependencies override the left-to-right rule for individual initialization expressions, but not for operands within each expression:

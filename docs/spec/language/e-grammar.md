@@ -288,7 +288,7 @@ Receiver   = Parameters .
 From section 11.1 (Operands):
 
 ```
-Operand     = Literal | OperandName [ TypeArgs ] | "(" Expression ")" .
+Operand     = Literal | OperandName | "(" Expression ")" .
 Literal     = BasicLit | CompositeLit | FunctionLit .
 BasicLit    = int_lit | float_lit | rune_lit | string_lit .
 OperandName = identifier | QualifiedIdent .

@@ -128,6 +128,23 @@ statement that made the temporary (E3009; section 18.6). A view obtained through
 local variable is bounded by that reference in the same way. A function literal holds the views that the local variables it uses hold
 where it is made, so calling it after the owner was moved, dropped or given a new value is E3313 too.
 
+**A local's scope.** A view of a local variable whose type has drop glue (an owner, or a value that
+holds a counted value: a string, a box, a map, a channel, an allocated error, or a struct, array or
+union that holds one; sections 18.6 and 18.8) may not be used after the variable's scope ends (E3313).
+The frame slot remains until the function returns, but the variable was dropped, or its references
+released, when its scope ended. The rule covers a view of the variable itself (`&s`, a slice of a
+local array of strings) and every view obtained from it. A local whose type has no drop glue holds
+only bits, and a view of it is bounded by the frame alone.
+
+```go
+var p *string
+{
+	s := strconv.Itoa(12345) // a counted string
+	p = &s
+} // s is released here
+println(*p) // error E3313: s's scope ended at the end of its block
+```
+
 The compiler follows views through local variables, their fields, and the calls that store them into
 other arguments. A view stored anywhere else (through a pointer, in a variable that a function literal
 uses or whose address is kept, or by a call the compiler cannot see into) cannot be followed, so the owner
@@ -317,12 +334,21 @@ would consume the receiver again; the method expression `Conn.Close(c)` and the 
 **Interfaces.** Converting an owner to an ordinary interface lends it, and asserting an owner type back
 out of an ordinary interface is error E3308, since the result would be a second owner. Converting an
 owner to an owning interface moves it in; a type assertion to an owner type moves it out, and in the
-comma-ok form only where `ok` is true. A type switch with a binding on an owning interface moves it into
-the binding in every clause (section 11.13, Type assertions).
+comma-ok form only where `ok` is true, as the compiler follows it through direct tests of `ok`. An
+assertion from an owning interface to an ordinary interface moves nothing and lends. A type switch with a
+binding on an owning interface moves it into the binding in every clause except one that names a single
+ordinary interface type, where the binding lends; after the switch the variable counts as possibly moved
+if some paths moved it and others did not (section 11.13, Type assertions; section 12.9, Switch
+statements).
 
 **Conversions.** Converting a value into an owner type creates a new owner, and is allowed only in the
 package that declares the owner type, where its invariants are kept (E3212). Converting between two owner
-types with the same underlying type moves. Converting an owner to a non-owner type reads it (above).
+types with the same underlying type moves, and has the same package limit: it is allowed only in the package
+that declares the result type, or in the package of an operand type defined from it, since otherwise any
+package could forge an owner of another package's type through a look-alike owner of its own. A pointer
+conversion that reaches an owner, a union conversion that makes an owner union, and a composite literal of an
+owner struct with unexported fields are limited the same way (section 11.24, Conversions; section 7.18, Owner
+types). Converting an owner to a non-owner type reads it (above).
 
 **Generic code.** A type parameter admits owner types only if its constraint is marked `owner` (section
 10.9, Type parameter declarations); instantiating any other type parameter with an owner type is error
@@ -545,7 +571,7 @@ Drops):
 - for a temporary, at the end of the statement that made it; in the condition or post statement of a
   three-clause `for`, after each evaluation;
 - for storage that belongs to the frame but outlives a statement (an interface copy, the object of
-  `&T{...}`, a slice literal's array, a method value's receiver, a deferred call's saved arguments, the
+  `&T{...}`, a slice literal's array, the array of a call's variadic arguments, a method value's receiver, a deferred call's saved arguments, the
   region a call builds its closures in), when the function returns, after its deferred calls, or when the
   same expression runs again and refills it.
 
@@ -555,8 +581,10 @@ release their elements when they are cleared, truncated or dropped. `alloc.Free(
 in `*p` before freeing it.
 
 **Passing and returning.** A string parameter is borrowed: the caller keeps the string alive for the
-call, and the callee counts only the copies it keeps. A result is handed to the caller with one
-reference.
+call, and the callee counts only the copies it keeps. Since the callee holds no reference for the value
+it was passed, the first assignment of a new value to the parameter releases nothing; the new value is
+counted as for any local, and released at the end of its scope or by a later assignment. A result is
+handed to the caller with one reference.
 
 **What can be observed.** When a string's buffer is freed is not observable through the language, only
 through the memory the program uses. The compiler removes count updates that cannot be observed: passing
@@ -570,7 +598,9 @@ reference until the function returns or the same conversion runs again (section 
 the string writes its header, so the string must not be used, or dropped, after the arena is reset or
 dropped. For an arena in a local variable the compiler checks this: such a string is a view of the arena
 (section 18.9). A string must be declared after the arena it views, and is dropped before it (section 18.3, A
-local owner's memory).
+local owner's memory). For every other arena the arena checks it at run time: it counts its live counted
+objects, and `Reset`, `Release` and `Drop` panic while a string made in it is still referenced anywhere,
+in this task or another (section 18.9, Arenas).
 
 **Races.** A string's bytes never change, so reading a shared string needs no lock. Writing a string
 variable that another task may read at the same time is a data race on a value of three words; safe code
@@ -627,7 +657,8 @@ explicitly, or from the **current allocator** that `alloc.Default()` returns:
 
 **The program-wide default.** In hosted builds the program starts with a default allocator that is safe
 to use from several tasks at once. In freestanding and kernel builds there is none: every allocation that
-uses the current allocator panics with "no allocator" until the program calls `alloc.SetDefault`, and a
+uses the current allocator panics with "no allocator" until the program calls `alloc.SetDefault`, and
+`alloc.Default()` returns nil until then, in a task with no override. A
 package initializer that allocates is a compile error (section 15.2). `SetDefault` replaces the default
 for every task; the allocator given to it must be safe for concurrent use once tasks run in parallel.
 
@@ -656,8 +687,13 @@ the `Restore`, or storing it anywhere that outlives the arena, is a frame-view e
 **Allocations from a local arena.** So that nothing allocated from a local arena outlives it, a value
 allocated through the current allocator while a `Restore` that views a local arena is live is a view of
 that arena for the rules of section 18.3: returning it, storing it in a package variable, or passing it
-to a task statement is a frame-view error that names the arena. The window runs from the call of
-`alloc.Use` to the end of its block, or to the end of the function for `defer alloc.Use(&a).Restore()`.
+to a task statement is a frame-view error that names the arena. The window is the extent during which
+the `Restore` is live: it starts at the call of `alloc.Use` and ends where the `Restore` is consumed by
+its method or dropped. For `r := alloc.Use(&a)` that is the call `r.Restore()`, or else the end of the
+block that declares `r`. For `defer alloc.Use(&a).Restore()` it is the end of the function. A `Restore`
+that nothing stores is a temporary, so its window ends with the statement that made it (Temporaries,
+section 18.6). The window is a stretch of execution, not of source text: an allocation that a callee
+makes through the current allocator while it is open also lands in the arena.
 It covers `new` and `make` without an allocator argument, the operations that make strings, calls that
 leave out a defaulted `alloc.Allocator` parameter (such as `vec.New[T]()` or `fmt.Sprintf`), and calls
 whose results keep their allocator out of sight (a string, a box, an interface such as
@@ -683,8 +719,9 @@ it must not silently accept an unchecked ordinary arena view. Such a precision o
 limit remains a gap for valid safe arena programs, not a restriction on the specified API.
 
 **Arenas.** An arena owns everything allocated in it and reclaims it all at once when it is reset or
-dropped. Freeing into an arena does nothing, so the same owner code works in an arena and on the general
-heap: an owner allocated in an arena is dropped as usual, and its free costs nothing. The library provides
+dropped. Freeing into an arena takes no memory back, so the same owner code works in an arena and on the
+general heap: an owner allocated in an arena is dropped as usual, and its free costs nothing. Freeing a
+counted object only lowers the arena's count of live counted objects (below). The library provides
 `arena.Fixed`, a fixed-capacity owner of private backing from its parent allocator, and `arena.Chunked`,
 an owner that takes more chunks from a parent allocator as needed. The ordinary fixed constructor is
 `arena.NewFixed(capacity uintptr, parent alloc.Allocator = alloc.Default()) Fixed`. It explicitly
@@ -692,17 +729,40 @@ allocates its private backing, never grows or relocates its payload, and returns
 on drop. Its parent remains a lifetime dependency. `Fixed` moves rather than copies; borrowed pointer
 aliases share one allocator identity and cursor. The constructor panics on unavailable backing or
 invalid capacity rather than returning unchecked storage. Zero capacity gives an empty fixed arena.
-Payload capacity excludes allocation bookkeeping. Each successful allocation additionally obtains
-one bookkeeping record from the same parent, in checked and unchecked modes; reclaiming that allocation
-returns its record, and dropping the arena also returns its payload. An allocation that cannot obtain
-bookkeeping fails without advancing the cursor. Ordinary reads and writes allocate nothing. Stable
+Payload capacity excludes allocation bookkeeping. The constructor sizes a bookkeeping table from the
+arena's own backing, in the same request to the parent, in checked and unchecked modes. An allocation
+takes a record from that table and nothing from the parent, so allocating, `Reset` and `Release` never
+call the parent, cost no more than for an arena without bookkeeping, and may run where the parent may not
+(section 20.10, Interrupts). An allocation that finds the table full fails without advancing the cursor,
+as one that finds the payload full does. Dropping the arena returns its backing, table included. Ordinary reads and writes allocate nothing. Stable
 check-reader and address-history metadata uses the runtime directory storage described in abi.md
 section 1.3; it is not payload or a hidden change of the arena's chosen parent.
 An arena also hands out memory as
 plain views (`a.New[T]()` returns a `*T`, `a.Slice[T](n)` a `[]T`) that are valid until the arena is
-reset or dropped; the compiler does not drop the values in them. A string or counted box made in an arena
-between `m := a.Mark()` and `a.Release(m)` must be dropped before the `Release`, since dropping it writes
-its count.
+reset or dropped; the compiler does not drop the values in them.
+
+**Live counted objects.** A counted object made in an arena must be released before the arena takes its
+memory back, since releasing it writes its count, and a copy of it may sit in another task. So
+`arena.Fixed` and `arena.Chunked` each count their live counted objects: strings, boxes, maps, channels and
+allocated errors (section 16.6) whose memory the arena handed out. The count rises when the arena hands out
+the memory of such an object, and falls when the object's last reference is released and its memory is
+freed to the arena. `Reset`, `Release` and `Drop` panic with "arena has live counted objects" while the
+count is not zero (section 17.1, Panics). `Release` checks the whole count, so a counted object made before
+the mark also stops it. The cost is one counter per arena and one increment and one decrement per counted
+object made in it; the counter is atomic, since the last reference to a string can be released in another
+task. Plain views (`a.New[T]()`, `a.Slice[T](n)`) and owners are not counted. A counted value stored in
+memory the arena handed out as a plain view is never dropped by the compiler, so it keeps the count up
+until the program clears that place. The manual `Arena` of `arena.NewUnsafe` keeps no count; its caller
+ends every count obligation before taking memory back (below).
+
+```go
+func (s *Server) step(n int) {
+	r := alloc.Use(&s.arena)
+	s.last = fmt.Sprintf("item %d", n) // a counted string in s.arena, kept in a field
+	r.Restore()
+	s.arena.Reset() // panics: s.last still references a string in the arena
+}
+```
 
 Ordinary typed allocation, `Reset`, `Release` and drop must preserve this lifetime guarantee.
 Marks identify their arena and the recorded allocation position. A foreign mark or one invalidated
@@ -860,20 +920,22 @@ not imply freedom from deadlock or resource exhaustion.
 - package `unsafe`: `unsafe.Pointer` and its conversions to and from `uintptr`, `unsafe.Add`,
   `unsafe.Slice`, `unsafe.String`, `unsafe.SliceData`, `unsafe.StringData`, `unsafe.Drop`,
   `unsafe.Sizeof`, `unsafe.Alignof` and `unsafe.Offsetof` (section 20.1);
-- package `pluto/arch/x86`, except `Cli`, `Sti`, `SaveFlagsCli` and `RestoreFlags`, and memory made from an integer, such as device registers (section 20.8);
+- package `pluto/arch/x86`, except `Cli`, `Sti`, `SaveFlagsCli`, `RestoreFlags`, `Pause`, `Cpuid`, `Rdtsc` and `Rdtscp`, and memory made from an integer, such as device registers (section 20.8);
 - the unchecked allocation layer: `alloc.Raw`, `alloc.New`, `alloc.Free`, and an `Allocator`'s methods
   called directly (section 18.10);
 - `arena.NewUnsafe` and the manual `Arena` methods `New[T]`, `Slice[T]`, `Reset` and `Release`, which
   require caller-managed backing and allocation lifetimes (section 18.9);
 - functions without a body (assembly and `//pu:extern`), which are trusted for what they keep (section
-  18.3) and for whether they wait (section 20.10), and the directives that state promises the
+  18.3) and for whether they wait (section 20.10), functions marked `//pu:export`, whose pointer
+  parameters come from C unchecked (section 20.4), and the directives that state promises the
   compiler takes on trust: `//pu:noescape`, `//pu:resultholds` (standard library only) and
   `//pu:nochecks` (section 20.3);
 - `rt.Pinned`, which hides a pointer from the frame rules.
 
 Unsafe code is marked by what it imports and by its directives, with no keyword. A function that wraps
 unsafe code behind a safe interface, as `vec.Vec` and `hash.Map` do, is responsible for keeping the
-invariants that make its interface safe. Most unsafe code lives in the standard library (allocators,
+invariants that make its interface safe, including at every check that can panic, since deferred calls
+in outer frames may use the object afterwards (section 17.2). Most unsafe code lives in the standard library (allocators,
 containers, the runtime); applications should need none.
 
 Manual arena lifetime access belongs to these existing unsafe mechanisms: direct `Allocator`

@@ -155,11 +155,13 @@ The forms these words begin, with their productions, are defined in sections 7.1
 (Unions), 7.14 (`packed` types), 7.18 (Owner types), 10.8 (Type declarations), 10.9 (Type parameter
 declarations), 11.27 (Or clauses) and 12.12 (Task statements).
 
-**`owner`.** In a type definition or a type parameter declaration, `owner` is the keyword when the token
+**`owner`.** In a type definition, `owner` is the keyword when the token
 after it is an identifier, `[`, `*`, `(`, `<-`, or one of the keywords `struct`, `interface`, `func`,
 `map`, `chan`, `enum` and `packed`. For any other following token, including `.`, `;`, `,`, `]`, `)`
 and `=`, it is an identifier that names a type. In particular, `owner [` always begins an owner array
-type.
+type. In a type parameter declaration, `owner` is the keyword only in the position after the identifier
+list (`TypeParamDecl`, section 10.9), when a constraint follows it. Elsewhere it is an identifier, so `[owner any]` declares a type parameter named `owner`, and `[T owner any]` an owner type
+parameter `T`.
 
 ```go
 type owner int      // a type named owner

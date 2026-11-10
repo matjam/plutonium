@@ -427,6 +427,11 @@ because the names of their members, or their kind, are reached through the type'
 - A *union type* `type U union { ... }` (section 7.13, Unions). A union may have type parameters, and a
   packed union may not (E2402).
 - A *packed type* `type P packed ... { ... }` or `packed union` (sections 7.14 and 7.13). One written anywhere else is a compile error (E2104).
+
+A definition from an existing type of one of these forms keeps what the name gives: `type F E` from an
+enum is an ordinary integer type with no members (section 7.12), and `type V U` from a union or packed
+type is a new union or packed type with the same variants or fields and layout and none of `U`'s methods
+(sections 7.13 and 7.14).
 - An *owner type* `type T owner ...`, where the keyword `owner` precedes the type (section 7.18, Owner
   types). It declares that the values of `T` own what they hold: they move instead of copying and are
   dropped when their variable's scope ends. Which types `owner` may qualify, which types must carry it, and

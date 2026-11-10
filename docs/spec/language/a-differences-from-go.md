@@ -72,6 +72,7 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 |---|---|---|---|
 | `new(T)` returns `*T` | returns `owned[T]`, the single owner of the new variable; it dereferences like `*T` | a different type: storing it in a `*T` variable is a compile error | 13.9, 7.19 |
 | a variable whose address escapes moves to the heap | a variable lives where its declaration puts it, never on the heap by itself | returning, storing or sending a view of a frame is a compile error (E3001 to E3006) | 6, 18.2, 18.3 |
+| a pointer to a variable declared in a block stays valid after the block ends | a view of a local whose type has cleanup (an owner, a string, a box, a map, a channel, or a struct that holds one) may not be used after the local's scope ends, since the local is dropped or released there | a use after the scope ends is a compile error (E3313) | 18.3, 18.6 |
 | each iteration of a `for` loop has its own copy of the loop variables | every iteration reuses the same storage | keeping a closure, pointer or interface copy of a loop variable where the next iteration can see it is a compile error (E3006) | 12.10, 18.4 |
 | a function literal can be stored anywhere | a closure that captures variables is valid while its frame is; a returned closure is built in a region its caller provides | storing one in a package variable, or returning it in a way no region can hold, is a compile error (E3100 to E3102) | 11.4, 11.5 |
 | an interface holding a large value boxes it on the heap | the copy is in the frame of the function that converts | returning or storing such an interface where it outlives the frame is a compile error | 7.9 |
@@ -105,7 +106,7 @@ The rows in this table are behaviors that differ from Go's. Each says how the di
 |---|---|---|---|
 | the order of evaluation of operands other than calls, method calls, receives and logical operators is not specified | it is specified: calls, method calls and receives first, left to right, then the other operands (the order Go's gc compiler uses) | none: it matches what every Go program has seen | 11.26 |
 | `clear(s)` zeroes elements | the same; assigning to an owner element drops it first, so every file in `clear(files[:])` is closed. `clear(m)` deletes every entry and releases counted keys and values | the elements are owners | 13.3 |
-| iterators over a container yield its elements | iterators over owners yield views (`*T`) | the loop variable is a pointer | 12.11 |
+| iterators over a container yield its elements | iterators over owners yield views (`*T`) | the loop variable is a pointer | 12.10 |
 | `defer` runs when the function returns | the same; each `defer` statement has one slot, a function has at most 64, and a deferred call runs before the function's own variables are dropped | none for programs that compile | 12.19 |
 | `panic` unwinds the stack running deferred calls, and `recover` stops it | `panic` never returns to the frame that panicked; in a hosted build the panicking task first runs its pending deferred calls, then the panic handler runs; owners are not dropped | there is no `recover` | 17.1, 17.2 |
 | `runtime.Goexit` runs deferred calls | `rt.ExitTask` runs the deferred calls and drops the owners of every frame of the task | owners are dropped as well | 17.3 |

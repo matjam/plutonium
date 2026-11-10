@@ -65,7 +65,10 @@ The zero value of every type is defined in section 15.1 (The zero value).
 ### 8.2 Underlying types
 
 Each type `T` has an underlying type: If `T` is one of the predeclared boolean, numeric, or string types, a
-type literal, a packed type or a union type, the corresponding underlying type is `T` itself. If `T` is an
+type literal, a packed type or a union type, the corresponding underlying type is `T` itself. A packed or
+union type defined from another (`type V U`, sections 7.13 and 7.14) is a new packed or union type, and so
+is its own underlying type too. Each instance of a type constructor (`owned[T]`, `shared[T]`, `synced[T]`,
+`weak[P]`, `volatile[T]`, `aligned[T, N]`, `ring[T, N]`) is its own underlying type, as a type literal is. If `T` is an
 enum type, its underlying type is the integer type of the enum (section 7.12). Otherwise, `T`'s underlying
 type is the underlying type of the type to which `T` refers in its declaration. For a type parameter that is
 the underlying type of its type constraint, which is always an interface.
@@ -384,7 +387,7 @@ kinds.
 | `bool`, integer and floating-point types, `uintptr` | value |
 | enum types | value |
 | packed types | value |
-| `string` | counted value (a string made with `unsafe.String`, or in a local arena, is a view; sections 18.8 and 18.9) |
+| `string` | counted value (section 18.8) |
 | `chan T` | counted value |
 | `map[K]V` | counted value |
 | `shared[T]`, `synced[T]`, `weak[P]` | counted value |
@@ -421,7 +424,10 @@ Three rules keep the table honest:
   (section 18.3) checks each value by what it refers to: a function value that captures nothing may be
   returned or stored anywhere, as the type's kind alone would not allow.
 - **A string is not an owner.** It is a counted value: it never moves, a moved-from string does not exist, and
-  copying is always allowed, except for a string whose buffer is in a local arena, which is a view of the arena (section 18.9, Allocators).
+  copying is always allowed. Like every kind, this follows from the type. Some strings have a backing store
+  that they borrow: a string made by `unsafe.String`, whose memory the unsafe code keeps alive (section
+  20.1), and a string allocated while a local arena is the current allocator, which the escape analysis
+  follows as a view of the arena by where the value came from, not by its type (section 18.9, Allocators).
 
 ```go
 type Point struct{ x, y int }                  // value
@@ -628,7 +634,9 @@ depend on the kind of a type are these:
 - Converting a value of non-owner type to an owner type is allowed only in the package that declares the owner
   type, where its invariants are kept (E3212). Converting an owner to a non-owner type reads its value and
   moves nothing; the result is a plain value with no `Drop`. Converting between two owner types with the same
-  underlying type moves.
+  underlying type moves, and is allowed only in the package that declares the result type or in the package
+  of an operand type defined from it (E3212). A pointer conversion where either base type is an owner, and a
+  union conversion whose result is an owner union, have the same limits.
 - A box never converts to or from a pointer, except through `(*T)(p)`, `&*p` and `unsafe`. A `weak[P]` is made
   by converting a reference (section 7.19).
 - A value of type `rune`, or a slice whose element type is `rune`, converts to a string; a string converts to no rune and to no slice (section 11.24, Conversions to and from a string type).
