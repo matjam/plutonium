@@ -79,7 +79,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   no lock held is not caught at run time (19.3, abi.md 12.4). Item 213.
 - A deadlock report does not name a panic in progress (19.1, 19.4). Item 205.
 - The write check for cleaned places is not gated on package cleanup having started (15.4, 21.5). Item 155.
-- `rt.ExitTask` mid-statement or inside a `Drop` method may not drop what 17.3 says. Item 158.
 - Freestanding builds outside kernel mode do not yet insert explicit nil checks (17.5). Item 162.
 - A handler's print can wait on a console lock its own processor holds (13.12, 20.10). Item 163.
 - `vec`, `hash`, `strings` and `bytes` may not restore their invariants before every check that can panic (17.2,
