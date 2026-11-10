@@ -97,6 +97,11 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		}
 		return nil
 	}
+	if _, ok := w.a.condWait(e); ok && !w.inRuntime() {
+		// c.Wait(l) counts as l.Unlock() followed by l.Lock() (spec
+		// section 19.3, Held sets), after the call itself.
+		defer w.condWait(e)
+	}
 	if fn := w.calledFunc(e); fn != nil && fn.Pkg() != nil {
 		if fn.Pkg().Path() == "pluto/sync/atomic" && fn.Type().(*types2.Signature).Recv() == nil {
 			return w.atomicCall(e, fn)
@@ -637,6 +642,36 @@ func (w *walker) unlock(se *ast.SelectorExpr) {
 		// the caller's.
 		if !w.lockedHere[p] {
 			w.st.rel = w.st.rel.with(p)
+		}
+	}
+}
+
+// condWait applies c.Wait(l) of a sync.Cond: l is released while the call
+// waits and held in write mode when it returns.
+func (w *walker) condWait(e *ast.CallExpr) {
+	arg := e.Args[0]
+	var ps []vpath
+	if T := w.typeOf(arg); pointerElem(T) != nil && !isInterface(T) {
+		w.quiet++
+		ps = w.value(arg).derefOr(w.derefStep(T), w.unknownFor(arg))
+		w.quiet--
+	}
+	switch {
+	case len(ps) == 0:
+		w.st.rel = released{all: true}
+	case len(ps) == 1:
+		// The Wait returns with the lock held again, so the lock stays
+		// held across it, a lock the caller holds included. That a view
+		// loaded before it ends there (section 19.3, Views loaded under a
+		// lock) is not checked yet.
+		if w.lockedHere[ps[0]] {
+			w.st.locks = w.st.locks.with(ps[0], true)
+		}
+	default:
+		for _, p := range ps {
+			if !w.lockedHere[p] {
+				w.st.rel = w.st.rel.with(p)
+			}
 		}
 	}
 }

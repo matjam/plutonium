@@ -384,8 +384,7 @@ func main() {
   `c.Wait(&mu)` as `mu.Unlock()` then `mu.Lock()`, so the loop keeps its guard. A pointer loaded before the
   `Wait` and used after it is E3501. `mu` must be held for writing at the `Wait`. Pass the lock as `&mu` or
   `&s.mu`: a `Locker` in a variable, `rw.RLocker()`, or a `Wait` through an interface is a compile error,
-  since the compiler cannot name the lock (D108). `Signal` and `Broadcast` need no lock. (Today's library
-  still has `NewCond` and `c.Wait()`; see known-gaps, items 197, 219 and 220.)
+  since the compiler cannot name the lock (D108). `Signal` and `Broadcast` need no lock.
 - `shared[T]` is for one task and never crosses; `synced[T]` counts atomically. A `string`, map or channel count
   becomes atomic as soon as the first task starts.
 

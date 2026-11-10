@@ -44,8 +44,8 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   pointer into a guarded package-level `vec.Vec` used after the `Unlock`, a static object that code moves with
   `take` while tasks read it, and a handler's load before the first task are not yet E3501 either, and memory
   owned by a static or type-rule object is not yet counted as part of its field. Item 214.
-- Summaries do not yet record which locks a call may release, so a view kept across a helper that waits on a
-  `Cond` is not E3501 (19.3, Views loaded under a lock). Item 222.
+- A view kept across `c.Wait(&mu)` of a `sync.Cond`, or across a helper that waits on one, is not yet E3501
+  (19.3, Views loaded under a lock). Items 214 and 222.
 - A range-over-func body whose iterator calls `yield` from a scoped task still counts as part of the enclosing
   function, so it may release that function's locks, and a `defer` in it is not an error (19.3, Part of the
   enclosing function). Item 223.
@@ -99,8 +99,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - Data written only inside `once.Do` and read after `Do` is still E3503: the race check has no rule for
   `sync.Once`, so it infers the Once's own lock as the guard instead of following lazy initialization, and it
   does not reject a write outside the Once's function as such (19.3, Lazy initialization). Item 218.
-- `c.Wait()` of a `sync.Cond` is not treated as `Unlock` then `Lock` of a named lock, so data read after it in a
-  wait loop is E3503, and a view kept across it is not yet E3501 (19.3). Item 219.
 - `rt.Yield` inside a non-migrating region compiles and does not panic, so a task can resume on another processor
   while it holds a view of per-CPU data (19.3, Switching tasks in a non-migrating region). Item 229.
 - A function started by `time.AfterFunc` counts as started once, so two runs after a `Reset` may race on what it
