@@ -150,7 +150,8 @@ section 3.6. Their guarantees hold whichever scheduler backend is bound:
 - **Once.** Some call of `once.Do(f)` runs its `f` to its return, and the return of that `f` is
   synchronized before the return of every call of `once.Do`. Every write that `f` made is therefore
   visible after any `Do` on the Once returns. `Do` returns only after such a return: a call of `f` that
-  ends its task with `rt.ExitTask` leaves the Once not done, and the next `Do` runs its own function. The
+  ends its task with `rt.ExitTask` leaves the Once not done, and the next `Do` runs its own function. A
+  call of `f` that panics keeps the Once locked while the panicking task's deferred calls run. The
   language spec (section 19.3, Lazy initialization) uses this edge for data that a Once
   initializes.
 - **Cond.** `c.Wait(l)` unlocks `l` and locks it again before it returns, so it synchronizes through `l`

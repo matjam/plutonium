@@ -182,7 +182,9 @@ with no lock held, whatever the code that starts them holds.
 through package initialization and `main`, that may start a task, install an interrupt handler, or enable
 interrupts (`x86.Sti`, `x86.StiHlt`, `x86.RestoreFlags`), itself or through the calls it makes. Package
 initialization may not start a task (section 15.2, Panics and tasks). An access of the main task is
-**before the start of sharing** when no path to it passes such a statement. A function that the main task
+**before the start of sharing** when no path to it passes such a statement; an access in a deferred call
+is before it only when no path from the `defer` statement passes one either (Held sets, below), so a
+deferred call of `main` armed ahead of the first task start runs after the start. A function that the main task
 calls both before and after the start of sharing counts as called after it. Accesses before the start of
 sharing do not count in the rules below, and loads before it do not cross.
 
@@ -190,7 +192,8 @@ sharing do not count in the rules below, and loads before it do not cross.
 point where they run:
 
 - a function literal called where it is written: `func() { ... }()`;
-- a deferred function literal: `defer func() { ... }()`;
+- a deferred function literal: `defer func() { ... }()`, which runs where the function leaves (Held
+  sets, below);
 - the body of a range-over-func loop (section 12.11), when the iterator calls `yield` only on the party
   that runs the loop. The iterator counts as a call around the body.
 
@@ -214,9 +217,10 @@ on the wrong party at the wrong time. If two tasks may call `yield` at once, the
 For a body that is part of the enclosing function, the locks held at its start are those held at the loop
 statement, less the locks the iterator may release, intersected with those held at the end of the body on
 every earlier run (as for a loop, Releasing a lock). When the body may release a lock, every access of
-the iterator counts as made without that lock, before its first call of `yield` as after it, and each
-call of `yield` counts as a call that may release the lock. This needs nothing in the iterator's summary
-beyond its accesses and its calls of `yield`.
+the iterator counts as made without the caller's hold of that lock, before its first call of `yield` as
+after it; locks the iterator takes itself are counted as usual. Each call of `yield` counts as a call that
+may release the lock. This needs nothing in the iterator's summary beyond its accesses and its calls of
+`yield`.
 
 To these the body adds the locks that the iterator's summary shows held at every call of `yield` (Held
 sets, below), each in the same mode and under the caller's name for it, as for a lock a callee returns
@@ -412,6 +416,14 @@ scoped tasks, used by those tasks, is one lock in all of them (section 19.4).
   `if !mu.TryLock() { return }`. A result stored in a variable first is not followed.
 - A lock counts as held at a statement only if it is held, under one of its names, on every path to that
   statement.
+- A deferred call runs where its function leaves, and the function may leave at any point after the
+  `defer` statement: at its end, in a call that ends the task with `rt.ExitTask` (section 17.3), or at a
+  panic (section 17.2). So the deferred call, with its literal's body or its callee, counts as made at its
+  `defer` statement and at every point after it. It holds a lock only if the lock is held at all of those
+  points and no deferred call that runs before it releases the lock. Every other fact these rules find on
+  every path to a statement counts a deferred call the same way: the regions below, the returned `Do` of
+  Lazy initialization, valid views, and the start of sharing. Section 19.4 (Deferred calls) states the
+  same for the join of scoped tasks.
 - A lock held around a call counts as held inside the callee, for the callee's accesses. A function that
   returns with a lock held holds it for its caller, under the caller's name for the argument: after
   `x.lock()`, `x.mu` is held.
@@ -446,7 +458,8 @@ as not held.
 
 **Non-migrating and interrupt-disabled regions.** These two kinds of region are found the way held locks
 are: on every path, across calls, with a deferred release counting as a release at the end of the
-function.
+function. A deferred call is inside a region only when the region holds at its `defer` statement and at
+every point after it (Held sets, above).
 
 - A **non-migrating region** is a stretch of code where, on every path, preemption is disabled
   (`rt.DisablePreemption` to `rt.EnablePreemption`), maskable interrupts are disabled (`x86.Cli` to
@@ -515,8 +528,10 @@ when it crosses to another party.
 A copy of the view whose uses the compiler cannot follow counts as used with no lock held: one stored
 anywhere but in memory that the same guard set guards, sent on a channel, passed to a task, captured by a
 function literal that is not part of the enclosing function, or held in a method value. An argument of a
-deferred call is used when the call runs, at the end of the function, so it is valid only if the lock is
-still held there (a `defer mu.Unlock()` written before it runs after it). A view that a call returns,
+deferred call, or a view a deferred literal uses, is used when the call runs, which may be at any point
+after the `defer` statement (Held sets, above). So it is valid only if the lock stays held, with no
+ending event, from the load to the `defer` statement and to every point after it, and no deferred call
+that runs before it ends the view (a `defer mu.Unlock()` written before it runs after it). A view that a call returns,
 loaded in the callee, counts as loaded at the call under the locks its summary records for it that the
 caller holds across the whole call.
 
@@ -556,14 +571,25 @@ are the Once and the data of one object. The return of `f` is synchronized befor
   value whose calls the compiler cannot all find counts as called once with no returned `Do`. A function
   literal passed to an iterator, or to any function that calls it on the caller's party, so gets the
   Onces that a range body there would get. A method's run through a method value is outside every `Do`,
-  as above. An interrupt handler cannot call `Do`, which may park (E2584).
+  as above. An interrupt handler cannot call `Do`, which may park (E2584). A read in a deferred call, in
+  its literal's body or in a function it calls, counts as made at its `defer` statement and at every
+  point after it, as a deferred release does (Held sets, above). So a `Do` counts for it only when the
+  `Do` has returned on every path to the `defer` statement: `once.Do(load); defer show()` is covered, and
+  `defer show(); once.Do(load)` is not, since a `load` that ends its task runs `show` before any `Do`
+  has returned.
 - **Otherwise.** A datum written outside these calls, or read on some path with no returned `Do`, follows
   rule 1 as other data does. `Do` holds the Once's own lock while `f` runs, so the writes inside `f`
   hold that lock and it is in the guard set. A write outside with no lock is E3502, which names that
   write. A read with no returned `Do`, when every write is inside, is E3503, which names the Once and the
   read. Data written inside the calls of two Onces has no lock that every write holds (E3502).
-- **When `f` does not return.** `Do` returns only after some `f` has returned. A panic in `f` stops the
-  program (section 17.1), and that `Do` never returns. If `f` ends its task with `rt.ExitTask` (section
+- **When `f` does not return.** `Do` returns only after some `f` has returned. A panic in `f` ends the
+  program (section 17.1), and that `Do` never returns. In a hosted build the panicking task first runs
+  its deferred calls while the other tasks keep running (section 17.2). The Once stays locked and not
+  done meanwhile, so another task's `Do` on it waits until the program ends. A deferred call armed in
+  `f`, or in a function `f` calls, runs while that lock is held and sees what `f` wrote so far, as `f`
+  itself would. A deferred call armed anywhere else reads the data only where a `Do` on the Once returned
+  before its `defer` statement (After a returned `Do`, above), and no `Do` on it has returned while an
+  `f` runs. So no party reads the half-written data unordered. If `f` ends its task with `rt.ExitTask` (section
   17.3), `Do` does not return to its caller either: its frame leaves with the others. The Once releases
   its lock and is not done, so the next call of `o.Do` calls its own function, which finds what the first
   one left. Either way, the writes of an `f` that did not return are followed by the writes of the next
@@ -1252,9 +1278,9 @@ read-modify-write of a per-CPU variable, or anything else the region keeps on on
 operations: it follows the same calls with a single known target, from regions in code outside
 `pluto/rt`, and reports a switch on some path of a followed callee. It does not start from a handler
 body's own region, which a switch ends instead (Non-migrating and interrupt-disabled regions, above). It
-does start from a region that handler code opens itself with `x86.Cli`, `x86.SaveFlagsCli`,
-`rt.DisablePreemption` or an `rt.Lock`, after `x86.Sti` or in a trap handler: that code asked to stay on
-one processor.
+does start from every region that handler code opens itself with `x86.Cli`, `x86.SaveFlagsCli`,
+`rt.DisablePreemption` or an `rt.Lock`, whether inside the handler body's own region, after `x86.Sti`,
+or in a trap handler: that code asked to stay on one processor.
 
 In a region where maskable interrupts are disabled and, on some path to the call, no preemption count is
 raised (opened by `x86.Cli` or `x86.SaveFlagsCli` alone on that path), the run-time test below cannot
@@ -1345,7 +1371,8 @@ that decides it. "A compile error" is an error that has no code yet. Rows 1 to 1
 Go programmer would write; rows 13 to 21 are Go locking idioms; rows 52 to 66 settle audit K
 (docs/verification/2026-11-09-spec-audit-k.md); rows 73 to 99 settle audit L
 (docs/verification/2026-11-09-spec-audit-l.md), and rows 100 to 109 are the common Go shapes it lists;
-rows 110 to 121 settle audit M (docs/verification/2026-11-09-spec-audit-m.md).
+rows 110 to 121 settle audit M (docs/verification/2026-11-09-spec-audit-m.md); rows 122 to 126 settle
+audit N (docs/verification/2026-11-09-spec-audit-n.md).
 
 | # | Program | Result | Deciding rule |
 |---|---|---|---|
@@ -1470,6 +1497,11 @@ rows 110 to 121 settle audit M (docs/verification/2026-11-09-spec-audit-m.md).
 | 119 | M3: `//pu:export func get() int { return cfg }`, every write of `cfg` is inside `once.Do`, and the only Plutonium call of `get` follows `once.Do(load)` | E3503 (C code may call `get` first) | Lazy initialization (an exported function is an entry) |
 | 120 | M4: row 86, plus `func (c *Cache) Dump() map[string]int { return c.m }` in another package | E3502, naming `return c.m` as the copy that takes the map out of `Cache.m` | Maps kept in place; rule 1 |
 | 121 | G3: `mu.Lock(); for x := range Each { if x < 0 { mu.Unlock(); break } }`, where `Each` reads data guarded by `mu` before its first `yield` | E3503 | Part of the enclosing function (when the body may release a lock, every access of the iterator counts without it) |
+| 122 | N2: `func load() { cfg = 1; if bad() { rt.ExitTask() }; cfg = 2 }`; `func show() { println(cfg) }`; `func worker() { defer show(); once.Do(load) }`; `main` does `task worker(); task worker()` | E3503 (the deferred read runs when `load` ends its task, before any `Do` has returned, while the other task's `Do` runs `load` again) | Lazy initialization (a deferred read counts at its `defer` statement and every point after it) |
+| 123 | N2: as row 122, but `worker` does `once.Do(load); defer show()` | accepted | Lazy initialization (the `Do` returned on every path to the `defer` statement) |
+| 124 | N2: `n` written by other tasks under `mu`; `func f() { mu.Lock(); defer mu.Unlock(); defer func() { n++ }(); step() }` | accepted (the literal runs before the deferred `Unlock`, and `mu` is held at its `defer` statement and every point after it) | Held sets (deferred calls) |
+| 125 | N2: as row 124, but `func f() { defer func() { n++ }(); mu.Lock(); defer mu.Unlock(); step() }` | E3502 (`n++` runs with no lock if `step` ends the task before `mu.Lock`, or after the deferred `Unlock`) | Held sets (deferred calls) |
+| 126 | N2: `func main() { defer func() { cfg = 0 }(); task reader() }`, where `reader` reads `cfg` with no lock | E3503 (the deferred write runs after the task start, so it is a shared write) | The start of sharing (a deferred call counts after it) |
 
 ### 19.4 Scoped tasks
 

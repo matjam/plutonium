@@ -223,7 +223,8 @@ The compiler recognizes these types in `pluto/sync`:
   function passed to `Do` of one Once, and read only after a `Do` on it has returned, needs no lock
   (section 19.3, Lazy initialization). `Do` returns only after some call of `f` has returned. A
   call of `f` that ends its task with `rt.ExitTask` releases the Once's lock and leaves it not done, so
-  the next `Do` calls its own function.
+  the next `Do` calls its own function. A panic in `f` keeps the lock while the panicking task's deferred
+  calls run, so another `Do` waits until the program ends.
 - `sync.Cond`, a value whose zero value is ready, like `sync.Mutex`. It has no `L` field and no
   constructor:
 
