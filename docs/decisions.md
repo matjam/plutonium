@@ -824,6 +824,9 @@ because it guards a free, not an access.
 
 Lands with: the sections named above; roadmap item 152.
 
+Changed by: D70 counts every live allocation and replaces the panic message "arena has live counted objects"
+with "arena has live allocations" (see Superseded decisions).
+
 ## D46. An arena takes memory back in bulk only (18.9, F.2, abi.md 1.3)
 
 Question: audit B3. `Free` of an arena's latest allocation reclaimed it, which needed a per-allocation epoch
@@ -1412,6 +1415,9 @@ cannot see. Goal: Safe, Kernel.
 
 Lands with: the sections named above; roadmap item 210, which extends items 120 and 156.
 
+Changed by: D87 narrows "the compiler follows calls as the E2584 analysis does" to exact paths, and D97 then
+defines the calls followed by target set (see Superseded decisions).
+
 ## D86. An arena takes back objects of every type (19.3, 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8, 4.1)
 
 Question: audit H1. D82 made a `Reset`, `Release` or `Drop` of an arena a free only through the drop glue
@@ -1602,6 +1608,10 @@ with no new error. Goal: Safe.
 
 Lands with: item 214, extending items 168 and 212.
 
+Changed by: audit J. D102 lets a view of memory a package variable or a `synced[T]` object owns cross while
+its guard is held, D103 makes static objects safe without the type rule's free condition, and D104 starts a
+handler's load crossing at the first install or interrupt enable, as D52 does.
+
 ## D97. The wait check follows calls with a single known target (19.3, 19.1, 17.1, 20.10, skill)
 
 Question: audit I2. "Exact path" had two definitions in 19.3: every call on the way must reach a wait
@@ -1686,9 +1696,150 @@ Why: the same program must be accepted or rejected everywhere. Goal: Plain.
 
 Lands with: 18.3; no compiler change beyond checking the compiler does not exceed the limits (item 184).
 
+## D102. Views of guarded owned memory may cross (19.3, 8.8, A, memory-model.md 4.1, skill)
+
+Question: audit J1. D96 made a load of a view from a package variable a crossing. A package-level
+`vec.Vec`, `hash.Map` or `strings.Builder` under one mutex then failed rule 2: `Push` loads the backing
+slice from memory the variable owns, the slice is not of a struct, and case 2 needs memory no task writes.
+Every access held the lock, and the program was still E3501.
+
+Decision: rule 2 gets a case for memory that a package variable owns, or that the object of a `synced[T]`
+owns through owners that hold one another. A view of it may cross when every access to that memory, by
+every task and through every view, holds the guard inferred for it (rule 1 for a variable, the lock of the
+same object for rule 3; a write holds it for writing), and the view is used only where a guard of that
+memory is held, on every path. A use where no guard is held is E3501. Settled with it:
+
+- a lock held around a call counts inside the callee, so library methods called under the lock pass;
+- any lock that every write holds is a guard, so a view loaded under one guard may be used under another;
+- a view returned to a caller is judged at the caller's uses, so a function that unlocks before it returns
+  a view makes the caller's use E3501, and one that returns with the lock held does not;
+- a copy whose uses the compiler cannot follow counts as used with no lock held: one stored anywhere but in
+  memory the same guard guards, sent on a channel, passed to a task, captured by a function literal not
+  called where it is written, or held in a method value;
+- an argument of a deferred call is used at the end of the function, so it holds the guard only if the
+  guard is still held there;
+- a write through the view under `RLock` fails the case.
+
+A view stored in memory under the same guard stays a lifetime question: a later free under the guard is
+ordered, and 18.3 and 18.11 decide whether the stored view may still be used.
+
+Why: the most common Go shape for shared state is a container under a mutex. The case reuses the guard
+inference of rules 1 and 3 and needs no annotation, and no party can touch the memory while the guard is
+held. Exempting library containers by name would be a false friend and would miss user containers built
+the same way. Goal: Go, Plain, Safe.
+
+Lands with: item 214, which extends items 168 and 212.
+
+## D103. Static objects are safe to reach without a lock (19.3, 8.8, 20.10, memory-model.md 4.1, skill)
+
+Question: audit J2. `os.Stdout` points to a `File` that the package initializer of `pluto/os` created.
+Rule 2 case 2 covered only package variables, and the type rule fails for `File` as soon as any code drops a
+`File` once tasks run. So `fmt.Println` from a task was E3501 in any program that closes a file.
+
+Decision: rule 2 case 2 covers a **static object**: an object that a package-level initializer creates as
+a composite literal whose address it takes (`var Stdout = &File{fd: 1}`), which lives in static storage
+(18.2), and which no code moves, drops or overwrites as a whole once tasks have started. The type rule's
+free condition does not apply to it, since nothing frees static storage and its cleanup runs after the
+tasks end (15.4): a drop, free, move or overwrite of another object of the type does not count. The field
+conditions stay: each field or element never changes once tasks start, or is used only atomically, or
+only under one lock of the same object or one package-level lock. Settled with it:
+
+- how the compiler knows an object is static: it is made by a composite literal in a package-level
+  initializer, and the compiler names the target of each `take(p)` and `*p = v` by where `p` came from, as
+  it names locks; one it cannot name counts as a move of every static object of the type, which makes
+  them not static;
+- `take` of a static owner, or a whole assignment through a pointer to one, after tasks start makes it not
+  static; it then follows the type rule, and a task's load of it is E3501 if the type rule fails;
+- assigning a new pointer to the package variable leaves the old object static and usable by a task that
+  loaded the old pointer. The assignment is a rule 1 write of the variable, so after tasks start it needs
+  the variable's guard or an atomic store. A load after it gets the new object, which needs its own case;
+- objects that `new` or an allocator makes in an initializer are not static: an owner holds them, and
+  replacing that owner frees them (case 2 and Frees are writes).
+
+Why: printing from a task is the first thing a Go programmer writes. The free condition of the type rule
+exists to stop a use after free, and a static object cannot be freed. Making `os.Stdout` a `synced[File]`
+would change a Go API and leave every user global of the same shape failing. Goal: Go, Plain.
+
+Lands with: item 214.
+
+## D104. A handler's load of a view crosses from the first install (19.2, 19.3, 20.10, skill)
+
+Question: audit J3. The 19.2 load bullet counted a load "once a task other than the main task may run". 19.3
+"The tasks", D52 and memory-model.md 3.1 make a handler a party from the first statement that may install
+one or enable interrupts. A handler that ran before the first task could load a pointer to a `Node` that
+`main` then freed, and rule 2 never checked it.
+
+Decision: the load counts once a task other than the main task, or an interrupt handler, may run, with the
+start of 19.3 "The tasks". 19.3 and 20.10 say that a handler's load crosses whether or not a task has
+started.
+
+Why: the race-freedom promise must hold for kernels that install handlers before they start tasks.
+Goal: Safe, Kernel.
+
+Lands with: item 214, with item 156.
+
+## D105. Lazy initialization through `sync.Once` stays unresolved (19.3, 19.7)
+
+Question: the audit J walk-through. Go code writes a package variable inside `once.Do(f)` and reads it
+after `Do` returns with no lock. `Once.Do` calls `f` while it holds the Once's own mutex, so that mutex is
+inferred as the variable's guard, and the read after `Do` is E3503, naming a lock the program cannot see.
+
+Decision: the rules stand for version 0.4. The safe forms are to create the object in a package-level
+initializer (a static object, D103), or to keep it in a `synced[T]` that a mutex guards and copy the
+reference out under the mutex. Proposal for a later decision: data written only inside functions passed to
+`Do` of one `sync.Once`, and read only where a `Do` on the same Once has returned on every path, counts as
+written during initialization of that Once. Memory-model.md 3 already orders the return of `f` before the
+return of every `Do`. Recorded under Deferred.
+
+Why: the proposal is a new guard form and needs its own audit; adding it here would be a rule no audit has
+attacked. Goal: Go.
+
+Lands with: item 218.
+
+## D106. `sync.Cond.Wait` in the guard inference stays unresolved (19.3, 19.7, F.5)
+
+Question: the audit J walk-through. `c.Wait()` unlocks `c.L` and locks it again through the `Locker`
+interface. The compiler cannot name a lock reached through an interface, so the `Unlock` counts as
+unlocking every lock and the `Lock` holds none it can name. Shared data read after `Wait` in the usual
+`for cond(...) { c.Wait() }` loop is then read without its guard (E3503).
+
+Decision: the rules stand for version 0.4. The safe form of a work queue is a buffered channel of owners or
+values, or a `vec.Vec` under a mutex with a buffered `chan struct{}` that wakes one waiter after each push. Proposal for a later
+decision, with item 197: the guard inference treats `c.Wait()` as `Unlock` and then `Lock` of the lock
+`c.L` was made from, when the compiler can name it (`sync.NewCond(&mu)` with a lock it names, and `c.L`
+never assigned again). A view held across `Wait` would then count as used after the guard is released
+(D102). Recorded under Deferred.
+
+Why: as for D105, a new guard form needs its own audit. Goal: Go.
+
+Lands with: item 219, with item 197.
+
+## D107. Placement of the audit items and the record fixes (roadmap, decisions)
+
+Question: audit J, records R2 to R4. Roadmap items 198 to 210, 212, 213, 215 and 216 had no phase in "Order
+of work"; phase 0 named decisions "D42 to D69". D87 narrowed D85, and D70 replaced D45's panic message,
+with no note in the older entries.
+
+Decision: arena and view soundness (198 to 202, 204, 206, 208, 209, 211, 212, 214, 217) go in phase 1. The
+wait check (210, 213, 215, 216) goes in phase 3 with the kernel checks: a wait in a non-migrating region is
+a liveness failure that the run-time test already makes loud, not a memory error. The deadlock report (205)
+and the missing codes (207) go in phase 2 with the diagnostics. The plain arena counter (203) goes in phase
+4 with the optimizations. The open decisions (218, 219) go in phase 0. Phase 0 names decisions "D42
+onward". D45 and D85 get notes, and Superseded records both.
+
+Why: every planned item needs a place in the order, and every older decision must point to what changed
+it. Goal: Plain.
+
+Lands with: roadmap.md, decisions.md and the completion plan; no compiler change.
+
 ## Deferred
 
-None. The entry on Linux file names that are not valid UTF-8 is closed by D36.
+- D105: lazy initialization through `sync.Once`. Proposal: data written only inside `Do` of one Once and
+  read only after a `Do` on it has returned counts as written during that Once's initialization. Item 218.
+- D106: `sync.Cond.Wait` releases and retakes a named lock. Proposal: treat it as `Unlock` then `Lock` of
+  the lock `c.L` was made from, when the compiler can name it. Item 219.
+
+The entry on Linux file names that are not valid UTF-8 is closed by D36.
 
 ## Superseded decisions
 
@@ -1701,6 +1852,19 @@ need the later boundaries for data, so a table at every boundary cannot represen
 Large allocation tables remain at their own metadata bases; directory lookup replaces
 the address-mask lookup. That 2026-10-12 revision retained the fixed-arena exemption and
 generation/epoch values. D7 later supersedes the exemption and permits no stale-matching wrap.
+
+### D45: the panic message "arena has live counted objects"
+
+D45 counted only counted objects and named its panic "arena has live counted objects". D70 (audit E3 and
+E9) counts every live allocation made through `Alloc` and renames the panic "arena has live allocations".
+The rest of D45 stands.
+
+### D85: following calls as the E2584 analysis does
+
+D85 had the wait check follow calls as E2584 does, which is conservative through interfaces, func values
+and allocators. D87 (audit H2) narrowed it to exact paths, and D97 (audit I2) replaced D87's definition with
+calls that have a single known target. D85's rule that a wait in a non-migrating region is a compile error,
+with the run-time panic as backstop, stands.
 
 ### D87: the definition of an exact path
 

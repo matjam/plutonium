@@ -70,6 +70,25 @@ Audit the sections listed above as unread, with the same method (each finding ch
 - Clean up the roadmap: the survey lists 14 stale or contradictory places (section 1.3). Refresh `skill/plutonium/references/known-gaps.md`.
 - Bump the spec to version 0.4 when phase 0 lands.
 
+### 0.5 What the later audits created
+
+The second pass ran as audits E to J. Their rulings are decisions D70 to D107 in
+[decisions.md](../decisions.md), with records under `docs/verification/`. The roadmap items they created,
+and the phase each goes in:
+
+- Phase 1, soundness: items 198, 202, 209, 212 and 217 (arena counts, drop entries, arena frees of every
+  type, arena names); 199 (one-word owners lent to an interface); 200 (owner conversions through a defined
+  type); 201 (deferred calls in a scoped interval); 204 and 208 (generic code); 206 (frame storage in
+  loops); 211 (a use before a move in one call); 214 (loads of views from shared memory, with guarded owned
+  memory, static objects and handler loads from audit J).
+- Phase 2, tests and diagnostics: items 205 (the deadlock report names a panic in progress) and 207 (codes
+  for a stack size out of range and for implementation limits).
+- Phase 3, checks and kernel: items 210, 213, 215 and 216 (the wait check in non-migrating regions and its
+  run-time tests).
+- Phase 4, optimizations: item 203 (a plain arena counter where no other task can reach).
+- Open decisions after version 0.4: items 218 (lazy initialization through `sync.Once`) and 219
+  (`sync.Cond.Wait` in the guard inference), both from the audit J walk-through.
+
 ## Phase 1: soundness in the compiler
 
 Wrong acceptance and wrong code come before everything else (AGENTS.md rule 4).
@@ -81,6 +100,14 @@ Wrong acceptance and wrong code come before everything else (AGENTS.md rule 4).
 5. The false escape errors in heavy unit-test builds of `types2` (`conversions.p:89`, `:97`, `unify.p:735`). The agent on this was stopped on 2026-10-31 with nothing landed. Add the cheap gate check it planned.
 6. Audit the `unsupportedf` (E2500) and packed-field backstops in `compiler/internal/lower`: each is either unreachable after the checker, or a missing feature.
 7. Item 73: check the rest of lowering against the order of evaluation (11.26), with run and difftest cases.
+8. Arena soundness from audits E to I: count every live allocation (item 198), run drop entries before the
+   count check (item 202), follow drop entries in the checks (item 209), count an arena free as a free of
+   every object of every type (item 212), and name arenas beyond the precision limits and through a move
+   (item 217).
+9. View and move soundness from audits E to I: items 199, 200, 201, 204, 206, 208 and 211.
+10. Item 214: a load of a view from shared memory is a crossing (audit I), with audit J's three parts:
+    views of guarded owned memory (D102), static objects (D103) and handler loads from the first install
+    (D104).
 
 ## Phase 2: test closure
 

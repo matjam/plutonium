@@ -29,25 +29,33 @@ section where it belongs.
 The [completion plan](plans/2026-11-09-completion-plan.md) sets the order. Its phases, with the items each
 one covers:
 
-- **Phase 0, the specification.** User and coordinator rulings on the audits (done: decisions D42 to D69),
-  a second audit pass, a test that compiles the spec's examples (item 185), this roadmap cleanup and the
-  known-gaps list, then spec version 0.4.
+- **Phase 0, the specification.** User and coordinator rulings on the audits (done: decisions D42 onward,
+  each with the audit finding it settles, in [decisions.md](decisions.md)), audits E to J and their
+  rulings, a test that compiles the spec's examples (item 185), this roadmap cleanup and the known-gaps
+  list, then spec version 0.4. Open decisions for after 0.4: lazy initialization through `sync.Once`
+  (item 218) and `sync.Cond.Wait` in the guard inference (item 219).
 - **Phase 1, soundness in the compiler.** The rulings' compiler work (items 146 to 176, first A1, C1, C2,
   B1 and B10: items 146, 147, 148, 152, 159; and item 177); a consuming method value (item 178); the
   view-tracking cases left by item 138 (item 179); the escape contract of `rt.ReleaseValues` (item 180);
   the false escape errors in `types2` unit-test builds (item 181); the lowering backstops (item 182); the
   order of evaluation in the rest of lowering (item 183); the allocators the race check does not follow
-  (item 196); a use before a move in one call (item 211); loads of views from shared memory and arena names
-  (items 214 and 217).
-- **Phase 2, test closure.** Tests for untested diagnostic codes and rules (item 184); CI gaps (item 186);
-  close item 20 when nothing is left open under it.
-- **Phase 3, checks, kernel and performance evidence.** Item 101 phases 3 and 4; proven task stacks in
+  (item 196). From audits E to J: arena counts, drop entries and frees (items 198, 202, 209, 212 and
+  217); one-word owners lent to an interface (item 199); owner conversions through a defined type (item
+  200); deferred calls in a scoped interval (item 201); generic conversions and the strictest rule for
+  type arguments (items 204 and 208); frame storage in loops (item 206); a use before a move in one call
+  (item 211); loads of views from shared memory, guarded owned memory, static objects and handler loads
+  (item 214).
+- **Phase 2, test closure.** Tests for untested diagnostic codes and rules (item 184); codes for a
+  `//pu:stack` size out of range and for implementation limits (item 207); the deadlock report names a
+  panic in progress (item 205); CI gaps (item 186); close item 20 when nothing is left open under it.
+- **Phase 3, checks, kernel and performance evidence.** Item 101 phases 3 and 4; the wait check in
+  non-migrating regions and its run-time tests (items 210, 213, 215 and 216); proven task stacks in
   checked, kernel and freestanding builds (item 188); generation-check tuning (item 195); measurements
   per the [evidence plan](plans/2026-10-15-language-goal-evidence.md).
 - **Phase 4, compiler speed and tools.** The [speed plan](plans/2026-10-28-compiler-speed.md); `sync.Scope`
   phase 2 (item 193), then parallel compiler phases and incremental builds (item 34); DWARF variables and
   types (item 189); alternate signal stacks (item 190); optimizations and precision limits (items 24, 191,
-  192, 194 and the limit recorded in item 5).
+  192, 194, 203 and the limit recorded in item 5).
 - **Phase 5, library.** `io`, `bufio`, scanning in `fmt`; time zones and layouts (item 45); `net` (item 46);
   `sync.NewCond` (item 197).
 - **Phase 6, platforms.** Items 38, 37, 36 and 39, in that order.
@@ -756,13 +764,23 @@ compiler (2026-10-11).
     by its variable or field, as a lock is: `workers[i].arena` counts as every arena it may be, and an
     arena behind a parameter or a heap pointer stays item 196.
 214. **A load of a view from shared memory is a crossing** (planned, phase 1, wrong acceptance; sections
-    19.2, 19.3, 20.9, A, memory-model.md 4.1, D96, finding I1 of audit I; extends items 168 and 212): a
+    19.2, 19.3, 8.8, 20.9, 20.10, A, memory-model.md 4.1, D96, D102 to D104, finding I1 of audit I and
+    findings J1 to J3 of audit J; extends items 168 and 212): a
     task's or interrupt handler's load of a pointer, slice, interface, func value or method value (or an
     aggregate that holds one) from a package variable, a per-CPU variable, the object of a `synced[T]` or a
     map, or from memory reached through them, crosses to that party, in its own code or a callee, atomic
     loads included; rule 2 then checks the memory (E3501). Rules 1 and 2 count the memory a package variable
     owns as part of it. A package variable that holds a `shared[T]` used by two tasks is E2010. So
-    `p = &*b; task reader(); b = new(Node)` is E3501.
+    `p = &*b; task reader(); b = new(Node)` is E3501. Audit J adds three parts (D102 to D104, findings J1
+    to J3). A view of memory that a package variable or a `synced[T]` object owns crosses when every access
+    to that memory holds its inferred guard and the view is used only where a guard is held; a use past
+    the `Unlock` (returned after the callee unlocks, stored outside memory the guard guards, sent, passed
+    to a task, captured, held in a method value, or deferred past the release) is E3501, so a package-level
+    `vec.Vec` under a mutex compiles. A static object (a composite literal whose address a package-level
+    initializer takes, never moved, dropped or overwritten after tasks start, with `take(p)` and `*p = v`
+    named by where `p` came from) meets case 2 with the type rule's field conditions and without its free
+    condition, so `fmt.Println` from any task compiles while other `File`s are dropped. A handler's load
+    crosses from the first statement that may install a handler or enable interrupts.
 217. **Arena names beyond the precision limits and through a move** (planned, phase 1; section 19.3, D100,
     finding I7 of audit I; extends item 212): a call on an arena that the 18.3 limits cannot name counts as
     that call on every arena of the program, and an arena's name follows a move (`b := take(a)`).
@@ -1106,6 +1124,15 @@ compiler (2026-10-11).
     (preemption count; in kernel mode RFLAGS.IF) after the prologue of every function marked
     `//pu:blocking`, and before each call of one without a body, panicking with "blocking with preemption
     disabled".
+218. **Lazy initialization through `sync.Once`** (planned, a decision; sections 19.3, 19.7, D105, audit J
+    walk-through): data written inside `once.Do(f)` gets the Once's own mutex as its guard, so the Go read
+    after `Do` is E3503. Audit the proposal that data written only inside `Do` of one Once and read only
+    after a `Do` on it has returned counts as written during that Once's initialization, then decide.
+219. **`sync.Cond.Wait` in the guard inference** (planned, a decision; sections 19.3, 19.7, F.5, D106, audit
+    J walk-through; with item 197): `c.Wait()` unlocks and relocks `c.L` through an interface, so no lock
+    counts as held after it and the usual wait loop reads its data unguarded (E3503). Audit the proposal
+    that `Wait` releases and retakes the lock `c.L` was made from when the compiler can name it, then
+    decide.
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and
