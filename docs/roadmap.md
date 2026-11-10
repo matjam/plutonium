@@ -741,25 +741,29 @@ compiler (2026-10-11).
     union forms are E3212 unless converting `x` to `A` is allowed too; `T(a)` with `a` of type `A` stays
     allowed. Tests: `tests/types2/ownerconversion_defined` and `ownerconversion_defined_ok`; the 11.24
     `package q` spec example builds, with `together`.
-152. **Arenas count their live counted objects** (planned; sections 18.8, 18.9, 17.1, F.2, abi.md 1.3,
+152. **Arenas count their live counted objects** (done, `e14194a6`, with item 198; sections 18.8, 18.9, 17.1, F.2, abi.md 1.3,
     D45, finding B1): one atomic counter per Fixed and Chunked arena, raised at each counted allocation
     and lowered at its last release; `Reset`, `Release` and `Drop` panic with "arena has live counted
     objects" while it is not zero. Item 198 widens it to every allocation and renames the message.
-198. **Arenas count every live allocation** (planned; sections 18.8, 18.9, 13.7, 13.9, 16.7, 17.1, 17.6,
+    Tests: see item 198.
+198. **Arenas count every live allocation** (done, `e14194a6`; sections 18.8, 18.9, 13.7, 13.9, 16.7, 17.1, 17.6,
     21.5, F.2, abi.md 1.3, memory-model.md 3.8, D70, finding E3 and E9 of audit E; extends item 152): the
     counter of item 152 rises at every `Alloc` of a Fixed or Chunked arena, owners included, and falls at
     every `Free`; only `New` and `Slice` views stay out of it. The panic message is "arena has live
     allocations". The compiler's own arenas must then free everything before they reset:
     `compiler/internal/scratch/mem_on.p` calls `Chunked.Reset` on a Region and a home that may still
     hold vectors, maps and strings, so check each `Reset` and `Release` there and in the library before
-    the count lands.
-202. **Arenas run drop entries before they check the count** (planned; sections 18.9, 18.6, 18.8, 18.10,
+    the count lands. The compiler's scratch memory never frees, so it uses the new
+    `arena.NewChunkedUnsafe`, a Chunked with no count, which the audit lists as unsafe; `pluto/flag`
+    allocates its variables as views. Tests: `TestArenaLiveAllocations` (`tests/build_arena_live_test.go`).
+202. **Arenas run drop entries before they check the count** (done, `78e261c7`; sections 18.9, 18.6, 18.8, 18.10,
     13.7, 13.9, 16.7, 17.1, 21.5, F.2, abi.md 1.3, memory-model.md 3.8, D74, finding F1 of audit F;
     extends item 198): `New[T]()` and `Slice[T](n)` of a Fixed or Chunked arena record a drop entry
     (address, element count, drop-glue function) when `T` has drop glue, in the Fixed bookkeeping table
     or in blocks taken from Chunked chunks; a full table fails the allocation. `Reset`, `Drop`, and
     `Release` for the entries after the mark, run the entries in reverse order, then check the count, then
-    zero the granules and end the epoch. A panicking entry leaves the rest recorded.
+    zero the granules and end the epoch. A panicking entry leaves the rest recorded. `flag.FlagSet` no
+    longer releases its strings by hand. Tests: `TestArenaDropEntries` (`tests/build_arena_entries_test.go`).
 203. **Plain arena counter where no other task can reach** (planned, optimization; sections 21.5, 18.9,
     abi.md 1.3, D77, findings F4 of audit F and G6 of audit G; extends item 198): use plain adds for the
     live-allocation count where the compiler proves that no other task or interrupt handler can reach the
@@ -803,15 +807,19 @@ compiler (2026-10-11).
 217. **Arena names beyond the precision limits and through a move** (planned, phase 1; section 19.3 (Frees are writes; How precise the race check is), D100,
     finding I7 of audit I; extends item 212): a call on an arena that the 18.3 limits cannot name counts as
     that call on every arena of the program, and an arena's name follows a move (`b := take(a)`).
-158. **Task exit mid-statement and inside `Drop`** (planned; section 17.3, abi.md 12.10, D51, finding B8):
+158. **Task exit mid-statement and inside `Drop`** (done, `6fc4a533`, tests only; section 17.3, abi.md 12.10, D51, finding B8):
     `rt.ExitTask` drops operands already evaluated, and a `Drop` method it leaves still finishes the
-    object's field drops and free.
-159. **Count before release in `copy` and borrowed parameters** (planned; sections 13.2, 18.8, abi.md 3.3,
+    object's field drops and free. Tests: `TestTaskExitDrops` (`tests/build_task_exit_drops_test.go`),
+    on `sync.Scope` tasks, with a twin that returns.
+159. **Count before release in `copy` and borrowed parameters** (done, `6d2ae5f5`, tests only; sections 13.2, 18.8, abi.md 3.3,
     findings B10 and B18): check that `copy` counts the source before it releases the destination, and
-    that a first assignment to a borrowed string parameter releases nothing.
-160. **Variadic arrays release their counted elements** (planned; section 18.8, finding C7): the array that
+    that a first assignment to a borrowed string parameter releases nothing. Tests: `TestCountBeforeRelease`
+    (`tests/build_count_order_test.go`).
+160. **Variadic arrays release their counted elements** (done, `d725d296`, tests only; sections 18.8, D76, finding C7): the array that
     holds a call's variadic arguments is frame storage whose counted elements are released at the end of
-    the statement.
+    the statement. Built to 18.8 and D76: the elements are released when the function returns, after its
+    deferred calls, or when the same expression refills the array. Tests: `TestVariadicArrayRelease`
+    (`tests/build_variadic_release_test.go`).
 206. **Frame storage in loops** (planned; sections 18.4, 11.3, 11.15, A.3, D76, finding F3 of audit F;
     extends item 160): E3006 for a view of an `&T{...}` object, a slice literal's array, a variadic array,
     a method value's receiver or a deferred call's saved arguments kept where the next iteration can see
@@ -863,8 +871,10 @@ compiler (2026-10-11).
     declaration order rule and the loop rules); a view obtained from a `T` value is bounded by its holder
     unless every type in the set is a value or a view (E3313, E3314, E3009); and a method call on a type
     parameter is checked against that method of every instantiating type.
-173. **Range loops hold a count** (planned; section 12.10, D64, finding D7): the range temporary over a counted
-    value holds its own count until the loop ends.
+173. **Range loops hold a count** (done, `47a958a4`; section 12.10, D64, finding D7): the range temporary over a counted
+    value holds its own count until the loop ends. Maps, arrays and channels already did; a range over a
+    string now holds an owned count (`rangeString` in `compiler/internal/lower/stmt.p`). Tests:
+    `TestRangeHoldsCount` (`tests/build_range_hold_test.go`).
 174. **Owners in for clauses** (planned; sections 12.10, 18.6, D65, finding D8): an owner declared in a for
     clause moves between iterations and is dropped once.
 177. **A `%w` wrapper of a field error is bounded by the object** (planned, check only; sections 16.5, 16.7
@@ -1008,13 +1018,19 @@ compiler (2026-10-11).
     exact destruction counts and native verification pass. The obsolete G44 block and allowlist
     entry are removed. See [verification](verification/2026-10-12-initialization-tasks.md).
 
-153. **Fixed arena bookkeeping from its own backing** (planned; section 18.9, F.2, abi.md 1.3, D54, finding
+153. **Fixed arena bookkeeping from its own backing** (done, `b9f4672f`; section 18.9, F.2, abi.md 1.3, D54, finding
     B2 of the [rulings](verification/2026-11-09-spec-rulings.md)): the table is sized from the arena's backing at creation; allocation fails when it is
-    full, and the parent is never asked again.
-154. **Arenas free in bulk only** (planned; section 18.9, F.2, abi.md 1.3, D46, finding B3): `Free` through
+    full, and the parent is never asked again. The table follows the payload in one parent request, with
+    one record and one drop entry per granule. Tests: `TestArenaFixedTable`
+    (`tests/build_arena_fixed_table_test.go`).
+154. **Arenas free in bulk only** (done, `436842a9`, audit goldens `fb97db78`; section 18.9, F.2, abi.md 1.3, D46, finding B3): `Free` through
     an arena reclaims nothing; remove the "arena allocation freed" panic and its epoch check.
-155. **Gate the cleanup write check on a flag** (planned; sections 15.4, 21.5, abi.md 12.10, D55, finding
-    B4): the store check runs only once package cleanup has started.
+    `rt.GenTrimArena` is gone, and the manual `Arena.Free` does nothing. Tests: `TestArenaBulkFree`
+    (`tests/build_arena_bulk_free_test.go`), and the partial tail cases of
+    `TestGenerationDirectoryComposition`.
+155. **Gate the cleanup write check on a flag** (done, `675daa0a`; sections 15.4, 21.5, abi.md 12.10, D55, finding
+    B4): the store check runs only once package cleanup has started. The flag is `rt.cleanupStarted`, and
+    unchecked mode keeps the check. Tests: `TestCleanupStartedGate` (`tests/build_cleanup_started_test.go`).
 
 ## Kernel enablement
 
