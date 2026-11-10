@@ -80,8 +80,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - A deadlock report does not name a panic in progress (19.1, 19.4). Item 205.
 - The write check for cleaned places is not gated on package cleanup having started (15.4, 21.5). Item 155.
 - `rt.ExitTask` mid-statement or inside a `Drop` method may not drop what 17.3 says. Item 158.
-- `copy` and a first assignment to a borrowed string parameter: count-before-release is not yet checked (13.2,
-  18.8). Item 159.
 - The array holding a call's variadic arguments may not release its counted elements at the end of the statement
   (18.8). Item 160.
 - Freestanding builds outside kernel mode do not yet insert explicit nil checks (17.5). Item 162.
