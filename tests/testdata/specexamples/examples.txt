@@ -1,0 +1,875 @@
+# Entries for TestSpecExamples (tests/specexamples_test.go).
+#
+# An entry starts with "== FILE SECTION | FIRST LINE", the key the test
+# prints for a block. Its lines are:
+#
+#   skip: REASON       the block is not compiled
+#   known: CAUSE ...   the block fails; CAUSE is a roadmap item number,
+#                      "spec example wrong" or "no item"; the test fails
+#                      when the block starts to pass
+#   mode: MODE         build in kernel or freestanding mode
+#   sig: SIGNATURE     the function the statements go in
+#   values: top        var and const declarations go to package level
+#   with: KEY          the block assumes the declarations of block KEY
+#   pre:               package-level declarations the block assumes
+#   body:              statements before the block's statements
+#   tail:              statements after the block's statements
+#
+# pre:, body: and tail: take the tab-indented lines that follow.
+
+== 07-types.md 7.9 | type ReadCloser interface {
+known: no item: the compiler reports the clash of the two Close methods on line 2, where Reader is embedded, not on line 3, the line the spec marks
+with: 07-types.md 7.9 | type Reader interface {
+
+== 07-types.md 7.13 | type DeviceState union {
+pre:
+	type Errno enum { EIO }
+	func start()               {}
+	func retry(attempt int)    {}
+	func enableIRQ(irq uint8)  {}
+	func log(msg string, e Errno) {}
+
+== 07-types.md 7.13 | type Slot owner union {
+pre:
+	type File owner struct{ fd int32 }
+	type Node struct{ v int }
+
+== 07-types.md 7.18 | type File owner struct {
+known: spec example wrong: syscall.Close takes an int, and f.fd is an int32 (E0023); section 10.8 has the same File with closeFD(fd int32)
+
+== 10-declarations-and-scope.md 10.8 | // A Mutex is a data type with two methods, Lock and Unlock.
+with: 10-declarations-and-scope.md 10.8 | type (
+
+== 10-declarations-and-scope.md 10.8 | // The method Len returns the number of elements in the linked list l.
+with: 10-declarations-and-scope.md 10.8 | type List[T any] struct {
+
+== 10-declarations-and-scope.md 10.10 | var i int
+known: spec example wrong: it declares i twice in one block (lines 1 and 6), and section 1.3 does not make var declarations alternatives (E0010)
+pre:
+	var entries map[string]int
+	var name string
+
+== 10-declarations-and-scope.md 10.10 | var d = math.Sin(0.5) // d is float64
+pre:
+	type T int
+	var x any
+
+== 10-declarations-and-scope.md 10.11 | i, j := 0, 10
+pre:
+	type Point struct{ x, y, z int }
+	var p Point
+	func coord(p Point) (int, int, int) { return p.x, p.y, p.z }
+
+== 10-declarations-and-scope.md 10.11 | field1, offset := nextField(str, 0)
+pre:
+	var str = "a,b"
+	func nextField(s string, at int) (string, int) { return s, at }
+
+== 10-declarations-and-scope.md 10.14 | func (p *Point) Length() float64 {
+with: 10-declarations-and-scope.md 10.8 | type (
+
+== 10-declarations-and-scope.md 10.14 | type GPoint[P any] = Point
+with: 10-declarations-and-scope.md 10.8 | type (
+with: 10-declarations-and-scope.md 10.14 | type Pair[A, B any] struct {
+
+== 11-expressions.md 11.3 | origin := Point3D{}                                               // zero value for Point3D
+with: 11-expressions.md 11.3 | type Object struct{ name, color string }
+
+== 11-expressions.md 11.3 | obj := Object{"edge", "black"}
+with: 11-expressions.md 11.3 | type Object struct{ name, color string }
+
+== 11-expressions.md 11.3 | c := Conn{buf: b} // moves b into the literal; Conn is declared owner
+pre:
+	type Conn owner struct{ buf vec.Vec[byte] }
+body:
+	b := vec.New[byte]()
+
+== 11-expressions.md 11.3 | var pointer *Point3D = &Point3D{y: 1000}   // a view of a variable in this frame
+with: 11-expressions.md 11.3 | type Object struct{ name, color string }
+
+== 11-expressions.md 11.4 | f := func(x, y int) int { return x + y }
+pre:
+	const ACK = 1
+body:
+	replyChan := make(chan int, 1)
+
+== 11-expressions.md 11.4 | func process(items []Item) vec.Vec[int] {
+pre:
+	type Item struct{ size int }
+	func each(items []Item, f func(it *Item)) {}
+
+== 11-expressions.md 11.6 | x
+known: spec example wrong: f is called as a function on line 4 and has a field p on line 9, so no declaration of f compiles both
+
+== 11-expressions.md 11.7 | x.f
+pre:
+	var x struct{ f int }
+
+== 11-expressions.md 11.7 | t.z // t.z
+with: 11-expressions.md 11.7 | type T0 struct {
+
+== 11-expressions.md 11.7 | q.M0() // (*q).M0 is valid but not a field selector
+known: spec example wrong: the line is invalid (E0076), as the text before it says, but its comment does not mark it as an error (chapter 2)
+with: 11-expressions.md 11.7 | type T0 struct {
+
+== 11-expressions.md 11.8 | t.Mv(7)
+with: 11-expressions.md 11.8 | type T struct {
+
+== 11-expressions.md 11.9 | t.Mv(7)
+with: 11-expressions.md 11.9 | type T struct {
+
+== 11-expressions.md 11.9 | f := t.Mv; f(7)  // like t.Mv(7)
+with: 11-expressions.md 11.9 | type T struct {
+
+== 11-expressions.md 11.9 | var i interface{ M(int) } = myVal
+pre:
+	type myT int
+	func (myT) M(int) {}
+	var myVal myT
+
+== 11-expressions.md 11.10 | a[x]
+pre:
+	var a []int
+	var x int
+
+== 11-expressions.md 11.10 | v, ok = a[x]
+pre:
+	var a map[string]int
+	var x string
+	var v int
+	var ok bool
+
+== 11-expressions.md 11.11 | func Count[M container.Indexable[K, int], K any](m M, keys []K) {
+body:
+	counts := hash.NewMap[string, int](0)
+	words := []string{"a", "b", "a"}
+
+== 11-expressions.md 11.12 | a[low : high]
+pre:
+	var a [10]int
+	var low, high = 1, 3
+
+== 11-expressions.md 11.12 | s[0] == 2
+pre:
+	var s []int
+
+== 11-expressions.md 11.12 | a[2:] // same as a[2 : len(a)]
+pre:
+	var a [5]int
+
+== 11-expressions.md 11.12 | a[low : high : max]
+pre:
+	var a [10]int
+	var low, high, max = 1, 3, 5
+
+== 11-expressions.md 11.12 | t[0] == 2
+pre:
+	var t []int
+
+== 11-expressions.md 11.13 | x.(T)
+pre:
+	type T int
+	var x any
+
+== 11-expressions.md 11.13 | v, ok = x.(T)
+pre:
+	type T int
+	var x any
+	var v T
+	var ok bool
+
+== 11-expressions.md 11.13 | c, ok := r.(Conn)
+known: 149: the move check does not follow ok through if !ok, so line 3 reports r moved (E3301), and line 11 reports E3301, not E3302
+pre:
+	type Res owner interface{}
+	type Conn owner struct{ fd int32 }
+	func (c *Conn) Send(p []byte) {}
+	func use(r Res)              {}
+body:
+	var r Res
+	var q Res
+
+== 11-expressions.md 11.14 | math.Atan2(x, y) // function call
+with: 10-declarations-and-scope.md 10.8 | type (
+with: 10-declarations-and-scope.md 10.14 | func (p *Point) Length() float64 {
+pre:
+	var x, y float64
+
+== 11-expressions.md 11.14 | func Split(s string, pos int) (string, string) {
+pre:
+	type logger struct{}
+	func (logger) Panic(s string) { panic(s) }
+	var log logger
+	var value = "abcd"
+
+== 11-expressions.md 11.14 | var p Point
+with: 10-declarations-and-scope.md 10.8 | type (
+with: 10-declarations-and-scope.md 10.14 | func (p *Point) Length() float64 {
+
+== 11-expressions.md 11.14 | send(buf, buf.Len()) // error: buf is moved by this call and used in another argument
+known: no item: line 2 is not an error, though section 11.14 makes a move and a use in one expression an error in either order; item 75 says this is done
+pre:
+	type Buf owner struct{ n int }
+	func (b *Buf) Len() int { return b.n }
+	func send[A owner any, B owner any](a A, b B) {}
+body:
+	var buf Buf
+
+== 11-expressions.md 11.15 | s := []string{"James", "Jasmine"}
+pre:
+	func Greeting(prefix string, who ...string) {}
+
+== 11-expressions.md 11.18 | +x                         // x
+known: spec example wrong: x is a number on lines 1 and 4 and is indexed on line 3, so no declaration of x compiles every line
+
+== 11-expressions.md 11.19 | // FMA allowed for computing r, because x*y is not explicitly rounded:
+pre:
+	var r, x, y, z, t float64
+	var p *float64
+
+== 11-expressions.md 11.19 | s := "hi" + string(c)
+pre:
+	var c rune = 'x'
+
+== 11-expressions.md 11.22 | &x
+pre:
+	type Point struct{ x, y int }
+	var x int
+	var a []int
+	var p *int
+	func f(n int) int   { return n }
+	func pf(n int) *int { return nil }
+
+== 11-expressions.md 11.23 | v1 := <-ch
+pre:
+	var ch chan int
+	var v2 int
+	var strobe chan bool
+	func f(n int) {}
+
+== 11-expressions.md 11.23 | x, ok = <-ch
+pre:
+	type T bool
+	var ch chan T
+	var x T
+	var ok bool
+
+== 11-expressions.md 11.24 | *Point(p)       // same as *(Point(p))
+known: spec example wrong: it shows how conversions parse; line 1 needs Point to be a pointer type and line 2 converts p to *Point, and line 5 is a function type, not an expression
+
+== 11-expressions.md 11.24 | uint(iota)              // iota value of type uint
+known: spec example wrong: uint(iota) is valid only in a const declaration (E0036), and (*int)(nil) is not a constant, so no one wrapping compiles both
+pre:
+	type myString string
+
+== 11-expressions.md 11.24 | string('a')        // "a"
+pre:
+	var i int
+
+== 11-expressions.md 11.24 | string([]rune{0x767d, 0x9d6c, 0x7fd4}) // "白鵬翔" == "白鵬翔"
+pre:
+	type myString string
+
+== 11-expressions.md 11.25 | uint(-1)    // -1 cannot be represented as a uint
+known: spec example wrong: every line is a compile error, but no line carries an error comment (chapter 2)
+with: 11-expressions.md 11.25 | const Huge = 1 << 100        // Huge == 1267650600228229401496703205376  (untyped integer constant)
+
+== 11-expressions.md 11.26 | y[f()], ok = g(z || h(), i()+x[j()], <-c), k()
+pre:
+	var y, x []int
+	var ok, z bool
+	var c chan int
+	func f() int                  { return 0 }
+	func g(a bool, b, c int) int { return 0 }
+	func h() bool                 { return true }
+	func i() int                  { return 0 }
+	func j() int                  { return 0 }
+	func k() bool                 { return true }
+
+== 11-expressions.md 11.26 | var a, b, c = f() + v(), g(), sqr(u()) + v()
+pre:
+	func u() int { return 1 }
+	func v() int { return 2 }
+
+
+== 11-expressions.md 11.24 | package p
+pre:
+	func freeFrame(f uintptr) {}
+	func nextFree() uintptr   { return 0 }
+
+== 11-expressions.md 11.24 | package q
+known: 147: a conversion to an owner type of another package is not yet an error (E3212)
+with: 11-expressions.md 11.24 | package p
+
+== 11-expressions.md 11.27 | cfg := load(path) or return                                  // pass the error up unchanged
+sig: func specExample() error
+pre:
+	type Config struct{ name string }
+	func load(path string) (Config, error) { return Config{}, nil }
+	var path, line, p string
+	type logger struct{}
+	func (logger) Printf(format string, args ...any) {}
+	var log logger
+body:
+	for i := 0; i < 1; i++ {
+tail:
+	}
+	return nil
+
+== 11-expressions.md 11.27 | cfg, err := load(path)
+sig: func specExample() (int, error)
+pre:
+	type Config struct{ name string }
+	func load(path string) (Config, error) { return Config{}, nil }
+	var path string
+tail:
+	return 0, nil
+
+== 11-expressions.md 11.27 | func f(path string) error {
+known: spec example wrong: cfg is not used after the or clause, so line 2 is an error too (E0101)
+pre:
+	type Config struct{ name string }
+	func load(path string) (Config, error) { return Config{}, nil }
+
+== 11-expressions.md 11.27 | if v := strconv.Atoi(s) or return; v > 0 { // v is in scope in the if and the else
+sig: func specExample() error
+pre:
+	var s string
+	var lines []string
+	func use(n int) {}
+tail:
+	return nil
+
+== 12-statements.md 12.1 | func name(c Color) string {
+with: 12-statements.md 12.9 | type Color enum {
+
+== 12-statements.md 12.4 | h(x + y)
+pre:
+	func h(n int) {}
+	var x, y int
+	var f *os.File
+	var ch chan int
+
+== 12-statements.md 12.4 | os.Stdout.Write(readAll(f).Slice()) // the vector readAll returns is dropped after Write returns
+pre:
+	var f *os.File
+	func readAll(f *os.File) vec.Vec[byte] { return vec.New[byte]() }
+	func makeBuffer() vec.Vec[byte]         { return vec.New[byte]() }
+
+== 12-statements.md 12.5 | ch <- 3 // send value 3 to channel ch
+pre:
+	var ch chan int
+
+== 12-statements.md 12.7 | x = 1
+pre:
+	var x, i, k int
+	var p *int
+	var a []int
+	var ch chan int
+	func f() int { return 0 }
+
+== 12-statements.md 12.7 | a[i] <<= 2
+pre:
+	var a []int
+	var i, n int
+	var s string
+
+== 12-statements.md 12.7 | x, y = f()
+pre:
+	var x, y int
+	func f() (int, int) { return 0, 0 }
+
+== 12-statements.md 12.7 | one, two, three = '一', '二', '三'
+pre:
+	var one, two, three rune
+
+== 12-statements.md 12.7 | _ = x       // evaluate x but ignore it
+pre:
+	var x int
+	func f() (int, bool) { return 0, false }
+
+== 12-statements.md 12.7 | a, b = b, a // exchange a and b
+pre:
+	var a, b int
+
+== 12-statements.md 12.8 | if x > max {
+pre:
+	var x, max int
+
+== 12-statements.md 12.8 | if x := f(); x < y {
+sig: func specExample() int
+pre:
+	func f() int { return 0 }
+	var y, z int
+
+== 12-statements.md 12.9 | switch tag {
+sig: func specExample() int
+pre:
+	var tag, x, y, z int
+	func f() int { return 0 }
+	func s1()    {}
+	func s2()    {}
+	func s3()    {}
+	func f1()    {}
+	func f2()    {}
+	func f3()    {}
+tail:
+	return 0
+
+== 12-statements.md 12.9 | switch x.(type) {
+pre:
+	var x any
+
+== 12-statements.md 12.9 | switch i := x.(type) {
+pre:
+	var x any
+	func printString(s string)                {}
+	func printInt(i int)                      {}
+	func printFloat64(f float64)              {}
+	func printFunction(f func(int) float64)   {}
+
+== 12-statements.md 12.9 | v := x // x is evaluated exactly once
+pre:
+	var x any
+	func printString(s string)                {}
+	func printInt(i int)                      {}
+	func printFloat64(f float64)              {}
+	func printFunction(f func(int) float64)   {}
+
+== 12-statements.md 12.9 | func (d *Dev) step() {
+pre:
+	type State union {
+		Idle
+		Busy struct{ n int }
+	}
+	type Dev struct{ state State }
+
+== 12-statements.md 12.9 | type Resource owner interface{ Read(p []byte) (int, error) }
+known: 148: after the type switch r is moved (E3301), not possibly moved (E3302), though only the owned[File] clause moves it
+pre:
+	type File owner struct{ fd int }
+	func (f *File) Read(p []byte) (int, error) { return 0, nil }
+	func (f *File) Sync() error                 { return nil }
+	func use(r Resource)                        {}
+
+== 12-statements.md 12.9 | switch s := st.(type) {
+with: 07-types.md 7.13 | type DeviceState union {
+pre:
+	type Errno enum { EIO }
+	func start()                  {}
+	func retry(attempt int)       {}
+	func enableIRQ(irq uint8)     {}
+	func log(msg string, e Errno) {}
+
+== 12-statements.md 12.10 | for a < b {
+pre:
+	var a, b int
+
+== 12-statements.md 12.10 | for i := 0; i < 10; i++ {
+pre:
+	func f(i int) {}
+
+== 12-statements.md 12.10 | for cond { S() }    // is the same as    for ; cond ; { S() }
+pre:
+	var cond bool
+	func S() {}
+
+== 12-statements.md 12.10 | for i := range files {
+pre:
+	type File struct{ n int }
+	func (f *File) Sync() {}
+	var files []File
+
+== 12-statements.md 12.10 | for k := range m {
+pre:
+	var m map[string]int
+	func expired(k string) bool { return false }
+
+== 12-statements.md 12.10 | for c := range Color { // Red, Green, Blue
+with: 12-statements.md 12.9 | type Color enum {
+
+== 12-statements.md 12.10 | var testdata *struct {
+pre:
+	func f(i int)                 {}
+	func g(i int, s string)       {}
+	func h(k string, v interface{}) {}
+	type Work int
+	func producer() chan Work     { return nil }
+	func doWork(w Work)           {}
+	func process(k string, v int) {}
+
+== 12-statements.md 12.11 | func find(items *vec.Vec[*Item], id int) int {
+pre:
+	type Item struct {
+		id    int
+		mu    sync.Mutex
+		value int
+	}
+
+== 12-statements.md 12.12 | task worker(jobs)
+pre:
+	func worker(jobs chan int) {}
+	var jobs chan int
+	func sleep(ms int)         {}
+	var c chan bool
+
+== 12-statements.md 12.13 | var a []int
+pre:
+	func f() int { return 0 }
+
+== 12-statements.md 12.13 | select {
+pre:
+	type Msg owner struct{ n int }
+	func (m *Msg) Drop() {}
+	var out chan Msg
+	var count int
+body:
+	var v Msg
+
+== 12-statements.md 12.13 | t := time.NewTimer(100 * time.Millisecond)
+pre:
+	var results chan int
+	func use(v int) {}
+
+== 12-statements.md 12.14 | func complexF2() (re float64, im float64) {
+pre:
+	func complexF1() (re float64, im float64) { return 0, 0 }
+
+== 12-statements.md 12.14 | func complexF3() (re float64, im float64) {
+pre:
+	type devnull struct{}
+
+== 12-statements.md 12.15 | OuterLoop:
+pre:
+	var i, j, n, m, state int
+	var a [][]*int
+	var item *int
+	const (
+		Error = iota
+		Found
+	)
+
+== 12-statements.md 12.16 | RowLoop:
+pre:
+	var rows [][]int
+	const endOfRow = -1
+	func bias(x, y int) int { return 0 }
+
+== 12-statements.md 12.17 | goto Error
+tail:
+	Error:
+
+== 12-statements.md 12.17 | goto L // BAD
+known: spec example wrong: line 1 is an error (E0123, the goto jumps over the declaration of v), but its comment says BAD, not error (chapter 2)
+
+== 12-statements.md 12.17 | if n%2 == 1 {
+known: spec example wrong: line 2 is an error (E0124, the goto jumps into a block), but no comment marks it (chapter 2)
+pre:
+	var n int
+	func f() {}
+
+== 12-statements.md 12.19 | lock(l)
+pre:
+	var l int
+	func lock(l int)   {}
+	func unlock(l int) {}
+
+== 12-statements.md 12.19 | for _, it := range items {
+sig: func specExample() int
+pre:
+	type Item struct {
+		id    int
+		mu    sync.Mutex
+		value int
+	}
+	var items []*Item
+	var id int
+tail:
+	return 0
+
+== 12-statements.md 12.19 | f := open(name)
+pre:
+	type File owner struct{ fd int }
+	func (f *File) Drop()             {}
+	func (f *File) Read(b []byte) int { return 0 }
+	func open(name string) File       { return File{} }
+	var name string
+	var buf []byte
+	type Buf owner struct{ n int }
+	func (b *Buf) Len() int { return 0 }
+	func consume(b Buf)     {}
+body:
+	var g Buf
+
+== 13-built-in-functions.md 13.5 | delete(m, k) // remove m[k] from the map m
+pre:
+	var m map[string]int
+	var k string
+
+== 13-built-in-functions.md 13.9 | new(T)       // a variable of type T, zeroed
+pre:
+	type T struct{ n int }
+	var v int
+	var a alloc.Allocator
+
+== 15-program-initialization-and-execution.md 15.1 | var i int
+known: spec example wrong: it declares i twice in one block, and section 1.3 does not make var declarations alternatives (E0010)
+
+== 15-program-initialization-and-execution.md 15.1 | t.i == 0
+pre:
+	type T struct {
+		i    int
+		f    float64
+		next *T
+	}
+	var t T
+
+== 15-program-initialization-and-execution.md 15.2 | var x = a
+pre:
+	func f() (int, int) { return 1, 2 }
+
+== 15-program-initialization-and-execution.md 15.2 | var x = I(T{}).ab()  // x has an undetected, hidden dependency on a and b
+pre:
+	func sideEffect() int { return 0 }
+
+== 15-program-initialization-and-execution.md 15.2 | var ErrBadMagic error = formatError{want: 0x7f}
+pre:
+	type formatError struct{ want int }
+	func (e formatError) Error() string { return "bad magic" }
+	type entry struct {
+		name string
+		n    int
+	}
+	type node struct{ name string }
+
+== 15-program-initialization-and-execution.md 15.2 | var cache = make(map[string]int) // error in a freestanding build: allocates before an allocator exists
+mode: freestanding
+pre:
+	type BootInfo struct{}
+	func newSlab(info *BootInfo) alloc.Allocator { return nil }
+
+== 16-errors.md 16.1 | func Read(f *File, b []byte) (n int, err error)
+pre:
+	type File struct{}
+
+== 16-errors.md 16.3 | e1, e2 := parseHeader(nil), parseHeader(nil)
+pre:
+	func parseHeader(b []byte) error { return errors.New("bad header") }
+
+== 16-errors.md 16.5 | var perr *os.PathError
+pre:
+	var err error
+
+== 16-errors.md 16.7 | func run(name string) error {
+pre:
+	func loadConfig(name string) error { return nil }
+
+== 17-run-time-panics.md 17.2 | w := newWriter(os.Stdout)
+pre:
+	type Writer struct{}
+	func (w *Writer) Flush()             {}
+	func newWriter(f *os.File) *Writer { return nil }
+	var tmp string
+	var items []int
+	func process(items []int) {}
+
+== 17-run-time-panics.md 17.4 | //pu:panic
+pre:
+	type Serial struct{}
+	func (s *Serial) Write(p []byte) (int, error) { return len(p), nil }
+	var serial *Serial
+
+== 17-run-time-panics.md 17.4 | type Panic struct {
+pre:
+	type FaultKind int
+
+== 17-run-time-panics.md 17.6 | first := &ix.words.Slice()[0] // a view of the vector's array
+pre:
+	type Index owner struct{ words vec.Vec[string] }
+	func (ix *Index) Add(s string) { ix.words.Append(s) }
+	var ix *Index
+
+== 18-ownership-and-memory.md 18.5 | f := os.Open(name) or return
+sig: func specExample() error
+pre:
+	var name string
+	func send(f os.File) {}
+tail:
+	return nil
+
+== 18-ownership-and-memory.md 18.9 | func handle(req *Request) {
+pre:
+	type Request struct{ arena *arena.Chunked }
+	func parse(req *Request) {}
+
+== 18-ownership-and-memory.md 18.9 | func (s *Server) step(n int) {
+pre:
+	type Server owner struct {
+		arena arena.Chunked
+		last  string
+		n     int
+	}
+	func (s *Server) report(ns []string) {}
+	func (s *Server) send(msg string)    {}
+	type Job struct{}
+
+== 18-ownership-and-memory.md 18.9 | func (s *Server) handle() {
+pre:
+	type Server owner struct {
+		arena arena.Chunked
+		last  string
+		n     int
+	}
+	func (s *Server) report(ns []string) {}
+	func (s *Server) send(msg string)    {}
+
+== 18-ownership-and-memory.md 18.9 | func (s *Server) handle() { #2
+pre:
+	type Server owner struct {
+		arena arena.Chunked
+		last  string
+		n     int
+	}
+	func (s *Server) report(ns []string) {}
+	func (s *Server) send(msg string)    {}
+
+== 18-ownership-and-memory.md 18.11 | first := &ix.words.Slice()[0] // ix is a *Index; words is a vec.Vec[string]
+pre:
+	type Index owner struct{ words vec.Vec[string] }
+	func (ix *Index) Add(s string) { ix.words.Append(s) }
+	var ix *Index
+
+== 18-ownership-and-memory.md 18.13 | func splitHeader(b []byte) (magic, rest []byte) {
+pre:
+	func check(magic, rest []byte) error { return nil }
+
+== 18-ownership-and-memory.md 18.13 | func render(items []Item) vec.Vec[byte] {
+pre:
+	type Item struct{ line []byte }
+	var items []Item
+
+== 18-ownership-and-memory.md 18.13 | type Image owner struct {
+pre:
+	func (img *Image) decode(id uint64) {}
+	func draw(img *Image)               {}
+
+== 18-ownership-and-memory.md 18.13 | func handle(req *Request) error {
+pre:
+	type Request struct{ body []byte }
+	type Field struct{ key, val string }
+	func parseFields(b []byte, f *vec.Vec[Field]) {}
+	func send(req *Request, b []byte) error        { return nil }
+
+== 19-concurrency.md 19.3 | type Config struct{ n int }
+known: 168: dropping the old Config is not yet a write in the race check, so the task statement is not an error
+
+== 19-concurrency.md 19.3 | type Counter struct {
+pre:
+	func work(c *Counter, done chan bool) { c.Add() }
+
+== 19-concurrency.md 19.4 | func process(items []Item, results []Result) {
+pre:
+	type Item int
+	type Result int
+	func work(it Item) Result { return Result(it) }
+
+== 19-concurrency.md 19.4 | func fill() {
+known: 201: E3404 does not yet count a deferred call that can run before the join, so the deferred w.Drop() is not reported
+
+== 19-concurrency.md 19.4 | for i := range in {
+pre:
+	var in, out []int
+	func f(x int) int { return x }
+body:
+	var s sync.Scope
+
+== 19-concurrency.md 19.4 | func crawl(urls []string) (int, error) {
+pre:
+	func fetch(u string) (int, error) { return 0, nil }
+
+== 19-concurrency.md 19.4 | func sortPar(v []int) {
+pre:
+	func partition(v []int) int { return 0 }
+
+== 19-concurrency.md 19.5 | //pu:scheduler
+pre:
+	type kernelScheduler struct{}
+	func (kernelScheduler) NewTask(req rt.StackRequest) *rt.Task { return nil }
+	func (kernelScheduler) FreeTask(t *rt.Task)                  {}
+	func (kernelScheduler) Spawn(t *rt.Task)                     {}
+	func (kernelScheduler) Park(t *rt.Task)                      {}
+	func (kernelScheduler) Wake(t *rt.Task)                      {}
+	func (kernelScheduler) Yield(t *rt.Task)                     {}
+
+== 19-concurrency.md 19.6 | t := time.NewTimer(100 * time.Millisecond)
+pre:
+	var results chan int
+	func use(v int) {}
+
+== 20-system-considerations.md 20.1 | uintptr(unsafe.Pointer(&s)) + unsafe.Offsetof(s.f) == uintptr(unsafe.Pointer(&s.f))
+pre:
+	var s struct {
+		a int
+		f int
+	}
+
+== 20-system-considerations.md 20.4 | //pu:extern lua_pushinteger
+pre:
+	type State struct{}
+
+== 20-system-considerations.md 20.9 | //pu:percpu
+pre:
+	type Thread struct{}
+
+== 20-system-considerations.md 20.9 | x := ticks
+mode: kernel
+with: 20-system-considerations.md 20.9 | //pu:percpu
+with: 20-system-considerations.md 20.9 | //pu:percpu #2
+pre:
+	type Thread struct{}
+	var idle, next *Thread
+
+== 20-system-considerations.md 20.10 | select {
+pre:
+	var work chan int
+	var item int
+
+== f-library-names.md F.1 | type Scheduler interface {
+pre:
+	type StackRequest struct{}
+	type Task struct{}
+
+== abi.md 3.4 | func f(s string, n int) (int, bool)    // RDI=s.ptr RSI=s.len RDX=s.ctl RCX=n -> RAX=int, RDX=bool
+pre:
+	type T struct{}
+	type Vec3 struct{ x, y, z float64 }
+	type Reader struct{}
+
+== abi.md 10.6 | //pu:percpu
+pre:
+	type Thread struct{}
+	type RunQueue struct{}
+
+== abi.md 12.5 | type Scheduler interface {
+pre:
+	type StackRequest struct{}
+	type Task struct{}
+
+== abi.md 12.9 | func (t *Timer) Init(f func(arg unsafe.Pointer, now int64), arg unsafe.Pointer)
+pre:
+	type Timer struct{}
+
+== 18-ownership-and-memory.md 18.3 | func reset(p *owned[T]) { *p = new(T) } // drops the old box
+known: 199: E3313 does not yet end an interface that holds a copied one-word owner, so the use of x after reset(&b) is not an error
+pre:
+	type T struct{ n int }
+
+== 18-ownership-and-memory.md 18.4 | var ps [3]*T
+pre:
+	type T struct{ n int }
+
+== 18-ownership-and-memory.md 18.3 | func show[T any](x T) {
+known: 208: E3313 does not yet end a view obtained from a value of a type parameter, so the use of i after x = z is not an error
+
+== 18-ownership-and-memory.md 18.3 | var p *string
+known: 146: E3313 covers only owners, and s is a counted string, so the use of *p after the block is not an error yet
