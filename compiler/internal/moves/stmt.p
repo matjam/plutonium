@@ -45,11 +45,17 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 	switch st := st.(type) {
 	case nil, *ast.EmptyStmt, *ast.BadStmt:
 	case *ast.ExprStmt:
+		u := f.beginUnit()
 		f.expr(st.X)
+		f.endUnit(u, st, nil)
 	case *ast.DeclStmt:
+		u := f.beginUnit()
 		f.declStmt(st)
+		f.endUnit(u, st, nil)
 	case *ast.AssignStmt:
+		u := f.beginUnit()
 		f.assignStmt(st)
+		f.endUnit(u, st, st.Lhs)
 	case *ast.OrStmt:
 		f.orStmt(st)
 	case *ast.IncDecStmt:
@@ -60,7 +66,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 	case *ast.IfStmt:
 		before := f.env.clone()
 		f.stmt(st.Init, "")
-		f.expr(st.Cond)
+		f.exprUnit(st.Cond)
 		entry := f.env.clone()
 		f.block(st.Body)
 		after := f.env
@@ -80,7 +86,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 		f.stmt(st.Init, "")
 		f.loop(st, label, func() {
 			if st.Cond != nil {
-				f.expr(st.Cond)
+				f.exprUnit(st.Cond)
 			}
 		}, func() {
 			f.block(st.Body)
@@ -90,7 +96,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 	case *ast.SwitchStmt:
 		f.stmt(st.Init, "")
 		if st.Tag != nil {
-			f.expr(st.Tag)
+			f.exprUnit(st.Tag)
 		}
 		f.clauses(label, st.Body.List, func(c ast.Stmt) []ast.Stmt {
 			cc := c.(*ast.CaseClause)
@@ -147,19 +153,27 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 	case *ast.BranchStmt:
 		f.branch(st)
 	case *ast.ReturnStmt:
+		u := f.beginUnit()
 		f.returnStmt(st)
+		f.endUnit(u, st, nil)
 		f.env = nil
 	case *ast.DeferStmt:
+		u := f.beginUnit()
 		f.deferStmt(st)
+		f.endUnit(u, st, nil)
 	case *ast.TaskStmt:
+		u := f.beginUnit()
 		f.call(st.Call, mvGo)
+		f.endUnit(u, st, nil)
 	case *ast.SendStmt:
+		u := f.beginUnit()
 		f.expr(st.Chan)
 		var elem types2.Type
 		if ch, ok := f.c.typeOf(st.Chan).Underlying().(*types2.Chan); ok {
 			elem = ch.Elem()
 		}
 		f.consume(st.Value, elem, move{kind: mvSend, to: exprText(st.Chan)})
+		f.endUnit(u, st, nil)
 	}
 }
 
@@ -270,7 +284,9 @@ func (f *fn) assignStmt(st *ast.AssignStmt) {
 // left is assigned, then the assignment of the other results. The clause
 // leaves, so the path out of it does not reach the statement after.
 func (f *fn) orStmt(st *ast.OrStmt) {
+	u := f.beginUnit()
 	f.expr(st.Call)
+	f.endUnit(u, st.Call, nil)
 	after := f.env.clone()
 	r, isReturn := st.Clause.(*ast.ReturnStmt)
 	form := types2.OrReturnPlain
@@ -393,7 +409,7 @@ func (f *fn) multi(e ast.Expr) {
 }
 
 func (f *fn) rangeStmt(st *ast.RangeStmt, label string) {
-	f.expr(st.X)
+	f.exprUnit(st.X)
 	xt := f.c.typeOf(st.X)
 	var elem types2.Type
 	switch u := xt.Underlying().(type) {

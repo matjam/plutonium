@@ -1,0 +1,9 @@
+$DIR/main.p:37:8: a is used here and moved by the same expression at column 17
+$DIR/main.p:40:6: b is used here and moved by the same expression at column 22
+$DIR/main.p:43:2: c is used here and moved by the same expression at column 11
+$DIR/main.p:46:15: d is used here and moved by the same expression at column 27
+$DIR/main.p:51:9: e is used here and moved by the same expression at column 26
+$DIR/main.p:55:8: f is used here and moved by the same expression at column 22
+$DIR/main.p:58:5: g was moved into take2 (its parameter takes a Buf by value) at line 58, so it can no longer be used here
+$DIR/main.p:61:28: h is used here and moved by the same expression at column 41
+$DIR/main.p:66:11: i is used here and moved by the same expression at column 23

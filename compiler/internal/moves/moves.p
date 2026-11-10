@@ -470,6 +470,9 @@ type fn struct {
 	argKey    map[ast.Expr]ast.Expr
 	checkedAt map[*ast.Ident]ast.Expr
 	writing   ast.Expr
+
+	// unitMoves are the moves made in the unit being walked (oneexpr.p).
+	unitMoves []unitMove
 }
 
 // A target is a statement that break or continue may leave.
@@ -641,6 +644,7 @@ func (f *fn) moveVar(id *ast.Ident, v *types2.Var, gomv move) {
 	if f.report {
 		f.c.info.Moves[id] = true
 	}
+	f.noteMove(id, v, mv.kind)
 }
 
 // moveOut records that v, read at id, no longer holds a value, without
@@ -661,6 +665,7 @@ func (f *fn) moveOut(id *ast.Ident, v *types2.Var, gomv move) {
 		f.env[v] = vstate{st: moved, mv: mv, dd: f.env[v].dd, pin: f.env[v].pin, hpin: f.env[v].hpin, dl: f.env[v].dl}
 		f.invalidate(v, (*mv))
 	}
+	f.noteMove(id, v, mv.kind)
 }
 
 // assignVar gives v a value. It holds no views until the assignment says
