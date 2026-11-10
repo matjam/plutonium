@@ -222,8 +222,8 @@ const (
 	BoxOfInterface
 	// BadWeakElem: weak[P] with P other than shared[T] or synced[T].
 	BadWeakElem
-	// OwnerConversion: a conversion of a value into an owner type outside
-	// the package that declares it, or of a view into a box.
+	// OwnerConversion: a conversion or literal that makes an owner outside
+	// the package that declares the owner type, or a view into a box.
 	OwnerConversion
 	// MapOfOwner: a map type whose key or element type is an owner, which
 	// reading an element would copy.

@@ -270,6 +270,11 @@ func (check *Checker) compositeLit(x *operand, e *ast.CompositeLit, hint Type) {
 		if len(e.Elts) == 0 {
 			break
 		}
+		if check.ownerLiteral(e, base, utyp) {
+			check.useLitElts(e)
+			x.invalidate()
+			return
+		}
 		// Convention for error messages on invalid struct literals:
 		// we mention the struct type only if it clarifies the error
 		// (e.g., a duplicate field error doesn't need the struct type).

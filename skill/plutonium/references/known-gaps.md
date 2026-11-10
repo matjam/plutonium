@@ -13,8 +13,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - A local `vec.Vec` of owners whose element drops run through `rt.ReleaseValues` or `ZeroValues`: the escape
   analysis gives those calls no effects (`review3/o14`). Item 180.
 - A view of a local that has cleanup but is not an owner, used after its scope ends, is not E3313 yet (18.3). Item 146.
-- Conversions to an owner type, `*Owner` pointer conversions and literals of an owner struct with an unexported field
-  outside the defining package are not E3212 yet (7.18, 11.24). Item 147.
 - A conversion to a type defined from another package's owner type (`MyFrame(x)` for `type MyFrame owner p.Frame`)
   is not E3212 yet where converting `x` to `p.Frame` is not allowed (11.24). Item 200.
 - A type switch, assertion or conversion on an ordinary interface does not yet move or lend as 18.5 says. Item 148.

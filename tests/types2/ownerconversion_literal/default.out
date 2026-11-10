@@ -1,0 +1,15 @@
+$DIR/main.p:5:32: cannot make a literal of owner type sys.File outside package sys: field fd is unexported
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A literal of sys.File makes a new
+    owner. sys.File has the unexported field fd, so its package keeps invariants
+    that a literal written elsewhere could break, and only that package may make
+    one.
+    Use a constructor from the package that declares sys.File.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:7:34: cannot make a literal of owner type sys.File outside package sys: field fd is unexported
+    (explained above; run "pluto explain E3212" for more)
+
+$DIR/main.p:9:36: cannot make a literal of owner type sys.File outside package sys: field fd is unexported
+    (explained above; run "pluto explain E3212" for more)

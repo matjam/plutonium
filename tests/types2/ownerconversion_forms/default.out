@@ -1,0 +1,81 @@
+$DIR/main.p:12:37: cannot convert 3 (untyped int constant) to owner type sys.Fd outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. Converting a plain untyped int into a
+    sys.Fd would make a second owner of whatever the value refers to (a
+    descriptor, a page frame), and both would release it. Only the package that
+    declares sys.Fd may do that, where its invariants are kept.
+    Use a constructor from the package that declares sys.Fd.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:14:43: cannot convert f (value of int32 type Fake) to owner type sys.Fd outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. Converting the owner Fake into a sys.Fd
+    moves it, but the result is a sys.Fd that nobody in its package made. Fake
+    is made by the rules of another package, perhaps from any number, so the
+    conversion could forge a sys.Fd. Only the package that declares sys.Fd may
+    do that, where its invariants are kept, or the package of a type defined
+    from sys.Fd.
+    Use a constructor from the package that declares sys.Fd.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:16:53: cannot convert fd (value of int32 type sys.Fd) to owner type sys.Other outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. Converting the owner sys.Fd into a
+    sys.Other moves it, but the result is a sys.Other that nobody in its package
+    made. sys.Fd is made by the rules of another package, perhaps from any
+    number, so the conversion could forge a sys.Other. Only the package that
+    declares sys.Other may do that, where its invariants are kept, or the
+    package of a type defined from sys.Other.
+    Use a constructor from the package that declares sys.Other.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:18:53: cannot convert n (value of type *int32) to *sys.Fd: the pointer gives write access to an owner of type sys.Fd outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A pointer conversion from *int32 to
+    *sys.Fd lets code read and write the same object as either type. A write
+    through it could make a sys.Fd from a plain value, or replace one, so the
+    conversion is allowed only where int32 converts to sys.Fd and sys.Fd
+    converts to int32. Only the package that declares sys.Fd may do that, where
+    its invariants are kept.
+    Use the functions and methods of the package that declares sys.Fd.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:20:55: cannot convert fd (value of type *sys.Fd) to *int32: the pointer gives write access to an owner of type sys.Fd outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A pointer conversion from *sys.Fd to
+    *int32 lets code read and write the same object as either type. A write
+    through it could make a sys.Fd from a plain value, or replace one, so the
+    conversion is allowed only where sys.Fd converts to int32 and int32 converts
+    to sys.Fd. Only the package that declares sys.Fd may do that, where its
+    invariants are kept.
+    Use the functions and methods of the package that declares sys.Fd.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:22:56: cannot convert f (value of type *Fake) to *sys.Fd: the pointer gives write access to an owner of type sys.Fd outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A pointer conversion from *Fake to
+    *sys.Fd lets code read and write the same object as either type. A write
+    through it could make a sys.Fd from a plain value, or replace one, so the
+    conversion is allowed only where Fake converts to sys.Fd and sys.Fd converts
+    to Fake. Only the package that declares sys.Fd may do that, where its
+    invariants are kept.
+    Use the functions and methods of the package that declares sys.Fd.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:24:51: cannot convert s (value of union type FakeSlot) to owner type sys.Slot outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. Converting the owner FakeSlot into a
+    sys.Slot moves it, but the result is a sys.Slot that nobody in its package
+    made. FakeSlot is made by the rules of another package, perhaps from any
+    number, so the conversion could forge a sys.Slot. Only the package that
+    declares sys.Slot may do that, where its invariants are kept, or the package
+    of a type defined from sys.Slot.
+    Use a constructor from the package that declares sys.Slot.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)

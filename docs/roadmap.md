@@ -38,7 +38,7 @@ one covers:
   one model (D109 to D115, the "Race rules rewrite" section of the
   [rulings](verification/2026-11-09-spec-rulings.md)).
 - **Phase 1, soundness in the compiler.** The rulings' compiler work (items 146 to 176, first A1, C1, C2,
-  B1 and B10: items 146, 147, 148, 152, 159; and item 177); a consuming method value (item 178); the
+  B1 and B10: items 146, 147 (done), 148, 152, 159; and item 177); a consuming method value (item 178); the
   view-tracking cases left by item 138 (item 179); the escape contract of `rt.ReleaseValues` (item 180);
   the false escape errors in `types2` unit-test builds (item 181, done); the lowering backstops (item 182); the
   order of evaluation in the rest of lowering (item 183); the allocators the race check does not follow
@@ -727,10 +727,15 @@ compiler (2026-10-11).
 146. **Views of a local with cleanup end at its scope** (planned; section 18.3, D42, finding A1 of the
     [rulings](verification/2026-11-09-spec-rulings.md)): E3313 covers every local whose type has drop glue, not only owners, and its catalog text
     says so.
-147. **Owner conversions and literals stay in the defining package** (planned; sections 7.13, 7.18, 8.11,
+147. **Owner conversions and literals stay in the defining package** (done; sections 7.13, 7.18, 8.11,
     11.3, 11.24, D43, finding C1): E3212 for conversions to an owner type, a pointer to one or an owner
     union outside its package, for pointer conversions from `*Owner`, and for literals of an owner struct
-    with an unexported field; widen the catalog text.
+    with an unexported field; widen the catalog text. `ownerConversion` in `types2/plutonium_owner.p`
+    applies rules 1 and 3 of 11.24 (rule 3 also in the package of an operand type defined from the
+    target) and the pointer rule (both directions), and `ownerLiteral` checks keyed and unkeyed literals;
+    an empty literal `T{}` stays allowed, as it is the zero value. Converting a value to an owning
+    interface is not a conversion to an owner type and stays allowed. Tests: `tests/types2/ownerconversion`
+    (accepted forms), `ownerconversion_forms` and `ownerconversion_literal`.
 200. **Owner conversions through a type defined from another owner** (planned; sections 11.24, 18.5, 8.11,
     7.18, D72, finding E2 of audit E; extends item 147): for `type T owner A`, `T(x)` and the pointer and
     union forms are E3212 unless converting `x` to `A` is allowed too; `T(a)` with `a` of type `A` stays

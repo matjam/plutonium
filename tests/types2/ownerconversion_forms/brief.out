@@ -1,0 +1,7 @@
+$DIR/main.p:12:37: cannot convert 3 (untyped int constant) to owner type sys.Fd outside package sys
+$DIR/main.p:14:43: cannot convert f (value of int32 type Fake) to owner type sys.Fd outside package sys
+$DIR/main.p:16:53: cannot convert fd (value of int32 type sys.Fd) to owner type sys.Other outside package sys
+$DIR/main.p:18:53: cannot convert n (value of type *int32) to *sys.Fd: the pointer gives write access to an owner of type sys.Fd outside package sys
+$DIR/main.p:20:55: cannot convert fd (value of type *sys.Fd) to *int32: the pointer gives write access to an owner of type sys.Fd outside package sys
+$DIR/main.p:22:56: cannot convert f (value of type *Fake) to *sys.Fd: the pointer gives write access to an owner of type sys.Fd outside package sys
+$DIR/main.p:24:51: cannot convert s (value of union type FakeSlot) to owner type sys.Slot outside package sys

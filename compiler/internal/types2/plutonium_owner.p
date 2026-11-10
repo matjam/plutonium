@@ -469,27 +469,147 @@ func (check *Checker) reportTypeArg(at positioner, err error, what string) {
 	check.softErrorf(at, InvalidTypeArg, "%s", err)
 }
 
-// ownerConversion reports a conversion T(x) that would make a new owner
-// outside the package that declares the owner type T (language spec
-// section 6.4): an owner is made from a plain value only where its
-// invariants are kept, as only its package can fill its unexported fields.
-// Converting an owner to a non-owner reads it, and converting between
-// owner types moves it; both are allowed anywhere.
+// ownerConversion reports a conversion T(x) that would make an owner
+// outside the package where its invariants are kept (language spec section
+// 11.24, Owners). Converting a value to an owner type makes a new owner
+// (rule 1), and converting an owner to another owner type gives a value
+// that nobody in the target's package made (rule 3): both are allowed only
+// in the package that declares the target, or for rule 3 in the package of
+// an operand type defined from the target.
+// A pointer conversion (*T)(p) of a *S, where S or T is an owner, gives
+// read and write access as either type, so it needs both S to T and T to S.
+// Converting an owner to a non-owner reads it and is allowed anywhere.
 func (check *Checker) ownerConversion(x *operand, T Type) {
-	if !IsOwner(T) || IsOwner(x.typ()) || x.isNil() {
+	if x.isNil() {
 		return
 	}
-	n := asNamed(Unalias(T))
-	if n == nil || n.Origin().obj.pkg == check.pkg {
-		return // a box from unsafe.Pointer is unsafe code
+	V := x.typ()
+	if c := check.ownerConvDenied(V, T, 0); c != nil {
+		check.ownerConvError(x, T, c)
+		return
 	}
-	t, v := check.sprintf("%s", T), check.sprintf("%s", x.typ())
+	// The pointer form: the bases must convert both ways.
+	vp, _ := V.Underlying().(*Pointer)
+	tp, _ := T.Underlying().(*Pointer)
+	if vp == nil || tp == nil || Identical(vp.base, tp.base) || (!IsOwner(vp.base) && !IsOwner(tp.base)) {
+		return
+	}
+	c := check.ownerConvDenied(vp.base, tp.base, 0)
+	if c == nil {
+		c = check.ownerConvDenied(tp.base, vp.base, 0)
+	}
+	if c == nil {
+		return
+	}
+	t, s, o := check.sprintf("%s", tp.base), check.sprintf("%s", vp.base), check.sprintf("%s", c)
+	pkg := c.Origin().obj.pkg.name
 	check.explainf(x, OwnerConversion, pu.New(Explanation{
-		Text: compat.Concat(whatOwners+" Converting a plain ", v, " into ", article(t), " would make a second owner of whatever the value refers to (a descriptor, a page frame), and both would release it. Only the package that declares ", t, " may do that, where its invariants are kept."),
+		Text: compat.Concat(whatOwners+" A pointer conversion from *", s, " to *", t, " lets code read and write the same object as either type. A write through it could make ", article(o), " from a plain value, or replace one, so the conversion is allowed only where ", s, " converts to ", t, " and ", t, " converts to ", s, ". Only the package that declares ", o, " may do that, where its invariants are kept."),
+		Fixes: compat.Clone([]ExplainFix{{
+			Intro: compat.Concat("Use the functions and methods of the package that declares ", o, "."),
+		}}),
+	}), "cannot convert %s to %s: the pointer gives write access to an owner of type %s outside package %s", x, pu.Box(check.sprintf("%s", T)), pu.Box(o), pu.Box(pkg))
+}
+
+// ownerConvDenied reports the owner type whose package alone may make the
+// conversion from V to T by rules 1 and 3 of section 11.24, or nil if the
+// conversion is allowed here. Type parameters are left alone, as are
+// interfaces: converting a value to an owning interface copies it.
+func (check *Checker) ownerConvDenied(V, T Type, depth int) *Named {
+	V, T = Unalias(V), Unalias(T)
+	if depth > 32 || V == nil || T == nil || isTypeParam(V) || isTypeParam(T) || Identical(V, T) || IsInterface(T) || !IsOwner(T) {
+		return nil
+	}
+	n := asNamed(T)
+	if n == nil {
+		// An unnamed owner type is a box, made from unsafe.Pointer only in
+		// unsafe code, or an array of owners, which converts only from an
+		// array with identical elements.
+		return nil
+	}
+	if pkg := n.Origin().obj.pkg; pkg != nil && pkg != check.pkg {
+		if !IsOwner(V) || !check.ownerDefinedFrom(V, T) {
+			return n
+		}
+	}
+	return nil
+}
+
+// ownerRHS returns the owner type that the owner type n is defined from
+// (type n owner A), or nil if n is defined from a type that is not an
+// owner.
+func ownerRHS(n *Named) Type {
+	n.Underlying() // complete the type
+	rhs := n.fromRHS
+	if rhs == nil || !IsOwner(rhs) {
+		return nil
+	}
+	return rhs
+}
+
+// ownerDefinedFrom reports whether V is an owner type of the package being
+// checked that is defined from T, directly or through other owner types.
+func (check *Checker) ownerDefinedFrom(V, T Type) bool {
+	n := asNamed(V)
+	if n == nil || n.Origin().obj.pkg != check.pkg {
+		return false
+	}
+	for i := 0; i < 32; i++ {
+		rhs := ownerRHS(n)
+		if rhs == nil {
+			return false
+		}
+		if Identical(rhs, T) {
+			return true
+		}
+		n = asNamed(Unalias(rhs))
+		if n == nil {
+			return false
+		}
+	}
+	return false
+}
+
+// ownerConvError reports the conversion T(x) that only the package of the
+// owner type c may make.
+func (check *Checker) ownerConvError(x *operand, T Type, c *Named) {
+	t, v := check.sprintf("%s", T), check.sprintf("%s", x.typ())
+	pkg := c.Origin().obj.pkg.name
+	text := compat.Concat(whatOwners+" Converting a plain ", v, " into ", article(t), " would make a second owner of whatever the value refers to (a descriptor, a page frame), and both would release it. Only the package that declares ", t, " may do that, where its invariants are kept.")
+	if IsOwner(x.typ()) {
+		text = compat.Concat(whatOwners+" Converting the owner ", v, " into ", article(t), " moves it, but the result is ", article(t), " that nobody in its package made. ", v, " is made by the rules of another package, perhaps from any number, so the conversion could forge ", article(t), ". Only the package that declares ", t, " may do that, where its invariants are kept, or the package of a type defined from ", t, ".")
+	}
+	check.explainf(x, OwnerConversion, pu.New(Explanation{
+		Text: text,
 		Fixes: compat.Clone([]ExplainFix{{
 			Intro: compat.Concat("Use a constructor from the package that declares ", t, "."),
 		}}),
-	}), "cannot convert %s to owner type %s outside package %s", x, pu.Box(t), pu.Box(n.Origin().obj.pkg.name))
+	}), "cannot convert %s to owner type %s outside package %s", x, pu.Box(t), pu.Box(pkg))
+}
+
+// ownerLiteral reports a composite literal of an owner struct type from
+// another package that has an unexported field, keyed or not, and reports
+// whether it did (language spec sections 7.18 and 11.3). Such a literal
+// makes a new owner outside the package that keeps its invariants; an
+// owner struct whose fields are all exported makes its literal public.
+func (check *Checker) ownerLiteral(e *ast.CompositeLit, base Type, s *Struct) bool {
+	if !IsOwner(base) {
+		return false
+	}
+	for _, fld := range s.fields {
+		if fld.Exported() || fld.pkg == check.pkg {
+			continue
+		}
+		t := check.sprintf("%s", base)
+		check.explainf(e, OwnerConversion, pu.New(Explanation{
+			Text: compat.Concat(whatOwners+" A literal of ", t, " makes a new owner. ", t, " has the unexported field ", fld.name, ", so its package keeps invariants that a literal written elsewhere could break, and only that package may make one."),
+			Fixes: compat.Clone([]ExplainFix{{
+				Intro: compat.Concat("Use a constructor from the package that declares ", t, "."),
+			}}),
+		}), "cannot make a literal of owner type %s outside package %s: field %s is unexported", pu.Box(t), pu.Box(fld.pkg.name), pu.Box(fld.name))
+		return true
+	}
+	return false
 }
 
 // ownerOperand reports the operator op applied to x, an operand of owner
