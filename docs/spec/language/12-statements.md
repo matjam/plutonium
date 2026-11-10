@@ -473,6 +473,21 @@ The type switch guard may be preceded by a simple statement, which executes befo
 
 **Owners in type switches.** A case that names an owner type is an error when the switch expression has an ordinary interface type (E3308), because an ordinary interface only lends the value it holds (section 11.13, Type assertions). When the switch expression is a whole variable of an owning interface type and the guard declares a variable, `switch v := x.(type)` moves the value out of `x` into `v` in every clause except one whose single case names an ordinary interface type. The default clause and a clause with several cases move too. The variable `v` is dropped at the end of its clause unless the clause moves it on, and `x` holds nothing afterward on that path. In a clause whose single case names an ordinary interface type, nothing moves: `v` lends from `x`, as an assertion to an ordinary interface does, and `x` keeps the value. The path where no case matches, in a switch without a default clause, moves nothing either. After the switch, `x` holds nothing if every path moved it, holds its value if none did, and otherwise counts as possibly moved (E3302; section 18.5, Moves). Without a declared variable nothing moves.
 
+**Switching on a place.** A switch with a declared variable whose expression is an owning interface or an owner union held in a field, an element or `*p`, rather than in a whole variable or a temporary, would move out of a place that still holds the value. That is error E3303 (section 18.5, Places), as for a moving assertion (section 11.13). Take the value out first and put back what the clauses keep, which is the usual shape of a driver's state machine:
+
+```go
+func (d *Dev) step() {
+	switch s := take(&d.state).(type) { // d.state holds the zero value meanwhile
+	case State.Busy:
+		d.state = State.Busy(s) // put the payload back
+	default:
+		d.state = s // in the default clause s has the union type
+	}
+}
+```
+
+A switch without a declared variable reads the place and moves nothing.
+
 ```go
 type Resource owner interface{ Read(p []byte) (int, error) }
 
@@ -544,7 +559,7 @@ for      { S() }    // is the same as    for true     { S() }
 
 A temporary in the condition or in the post statement is dropped after each evaluation of it (section 18.6, Drops).
 
-**Iteration variables.** The variables that a `for` clause or a `range` clause declares, and the variables and temporaries that the body declares, are stored in the same memory in every iteration (section 18.4, Loop iterations reuse their storage). The variable of the first iteration is declared by the init statement. A program that compiles behaves as if each iteration had variables of its own: the variable of each subsequent iteration is initialized, before the post statement, to the value of the previous iteration's variable at that moment. The two descriptions agree because a view of an iteration's variable (a closure that uses it, `&x`, a slice of a local array) may not be kept where the next iteration can see it (E3006). Within the iteration, views behave exactly as they would with separate variables. Owners declared in the body are dropped at the end of each iteration (section 18.6, Drops).
+**Iteration variables.** The variables that a `for` clause or a `range` clause declares, and the variables and temporaries that the body declares, are stored in the same memory in every iteration (section 18.4, Loop iterations reuse their storage). The variable of the first iteration is declared by the init statement. A program that compiles behaves as if each iteration had variables of its own: the variable of each subsequent iteration is initialized, before the post statement, to the value of the previous iteration's variable at that moment. The two descriptions agree because a view of an iteration's variable (a closure that uses it, `&x`, a slice of a local array) may not be kept where the next iteration can see it (E3006). Within the iteration, views behave exactly as they would with separate variables. Owners declared in the body are dropped at the end of each iteration (section 18.6, Drops). A variable of owner type declared in the `for` clause is not copied from one iteration to the next: its value moves to the next iteration's variable, and it is dropped once, when the loop ends, on every path out of it.
 
 ```go
 var fs [3]func() int
@@ -562,7 +577,7 @@ RangeClause = [ ExpressionList "=" | IdentifierList ":=" ] "range" Expression .
 
 The expression on the right in the `range` clause is called the range expression. It may be an array, pointer to an array, slice, string, map, channel permitting receive operations, an integer, an enum type, a function with specific signature (section 12.11, Range over functions), or a value of a library container type (below). As with an assignment, if present the operands on the left must be addressable, map index expressions or container index expressions (section 11.11, Indexing library containers). They denote the iteration variables. If the range expression is a function, the maximum number of iteration variables depends on the function signature. If the range expression is a channel, an integer or an enum type, at most one iteration variable is permitted. Otherwise there may be up to two. If the last iteration variable is the blank identifier, the range clause is equivalent to the same clause without that identifier.
 
-The range expression `x` is evaluated before beginning the loop, with one exception: if at most one iteration variable is present and `x` or `len(x)` is constant, the range expression is not evaluated. Function calls on the left are evaluated once per iteration. For each iteration, iteration values are produced as follows if the respective iteration variables are present:
+The range expression `x` is evaluated before beginning the loop, with one exception: if at most one iteration variable is present and `x` or `len(x)` is constant, the range expression is not evaluated. The loop ranges over the value of that one evaluation, held in a hidden temporary. When the value is counted (a string, a map, a channel, or a value that holds one), the temporary holds a count of its own until the loop ends, so a body that assigns to the variable named in the range expression (`for k := range m { m = nil }`, `for i, r := range s { s = "" }`) does not end the iteration or free what the loop reads: the loop continues over the original value, as in Go. This costs one count and one release per loop. Function calls on the left are evaluated once per iteration. For each iteration, iteration values are produced as follows if the respective iteration variables are present:
 
 ```
 Range expression                                       1st value                2nd value
@@ -815,7 +830,7 @@ The function value and arguments are evaluated as usual in the starting task (se
   the slice the function receives is not a view of the starting frame, and each argument crosses as a value.
 - Every argument, and the receiver, must be sendable (section 19.2, The sendable rule), or the statement is an error. A `shared[T]` is not sendable.
 - A view of the starting frame cannot be passed at all (E3004, or E2011 where the type checker sees it directly; a capturing function literal or method value passed as a func-typed argument is E2590 or E2594, as under Closures below), because the task may outlive the frame (section 18.3, Views). Passing the address of a local `sync.WaitGroup` is this error. Use a package-level variable, or a `sync.Scope` (below).
-- A view of other memory crosses only when what it points to cannot change while both tasks may use it (section 19.2, The sendable rule; section 19.3, Data race freedom).
+- A view of other memory crosses only when what it points to cannot change while both tasks may use it (section 19.2, The sendable rule; section 19.3, Data race freedom). Freeing, dropping or moving the object, or replacing or dropping an owner that holds it, is a change (section 19.3, Frees are writes).
 
 **A method of a box.** `task p.Serve()`, where `Serve` has a pointer receiver and `p` is an `owned[T]` or a `synced[T]`, hands the box itself to the new task, so the object lives as long as the task needs it and no view of the starting frame is involved.
 

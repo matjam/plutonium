@@ -865,7 +865,12 @@ reference is: the interface is a view of the variable that was converted and hol
 `func f() any { return make(chan int) }` is a compile error, since the interface would outlive the
 temporary channel (section 18.3, Views).
 
-A larger value (a string, a slice, a larger array, struct or union) is copied into a temporary in the frame of
+An owner larger than one word that is lent to an ordinary interface is not copied: the data word points at
+the variable that was converted (or the temporary, for a temporary owner), so the interface is a view of that
+variable and sees its current value, as section 18.3 requires. `x := any(v); v.Push(1); fmt.Println(x)` prints
+the vector with the new element.
+
+Any other larger value (a string, a slice, a larger array, struct or union) is copied into a temporary in the frame of
 the function that performs the conversion, and the data word points at that copy. The interface value is valid
 until that function returns, exactly like a pointer to a local variable. A copy that holds counted values
 holds references of its own. For an ordinary interface, the frame copy releases these references when
@@ -1327,7 +1332,8 @@ type Slot owner union {
 
 An owner union moves instead of being copied. Dropping it drops the payload of the variant it holds, and
 giving it a new variant drops the old payload first. A type switch with a binding on an owner union variable
-(`switch v := s.(type)`) moves the payload into the binding of the clause that runs, which drops it at the end
+(`switch v := s.(type)`; on a field, an element or `*p` it is error E3303, and `take(&d.state)` is the fix, section
+12.9) moves the payload into the binding of the clause that runs, which drops it at the end
 of the clause unless it moves on; the variable is empty afterwards. The comma-ok assertion
 `f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true; where it is false `s` keeps it
 (section 11.13 says how the compiler follows `ok`). A
@@ -1380,7 +1386,7 @@ type Frag packed be uint16 {
 }
 
 func demo(raw uint32) uint32 {
-	reg := ControlReg(raw)   // a raw register value becomes a typed view
+	reg := ControlReg(raw)   // a raw register value becomes a typed value
 	reg.enable = true
 	return uint32(reg)       // the reserved bits of raw are returned unchanged
 }
@@ -1419,7 +1425,7 @@ func demo(raw uint32) uint32 {
     integer rule.
 - **Conversions.** A packed type converts to and from an integer type of the same size, or a byte array of the
   same length (section 11.24, Conversions). Every bit is kept in both directions, the reserved bits included,
-  so converting back returns the same value. That is how a raw register value becomes a typed view. Writing a
+  so converting back returns the same value. That is how a raw register value becomes a typed value. Writing a
   field changes only that field's bits.
 - **Defined types.** `type R2 ControlReg` declares a new packed type with the same fields, backing, byte
   order and bit layout, and none of `ControlReg`'s methods. `R2` and `ControlReg` convert to each other
@@ -1578,7 +1584,7 @@ the loop: the position then counts the pushes since the reset, so the loop ends,
 among the elements pushed after the reset.
 
 A ring of owners is an owner: popping moves an element out, and dropping the ring drops the elements it holds.
-`Pop` moves the oldest element out of the ring (section 18.5, Moves); `Peek`, `All` and `Values` yield views (`*T`) of an owner element, as section 12.10 (Owners in iterators) says.
+`Pop` moves the oldest element out of the ring (section 18.5, Moves); `Peek`, `All` and `Values` yield views (`*T`) of an owner element, as section 12.10 (Owners in iterators) says. For a ring in a local variable, such a view ends at a call of `Pop` or `Reset` on the ring, which moves or drops elements, and using it afterwards is E3313 (section 18.3, A local owner's memory). In a loop over `All` or `Values`, the yielded view is valid until the body pops it.
 
 **Kind.** `ring[T, N]` has the kind of `T` (section 8.7).
 

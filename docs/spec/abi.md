@@ -573,9 +573,12 @@ The region retains every counted component it stores, including those in capture
 copied method receivers: strings, maps, channels, counted boxes, weak references and counted errors,
 recursively through aggregates (language spec sections 18.7 and 18.8). Pointer-receiver records retain
 their existing borrowing semantics. The drop word is 0, or the closure record of the function's **drop
-function** (`<function symbol>·rdrop`), installed when there is typed counted cleanup or a nested region.
-That function takes the region address, releases each stored counted component exactly once, drops
-nested regions and clears the word. This introduces no hidden heap allocation.
+function** (`<function symbol>·rdrop`), installed when there is typed cleanup or a nested region.
+The region owns every captured variable that has drop glue, owners included (language spec section 11.5):
+the function's return does not drop them. The drop function takes the region address, runs the drop
+glue of each captured owner exactly once (its `Drop` method, then its fields, as section 18.6 orders the
+variables of a block), releases each stored counted component exactly once, drops nested regions and
+clears the word. This introduces no hidden heap allocation.
 The caller zeroes the regions it reserves when it is entered, drops a region
 before each call that refills it, and drops its regions when it returns: a call of a known function calls
 that function's drop function, and a call through a func value or an interface calls the record in the
@@ -609,9 +612,10 @@ An interface value is `{tab, data}`.
   pointers, `unsafe.Pointer`, func values, channels, maps, `owned`/`shared`/`synced`, `weak`, packed
   values of up to 8 bytes, and structs with one field or arrays of length 1 whose field or element is one
   of these pointer-shaped types or, recursively, such a struct or array): zero-extended integers and
-  booleans, float bits, or the address. For every other type `data` points at a copy of the value in the
-  frame of the function that made the conversion, or in static storage for a conversion in the
-  initializer of a package-level variable (language spec section 7.9).
+  booleans, float bits, or the address. An owner of any other type lent to an ordinary interface is not
+  copied: `data` points at the variable or temporary that was converted (language spec section 7.9). For
+  every other type `data` points at a copy of the value in the frame of the function that made the
+  conversion, or in static storage for a conversion in the initializer of a package-level variable.
 
 Type descriptor, 88 bytes, read-only, named `type:<type>` (mirrored by `pluto/rt.typeDesc`, read through
 `rt.Type`). Its strings are static (section 1.1):

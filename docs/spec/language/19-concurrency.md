@@ -212,6 +212,12 @@ such as `atomic.AddInt64(&x, 1)`) needs no lock. A field of a struct is one piec
 elements of an array or slice together are one piece, except that elements selected by different constant
 indexes (`table[0]`, `table[1]`) are different pieces; an element selected by a variable index counts as
 every element. Writing a whole struct writes all its fields.
+
+**Frees are writes.** Dropping, freeing or moving an object counts as a write of the whole object, and so
+does assigning a new value to, or dropping, any owner that holds it (directly, or through owners that hold
+one another). This holds for rules 1 to 3 below, for the type rule, and for scoped tasks (section 19.4). So
+an object reached through an owner can change while some code may replace, drop or move that owner, and in
+safe code no task frees memory that another task may still use (memory-model.md section 4.1).
 Values of `pluto/sync` and `pluto/sync/atomic` types synchronize themselves through their methods, and
 assigning a whole new value to one is an ordinary write.
 
@@ -259,18 +265,37 @@ to memory that is safe for both:
 - a package variable, or part of one, that no task writes once tasks have started;
 - the object of a `synced[T]` (rule 3);
 - an object of a struct type that satisfies the **type rule**: no code overwrites a whole object of the
-  type through a pointer, and each field either never changes once an object is shared, or is used only
+  type through a pointer, or frees, drops or moves one (or replaces or drops an owner that holds one) once
+  tasks have started, and each field either never changes once an object is shared, or is used only
   atomically, or only under one lock of the same object or one package-level lock, inferred as above.
   Writes that initialize an object do not count: writes through a pointer to memory the function
   allocated (or that a function returned after allocating it and keeping it to itself, such as a
   constructor), made before the pointer is stored, passed to a function that keeps it, sent or returned,
   including writes by a function it is passed to for that purpose. So an object built by its constructor
   and then only read, and an object whose methods all hold its own `sync.Mutex`, may both be shared.
+  An object that some code frees while tasks run is not safe for an unscoped task by this rule, since the
+  task could still use it: such an object is shared as the object of a `synced[T]`, whose last release
+  frees it after every use (rule 3), or handed over by moving its owner.
 
 A pointer to, or slice of, anything other than a struct crosses only in the first three cases. Anything
 else is error E3501, which names a write that could change the memory while the other task uses it. The
 fixes: pass a copy of the value; move an owner (a `vec.Vec` instead of a slice) so that only the receiver
 has it; or keep the shared data where rules 1 and 3 guard it.
+
+```go
+type Config struct{ n int }
+type Server owner struct{ cfg owned[Config] }
+
+var srv Server
+
+func watch(c *Config) { for { println(c.n) } }
+
+func start() {
+	srv.cfg = new(Config)
+	task watch(&*srv.cfg) // error: E3501, the next line frees the Config that watch reads
+	srv.cfg = new(Config) // assigning to the owner drops the old Config: a write of it
+}
+```
 
 ```go
 type Counter struct {
@@ -332,8 +357,9 @@ Thus `task c.bump()` hands over an `owned[Counter]` only under that exclusivity 
 **What is not checked.** Unsafe code (section 18.12, Safe and unsafe code) is the programmer's
 responsibility: memory reached through `unsafe.Pointer` or `rt.Pinned`, functions without a body, and the
 variables and records of the runtime (`pluto/rt`), which implements tasks with its own locks and with
-preemption disabled. A data race in unsafe code has the limited consequences of memory-model.md section
-4, never undefined behavior.
+preemption disabled. A data race in unsafe code gives torn or stale values (memory-model.md section 4),
+and it is never undefined behavior in the compiler's sense: the compiler may not assume races are absent. A
+torn pointer or length can then break memory safety, which is why unsafe code must not race.
 
 ### 19.4 Scoped tasks
 
@@ -437,7 +463,9 @@ task is bounded by the join, which comes before the function returns. A variable
   taken ones.
 
 **Sharing.** During an interval, every place that a scoped task uses and that anyone writes (the
-starting function, a task, or several tasks of one `s.Task` in a loop) must be one of:
+starting function, a task, or several tasks of one `s.Task` in a loop) must be one of the forms below.
+Dropping, freeing or moving an object, and replacing or dropping an owner that holds it, is a write of the
+whole object here too (section 19.3, Frees are writes):
 
 1. **Synchronized by its type:** a `pluto/sync` or `pluto/sync/atomic` value used through its methods,
    or a channel variable used for channel operations. Assigning a whole new value to such a place is a
@@ -513,7 +541,10 @@ variables without a lock or an atomic is error E3406.
 
 **What the starting function may not do meanwhile.** During an interval, for each variable a running
 task uses, moving it, dropping it (`x.Drop()`), or assigning a new value to it when it is an owner (which
-drops the old one) is error E3404, since the task could use freed memory. Moving a Scope on which the
+drops the old one) is error E3404, since the task could use freed memory. The same holds for an owner
+that holds memory a running task reaches through a view: after `p := &*n.child` and
+`s.Task(func() { use(p.x) })`, the assignment `n.child = new(Leaf)` during the interval is E3404, because it
+drops the object `p` points to (section 19.3, Frees are writes). Moving a Scope on which the
 function calls `Task` (assigning, passing or returning it) is error E3405: the tasks find the Scope at its
 address. A Scope that moves while tasks it started may run, which the compiler cannot see when a helper
 started them through a pointer, stops the program. Calling `s.Drop()` by hand is allowed, and waits.
@@ -706,9 +737,11 @@ in another. In brief:
   `pluto/sync/atomic` operations are sequentially consistent.
 - **Safe code has no data races** (section 19.3). The race rules use locks, atomics, moves and scoped
   joins to prove it, not the order that channels and `WaitGroup` give to plain data.
-- **Unsafe code** can race. A race is a bug with limited consequences, never undefined behavior: a racy
-  read of a naturally aligned value of at most a word observes some value written to it, and larger values
-  (strings, slices, interfaces, structs) may tear. The compiler may not assume that a program has no races.
+- **Unsafe code** can race. A race is a bug that gives torn or stale values, never undefined behavior in
+  the compiler's sense: a racy read of a naturally aligned value of at most a word observes some value
+  written to it, and larger values (strings, slices, interfaces, structs) may tear. The compiler may not
+  assume that a program has no races. A torn pointer or length can then break memory safety
+  (memory-model.md section 4.3).
 - **Moves and counts.** Moving an owner is an ordinary write; the task statement or channel send that
   hands it to another task is the synchronizing operation. Every use of a `synced[T]` object, a string
   buffer, a map table or a channel through any reference happens before it is dropped and freed.

@@ -211,7 +211,7 @@ Function literals are closures: they may refer to variables declared in a surrou
 
 A function literal that captures no variable is an ordinary function value and may be used anywhere. A function literal that captures variables is a **closure record**: the code to run together with where each captured variable is. The record is built in the frame of the function that evaluates the literal, and it is a view of that frame (section 18.3, Views). Section 11.5 states where such a record may go.
 
-**Captured owners.** Captured owners stay where they are declared. The literal may use a captured owner, call its methods, take its address and assign a new value to it, which drops the old value (section 18.6, Drops). Moving a captured owner inside the literal (passing it by value, returning it, sending it) is an error (E3305). The literal may run several times, or not at all, so the enclosing function could not tell whether the variable still holds a value. The one exception is an owner that a task started by a `sync.Scope` takes: the task has its own, and its literal may move it (section 19.4, Scoped tasks, which states the rule for scoped tasks and owners). Pass the owner to the literal as an argument, or move it before or after the literal runs. The enclosing function still owns the captured variable and drops it at the end of its scope. A deferred literal runs before the function's own variables are dropped, so it may use them. It may not use an owner declared in an inner block, which is dropped when that block ends (E3311).
+**Captured owners.** Captured owners stay where they are declared. The literal may use a captured owner, call its methods, take its address and assign a new value to it, which drops the old value (section 18.6, Drops). Moving a captured owner inside the literal (passing it by value, returning it, sending it) is an error (E3305). The literal may run several times, or not at all, so the enclosing function could not tell whether the variable still holds a value. The one exception is an owner that a task started by a `sync.Scope` takes: the task has its own, and its literal may move it (section 19.4, Scoped tasks, which states the rule for scoped tasks and owners). Pass the owner to the literal as an argument, or move it before or after the literal runs. The enclosing function still owns the captured variable and drops it at the end of its scope, except a variable that a closure the function returns captures: that variable lives in the region the caller provides, the region owns it, and it is dropped when the region is refilled or the caller's frame returns (section 11.5, Closures and their regions). A deferred literal runs before the function's own variables are dropped, so it may use them. It may not use an owner declared in an inner block, which is dropped when that block ends (E3311).
 
 ```go
 func process(items []Item) vec.Vec[int] {
@@ -220,6 +220,11 @@ func process(items []Item) vec.Vec[int] {
 		sizes.Push(it.size) // uses the captured owner: allowed
 	})
 	return sizes // moves it to the caller after the literal is done
+}
+
+func counter() func() int {
+	v := vec.New[int]()
+	return func() int { v.Push(1); return v.Len() } // v lives in the caller's region, which drops it
 }
 ```
 
@@ -244,7 +249,10 @@ This section defines where closure records may live. The captured variables of a
 
 - calling it;
 - passing it as an argument;
-- assigning it to a local variable;
+- assigning it to a local variable, or storing it in other memory of the same frame (a field of a local
+  struct, an element of a local array; section 18.3, Views);
+- writing it as the argument of `s.Task` on a local `sync.Scope`, which starts a scoped task that the
+  Scope joins before the frame ends (section 19.4, Scoped tasks);
 - deferring it;
 - returning it, as described below.
 
@@ -272,7 +280,7 @@ func Chunk[Slice ~[]E, E any](s Slice, n int) iter.Seq[Slice] {
 
 The region holds only what is listed above. A returned closure that points to another variable of the function through a pointer it captures (`p := &x`, where the closure uses `p` but not `x`) would point into a frame that is gone. That is an error (E3001). What calling the closure returns, or passes to `yield`, may be in the region too (a closure built there, or the address of a variable it captures), and is valid as long as the caller's frame, like the closure itself.
 
-The size of a region is fixed when compiling. A call through a func value or an interface reserves the largest region of any function of its signature. A function that returns closures is an ordinary function: it can be used as a func value, a method value or an interface method, and it may be inlined. A loop over `v.All()` can therefore compile to the loop that `All` runs. Strings that the closures capture are counted as in any variable (section 18.8, Strings). The region holds references to them, released when the call runs again and refills the region, and when the caller returns.
+The size of a region is fixed when compiling. A call through a func value or an interface reserves the largest region of any function of its signature. A function that returns closures is an ordinary function: it can be used as a func value, a method value or an interface method, and it may be inlined. A loop over `v.All()` can therefore compile to the loop that `All` runs. The region owns every captured variable that has cleanup: an owner, a string or other counted value, or a struct or array that holds one (section 8.7). The function's scope end does not drop such a variable, since the returned closure still uses it. The region drops it, as any variable of its type is dropped (an owner's `Drop` method and fields, a count released; sections 18.6 and 18.8), when the call runs again and refills the region, and when the caller's frame returns. A captured parameter is copied into the region on entry and belongs to it the same way. So the Go counter idiom works without an allocation (`counter` in section 11.4).
 
 **What a region cannot hold.** The compiler follows closures through variables, fields, elements, interfaces, pointers and calls, without regard to the order of statements. It reports these cases:
 
@@ -282,7 +290,7 @@ The size of a region is fixed when compiling. A call through a func value or an 
 
 A function literal in a loop is built the same way: one record per literal, reused on every iteration.
 
-A call through a func value or an interface is assumed to return and keep anything passed to it. This follows the principle that doubt resolves to a compile error (section 1.2, Design rules), so the check may reject a function that would never return or keep the record at run time.
+For these region errors only, a closure passed to a call through a func value or an interface counts as kept, without the summaries that section 18.3 uses for other views (How precise the frame check is): a region's size is fixed when compiling, so every closure that might be kept must fit. This follows the principle that doubt resolves to a compile error (section 1.2, Design rules), so the check may reject a function that would never return or keep the record at run time.
 
 **Refilling.** No closure that a call builds in its region reaches the next run of that call, by the rules above. The region is therefore released and refilled when the call runs again, and the arguments of that run cannot refer to it. The address of a variable in a region (a variable that a returned closure captures, whose address the function also returns or stores) is a view of the caller's frame at that call, like a loop variable's. It must not be kept where the next run of the call can see it. That is checked with the other frame views (section 18.3, Views).
 
@@ -788,7 +796,7 @@ yields an additional untyped boolean value. The value of `ok` is `true` if the a
 
 **Owners.** An ordinary interface (`any`, `error`, `io.Reader`, any interface type not declared `owner`) only lends the value it holds (section 7.9, Interface types). Asserting an ordinary interface to an owner type is an error (E3308), since the result would be a second owner of the lent value. An owning interface is an owner type, so this includes an assertion to an owning interface. Assert it to an ordinary interface type and use the value's methods instead.
 
-A type assertion from an **owning interface** to an owner type moves the value out of the interface. The operand `x` must be a whole variable or a temporary, and it holds nothing afterward. In the comma-ok form `v, ok := x.(T)`, `x` is moved only where `ok` is true, and it is still usable on the path where `ok` is false. The same holds for an owner union: `f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true, and the single-value form `f := s.(Slot.Open)` moves it out and leaves `s` empty (section 7.13, Unions; section 18.5, Moves).
+A type assertion from an **owning interface** to an owner type moves the value out of the interface. The operand `x` must be a whole variable or a temporary, and it holds nothing afterward. Asserting out of a field, an element or `*p` would move out of a place that still holds the value, which is error E3303 (section 18.5, Places); take the value out first, as in `take(&d.state).(T)`. The same holds for a moving assertion on an owner union and for a type switch with a binding (section 12.9). In the comma-ok form `v, ok := x.(T)`, `x` is moved only where `ok` is true, and it is still usable on the path where `ok` is false. The same holds for an owner union: `f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true, and the single-value form `f := s.(Slot.Open)` moves it out and leaves `s` empty (section 7.13, Unions; section 18.5, Moves).
 
 An assertion from an owning interface to an **ordinary interface** type, `x.(I)`, moves nothing. The result lends from `x`, as converting an owner to an ordinary interface does: it is a view of the value `x` holds, and `x` keeps the value and drops it as before (section 18.3, Views). The comma-ok form lends in the same way when `ok` is true.
 
@@ -1541,7 +1549,7 @@ t2 := (*[1]string)(t) // panics: len([1]string) > len(t)
 **Owners.** Three rules decide the conversions that involve an owner type (section 7.18, Owner types). In each, the conversion must also be valid between the underlying types: `Frame("abc")` is an error in any package.
 
 1. Converting a value to an owner type makes a new owner. It is allowed only in the package that declares the owner type, where the invariants of the type are kept. In any other package it is an error (E3212). When the owner type `B` is defined from another owner type `A` (`type B owner A`), a new `B` holds a new `A`, so the conversion is allowed only where a conversion to `A` is allowed too. Converting a constant to an owner type is such a conversion: the result is a non-constant owner value, so `Frame(0)` is not a constant expression and cannot initialize a constant.
-2. Converting an owner to a type that is not an owner reads the value and moves nothing. The result is a plain value with no `Drop`.
+2. Converting an owner to a type that is not an owner reads the value and moves nothing. The result is a plain value with no `Drop`. When the result is a pointer, slice or other view (`(*T)(h)` for `type H owner *T`), it is a view of the memory the owner owns, bounded by the owner as section 18.3 (A local owner's memory) says: using it after the owner is moved, dropped or given a new value is E3313.
 3. Converting an owner to another owner type `T` with the same underlying type moves it. The result is a `T` that nobody in `T`'s package made, so the limit of rule 1 applies: the conversion is allowed only in the package that declares `T`, or in the package that declares the operand's type when that type is defined from `T`, directly or through other owner types. In any other package it is an error (E3212). Without the limit, a package could declare `type Fake owner uintptr`, make a `Fake` from any number by rule 1, and convert it to another package's `Frame`.
 
 The same limits hold for the other conversions that can produce an owner:

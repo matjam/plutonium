@@ -279,8 +279,9 @@ that refers to it goes, and no code releases it by hand.
    Sendable types), in practice one that holds a `shared[T]`, cannot be converted to `error` at all
    (E2020); the message names the `shared[T]` and shows `alloc.Synced`.
 7. The count is that of a `synced` object (section 18.7, Shared ownership, When counts are atomic): atomic
-   once the program has started a task, so every `error` value may be sent between tasks (section 19.2,
-   The sendable rule).
+   once the program has started a task, so every `error` value that is not a view of a frame may be sent
+   between tasks (section 19.2, The sendable rule). An error that lends an owner, holds the address of a
+   local, or holds a frame copy is a view of the frame and cannot be sent (E3005, E2011).
 8. The text in an error is a string (section 7.3). An error object is then a small struct of strings and
    wrapped errors, such as `struct{ msg string; err error }`, and its `Drop` needs no code of its own for
    the text: the drop of the object releases the strings, and a message that is a substring of another is

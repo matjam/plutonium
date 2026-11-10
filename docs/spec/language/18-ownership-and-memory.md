@@ -116,16 +116,31 @@ defined there. Since a closure of a frame can never be stored in heap or package
 value loaded from such memory is never a view of a frame.
 
 **A local owner's memory.** A view obtained from an owner held in a local variable (`v.Slice()`,
-`b.Bytes()`, `&m`, `p.field` through an `owned[T]`, `&*p`) is bounded by that variable. It follows the
-frame rules above, and in addition it may not be used after the variable has been moved, dropped or given
-a new value in the same function (E3313). Such a view may be stored in memory the same variable owns,
+`b.Bytes()`, `&m`, `p.field` through an `owned[T]`, `&*p`, `(*T)(h)` for `type H owner *T`) is bounded by that variable. It follows the
+frame rules above, and in addition it may not be used, in the same function, after any of these (E3313):
+
+- the variable is moved, dropped or given a new value;
+- a call that takes the variable, or memory it owns, by pointer and may free memory the view looks at,
+  or move an owner out of it. The callee's summary records which of its pointer parameters it may free
+  or move out of memory through (below), so `s := v.Slice(); v.Push(1); println(s[0])` is E3313: `Push`
+  may free the old array. So is `p, _ := r.Peek(); r.Pop(); use(p)` on a local ring of owners
+  (section 7.17);
+- an assignment to an owner field on the path from the variable to the memory the view looks at, which
+  drops the old value: after `p := &*n.child`, `n.child = new(Leaf)` ends `p`.
+
+A view of the variable itself (`&v`, or an ordinary interface that lends it, section 7.9) is not ended by
+a call or field assignment, since the variable is still where it was and holds the current value. Such a view may be stored in memory the same variable owns,
 which is released with what it views. When the variable is moved whole, its memory goes with the
 value, and a view of it kept in that value is then a view of the new owner. A variable whose drop releases or writes through a
 view of another local variable (a string, vector or other value that holds a view of a local arena
 or owner) must be declared after that variable, so that it is dropped first (section 18.6, Drops);
 otherwise the declaration of the holder is E3313, and the error names both variables. A view of a temporary owner (`makeVec().Slice()`) may not outlive the
 statement that made the temporary (E3009; section 18.6). A view obtained through a counted reference held in a
-local variable is bounded by that reference in the same way. A function literal holds the views that the local variables it uses hold
+local variable is bounded by that reference in the same way. Other copies of the reference reach the same
+object, so a call that may free memory of the object through any reference that may point to it (a copy in
+another local, a field, a parameter of the same box type) ends the view too, unless the compiler knows the
+two point to different objects: after `b := a` and `s := a.Slice()` for a `shared[vec.Vec[int]]` `a`,
+`b.Push(1)` ends `s` (E3313). A function literal holds the views that the local variables it uses hold
 where it is made, so calling it after the owner was moved, dropped or given a new value is E3313 too.
 
 **A local's scope.** A view of a local variable whose type has drop glue (an owner, or a value that
@@ -148,7 +163,8 @@ println(*p) // error E3313: s's scope ended at the end of its block
 The compiler follows views through local variables, their fields, and the calls that store them into
 other arguments. A view stored anywhere else (through a pointer, in a variable that a function literal
 uses or whose address is kept, or by a call the compiler cannot see into) cannot be followed, so the owner
-may not be moved, dropped or given a new value while that view could still be used (E3314).
+may not be moved, dropped, given a new value, or passed by pointer to a call that may free the viewed
+memory, while that view could still be used (E3314).
 
 **Heap memory reached any other way** (through a pointer that a field holds, through a `*T` parameter,
 through a box reached from another object) is checked at run time by generation checks (section 18.11):
@@ -172,8 +188,9 @@ the result does hold `p` (E3007), and the directive is an error outside the stan
 **How precise the frame check is.** So that a programmer can tell what is accepted:
 
 - The check covers the whole program and needs no lifetime, borrow or region annotations. Each function has a summary of which
-  parameters it keeps, which it stores into memory another parameter points to, and which it returns,
-  field by field. A call is checked against its callee's summary. A call through an interface is checked
+  parameters it keeps, which it stores into memory another parameter points to, which it returns, and
+  through which pointer parameters it may free memory or move an owner out (by dropping, replacing or
+  moving an owner reached from the parameter, directly or through the calls it makes), field by field. A call is checked against its callee's summary. A call through an interface is checked
   against every method of that name on a type the program converts to an interface, narrowed by type
   assertions on the way and by the dynamic type where the caller knows it. A call through a func value is
   checked against every function of that type whose value the program takes, narrowed to the closures of
@@ -295,6 +312,16 @@ local variable that is deferred; the compiler follows the variable and its copie
 ignores the order of statements, and rejects when a literal that uses the owner may be the one deferred.
 Arguments that are copies (`o.n` of an integer field) are not uses of the owner.
 
+The one exception is `defer x.Drop()` on a whole owner variable `x`: it drops whatever `x` holds when it
+runs, and nothing if `x` was moved meanwhile (section 18.6; section 12.19). It is not a use of `x` at the
+exit, so moving `x` after it is allowed:
+
+```go
+f := os.Open(name) or return
+defer f.Drop()
+send(take(&f)) // allowed: the deferred Drop finds f empty and does nothing
+```
+
 **One expression may not move a variable and also use it.** An expression or statement that moves a
 variable and uses the same variable anywhere else is a compile error, whatever the order of evaluation:
 `send(buf, buf.Len())` and `send(buf.Len(), buf)` are both rejected, and the fix is a separate statement
@@ -373,10 +400,15 @@ the end of each iteration for a variable declared in a loop body. In detail:
 - Parameters are dropped when the function returns, after its local variables, except
   `sync.Scope` parameters, which are dropped before them. Results are moved to the
   caller and not dropped.
+- A variable or parameter that a closure the function returns captures lives in the caller's region and
+  is not dropped when the function returns. The region drops it when the call runs again and refills
+  the region, and when the caller's frame returns (section 11.5, Closures and their regions).
 - A variable or place the compiler knows holds nothing (moved away on every path, never given a value,
   a part a composite literal or `new(T)` left zero, a place emptied by `take`) is not dropped, and an
   assignment to it does not drop its old value. Where a variable may have been moved on some paths only,
   it is dropped holding the zero value.
+- An owner variable declared in a `for` clause moves from each iteration to the next and is dropped
+  once, when the loop ends (section 12.10).
 - Leaving several scopes at once drops what each holds, innermost first. A `goto` back to a label before
   a variable's declaration drops the variable first, since its declaration runs again.
 - Deferred calls run before the function's own variables are dropped, so a deferred call may use them.
@@ -564,7 +596,8 @@ counting its strings, and needs no `owner` declaration. When such a value is dro
 releases its strings. A counted value is dropped at the points where an owner would be (section 18.6,
 Drops):
 
-- at the end of a variable's scope, on every path out of it, and at the end of each iteration for a
+- at the end of a variable's scope, on every path out of it (except a variable a returned closure captures,
+  which its region releases, below), and at the end of each iteration for a
   variable declared in a loop body;
 - when a place is overwritten: the new value takes its references first, then the old one is released,
   so `s = strings.SliceFrom(s, 1)` and `a, b = b, a` are safe;
@@ -572,7 +605,7 @@ Drops):
   three-clause `for`, after each evaluation;
 - for storage that belongs to the frame but outlives a statement (an interface copy, the object of
   `&T{...}`, a slice literal's array, the array of a call's variadic arguments, a method value's receiver, a deferred call's saved arguments, the
-  region a call builds its closures in), when the function returns, after its deferred calls, or when the
+  region a call builds its closures in, with every captured variable in it), when the function returns, after its deferred calls, or when the
   same expression runs again and refills it.
 
 A panic and `os.Exit` release nothing, as for owners. A `[]string` is a view: its elements belong to the
@@ -821,7 +854,8 @@ assigning to a field or element of `x[k]` is error E2455, since a pointer into s
 be invalidated by any later call that grows the container, which nothing in the syntax would show.
 Containers hand out such pointers from methods named for what they do (`vec.Vec.Ptr(i)`,
 `hash.Map.Ptr(k)`), whose documentation says how long the pointer stays valid. A view obtained from a
-container in a local variable follows the rule for a local owner's memory (section 18.3); one obtained
+container in a local variable follows the rule for a local owner's memory (section 18.3): a call that may
+grow or rehash the container, such as `v.Push(x)`, ends it at compile time (E3313). One obtained
 through a pointer is a heap view, checked by generation checks (section 18.11). Elements that are owners
 are taken out with methods that move them (`Pop`, `Remove`), and iterators over a container of owners
 yield views of the elements.
@@ -833,7 +867,8 @@ them gives it one. They are what owner types are written with, and they are unsa
 ### 18.11 Generation checks
 
 The rules of section 18.3 prove at compile time that no view of a frame, or of a local owner, outlives
-its memory. A view of heap memory reached through other heap memory has no such proof: the object may be
+its memory: a move, drop, new value, call that may free, or owner field assignment ends such a view (E3313,
+E3314). A view of heap memory reached through other heap memory has no such proof: the object may be
 freed while the view exists, for example when the vector it points into grows.
 
 ```go
@@ -953,9 +988,9 @@ functions that call them, so that a reviewer can find the whole unsafe surface o
 
 **What unsafe code may do.** Unsafe code is checked by the compiler where it can be (the type rules, the
 move rules for owners it holds), and is otherwise the programmer's responsibility. A data race in unsafe
-code is a bug with the limited consequences the memory model states, never undefined behavior of the
-whole program, and the compiler may not assume that unsafe code is free of races (memory-model.md
-section 4).
+code is a bug that gives torn or stale values as the memory model states, never undefined behavior in the
+compiler's sense, and the compiler may not assume that unsafe code is free of races (memory-model.md
+section 4). A torn pointer or length can then break memory safety.
 
 ### 18.13 Examples
 
@@ -1027,7 +1062,7 @@ func main() {
 type Conn owner struct { // owner: it has owner fields
 	file os.File
 	in   vec.Vec[byte]
-	name string // a counted field: copied with the struct
+	name string // a counted field: moves with the struct
 }
 
 func dial(path string) (Conn, error) {

@@ -192,7 +192,9 @@ guarantees, on which channels and `pluto/sync` are built:
 task takes one of the synchronizing operations above: the task statement or channel send that moves it is
 that operation, so the receiving task observes everything the sender wrote to the owner and to the memory
 it owns. Dropping an owner is ordinary code (its `Drop` method, then its fields), run by the task that
-holds it.
+holds it. For the race rules, dropping, freeing or moving an object is a write of the whole object, and so is
+assigning to or dropping an owner that holds it (language spec section 19.3, Frees are writes; section 19.4,
+Sharing). So no task can still use an object while another task frees it.
 
 **`synced[T]`** counts its references atomically:
 
@@ -314,7 +316,8 @@ task and an interrupt handler, could make conflicting accesses that are not orde
 19.2 to 19.4). Every piece of memory that tasks and interrupt handlers share is then one of these:
 
 - an owner moved from one task to another, which only the receiving task can then reach;
-- memory that does not change while shared, such as a package variable written only during package
+- memory that does not change while shared (freeing or moving it, or replacing or dropping an owner that
+  holds it, is a change), such as a package variable written only during package
   initialization or by `main` before it starts its first task, installs its first interrupt handler or
   enables interrupts;
 - data that every access reads or changes with `pluto/sync/atomic` operations;
@@ -340,7 +343,9 @@ reached through `unsafe.Pointer` or `rt.Pinned`, functions without a body, and t
 of the runtime, which implements the rules above with its own locks and with preemption disabled (language
 spec section 19.3). Such code can race. A data race is a bug, but it is not undefined behavior of
 the program: the compiler may not assume that races are absent and use that to justify any
-transformation (section 5.2). A race has the consequences of sections 4.2 to 4.4 and no others.
+transformation (section 5.2). A race gives the torn or stale values of sections 4.2 to 4.4 and nothing
+else directly. Those values can then break memory safety (section 4.3), so a race in unsafe code is a bug
+in the code's safety contract, not a harmless one.
 
 A plain read of a naturally aligned location of at most 8 bytes (every integer, float, boolean, pointer,
 `uintptr`, `unsafe.Pointer`, func value, channel, map, `owned`, `shared`, `synced` and `weak` reference,

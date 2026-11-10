@@ -19,9 +19,11 @@ In addition to explicit blocks in the source code, there are implicit blocks:
 Blocks nest and influence scoping (chapter 10, Declarations and scope).
 
 Blocks also decide the lifetime of what they declare. A variable declared in a block lives in the frame of
-its function (section 18.2, Where variables live), and the owners that its variables still hold when the
-block ends are dropped, in reverse order of declaration, on every path out of the block: falling off the
-end, `return`, `break`, `continue` and `goto` (section 18.6, Drops). The body of a loop is a block that
+its function (section 18.2, Where variables live), and its variables with cleanup (owners, and counted
+values such as strings, boxes, maps and channels) are dropped or released when the block ends, in reverse
+order of declaration, on every path out of the block: falling off the end, `return`, `break`, `continue`
+and `goto` (section 18.6, Drops; section 18.8, Strings). A view of such a variable may not be used after
+the block ends (section 18.3, A local's scope). The body of a loop is a block that
 runs once per iteration and reuses its variables' storage each time (section 18.4, Loop iterations reuse
 their storage).
 
