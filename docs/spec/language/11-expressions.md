@@ -329,7 +329,7 @@ x
 f(3.1415, true)
 Point{1, 2}
 m["foo"]
-s[i : j + 1]
+a[i : j + 1]
 obj.color
 obj.p[i].x()
 ```

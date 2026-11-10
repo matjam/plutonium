@@ -1284,7 +1284,8 @@ compiler (2026-10-11).
     marked `error`, `illegal` or `invalid` must fail on that line with the stated code, and other lines
     and unmarked blocks must build cleanly. Per-block context and known failures are in
     `tests/testdata/specexamples/examples.txt`; a known failure that starts passing fails the test. Of 334
-    blocks, 308 are checked in 349 builds and 26 are skipped by rule (elided code, non-source fragments).
+    blocks, 307 are checked in 353 builds, 26 are skipped by rule (elided code, non-source fragments) and
+    1 by its entry (the section 11.24 parse examples, which no one set of declarations fits).
     Known failures: 9, waiting on items 146, 147, 148, 149, 168, 199, 201, 208 and 211. The 12 wrong
     spec examples were fixed with audit H (D95), and the section 7.9 example now marks both lines of the
     clash, since the rule names no single line.

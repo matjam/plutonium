@@ -104,6 +104,7 @@ pre:
 	}
 	var x, i, j int
 	var s string
+	var a []int
 	var m map[string]int
 	var obj Object
 	func f(a float64, b bool) {}
@@ -115,7 +116,7 @@ pre:
 == 11-expressions.md 11.7 | t.z // t.z
 with: 11-expressions.md 11.7 | type T0 struct {
 
-== 11-expressions.md 11.7 | q.M0() // (*q).M0 is valid but not a field selector
+== 11-expressions.md 11.7 | q.M0() // invalid: (*q).M0 is valid but not a field selector (E0076)
 with: 11-expressions.md 11.7 | type T0 struct {
 
 == 11-expressions.md 11.8 | t.Mv(7)
