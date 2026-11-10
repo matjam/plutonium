@@ -243,7 +243,7 @@ dereference, calling a nil function, send on or close of a closed channel, `make
 memory or no allocator, "arena: out of memory" from an arena's `New` or `Slice`, "arena has live allocations" from
 `Reset`, `Release` or `Drop`, use of freed memory (`pluto build --gencheck=false` removes the check), stack overflow,
 an iterator calling `yield` after it returned false, a second task waiting on one `sync.Scope`, "blocking with
-preemption disabled" (a wait the compiler could not see inside such a region), and `panic(v)`. A checked
+preemption disabled" (a wait in a non-migrating region that is not on an exact path, or in kernel mode a wait with interrupts disabled), and `panic(v)`. A checked
 freestanding or kernel build panics before `main` under 5-level paging. A panic message is cut after 1024 bytes. Integer overflow wraps, floating
 point never panics, a float-to-int conversion out of range gives an unspecified value. A deadlock is a fatal error
 (status 2), not a panic.

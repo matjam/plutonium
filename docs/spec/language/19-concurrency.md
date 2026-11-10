@@ -87,9 +87,9 @@ a loop that makes no calls, and another runs in its place. Every instruction is 
 be suspended, since there is no garbage collector to find pointers; the full register state is saved,
 and preemption cannot be observed by the program (section 19.7). Code that must not be interrupted
 (runtime and allocator locks, `rt.DisablePreemption`) disables preemption for its own duration, and a
-preemption that arrives meanwhile happens when it is enabled again. Such code may not wait: a wait reachable
-inside a region with preemption disabled is a compile error (section 19.3, Waiting in a region), and one
-the compiler cannot see panics with "blocking with preemption disabled" (section 17.1). Blocking on a channel, a lock or I/O,
+preemption that arrives meanwhile happens when it is enabled again. Such code may not wait: a wait on an exact
+path inside a non-migrating region is a compile error (section 19.3, Waiting in a non-migrating region), and any other
+wait there panics with "blocking with preemption disabled" (section 17.1), in kernel mode also inside an interrupt-disabled region. Blocking on a channel, a lock or I/O,
 or calling `rt.Yield()`, gives up the processor early.
 
 **Deadlock.** In hosted builds, when every task waits for another task and none waits for I/O, a system
@@ -187,7 +187,7 @@ be called there), and which locks are held at each access:
   reading shared data after `wg.Wait()` still holds the data's lock. The join of a `sync.Scope` is used,
   for the frame data it covers (section 19.4).
 
-**Regions.** Two kinds of region are found the way held locks are: on every path, across calls, with a
+**Non-migrating and interrupt-disabled regions.** These two kinds of region are found the way held locks are: on every path, across calls, with a
 deferred release counting as a release at the end of the function.
 
 - A **non-migrating region** is a stretch of code where, on every path, preemption is disabled
@@ -200,8 +200,8 @@ deferred release counting as a release at the end of the function.
   (`rt.Preempt`, `rt.Yield`) or to a call of `x86.Sti`, which ends it. A handler is entered through an
   interrupt gate that disables interrupts (section 20.10), so its body is such a region. The body of a
   handler marked `//pu:interrupt trap` is not: a trap gate leaves interrupts as they were, so the handler
-  can be re-entered, and it opens a region of its own with `x86.Cli` or `x86.SaveFlagsCli` where it needs one.
-  Exceptions and nonmaskable interrupts are not excluded by a region; that remains a contract of the kernel
+  can be re-entered, and it opens an interrupt-disabled region of its own with `x86.Cli` or `x86.SaveFlagsCli` where it needs one.
+  Exceptions and nonmaskable interrupts are not excluded by an interrupt-disabled region; that remains a contract of the kernel
   (section 20.10).
 
 Section 20.9 (Per-CPU variables) uses both. It also uses them for a store that depends on an earlier load
@@ -209,20 +209,39 @@ of the same per-CPU variable: that is a read-modify-write and needs a non-migrat
 access invalid, and the analysis follows them (section 18.12). A wrong pairing can stop a processor, which
 is a liveness failure, not a safety one.
 
-**Waiting in a region.** An operation that may park the task is a compile error where it is reachable
+**Waiting in a non-migrating region.** An operation that may park the task is a compile error where it is reachable
 inside a non-migrating region: between `rt.DisablePreemption` and `rt.EnablePreemption`, while an
 `rt.Lock` is held, or while maskable interrupts are disabled. The operations are the waiting operations
 of section 20.10 (Interrupts): a channel operation that may block, `Lock` of a `sync.Mutex` or a
 `sync.RWMutex`, `Wait` of a `sync.WaitGroup`, a `sync.Cond` or a `sync.Scope` (and the `Drop` of a Scope), `time.Sleep`, `rt.Park`, a
 function marked `//pu:blocking`, and an allocation from an allocator that may wait. A task that parks
 there would hold its processor, or a lock that other processors spin on, while it waits for something
-that may need that processor or that lock. The compiler finds these paths as it finds the waits of an
-interrupt handler: from each region it follows every call by the rules of section 20.10 (What is
-followed), the drops it inserts and the drop entries of arenas included, and reports the first path it
-finds, naming each call on the way. The check needs a region on every path, as above. A wait that it
-cannot see, such as one reached on only some paths through a region or from code outside Plutonium,
-still fails at run time: `rt.Park` with preemption disabled panics with "blocking with preemption
-disabled" (section 17.1; abi.md section 12.4).
+that may need that processor or that lock.
+
+The compiler follows calls from each non-migrating region as section 20.10 (What is followed) describes, the drops it
+inserts and the drop entries of arenas included, and reports the first path it finds, naming each call
+on the way. It reports only exact paths: the wait is written in the region, or every call on the way
+must reach a wait whichever function runs there. A direct call, a call of a method of a known type, a
+deferred call, a hook and a function literal called where it is written are exact. These compile, and
+the run-time check below catches them when they wait:
+
+- a call through an interface or a func value where only some of the functions it may reach may wait;
+- an allocation, or a drop that frees, where only some of the allocators the program installs may wait.
+
+The check needs a non-migrating region on every path, as above, and it starts only from such regions in code outside
+`pluto/rt`: the runtime's own locked code is unsafe code (section 18.12), and a path from a program's non-migrating region into the runtime still ends at its `park` (section 20.10). A wait that the check does not report,
+such as one reached on only some paths through a non-migrating region, through one of the calls above, or from code
+outside Plutonium, fails at run time. `rt.Park` panics with "blocking with preemption disabled" when the
+task's preemption is disabled, and in kernel mode also when maskable interrupts are disabled, so an interrupt-disabled region opened with `x86.Cli` is covered too (section 17.1; abi.md section 12.4). In hosted builds, where
+`x86.Cli` faults, and in kernel mode, every wait in a non-migrating region therefore fails to compile or
+panics when it is reached; none hangs the processor in silence. Other freestanding builds do not test
+the interrupt flag (abi.md section 12.4).
+
+The check for interrupt handlers (E2584, section 20.10) stays conservative through interfaces, func
+values and allocators, and this one does not, for a reason. A wait in a handler has no safe outcome at
+run time: the handler runs on top of the code it interrupted, which cannot resume, so the processor
+stops. A wait in a non-migrating region of a task fails loudly at the panic above. Calls through operations tables and
+allocation while a lock is held are ordinary in a kernel, and a conservative rule would reject them.
 
 **Guards.** For data that several tasks may use, the compiler infers its **guard**: a lock that every
 write of the data holds for writing (`Lock`, not `RLock`). The data is safe when every access, read or
@@ -235,10 +254,17 @@ every element. Writing a whole struct writes all its fields.
 
 **Frees are writes.** Dropping, freeing or moving an object counts as a write of the whole object, and so
 does assigning a new value to, or dropping, any owner that holds it (directly, or through owners that hold
-one another). A `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked` runs the arena's drop
-entries (section 18.9, Drop entries), so it counts as dropping every value that `New` or `Slice` allocated
-in that arena with a type that has drop glue, or in any arena where the compiler cannot tell which. This
-holds for rules 1 to 3 below, for the type rule, and for scoped tasks (section 19.4). So
+one another). A `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked`, the drop at the end
+of the arena's scope included, takes memory back. It counts as freeing every object that `New` or `Slice`
+allocated in that arena, of every type, whether or not the type has drop glue. The compiler cannot tell
+which objects come after a mark, so a `Release` counts as freeing objects of every type allocated in the
+arena too. The drops that the arena's drop entries run (section 18.9, Drop entries) count on top of that.
+An allocation made through the arena's `Alloc` and still live makes the call panic and take nothing back
+(section 18.9, Live allocations), so it is not freed. The compiler names an arena as it names a lock: by
+the variable or field it is reached through, and for a pointer by where the pointer came from. A call on
+an arena it cannot name, such as `workers[i].arena` with a variable index, counts as that call on every
+arena it may be, within the limits of section 18.3 (How precise the frame check is). This holds for rules
+1 to 3 below, for the type rule, and for scoped tasks (section 19.4). So
 an object reached through an owner can change while some code may replace, drop or move that owner, and in
 safe code no task frees memory that another task may still use (memory-model.md section 4.1).
 Values of `pluto/sync` and `pluto/sync/atomic` types synchronize themselves through their methods, and
@@ -370,17 +396,20 @@ reach its `Alloc` or `Free`, the state they share with other code meets these ru
 caches that are touched only in interrupt-disabled regions). The parts of an allocator written in unsafe
 code are the responsibility of that code (section 18.12).
 
-**Owner transfer requires exclusivity.** An owner moves to the receiving task, but transfer is valid
-only if no outstanding alias permits a conflicting access. This includes borrows made through fields,
-helpers and aliases before `take` or a later move, not only aliases retained by its constructor. A
-borrow whose last use precedes transfer is allowed. The compiler rejects an unproved conflict and
-identifies the borrow, transfer and conflicting use; generation checks alone do not prevent races.
+**Owner transfer requires exclusivity.** An owner moves to the receiving task, but the move is valid
+only if no other view of the memory it holds is still live (section 18.3, Views): a pointer or slice
+obtained from the owner and kept in a field, passed through a helper or copied to another variable
+before `take` or the move, not only one its constructor kept. A view whose last use comes before the
+move is allowed. A view of a local owner used after the move is E3313, and one stored where the compiler
+cannot follow it is E3314, since the move ends it (section 18.3, A local owner's memory). Any other view
+that may still be used while the receiving task can use the memory is E3501, which names the view, the
+move and the conflicting use. Generation checks alone do not prevent races.
 Thus `task c.bump()` hands over an `owned[Counter]` only under that exclusivity proof (section 8.8).
 
 **What is not checked.** Unsafe code (section 18.12, Safe and unsafe code) is the programmer's
 responsibility: memory reached through `unsafe.Pointer` or `rt.Pinned`, functions without a body, and the
-variables and records of the runtime (`pluto/rt`), which implements tasks with its own locks and with
-preemption disabled. A data race in unsafe code gives torn or stale values (memory-model.md section 4),
+variables, records and non-migrating regions of the runtime (`pluto/rt`), which implements tasks with its own locks and with
+preemption disabled. The runtime's non-migrating regions are not checked for waits (Waiting in a non-migrating region, above). A data race in unsafe code gives torn or stale values (memory-model.md section 4),
 and it is never undefined behavior in the compiler's sense: the compiler may not assume races are absent. A
 torn pointer or length can then break memory safety, which is why unsafe code must not race.
 

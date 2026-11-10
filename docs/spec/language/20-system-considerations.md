@@ -575,7 +575,7 @@ the same processor cannot split it. `&v` is a pointer into the current processor
 taken, and keeps pointing there if `GS` changes later.
 
 The declaration above compiles: `current = t` and `t := current` are lone accesses of a word. A compound
-access, or a store that depends on a load of the same variable, needs a region:
+access, or a store that depends on a load of the same variable, needs a non-migrating region:
 
 ```go
 //pu:percpu
@@ -602,8 +602,7 @@ These rules apply:
 - A store to a per-CPU variable whose value, or whose controlling condition, depends on an earlier load of
   the same variable is a read-modify-write, whether the dependence is by data or by control flow, and it
   needs the same non-migrating region as `ticks++`. The task may move to another processor between the load
-  and the store, and the store would write that processor's copy with a value read from this one's. Outside
-  a region these are compile errors (E2022):
+  and the store, and the store would write that processor's copy with a value read from this one's. Outside a non-migrating region these are compile errors (E2022):
 
   ```go
   x := ticks
@@ -624,25 +623,20 @@ These rules apply:
 - Every other access must be inside a non-migrating region (section 19.3): a compound assignment or `++`,
   a store that depends on an earlier load of the same variable, a read and a write in one expression, any access to a variable larger than a machine word or to part of
   one, a call of a method with a pointer receiver, and `&v`. If an interrupt handler may also access the
-  variable, the access must be inside an interrupt-disabled region (section 19.3). An access outside the
-  region it needs is a compile error (E2022). The error names the access and says whether a handler makes
+  variable, the access must be inside an interrupt-disabled region (section 19.3). An access outside the non-migrating or interrupt-disabled region it needs is a compile error (E2022). The error names the access and says whether a handler makes
   disabled interrupts necessary.
 - When an interrupt handler also uses the variable, every load or store through a pointer from `&v` must
-  be inside an interrupt-disabled region as well, whatever its size and even though the pointer is bounded
-  by a region (the next bullet): preemption disabled is not enough. The one exception is a store through
+  be inside an interrupt-disabled region as well, whatever its size and even though the pointer is bounded by a non-migrating region (the next bullet): preemption disabled is not enough. The one exception is a store through
   the pointer that is the whole statement and writes the whole variable, when the variable is at most a
   machine word. A load through the pointer has no exception.
-- A pointer from `&v` is bounded by the region it was taken in, which is one run of that region: the same
-  code run again opens another region, whether by the next iteration of a loop, a jump back with `goto`, a
+- A pointer from `&v` is bounded by the non-migrating region it was taken in, which is one run of that region: the same code run again opens another such region, whether by the next iteration of a loop, a jump back with `goto`, a
   recursive call or a second call of a function literal. It may be kept only in local variables, and not
   in a variable that lives across such a run (one declared before the loop or the label, or a variable of
-  the enclosing function that a function literal captures). It may not be used after the region ends or in
-  a later region, even one opened at the same place in the source, sent on a channel, passed to a task,
+  the enclosing function that a function literal captures). It may not be used after that region ends or in a later one, even one opened at the same place in the source, sent on a channel, passed to a task,
   stored anywhere but in a local variable, or returned. A function that receives the pointer may use it
-  only inside a region that its caller held at the call and the function has not released; a region the
-  function opens itself is another region. The analysis counts a region once, so the first release of a
+  only inside a non-migrating region that its caller held at the call and the function has not released; a non-migrating region the function opens itself is another one. The analysis counts a non-migrating region once, so the first release of a
   kind (the first `rt.EnablePreemption`, for example) ends it even if its opening was nested: this errs
-  toward rejecting. A use outside the region is a compile error (E2023).
+  toward rejecting. A use outside that non-migrating region is a compile error (E2023).
 - Two lone accesses in separate statements may reach the copies of two different processors, because the
   task can migrate between them. That is defined behavior, not a data race. Where the second depends on the
   first, it is the dependent store above and not a lone access.
@@ -664,10 +658,10 @@ up to a call of `x86.Sti`, which ends it, or a call that may switch tasks.
 A handler that can be re-entered says so with the directive form `//pu:interrupt trap`. It is installed
 only through `x86.TrapGate`, which makes a trap gate that leaves interrupts as they were, and its body is
 not an interrupt-disabled region. Per-CPU data that such a handler shares with the code it interrupts, or
-with itself, is protected by a region that the handler opens itself. Any other argument to the directive is
+with itself, is protected by an interrupt-disabled region that the handler opens itself. Any other argument to the directive is
 E2603.
 
-Exceptions and nonmaskable interrupts are not held off by an interrupt gate, and no region excludes them.
+Exceptions and nonmaskable interrupts are not held off by an interrupt gate, and no interrupt-disabled region excludes them.
 That remains a contract of the kernel: a handler for one of them must not use data that the code it
 interrupts may be changing. A `print` in such a handler may drop its output (section 13.12). It is a plain function with a body (not a method, not generic) and no results, with one
 parameter, the address of the interrupt frame, or two, the frame and the error code. The frame parameter
@@ -743,7 +737,9 @@ way (E2585).
   reaches zero, into the type's `Drop` and drop glue and into the `Free` of every allocator the program
   installs. A `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked` runs the arena's drop
   entries (section 18.9, Drop entries), so the check follows it into the drop glue of every type passed
-  to `New` or `Slice` of that arena, and of every arena where the compiler cannot tell which arena it is.
+    to `New` or `Slice` of that arena. An arena is named as section 19.3 (Frees are writes) names it, by
+  the variable or field it is reached through, and a call on an arena the compiler cannot name follows
+  the drop entries of every arena it may be.
   An arena given only types without drop glue adds nothing to the path. It is an error (E2584) only where
   one of these may wait, so the result does not depend on whether the cleanup is written or inserted. A path ends at the runtime's `park`, in which every wait in the library ends, at the runtime's
   `spawn`, in which every task start ends, and at a function marked `//pu:blocking`. A path from an
@@ -766,7 +762,9 @@ way (E2585).
   only assigns plain functions or `nil` to, calls, and compares with `nil`, which reaches only the
   functions assigned to it. A function whose value is taken only to be assigned to hooks is not among
   the functions a call through any other func value may reach. The error says when a path goes
-  through such a call. To make a handler's call exact, call the function directly.
+  through such a call. To make a handler's call exact, call the function directly. The check of waits in
+  a non-migrating region of a task (section 19.3, Waiting in a non-migrating region) follows the same calls but reports
+  only exact paths, since a wait there panics at run time instead of stopping the processor.
 - **Allocation.** An allocator is not marked as a whole. `new`, `make` and every operation that makes a
   string call the allocator's `Alloc` through the `alloc.Allocator` interface, and the check follows
   that call into every allocator the program installs. An allocator whose `Alloc` or `Free` may wait,

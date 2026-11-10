@@ -127,7 +127,7 @@ The language itself fixes these limits, which every implementation provides:
   contract), so overflowing a task's stack is a fault, reported as a stack overflow panic with a trace
   (section 17.5, Faults), in every build mode.
 - The size of a closure region is fixed at compile time (section 11.5, Closures and their regions). A
-  program whose region cannot have a fixed size is an error, never a region that grows.
+  program whose closure region cannot have a fixed size is an error, never a closure region that grows.
 - `//pu:stack` accepts sizes from 64 KiB to 64 GiB (section 20.3). A size outside that range is a
   compile error; its code is not assigned yet.
 

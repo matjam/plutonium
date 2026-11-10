@@ -520,7 +520,7 @@ A value **fits in registers** when it has between 1 and 4 leaves (`maxRegLeaves`
 ### 3.2 Parameters
 
 Parameters are assigned in this order: the hidden result pointer, if any (section 3.3), then the hidden
-region pointer, if any (section 4.1), then the receiver, then the declared parameters.
+closure region pointer, if any (section 4.1), then the receiver, then the declared parameters.
 
 - A parameter that fits in registers is passed as its leaves, each one as a separate scalar argument.
 - Any other parameter is passed **by reference**: the caller makes a copy in its own frame and passes the
@@ -572,10 +572,10 @@ A func value is the address of a **closure record**. Word 0 of the record is the
   read-only one-word record named `sym·f`.
 - A function literal that captures variables gets a record in the creating function's frame: word 0 is
   the code pointer, word *i*+1 is the address of captured variable *i* (captures are by reference). A
-  record the function may return is built in its caller's region instead (section 4.1).
+  record the function may return is built in its caller's closure region instead (section 4.1).
 - A method value `x.M` gets a record in the frame holding a wrapper's code pointer (`sym-fm`) followed by
   a copy of the receiver; an interface method value holds the interface value. These too go in the
-  caller's region when returned.
+  caller's closure region when returned.
 
 A call through a func value loads the code pointer from word 0 and calls it with the **record address in
 RAX**, in addition to the ordinary arguments. Functions that do not need it ignore RAX, so a declared
@@ -585,54 +585,54 @@ pass a context.
 ### 4.1 Closure regions
 
 A function whose results can hold a func value without a pointer in between (a func result, an
-interface, or a struct, array or union holding one) takes a hidden **region pointer**, a scalar argument
-after the result pointer and before the receiver (section 3.2). The caller provides the region, and the
+interface, or a struct, array or union holding one) takes a hidden **closure region pointer**, a scalar argument
+after the result pointer and before the receiver (section 3.2). The caller provides the closure region, and the
 function builds there the closures it may return (language spec section 11.5):
 
 - the records of the function literals and method values it makes and may return;
-- the variables those literals capture, which therefore live in the region rather than the function's
+- the variables those literals capture, which therefore live in the closure region rather than the function's
   frame, for the function and the closures alike (parameters are copied there on entry);
-- the regions of the calls whose closures it may return in turn, after its own variables and records.
+- the closure regions of the calls whose closures it may return in turn, after its own variables and records.
 
-The region's layout is fixed per function when compiling: a **drop word** at offset 0, its own variables
-and records at offsets assigned in the order the function's code makes them, then each nested region
-aligned for its contents. A function that builds nothing has an empty region, without a drop word, and
-ignores the pointer, which the caller still passes. The callee reads and writes the region only through
-the pointer; it may hold the address of a variable in the region and of a record in it, and returns func
+The closure region's layout is fixed per function when compiling: a **drop word** at offset 0, its own variables
+and records at offsets assigned in the order the function's code makes them, then each nested closure region
+aligned for its contents. A function that builds nothing has an empty closure region, without a drop word, and
+ignores the pointer, which the caller still passes. The callee reads and writes the closure region only through
+the pointer; it may hold the address of a variable in the closure region and of a record in it, and returns func
 values that point into it.
 
-The region retains every counted component it stores, including those in captured variables and
+The closure region retains every counted component it stores, including those in captured variables and
 copied method receivers: strings, maps, channels, counted boxes, weak references and counted errors,
 recursively through aggregates (language spec sections 18.7 and 18.8). Pointer-receiver records retain
 their existing borrowing semantics. The drop word is 0, or the closure record of the function's **drop
-function** (`<function symbol>·rdrop`), installed when there is typed cleanup or a nested region.
-The region owns every captured variable that has drop glue, owners included (language spec section 11.5):
-the function's return does not drop them. The drop function takes the region address, runs the drop
+function** (`<function symbol>·rdrop`), installed when there is typed cleanup or a nested closure region.
+The closure region owns every captured variable that has drop glue, owners included (language spec section 11.5):
+the function's return does not drop them. The drop function takes the closure region address, runs the drop
 glue of each captured owner exactly once (its `Drop` method, then its fields, as section 18.6 orders the
-variables of a block), releases each stored counted component exactly once, drops nested regions and
+variables of a block), releases each stored counted component exactly once, drops nested closure regions and
 clears the word. This introduces no hidden heap allocation.
-The caller zeroes the regions it reserves when it is entered, drops a region
-before each call that refills it, and drops its regions when it returns: a call of a known function calls
+The caller zeroes the closure regions it reserves when it is entered, drops a closure region
+before each call that refills it, and drops its closure regions when it returns: a call of a known function calls
 that function's drop function, and a call through a func value or an interface calls the record in the
 drop word, if there is one. The drop before a call comes after its arguments are evaluated; nothing the
-call built in the region on its previous run can reach those arguments (language spec section 11.5,
-E3101), so dropping and refilling the region cannot change them. A region that turns out to hold nothing
+call built in the closure region on its previous run can reach those arguments (language spec section 11.5,
+E3101), so dropping and refilling the closure region cannot change them. A closure region that turns out to hold nothing
 to release has these drops left out.
-Calls made while initializing packages get regions in static storage. Each region's drop function runs
+Calls made while initializing packages get closure regions in static storage. Each closure region's drop function runs
 once during normal package cleanup, after their dependent static clients, dropping the owners and
-releasing the counted references the region holds (language spec section 15.4, compiler-created static
+releasing the counted references the closure region holds (language spec section 15.4, compiler-created static
 objects); the storage itself retains its program lifetime.
 
-The caller reserves the region in its frame, one per call site, reused on every execution of the call,
-or passes a part of its own region when it may return the call's closures in turn. A call of a known
-function reserves that function's region; a call through a func value or an interface reserves the
-largest region of any function of the program with the same signature (receiver aside, for interface
+The caller reserves the closure region in its frame, one per call site, reused on every execution of the call,
+or passes a part of its own closure region when it may return the call's closures in turn. A call of a known
+function reserves that function's closure region; a call through a func value or an interface reserves the
+largest closure region of any function of the program with the same signature (receiver aside, for interface
 methods; as the first parameter, for method expressions). A function implemented outside Plutonium
-(assembly, `//pu:extern`) whose results can hold a func value would have to accept the region pointer
+(assembly, `//pu:extern`) whose results can hold a func value would have to accept the closure region pointer
 too; C functions cannot return one (section 9).
 
-At `-O2`, once a call is inlined, its region is split into one slot per variable, record and nested
-region, so that closure records are seen through and the variables promoted to registers as if the
+At `-O2`, once a call is inlined, its closure region is split into one slot per variable, record and nested
+closure region, so that closure records are seen through and the variables promoted to registers as if the
 closure had been built in the caller.
 
 ## 5. Interfaces
@@ -850,11 +850,11 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | generic instance | `path.Name[T1,T2]`, type arguments package-qualified by import path |
 | method of a generic type instance | `pluto/vec.(*Vec).Push[int]`: the receiver's type arguments, then the method's own, in the brackets |
 | function literal | `<enclosing symbol>.func<N>` |
-| a closure a function returns (language spec section 11.5) | `<function symbol>.func<N>`, e.g. `main.Count.func1` or `pluto/vec.(*Vec).All[int].func1`: named after the function that makes it, not the caller whose region it is built in, and shared by every call |
+| a closure a function returns (language spec section 11.5) | `<function symbol>.func<N>`, e.g. `main.Count.func1` or `pluto/vec.(*Vec).All[int].func1`: named after the function that makes it, not the caller whose closure region it is built in, and shared by every call |
 | the closure of a `ring` iterator (language spec section 7.17) | `builtin.(*ring[T,N]).All.func1`, or `.Values.func1` |
 | task statement thunk (section 12.6) | `<enclosing symbol>.task<N>` |
 | bound method wrapper | `<method symbol>-fm` |
-| a region's drop function (section 4.1) | `<function symbol>·rdrop`; `pluto.noRegionDrop` for the regions that turned out to need none |
+| a closure region's drop function (section 4.1) | `<function symbol>·rdrop`; `pluto.noRegionDrop` for the closure regions that turned out to need none |
 | static closure record | `<function symbol>·f` |
 | package-level variable | `path.Name` |
 | package initializer | `path.init·pkg`; user `init` functions are `path.init.0`, `path.init.1`, ... |
@@ -1026,7 +1026,7 @@ vector state.
 
 Soft-float was considered and rejected: it would add an IEEE-754 library to every kernel, hide a large
 cost behind ordinary arithmetic, and still be the wrong answer for the rare kernel code that wants floats,
-which is better served by `//pu:fpu` regions that use the real unit.
+which is better served by `//pu:fpu` functions that use the real unit.
 
 ### 10.3 Kernel code model
 
@@ -1247,7 +1247,7 @@ touches a per-CPU variable:
 `testdata/kernel/smoke` does this for two blocks under QEMU, and `testdata/kernel/gsuser` does the same as
 a Linux process, setting the GS base with `arch_prctl(ARCH_SET_GS)`.
 
-A lone load or store of a whole per-CPU variable of at most a word needs no region, unless the store depends
+A lone load or store of a whole per-CPU variable of at most a word needs no non-migrating region, unless the store depends
 by data or control flow on an earlier load of the same variable (a read-modify-write, E2022). Any other access, and
 every use of the address, is checked to lie in a non-migrating region (language spec sections 19.3 and 20.9;
 memory model section 6.4).
@@ -1364,6 +1364,23 @@ preemption-disable count, raised by `rt.DisablePreemption`, by runtime locks, by
 `pluto/alloc`'s per-processor caches (`rt.ProcPin`) and while the task is switched out. A preemption
 that arrives while it is non-zero sets a pending flag, and the task yields when the count returns to
 zero. `rt.Park` with a non-zero count panics with "blocking with preemption disabled".
+
+In kernel mode `rt.Park` also panics, with the same message, when RFLAGS.IF is clear on entry: the task
+called it with maskable interrupts disabled, by `x86.Cli` or `x86.SaveFlagsCli`, which raise no count.
+The test is one `pushfq` and a bit test on the way into the runtime's `park`, before the runtime takes
+any lock of its own, so it reads the flag the calling task set (language spec sections 17.1 and 19.3,
+Waiting in a non-migrating region). It exempts the runtime's own switch path:
+
+- the runtime locks and the backend's locks that `park` takes after the test, and the switch inside
+  `Scheduler.Park`, run with interrupts disabled and are not tested;
+- `rt.Yield`, `rt.Preempt` and `preemptPark` switch a task away without parking, so a handler on the
+  task's stack, which runs with interrupts disabled, may still yield through them (section 12.2 saves
+  RFLAGS so that such a task resumes with its own flag);
+- hosted builds do not test the flag, since `x86.Cli` faults outside ring 0 and no interrupt-disabled region can exist there, and other freestanding builds do not test it either: their backend runs at a privilege
+  level the runtime does not know.
+
+No correct program parks with interrupts disabled to close a lost-wakeup window: the park permit
+already keeps an `rt.Ready` that comes first (section 12.5, rule 1).
 
 - **From an interrupt handler on the task's stack** (a kernel's timer): the handler acknowledges the
   interrupt and calls `rt.Preempt()`, which yields; the handler's own frame holds the interrupted

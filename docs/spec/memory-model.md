@@ -262,6 +262,13 @@ decrement that brings the count to zero is synchronized before the `Reset`, `Rel
 it. So a task that still holds a string, or an owner, made in another task's arena keeps the arena from
 taking back that memory, and the owner of the arena panics instead of reusing it.
 
+Taking memory back is a free of every object the arena reclaims, of every type, whether or not its type
+has drop glue: a plain view of an integer struct from `New` is freed by the `Reset` as surely as an owner.
+The race rules count it as a write of each such object (language spec section 19.3, Frees are writes), so
+an object of the arena that another task may still read stops the program from compiling. The count and
+the epochs do not stand in for that rule: plain views are not counted, and an epoch check is not atomic
+with the read it guards (language spec section 18.11).
+
 In a checked build, freeing heap memory gives it a new generation, and taking arena memory back
 ends the incarnation of the reclaimed allocations (language spec section 18.11, Generation checks).
 Fixed and Chunked ordinary views have the same guarantee, through static proof or runtime checking.
@@ -321,8 +328,8 @@ task and an interrupt handler, could make conflicting accesses that are not orde
 19.2 to 19.4). Every piece of memory that tasks and interrupt handlers share is then one of these:
 
 - an owner moved from one task to another, which only the receiving task can then reach;
-- memory that does not change while shared (freeing or moving it, or replacing or dropping an owner that
-  holds it, is a change), such as a package variable written only during package
+- memory that does not change while shared (freeing or moving it, replacing or dropping an owner that
+  holds it, or a `Reset`, `Release` or `Drop` of an arena that takes it back, is a change), such as a package variable written only during package
   initialization or by `main` before it starts its first task, installs its first interrupt handler or
   enables interrupts;
 - data that every access reads or changes with `pluto/sync/atomic` operations;
@@ -467,7 +474,7 @@ registers or permit unprotected plain sharing. The following protocols define vi
   kernel.
 - Disabling relevant local interrupts (`x86.Cli`, `x86.SaveFlagsCli`) and restoring the prior state
   (`x86.Sti`, `x86.RestoreFlags`) are compiler barriers and exclude those handlers on that processor
-  during the protected region. Plain accesses there must follow the same exclusion protocol at every
+  during the interrupt-disabled region. Plain accesses there must follow the same exclusion protocol at every
   access. Restoring a previously disabled state must not enable interrupts prematurely.
 - Volatile provides neither compound-operation atomicity nor mutual exclusion. An invariant requiring
   several accesses must use appropriate exclusion; a `ring[T, N]` alone is not a concurrent queue.
@@ -488,7 +495,7 @@ implementations remain responsible for their explicit contracts.
 ### 6.2 Device memory
 
 Accesses to memory-mapped device registers go through `volatile[T]`. Whether the device observes them in
-order depends on the memory type the page tables give that region (uncacheable, write-combining,
+order depends on the memory type the page tables give that memory (uncacheable, write-combining,
 write-back), which the kernel decides. Ordering ordinary memory (a DMA descriptor) before a volatile write
 to a device register needs nothing extra on x86-64 for write-back memory, because stores are not reordered
 with other stores; it needs `atomic.Fence()` before the doorbell when the descriptor is in write-combining

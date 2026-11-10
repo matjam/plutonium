@@ -172,6 +172,90 @@ The audit is [2026-11-09-spec-audit-g.md](2026-11-09-spec-audit-g.md).
 | Cross-check 3 | abi.md 4.1 init-time closure regions now say the drop runs once in package cleanup, dropping owners and releasing counted references, as 15.4 says. | Plain | abi.md 4.1, 15.4 | No. |
 | Cross-check 4 | abi.md 12.7 "from the requested allocator" is consistent with 12.1 and 12.6. 19.1 ignored the allocator given to `rt.Go` and now names it. | Plain | 19.1; abi.md 12.7 | No. |
 
+## Rulings on audit H
+
+The audit is [2026-11-09-spec-audit-h.md](2026-11-09-spec-audit-h.md).
+
+| Finding | Ruling | Goal | Sections changed (or deciding) | Compiler change |
+|---|---|---|---|---|
+| H1 | Resolved. A `Reset`, `Release` or `Drop` of an arena, the implicit drop at scope end included, frees, and so writes, every object `New` or `Slice` allocated in it, of every type, for the race rules and the E3313 events. `Release` counts every type. A live `Alloc` allocation panics and is not freed (D86). | Safe | 19.3, 19.4, 18.3, 18.9, 12.12; memory-model.md 3.8, 4.1 | Yes. Item 212, extending items 168 and 209. |
+| H2 | Resolved. The G5 compile error reports only exact paths. A call through an interface or func value where only some candidates wait, and an allocation or drop where only some installed allocators wait, compile and panic at run time if they wait. 19.3 says why E2584 stays conservative (D87). | Kernel, Plain | 19.3, 19.1, 17.1, 20.10 | Yes. Item 210 text narrowed. |
+| H3 | Resolved. In kernel mode `rt.Park` also panics when interrupts are disabled; the test is on entry to `park`, before runtime locks, so the scheduler's switch, `Yield`, `Preempt` and `preemptPark` are not tested (D88). | Kernel, Safe | 19.3, 19.1, 17.1; abi.md 12.4 | Yes. Item 213, extending item 210. |
+| H4 | Resolved. The code of `pluto/rt` is unsafe code; its non-migrating regions are not checked for waits. A path from a program's region into the runtime still ends at `park` (D89). | Kernel | 18.12, 19.3 | Part of item 210. |
+| H5 | Resolved. "Borrow" is replaced by "view" in 19.3 and 8.8, with E3313, E3314 and E3501 named; 11.14 counts a pointer-receiver call as a view (D90). | Plain | 19.3, 8.8, 11.14 | No. |
+| H6 | Resolved. Row 81 states the cost: `return x.Bytes()` for `x T` is E3001 even when every type argument returns heap memory; take `*T` or the interface type (D91). | Go, Plain | A | No. |
+| H7 | Resolved. "A value whose type contains a type parameter (`x` of type `T`, or `Box[T]{x}`)" (D92). | Safe | 18.3, A; skill known gaps | No. |
+| H8 | Resolved. An arena is named by its variable or field, and a pointer by where it came from, as locks are; an arena it cannot name counts as every arena it may be (D93). | Safe, Plain | 19.3, 20.10 | Part of item 212. |
+| H9 | Resolved. Closure region, non-migrating region and interrupt-disabled region are always qualified; "region annotations" keeps D12's wording; chapter 1's glossary defines all three. Other memory once called a region is renamed (D94). | Plain | 1, 7, 11, 12, 17, 18, 19, 20, 21, A; abi.md; memory-model.md; skill references | No. |
+| Spec examples | The 12 wrong examples are fixed without changing a rule, and the 7.9 example marks both lines of the clash (D95). | Plain | 7.9, 7.18, 10.10, 11.6, 11.7, 11.18, 11.24, 11.25, 11.27, 12.17, 15.1 | No. |
+| `send(buf.Len(), buf)` | 11.14, 11.26 and 18.5 agree: a move and a use in one expression are an error in either order. The compiler accepts this order. | Safe | 11.14 (deciding) | Yes. Item 211, extending item 75. |
+
+### Attacks on the audit H edits
+
+Each edit was attacked with a program that might slip past it.
+
+- H1, a plain struct: task A reads `p.x` of a `*P` from `ar.New[P]()`, `P` has no drop glue, and the
+  starting function calls `ar.Reset()` while A may run. The reset is a write of every `P` in `ar`, so the
+  type rule reports E3501. Closed.
+- H1, two arenas: `ar1.Reset()` while a task reads an object of `ar2`. The arenas are named by variable,
+  so no conflict is reported and none exists. With `arenas[i].Reset()` and a variable `i`, the call counts
+  on every element: a false positive at worst. Closed.
+- H1, the implicit drop: the arena is a local whose scope ends while a task uses an object from it. The
+  scope-end drop is named as a `Drop` and counts. Closed.
+- H1, a func value: `reset := ar.Reset` called later. The method value names the arena it was taken from;
+  a func value the compiler cannot follow is held by 18.3's precision rule (counts as every arena it may
+  be). Closed, conservatively.
+- H1, an `Alloc` allocation: a task uses an owner allocated by `ar.Alloc` while `ar.Reset()` runs. The live
+  count makes the reset panic and take nothing back, so nothing is freed under the task. Closed at run time,
+  as D70 decided.
+- H1, a scoped task: the same as the plain struct case inside `sync.Scope`. 19.4's type-based conflict rule
+  counts the reset (the audit also checked this). Closed.
+- H1, a local view: `p := ar.New[int](); ar.Reset(); _ = *p` in one task. E3313 ends `p` at the reset,
+  whatever the type. Closed.
+- H2, an interface call in a region: `mu.Lock(); dev.Read(buf); mu.Unlock()` where one `Device`
+  implementation waits. It compiles; if that implementation runs, `park` sees the lock count and panics.
+  Loud, not silent. Accepted by design.
+- H2, an allocator: `alloc.Use` of an allocator that may wait, inside `rt.DisablePreemption`. If the window
+  is exact (a known allocator), the error is reported; if only some installed allocators wait, the panic
+  catches the wait. Closed.
+- H2, with interrupts disabled and no lock: `x86.Cli(); dev.Read(buf)`. The preemption count is zero, so
+  before H3 nothing caught it in kernel mode. H3 closes it in kernel mode; other freestanding builds stay a
+  known gap. Recorded.
+- H3, the switch path: the scheduler's `Park` switches with runtime locks held and interrupts disabled in
+  kernel mode. The test runs on entry to `park`, before those locks, so the switch is not tested. A
+  program that disables interrupts and then waits fails the test. Closed.
+- H3, a handler that yields: a handler calls `rt.Yield()` with interrupts disabled. `Yield` does not call
+  `park`, and 12.2 saves RFLAGS, so this stays allowed and the yielded task resumes with its own flag.
+  Closed.
+- H4, a user region into the runtime: `mu.Lock(); ch <- v`. The path from the user region reaches the
+  runtime's `park`, which is a wait, so it is reported. The exemption covers only regions that start in
+  `pluto/rt`. Closed.
+- H4, a runtime region calling user code: a runtime callback (a hook or a drop) waits while the runtime
+  holds a lock. The compile check does not see it; `park` sees the lock count and panics. Closed at run
+  time.
+- H5, a view after the move: `p := &c.n; task use(c); println(*p)`. `p` is a view of a local owner used
+  after the move: E3313. A view stored in a field of a package variable: E3501. Closed.
+- H7, a wrapper: `return Box[T]{x}.Get()` for `x T`. The type of `Box[T]{x}` contains `T`, so the bound
+  applies. Closed.
+- H9: no rule changed, only terms, so no program can slip past it.
+
+### Known-gaps lines
+
+Added to `skill/plutonium/references/known-gaps.md`:
+
+- A use of a variable in an argument before the argument that moves it (`send(buf.Len(), buf)`) compiles; it
+  should be an error, as the other order is (11.14, E3301). Item 211.
+- The race check and E3313 do not yet treat a `Reset`, `Release` or `Drop` of an arena as a free of every
+  object it takes back, of every type (19.3, 18.3, memory-model.md 3.8). Item 212.
+- In kernel mode, `rt.Park` does not yet panic when interrupts are disabled, so a wait with interrupts
+  disabled and no lock held is not caught at run time (19.3, abi.md 12.4). Item 213.
+
+Changed: the item 210 line says "on an exact path inside a non-migrating region", and the G1 line (items 204
+and 208) says "a value whose type contains a type parameter".
+
+By design, and so not a gap: other freestanding builds do not test the interrupt flag in `park` (19.3,
+abi.md 12.4); a wait there with interrupts disabled and no lock held is not caught.
+
 ## Diagnostics that need a code in phase 1
 
 None of these rulings invents a code. They extend E3313 (A1), E3212 (C1), E3302 (C3), E2313 (C4) and E2511
@@ -188,3 +272,6 @@ section 19.3). E2584 is defined only for interrupt handlers, so the spec calls i
 code is assigned (item 210). Audit G also widens E3313, E3314 and E3009 (G1), and E2584, E3501 and E3404
 (G2). The panics it lists in 17.1 ("arena: out of memory", "blocking with preemption disabled", "sync: two
 tasks wait on one Scope", "generation checks need 4-level paging") need no code.
+
+Audit H adds no code. It narrows the G5 error to exact paths (H2), widens E3313, E3501 and E3404 to arena
+frees of every type (H1), and names E3313, E3314 and E3501 for views at an owner transfer (H5).

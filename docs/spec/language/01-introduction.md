@@ -194,9 +194,17 @@ These terms are used throughout. Each is defined in full in the section cited.
   its values are copied, moved and released (section 8.7).
 - **Frame.** The memory of one call of a function: its parameters, results, local variables and
   temporaries. A frame ends when the call returns (section 18.2, Where variables live).
-- **Region.** Memory in a caller's frame that the caller reserves for the closures a callee returns, so
-  that a returned closure lives as long as the caller's frame and costs no allocation (section 11.5,
-  Closures and their regions).
+- **Closure region.** Memory in a caller's frame that the caller reserves for the closures a callee
+  returns, so that a returned closure lives as long as the caller's frame and costs no allocation (section
+  11.5, Closures and their regions).
+- **Non-migrating region.** A stretch of code in which the task cannot move to another processor:
+  preemption or maskable interrupts are disabled, or an `rt.Lock` is held. An **interrupt-disabled
+  region** is a stretch in which maskable interrupts are disabled, such as the body of a `//pu:interrupt`
+  handler (section 19.3, Non-migrating and interrupt-disabled regions). Neither is called just "region"
+  where a closure region could be meant.
+- **Region annotations.** Annotations in the source that name lifetimes or areas of memory, as some
+  languages require. Plutonium has none; the phrase never means a closure region or a non-migrating
+  region.
 - **Move.** Passing an owner from one place to another. The source then holds nothing, and using it before
   it is assigned again is a compile error (section 18.5, Moves).
 - **Drop.** The end of an owner's life: its `Drop` method runs if it has one, its fields are dropped, and

@@ -68,7 +68,7 @@ Where a variable lives is fixed by its declaration, never by how the program use
   the records of closures and method values it makes, the objects of `&T{...}` composite literals and
   the arrays of slice literals it evaluates (section 11.3, Composite literals), and the array that holds
   the arguments of a variadic call (section 11.15, Passing arguments to `...` parameters). A function
-  that returns a closure builds it, and the variables it captures, in a **region** of its caller's
+  that returns a closure builds it, and the variables it captures, in a **closure region** of its caller's
 frame (section 11.5). The frame is
   reclaimed when the function returns.
 - A package-level variable lives in **static storage** for the whole program. So do the composite
@@ -110,8 +110,8 @@ passed to calls. The compiler rejects every use that could outlive the frame:
 
 Where the type checker sees a view of the frame passed to a task statement or sent on a channel
 directly, it reports E2011 instead of E3004 or E3005. A closure that a call returns is a view of the
-caller's frame, built in the region the caller provides (section 11.5): returning it again is allowed,
-since the caller's caller then provides the region, and the closure-specific errors E3100 to E3102 are
+caller's frame, built in the closure region the caller provides (section 11.5): returning it again is allowed,
+since the caller's caller then provides the closure region, and the closure-specific errors E3100 to E3102 are
 defined there. Since a closure of a frame can never be stored in heap or package memory (E3002), a func
 value loaded from such memory is never a view of a frame.
 
@@ -124,7 +124,8 @@ frame rules above, and in addition it may not be used, in the same function, aft
   or move an owner out of it. The callee's summary records which of its pointer parameters it may free
   or move out of memory through (below), so `s := v.Slice(); v.Push(1); println(s[0])` is E3313: `Push`
   may free the old array. So is `p, _ := r.Peek(); r.Pop(); use(p)` on a local ring of owners
-  (section 7.17);
+  (section 7.17). A `Reset`, `Release` or `Drop` of an arena frees every object it takes back, of every
+  type, so it ends every view into that memory, not only views of values with drop glue (section 18.9);
 - an assignment to an owner field on the path from the variable to the memory the view looks at, which
   drops the old value: after `p := &*n.child`, `n.child = new(Leaf)` ends `p`.
 
@@ -233,8 +234,8 @@ the result does hold `p` (E3007), and the directive is an error outside the stan
   instantiation. Where a rule of this chapter depends on the type argument (whether it is one word,
   counted, an owner, or has drop glue), the checker applies the strictest form that any type argument
   the constraint admits needs:
-  - A conversion of a value of a type parameter to an interface counts as both kinds of view at once,
-    for every type parameter (`[T any]` as well as `[T owner any]`) and whatever the type argument: a
+    - A conversion to an interface of a value whose type contains a type parameter (`x` of type `T`, or
+    `Box[T]{x}`) counts as both kinds of view at once, for every type parameter (`[T any]` as well as `[T owner any]`) and whatever the type argument: a
     frame copy (section 7.9), and, for an ordinary interface, a view obtained from the converted
     variable that each event of the list in A local owner's memory (above) ends (E3313, E3314). So the
     interface may not leave the frame, and it may not be used after the variable is moved, dropped or
@@ -246,8 +247,8 @@ the result does hold `p` (E3007), and the directive is an error outside the stan
     decides A local's scope (below), the declaration order of a variable whose drop releases a view
     of another local (below), and leaving a loop (section 18.4): `p := &x` of a `T` local may not be
     used after `x`'s scope ends.
-  - A view obtained from a value of a type parameter (the result of a method of its constraint, or an
-    element or slice of it) is bounded by the variable or temporary that holds the value, as a view
+    - A view obtained from a value whose type contains a type parameter (the result of a method of its
+    constraint, or an element or slice of it) is bounded by the variable or temporary that holds the value, as a view
     obtained from a local or temporary owner is (E3313, E3314, E3009), unless every type in the type
     set is a value or a view.
   - A call of a method of a type parameter is checked against that method of every type the program
@@ -333,7 +334,7 @@ for i := 0; i < 3; i++ {
 ```
 
 The rule means that every loop that compiles behaves as if each iteration had variables of its own: no
-program can observe that the storage is shared. A closure returned by a call in a loop is covered by the region rule of section
+program can observe that the storage is shared. A closure returned by a call in a loop is covered by the closure region rule of section
 11.5 (E3101). Tasks started by a `sync.Scope` in a loop take their own copies of the iteration's
 variables instead (section 19.4, Scoped tasks).
 
@@ -483,9 +484,9 @@ the end of each iteration for a variable declared in a loop body. In detail:
 - Parameters are dropped when the function returns, after its local variables, except
   `sync.Scope` parameters, which are dropped before them. Results are moved to the
   caller and not dropped.
-- A variable or parameter that a closure the function returns captures lives in the caller's region and
-  is not dropped when the function returns. The region drops it when the call runs again and refills
-  the region, and when the caller's frame returns (section 11.5, Closures and their regions).
+- A variable or parameter that a closure the function returns captures lives in the caller's closure region and
+  is not dropped when the function returns. The closure region drops it when the call runs again and refills
+  the closure region, and when the caller's frame returns (section 11.5, Closures and their regions).
 - A variable or place the compiler knows holds nothing (moved away on every path, never given a value,
   a part a composite literal or `new(T)` left zero, a place emptied by `take`) is not dropped, and an
   assignment to it does not drop its old value. Where a variable may have been moved on some paths only,
@@ -682,7 +683,7 @@ releases its strings. A counted value is dropped at the points where an owner wo
 Drops):
 
 - at the end of a variable's scope, on every path out of it (except a variable a returned closure captures,
-  which its region releases, below), and at the end of each iteration for a
+  which its closure region releases, below), and at the end of each iteration for a
   variable declared in a loop body;
 - when a place is overwritten: the new value takes its references first, then the old one is released,
   so `s = strings.SliceFrom(s, 1)` and `a, b = b, a` are safe;
@@ -690,7 +691,7 @@ Drops):
   three-clause `for`, after each evaluation;
 - for storage that belongs to the frame but outlives a statement (an interface copy, the object of
   `&T{...}`, a slice literal's array, the array of a call's variadic arguments, a method value's receiver, a deferred call's saved arguments, the
-  region a call builds its closures in, with every captured variable in it), when the function returns, after its deferred calls, or when the
+  closure region a call builds its closures in, with every captured variable in it), when the function returns, after its deferred calls, or when the
   same expression runs again and refills it.
 
 A panic and `os.Exit` release nothing, as for owners. A `[]string` is a view: its elements belong to the
@@ -881,8 +882,9 @@ count of live allocations (below). A type without drop glue records nothing and 
 - The program's views of the memory being taken back are dead from the start of the call, under the
   rules that already apply: for an arena in a local variable the compiler rejects a use after the
   `Reset` or `Release` (E3313, below), and the epoch check catches the rest (section 18.11). The view
-  rules of section 18.3 treat the call as one that may free through every pointer into the arena, since
-  its entries drop what the arena's values own: after `p := &*n.child`, where `n` came from `New`, a use
+  rules of section 18.3 and the race rules of section 19.3 treat the call as one that frees every object
+  it takes back, of every type, with drop glue or without, and may free through every pointer into the
+  arena, since its entries drop what the arena's values own: after `p := &*n.child`, where `n` came from `New`, a use
   of `p` after the `Reset` is E3313 like a use of `n`, though `n.child` may live in other memory. The
   arena
   ends its epoch only after the entries have run, so a drop function that reaches an earlier value
@@ -1154,7 +1156,10 @@ not imply freedom from deadlock or resource exhaustion.
   parameters come from C unchecked (section 20.4), and the directives that state promises the
   compiler takes on trust: `//pu:noescape`, `//pu:resultholds` (standard library only) and
   `//pu:nochecks` (section 20.3);
-- `rt.Pinned`, which hides a pointer from the frame rules.
+- `rt.Pinned`, which hides a pointer from the frame rules;
+- the code of package `pluto/rt`, which implements tasks, locks and waiting with its own locks and with
+  preemption disabled: its variables and records are outside the race rules, and its non-migrating
+  regions are outside the check for waits (section 19.3, What is not checked; Waiting in a non-migrating region).
 
 Unsafe code is marked by what it imports and by its directives, with no keyword. A function that wraps
 unsafe code behind a safe interface, as `vec.Vec` and `hash.Map` do, is responsible for keeping the

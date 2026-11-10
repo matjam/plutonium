@@ -1412,6 +1412,162 @@ cannot see. Goal: Safe, Kernel.
 
 Lands with: the sections named above; roadmap item 210, which extends items 120 and 156.
 
+## D86. An arena takes back objects of every type (19.3, 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8, 4.1)
+
+Question: audit H1. D82 made a `Reset`, `Release` or `Drop` of an arena a free only through the drop glue
+of the types passed to `New` or `Slice`. A plain struct with no drop glue, allocated in an arena and used by
+a task while another task resets the arena, was then a race no rule named.
+
+Decision: a `Reset`, `Release` or `Drop` of an arena, the implicit drop at the end of the arena's scope
+included, counts as freeing, and so as writing, every object that `New` or `Slice` allocated in that arena,
+of every type. A `Release` counts objects of every type in the arena, since the compiler cannot order
+objects against marks. The drops the drop entries run count on top. A live `Alloc` allocation makes the call
+panic, so it is not freed. This holds for rules 1 to 3 and the type rule of 19.3, for scoped tasks (19.4)
+and for the E3313 events of 18.3. 12.12 counts it as a change of a shared object, and memory-model.md 3.8
+and 4.1 say the same.
+
+Why: an arena reset reuses the memory of every object at once; whether the type has drop glue does not
+change that another task may still read it. The live count and the generation epochs catch some misuse at
+run time but do not stand in for the race rules. Goal: Safe.
+
+Lands with: the sections named above; roadmap item 212, which extends items 168 and 209.
+
+## D87. Waits in a non-migrating region: exact paths only (19.3, 19.1, 17.1, 20.10)
+
+Question: audit H2. D85 made a wait reachable inside a non-migrating region a compile error, following
+calls as E2584 does. E2584 is conservative through interfaces, func values and allocators, so a kernel
+that calls an operations table or allocates while a lock is held would be rejected wherever one possible
+implementation waits.
+
+Decision: the compile error reports only exact paths: the wait is written in the region, or every call on
+the way must reach a wait whichever function runs there. Direct calls, calls of methods of known types,
+deferred calls, hooks and function literals called where they are written are exact. A call through an
+interface or a func value where only some candidates wait, and an allocation or drop where only some
+installed allocators wait, compile; the run-time panic "blocking with preemption disabled" catches them.
+E2584 stays conservative: a wait in a handler has no safe run-time outcome, since the processor stops,
+while a wait in a task's region fails loudly at the panic.
+
+Why: rejecting ordinary kernel code for a wait that only some implementations make would force
+annotations or restructuring on code that is correct. The panic keeps every such wait loud. Goal: Kernel,
+Plain.
+
+Lands with: the sections named above; roadmap item 210, whose text changes.
+
+## D88. `rt.Park` tests the interrupt flag in kernel mode (19.3, 19.1, 17.1, abi.md 12.4)
+
+Question: audit H3. The backstop panic tested only the task's preemption count. A wait with interrupts
+disabled by `x86.Cli`, and no lock held, would park with interrupts off and could hang the processor in
+silence.
+
+Decision: in kernel mode `park` reads RFLAGS on entry, before it takes any runtime lock, and panics with
+"blocking with preemption disabled" when IF is clear. The switch inside the scheduler's `Park` happens after
+that test, with the runtime's own locks held, and is not tested. `rt.Yield`, `rt.Preempt` and `preemptPark`
+switch a task without parking and are not tested, so a handler may still yield through them. Hosted builds
+cannot run `x86.Cli` and do not test the flag; other freestanding builds do not test it either, since their
+privilege level is not known to the runtime.
+
+Why: with D87, every wait in a non-migrating region of a kernel must fail to compile or panic; this closes
+the interrupt-disabled case. The test is one flag read on a path that is about to switch tasks. Goal:
+Kernel, Safe.
+
+Lands with: the sections named above; roadmap item 213, which extends item 210.
+
+## D89. The runtime's regions are not checked for waits (18.12, 19.3)
+
+Question: audit H4. The runtime takes its own locks and disables preemption while it parks a task, so the
+D85 check would reject `pluto/rt` itself.
+
+Decision: the code of package `pluto/rt` is unsafe code (18.12): its variables and records are outside the
+race rules, and its non-migrating regions are outside the check for waits. The check starts only from
+regions in other code. A path from a program's region into the runtime still ends at `park` and is
+reported.
+
+Why: the runtime implements waiting and must hold its locks across the switch; it is audited code, as
+other unsafe code is. Goal: Kernel.
+
+Lands with: 18.12 and 19.3; part of roadmap item 210.
+
+## D90. Owner transfer speaks of views (19.3, 8.8)
+
+Question: audit H5. 19.3 and 8.8 said an owner moves to another task only when no "borrow" is live. The
+spec defines views, not borrows, and named no error code.
+
+Decision: the text says "view" (18.3). A view of a local owner used after the move is E3313; one stored
+where the compiler cannot follow it is E3314; any other view that may be used while the receiving task can
+use the memory is E3501. 11.14 counts a call of a pointer-receiver method as taking a view.
+
+Why: one term for one idea, defined once, and a named error for each case. Goal: Plain.
+
+Lands with: 19.3, 8.8 and 11.14; no compiler change.
+
+## D91. The cost of the generic frame-copy rule (A row 81)
+
+Question: audit H6. Appendix A row 81 listed the type-parameter rule of 18.3 without its cost.
+
+Decision: the row says what the bound means for a program: `return x.Bytes()` for a parameter `x T` is a
+compile error (E3001), even when every type argument the program uses returns heap memory, and the fix is
+to take `*T` or the interface type.
+
+Why: appendix A must list what a Go programmer would not expect, with its cost. Goal: Go, Plain.
+
+Lands with: appendix A.
+
+## D92. "A value whose type contains a type parameter" (18.3, A, known gaps)
+
+Question: audit H7. The G1 bullets said "a value of a type parameter", which reads as excluding `Box[T]{x}`.
+
+Decision: the wording is "a value whose type contains a type parameter (`x` of type `T`, or `Box[T]{x}`)" in
+18.3, appendix A and the skill's known-gaps list.
+
+Why: the rule must cover every generic type, or a wrapper slips past it. Goal: Safe.
+
+Lands with: the sections named above.
+
+## D93. Arenas are named as locks are (19.3, 20.10)
+
+Question: audit H8. D82 said "every arena where the compiler cannot tell which", without saying how the
+compiler tells.
+
+Decision: the compiler names an arena by the variable or field it is reached through, and for a pointer by
+where the pointer came from, as it names locks. A call on an arena it cannot name, such as
+`workers[i].arena` with a variable index, counts as that call on every arena it may be, within the limits
+of 18.3 (How precise the frame check is). An arena behind a parameter or a heap pointer is item 196.
+
+Why: one precision rule for locks and arenas, which a programmer can predict. Goal: Safe, Plain.
+
+Lands with: 19.3 and 20.10; part of roadmap item 212.
+
+## D94. Three terms for "region" (1, 11.5, 19.3, 20.9, 20.10, abi.md, memory-model.md, skill)
+
+Question: audit H9. "Region" meant the memory a caller reserves for returned closures, a stretch of code
+with preemption or interrupts disabled, and the "region annotations" other languages need.
+
+Decision: the first is always a **closure region** (11.5, abi.md 4.1, the "closure region pointer"). The
+second is always a **non-migrating region** or an **interrupt-disabled region**; the 19.3 paragraph is
+"Non-migrating and interrupt-disabled regions" and the wait paragraph is "Waiting in a non-migrating
+region". "Region annotations" keeps the wording D12 chose, and the glossary of chapter 1
+defines all three. Other memory that was called a region (address zero, page-table memory types, `//pu:fpu`
+code) is now called memory, a range or a function; "guard region" stays, as it is qualified.
+
+Why: a reader should never have to guess which meaning applies. Goal: Plain.
+
+Lands with: the sections named above; no compiler change.
+
+## D95. Spec examples fixed with audit H (7.9, 7.18, 10.10, 11.6, 11.7, 11.18, 11.24, 11.25, 11.27, 12.17, 15.1)
+
+Question: the spec-example test (item 185) found 12 examples that are wrong by the spec's own rules, and one
+(7.9) whose error mark is on a line the rule does not name.
+
+Decision: each example is fixed to obey the rules and to say what its text says, with every error line
+marked and its code stated where the spec gives one. No rule changed. The 7.9 duplicate-method example
+marks both lines of the clash with a heading comment, and the text says an implementation may report it at
+either method. The 11.24 conversion-parsing block is skipped by the test, since no declarations fit every
+line.
+
+Why: the spec's examples are part of its contract; a wrong one teaches a wrong rule. Goal: Plain.
+
+Lands with: the sections named above and `tests/testdata/specexamples/examples.txt`.
+
 ## Deferred
 
 None. The entry on Linux file names that are not valid UTF-8 is closed by D36.

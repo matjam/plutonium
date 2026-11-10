@@ -538,8 +538,8 @@ word of the record is the address of the code to run. A function value comes fro
 
 A closure may be called, passed as an argument, assigned to a local variable and deferred. Storing it in a
 package-level variable or through a pointer into memory that may outlive the frame is a compile error (E3002).
-A function that returns a closure builds it in a **region** of memory that its caller reserves in its own
-frame. The size of a region is fixed when the program is compiled, no allocation takes place, and the closure
+A function that returns a closure builds it in a **closure region** of memory that its caller reserves in its own
+frame. The size of a closure region is fixed when the program is compiled, no allocation takes place, and the closure
 is valid as long as the caller's frame is. Section 11.4 (Function literals) and section 11.5 (Closures and
 their regions) give the rules and the errors; section 18.3 (Views) gives the escape rules.
 
@@ -1562,7 +1562,7 @@ empty (E2110). A ring is not comparable.
 
 `All` and `Values` are iterators for `for` loops over functions (section 12.11, Range over functions). A call
 of one builds its closure, which holds the address of the ring, in the caller's frame; used as a method value
-or a method expression, or called through an interface, it builds it in the region its caller provides, as any
+or a method expression, or called through an interface, it builds it in the closure region its caller provides, as any
 function that returns a closure does (section 11.5, Closures and their regions). Their results have the type
 `func(yield func(int, T) bool)` and `func(yield func(T) bool)`, which are assignable to `iter.Seq2[int, T]`
 and `iter.Seq[T]`.

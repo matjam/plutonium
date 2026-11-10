@@ -473,11 +473,12 @@ Following the structure of the types:
    as a heap-only field is, section 18.3, Views) points into memory the owner owns, and that memory moves
    with the owner, so only what it holds is checked; this is how `vec.Vec`, `hash.Map` and
    `strings.Builder` cross. Construction must not retain an independent conflicting alias. A later
-   transfer also accounts for outstanding borrows, including borrows through fields, helpers and
-   aliases: no surviving alias may permit a conflicting access while the receiving task uses the
-   allocation. A borrow whose last use precedes transfer remains allowed. If the compiler cannot prove
-   the absence of conflicting access, it rejects the transfer under section 19.3 and identifies the
-   borrow, transfer and conflicting use. Generation checks establish lifetime, not race freedom.
+   transfer also accounts for views of the owner's memory that are still live, including views kept in
+   fields, passed through helpers or copied to other variables: no such view may permit a conflicting
+   access while the receiving task uses the allocation. A view whose last use precedes the transfer
+   remains allowed. If the compiler cannot prove the absence of conflicting access, it rejects the
+   transfer (E3313, E3314 or E3501; section 19.3, Owner transfer requires exclusivity) and identifies the
+   view, the transfer and the conflicting use. Generation checks establish lifetime, not race freedom.
    A view field that may hold other memory is checked where the owner crosses, as any view is.
 - `error`, and every interface that embeds it, is sendable. A value of a type that is not sendable (in
   practice, one that holds a `shared[T]`) cannot be converted to such an interface: the conversion is a compile

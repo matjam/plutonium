@@ -184,14 +184,14 @@ deferred or used as a value (E2573); install it in the interrupt table with a ty
 which returns the `x86.Gate` (a table is an array of `Gate`; `x86.Lidt` loads it).
 
 - **The gate is what makes the handler's body safe.** An interrupt gate clears the interrupt flag on entry, so the body
-  of a plain `//pu:interrupt` handler is a region with interrupts disabled, until a call of `x86.Sti` (or
+  of a plain `//pu:interrupt` handler is an interrupt-disabled region, until a call of `x86.Sti` (or
   `StiHlt`) or of a function that may switch tasks. Per-CPU data the handler shares with code it interrupts needs no
   other protection inside that stretch. A raw word written into the table (an address stored as an integer through
   `unsafe.Pointer`) is unsafe code: the typed gate is how the compiler knows every installed handler is entered with
   interrupts disabled.
 - **A handler that can be entered again** says so: `//pu:interrupt trap` (the only argument the directive takes; any
   other is E2603). It is installed only with `x86.TrapGate`, which leaves the interrupt flag as it was, and its body is
-  not an interrupt-disabled region: per-CPU data it shares is protected by a region the handler opens itself
+  not an interrupt-disabled region: per-CPU data it shares is protected by an interrupt-disabled region the handler opens itself
   (`x86.SaveFlagsCli` ... `x86.RestoreFlags`). The wrong constructor for the form is E2572, and so is a gate
   constructor used as a func value or given anything but the name of a handler.
 - Exceptions and nonmaskable interrupts are not held off by an interrupt gate; a handler for one must not use data the
@@ -273,14 +273,14 @@ pointer-receiver calls, `&v`, and a **store whose value or controlling condition
 variable**) must sit in a **non-migrating region**: after `rt.DisablePreemption()` (usually
 `defer rt.EnablePreemption()`), with interrupts masked (`x86.Cli`/`Sti`, `SaveFlagsCli`/`RestoreFlags`), or with an
 `rt.Lock` held; and in an interrupt-disabled region if a handler also touches it. Otherwise E2022. A pointer from
-`&v` may not be used after its region (E2023).
+`&v` may not be used after its non-migrating region (E2023).
 
 The dependent store is a read-modify-write written as two statements: `x := ticks; ticks = x + 1`, or
 `if current == idle { current = next }`. The dependence is followed through locals, copies of structs, arithmetic,
 conditions, loops and calls (a result depends on its arguments and on what the callee loads; a callee that stores the
 variable from its argument, or in a branch the caller's condition controls, counts as a store at the call); where it
 cannot see a call (a func value, a body-less function) it assumes the result depends on all the arguments, and the
-error says so. The load and the store must be in **one** region, not in two regions one after the other. Two lone
+error says so. The load and the store must be in **one** non-migrating region, not in two one after the other. Two lone
 accesses that do not depend on each other (`log(current)` here, `current = t` there, `t` not computed from `current`)
 stay allowed anywhere.
 
@@ -304,7 +304,7 @@ type Thread struct{ id int }
 var idle Thread
 
 //pu:percpu
-var current *Thread // a lone load or store of one word needs no region
+var current *Thread // a lone load or store of one word needs no non-migrating region
 
 //pu:percpu
 var ticks uint64
@@ -368,11 +368,11 @@ var current *Thread
 
 func main() {
 	if current == &idle {
-		current = &next // controlled by the load of current: needs one region around both
+		current = &next // controlled by the load of current: needs one non-migrating region around both
 	}
 	rt.DisablePreemption()
 	if current == &idle {
-		current = &next // fine: the load and the store are in one region
+		current = &next // fine: the load and the store are in one non-migrating region
 	}
 	rt.EnablePreemption()
 }
@@ -499,8 +499,7 @@ func main() {
 3. Handlers: data shared with code that may write it is atomic or under `rt.Lock`; send with `select`/`default`; no
    allocation unless the allocator never waits.
 4. No waiting with preemption disabled: between `rt.DisablePreemption` and `rt.EnablePreemption`, while an `rt.Lock`
-   is held or with interrupts disabled, a wait the compiler can see is a compile error, and one it cannot panics
-   with "blocking with preemption disabled" (section 19.3).
+   is held or with interrupts disabled, a wait on an exact path is a compile error, and any other (through an interface, a func value or an allocator only some of which wait) panics with "blocking with preemption disabled"; in kernel mode `rt.Park` also panics when interrupts are disabled (section 19.3).
 5. Per-CPU state: lone word accesses or an explicit non-migrating region.
 6. Raw memory is `unsafe`: keep it in a few small packages and audit them with `pluto vet -unsafe --mode kernel`.
 7. Allocation: install the allocator in the entry function (`alloc.SetDefault`); give long-lived and interrupt-time

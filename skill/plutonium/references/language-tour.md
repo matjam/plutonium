@@ -471,7 +471,7 @@ status 2. A worked example with `Drop` is in `ownership-and-memory.md`.
 ## 11. Closures and function values (sections 7.8, 11.4, 11.5)
 
 A function literal that captures variables is a **view of its frame**: it is valid while the frame is. You can
-call it, pass it down, return it (it is built in a region of the caller's frame, with no allocation) and defer it.
+call it, pass it down, return it (it is built in a closure region of the caller's frame, with no allocation) and defer it.
 Storing it in a package variable or sending it to a task is an error (E3002, E2590), and keeping one that
 captures a loop variable past its iteration is E3006. Pass values as arguments to a `task`.
 

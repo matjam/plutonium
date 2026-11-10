@@ -542,6 +542,4 @@ Nothing an interrupt handler or the panic handler can reach may wait: no channel
 `select` with `default`, no `Lock` of a `sync.Mutex` (use `rt.Lock`), no `time.Sleep`, `s.Wait`, task start or
 allocator that waits (E2584, E2585). Data a handler touches while other code may write it, or writes while other
 code may touch it, must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable; data nobody writes
-while a handler may run needs neither. The same waits are a compile error inside a region with preemption disabled
-(`rt.DisablePreemption`, a held `rt.Lock`, interrupts off), and one the compiler cannot see panics with "blocking
-with preemption disabled" (section 19.3). See `kernel-mode.md`.
+while a handler may run needs neither. The same waits, on an exact path, are a compile error inside a non-migrating region (`rt.DisablePreemption`, a held `rt.Lock`, interrupts off); any other wait there (through an interface, a func value, or an allocator only some of which wait) panics with "blocking with preemption disabled", and in kernel mode `rt.Park` also panics with interrupts disabled (section 19.3). See `kernel-mode.md`.

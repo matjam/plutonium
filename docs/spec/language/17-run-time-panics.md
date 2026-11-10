@@ -86,8 +86,11 @@ dependent value and neither panics nor faults (section 11.24).
 - An operation that would park the task, in interrupt context, when the scheduler can tell (section
   20.10, Interrupts).
 - An operation that would park the task while its preemption is disabled, by `rt.DisablePreemption` or a
-  held `rt.Lock` ("blocking with preemption disabled"; section 19.1). The compiler rejects such a wait
-  where it can see it (section 19.3, Waiting in a region); this panic catches the rest.
+  held `rt.Lock`, or, in kernel mode, while maskable interrupts are disabled, by `x86.Cli` or
+  `x86.SaveFlagsCli` ("blocking with preemption disabled"; section 19.1). The compiler rejects such a
+  wait on an exact path (section 19.3, Waiting in a non-migrating region); this panic catches the rest, such as a wait
+  reached through an interface, a func value or an allocator where only some of the possible callees
+  wait.
 - `rt.ExitTask` called in a function that C code called (section 17.3).
 
 *Memory.*
@@ -316,10 +319,9 @@ faulting instruction.
 **Nil dereference.** Every dereference of a nil pointer panics: a load or store through it, a selector of
 a field through it, and an index or slice of a nil pointer to an array. The same holds for a nil `owned`,
 `shared` or `synced` value, and for a call of a nil function value. The implementation relies on the
-hardware where it can: address zero and the region above it are unmapped (in hosted builds, and in a
+hardware where it can: address zero and the memory above it are unmapped (in hosted builds, and in a
 kernel, which must arrange it), so an access at a small offset from a nil pointer faults, and the runtime
-turns the fault into this panic. Where the offset of an access from the pointer can exceed the size of
-that unmapped region (a field at a large offset, or an element of a large array reached through a pointer
+turns the fault into this panic. Where the offset of an access from the pointer can exceed the size of that unmapped range (a field at a large offset, or an element of a large array reached through a pointer
 to it), the compiler checks the pointer explicitly before the access. A slice of an array through a
 pointer is checked explicitly as well, however small the array: forming the slice computes its base
 address but reads no memory, so no fault would report the nil. Ordinary accesses therefore cost no check,
