@@ -392,5 +392,13 @@ func init() {
 			Example: "pp := &h\n*pp = &c\nconsume(c)",
 			Fixed:   "h = &c\nuse(h)\nconsume(c)",
 		}),
+		pu.New(Entry{
+			Code: ConsumingMethodValue, Name: "ConsumingMethodValue",
+			Text:    "A method whose receiver is an owner type taken by value consumes its receiver: calling it moves the receiver into the method. A method value c.M holds its receiver, so for such a method it would own c, and every call of it would consume c again. A consuming method therefore has no method value.\nCall the method directly, or use the method expression T.M, which takes the receiver as its first argument when it is called.",
+			Why:     whyOwners,
+			Spec:    pspec("11.9", "Method values"),
+			Example: "done := c.Close",
+			Fixed:   "done := Conn.Close\ndone(c)",
+		}),
 	)
 }

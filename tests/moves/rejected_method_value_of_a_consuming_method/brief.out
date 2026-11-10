@@ -1,0 +1,1 @@
+$DIR/main.p:28:10: cannot use m.Consume as a value: Consume has a Buf receiver, so it consumes m

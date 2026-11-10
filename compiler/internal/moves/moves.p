@@ -252,23 +252,22 @@ const (
 type moveKind uint8
 
 const (
-	mvAssign      moveKind = iota // n := m, n = m
-	mvArg                         // passed by value
-	mvRecv                        // the receiver of a method with a value receiver
-	mvReturn                      // returned
-	mvSend                        // sent on a channel
-	mvGo                          // passed to a task statement
-	mvStore                       // stored in a field, element or composite literal
-	mvDrop                        // m.Drop()
-	mvConv                        // converted to another owner type
-	mvMethodValue                 // bound into a method value
-	mvAssert                      // asserted out of an owning interface
-	mvGoRecv                      // the owned box a task statement calls a method of
-	mvTask                        // taken by a scoped task (s.Task)
-	mvNewValue                    // given a new value (views.go)
-	mvTake                        // emptied by take(&x) (views.go)
-	mvScopeEnd                    // dropped at the end of its block (views.go)
-	mvReclaim                     // a local arena's memory reclaimed by Reset or Release (views.go)
+	mvAssign   moveKind = iota // n := m, n = m
+	mvArg                      // passed by value
+	mvRecv                     // the receiver of a method with a value receiver
+	mvReturn                   // returned
+	mvSend                     // sent on a channel
+	mvGo                       // passed to a task statement
+	mvStore                    // stored in a field, element or composite literal
+	mvDrop                     // m.Drop()
+	mvConv                     // converted to another owner type
+	mvAssert                   // asserted out of an owning interface
+	mvGoRecv                   // the owned box a task statement calls a method of
+	mvTask                     // taken by a scoped task (s.Task)
+	mvNewValue                 // given a new value (views.go)
+	mvTake                     // emptied by take(&x) (views.go)
+	mvScopeEnd                 // dropped at the end of its block (views.go)
+	mvReclaim                  // a local arena's memory reclaimed by Reset or Release (views.go)
 )
 
 // A move records where and how a variable's value left it.

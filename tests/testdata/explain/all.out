@@ -5873,6 +5873,31 @@ Written correctly:
 
 See "Views" in the Plutonium spec, section 18.3.
 
+E3315: ConsumingMethodValue
+
+A method whose receiver is an owner type taken by value consumes its receiver:
+calling it moves the receiver into the method. A method value c.M holds its
+receiver, so for such a method it would own c, and every call of it would
+consume c again. A consuming method therefore has no method value.
+
+Call the method directly, or use the method expression T.M, which takes the
+receiver as its first argument when it is called.
+
+Go copies such values freely and its garbage collector frees what they refer to
+when nothing refers to it any more. Plutonium has no garbage collector: an owner
+frees what it owns when it is dropped, so there must be exactly one.
+
+For example:
+
+    done := c.Close
+
+Written correctly:
+
+    done := Conn.Close
+    done(c)
+
+See "Method values" in the Plutonium spec, section 11.9.
+
 E3401: ScopeOutlivesVar
 
 A task started by s.Task holds a pointer, slice or function literal that looks

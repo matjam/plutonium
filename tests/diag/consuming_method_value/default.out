@@ -1,0 +1,37 @@
+$DIR/main.p:22:10: cannot use c.Close as a value: Close has a Conn receiver, so it consumes c
+    Conn is an owner type: its values own what they hold and release it when
+    they are dropped. A method with a value receiver of an owner type consumes
+    its receiver: a call moves the receiver into the method. A method value
+    would hold c, and every call of it would consume c again, so a consuming
+    method has none.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Call the method where it is needed:
+        c.Close()
+    Or use the method expression, which takes the receiver as its first
+    argument:
+        f := Conn.Close
+        f(c)
+    (see "Method values" in the Plutonium spec, section 11.9)
+    (run "pluto explain E3315" for a longer explanation)
+
+$DIR/main.p:26:10: cannot use p.Close as a value: Close has a Conn receiver, so it consumes p.Conn
+    Conn is an owner type: its values own what they hold and release it when
+    they are dropped. A method with a value receiver of an owner type consumes
+    its receiver: a call moves the receiver into the method. A method value
+    would hold p.Conn, and every call of it would consume p.Conn again, so a
+    consuming method has none.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Call the method where it is needed:
+        take(&p.Conn).Close()
+    Or use the method expression, which takes the receiver as its first
+    argument:
+        f := Conn.Close
+        f(take(&p.Conn))
+    (see "Method values" in the Plutonium spec, section 11.9)
+    (run "pluto explain E3315" for a longer explanation)

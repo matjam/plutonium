@@ -84,8 +84,6 @@ func (c *checker) howMoved(mv *move) string {
 		return compat.Concat("dropped by ", mv.to, "()")
 	case mvConv:
 		return compat.Concat("converted to ", mv.to)
-	case mvMethodValue:
-		return compat.Concat("moved into the method value ", mv.to)
 	case mvAssert:
 		return compat.Concat("moved out by the type assertion ", mv.to)
 	case mvNewValue:
@@ -515,6 +513,45 @@ func (c *checker) dropDiag(se *ast.SelectorExpr, k dropKind) *diag.Diagnostic {
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Call %s.Drop() where the owner's life should end.", compat.ArgS(x))})
 	}
 	return d
+}
+
+// methodValueDiag explains a method value of a consuming method. For a
+// method promoted from an embedded owner, the receiver is that field.
+func (c *checker) methodValueDiag(se *ast.SelectorExpr, recv types2.Type) *diag.Diagnostic {
+	x, m := exprText(se.X), se.Sel.Name
+	r, call := x, compat.Concat(x, ".", m, "()")
+	if sel := c.selections[se]; sel != nil && len(sel.Index()) > 1 {
+		r = embeddedPath(c.typeOf(se.X), x, sel.Index())
+		call = compat.Concat("take(&", r, ").", m, "()")
+	}
+	T := c.typeName(recv)
+	d := c.newDiag(se.Pos(), diag.ConsumingMethodValue, "cannot use %s.%s as a value: %s has a %s receiver, so it consumes %s", pu.Box(x), pu.Box(m), pu.Box(m), pu.Box(T), pu.Box(r))
+	d.Text = compat.Sprintfb("%s A method with a value receiver of an owner type consumes its receiver: a call moves the receiver into the method. A method value would hold %s, and every call of it would consume %s again, so a consuming method has none.", compat.ArgS(c.ownerIntro(recv)), compat.ArgS(r), compat.ArgS(r))
+	d.Fix = pu.New(diag.Fix{Intro: "Call the method where it is needed", Code: call})
+	arg := r
+	if r != x {
+		arg = compat.Concat("take(&", r, ")")
+	}
+	d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "Or use the method expression, which takes the receiver as its first argument", Code: compat.Sprintfb("f := %s.%s\nf(%s)", compat.ArgS(T), compat.ArgS(m), compat.ArgS(arg))})})
+	return d
+}
+
+// embeddedPath returns x followed by the names of the embedded fields the
+// selection path index goes through to reach a promoted method.
+func embeddedPath(T types2.Type, x string, index []int) string {
+	for _, i := range index[:len(index)-1] {
+		if e := pointerElem(T); e != nil {
+			T = e
+		}
+		st, ok := T.Underlying().(*types2.Struct)
+		if !ok {
+			return x
+		}
+		fld := st.Field(i)
+		x = compat.Concat(x, ".", fld.Name())
+		T = fld.Type()
+	}
+	return x
 }
 
 // copyDiag explains copy or append(s, t...) of owner elements.

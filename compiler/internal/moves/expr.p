@@ -187,9 +187,13 @@ func (f *fn) selector(e *ast.SelectorExpr) {
 		return
 	}
 	recv := methodRecv(fun)
-	if recv != nil && pointerElem(recv) == nil && isOwner(recv) && !types2.IsInterface(recv) && len(sel.Index()) == 1 {
-		f.consume(e.X, recv, move{kind: mvMethodValue, to: exprText(e)})
-		return
+	if recv != nil && pointerElem(recv) == nil && isOwner(recv) && !types2.IsInterface(recv) {
+		// A consuming method has no method value (sections 11.9 and 18.5,
+		// Methods): it would move the receiver when it is made, not when
+		// it is called.
+		if f.report {
+			f.c.report(f.c.methodValueDiag(e, recv))
+		}
 	}
 	f.expr(e.X)
 }

@@ -152,6 +152,8 @@ const (
 	SliceLitOwners   Code = "E3312" // a slice literal with owner elements
 	StaleView        Code = "E3313" // a view of a local owner used after the owner moved, was dropped or given a new value
 	LostView         Code = "E3314" // an owner moved while a view of it is kept where the compiler cannot follow it
+
+	ConsumingMethodValue Code = "E3315" // a method value of a method that consumes its owner receiver
 )
 
 // Scoped tasks (sync.Scope, language spec section 19.4): what their

@@ -1,0 +1,2 @@
+$DIR/main.p:22:10: cannot use c.Close as a value: Close has a Conn receiver, so it consumes c
+$DIR/main.p:26:10: cannot use p.Close as a value: Close has a Conn receiver, so it consumes p.Conn

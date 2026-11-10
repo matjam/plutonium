@@ -319,6 +319,7 @@ E3311  DeferInnerOwner
 E3312  SliceLitOwners
 E3313  StaleView
 E3314  LostView
+E3315  ConsumingMethodValue
 E3401  ScopeOutlivesVar
 E3402  ScopeRace
 E3403  ScopeNotPartitioned

@@ -441,7 +441,7 @@ returns unless it moves it on. Owner types declare their methods on pointer rece
 purpose is to consume. Because calling it would consume the value, a value-receiver method of an owner
 type never satisfies an interface method, ordinary or owning (section 8.6, Method sets): converting such
 an owner to an interface that needs the method is a compile error that shows the pointer receiver as the
-fix. A method value of a consuming method (`done := c.Close`) is a compile error, since every call of it
+fix. A method value of a consuming method (`done := c.Close`) is error E3315, since every call of it
 would consume the receiver again; the method expression `Conn.Close(c)` and the call `c.Close()` work.
 
 **Interfaces.** Converting an owner to an ordinary interface lends it, and asserting an owner type back

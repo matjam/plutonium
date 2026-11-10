@@ -1,0 +1,18 @@
+$DIR/main.p:28:10: cannot use m.Consume as a value: Consume has a Buf receiver, so it consumes m
+    Buf is an owner type: its values own what they hold and release it when they
+    are dropped. A method with a value receiver of an owner type consumes its
+    receiver: a call moves the receiver into the method. A method value would
+    hold m, and every call of it would consume m again, so a consuming method
+    has none.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Call the method where it is needed:
+        m.Consume()
+    Or use the method expression, which takes the receiver as its first
+    argument:
+        f := Buf.Consume
+        f(m)
+    (see "Method values" in the Plutonium spec, section 11.9)
+    (run "pluto explain E3315" for a longer explanation)

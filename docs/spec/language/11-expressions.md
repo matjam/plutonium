@@ -534,7 +534,7 @@ counted boxes, weak references and counted errors. The record releases those com
 is cleaned up, recursively through aggregates. This uses the existing frame or the caller's closure region,
 with no hidden heap allocation; a saved pointer receiver remains a borrow. A method value cannot be started with a `task` statement (section 12.12, Task statements). Default parameter values are not applied to a call of a method value (section 10.13, Default parameter values). A method value of a method with its own type parameters must be instantiated (section 10.15, Methods with type parameters).
 
-**Consuming methods.** A method with a value receiver on an owner type consumes its receiver (section 8.6, Method sets). Such a method has no method value. `c.Close`, where `Close` consumes `c`, is an error. A record that held `c` would own it, and every call of the record would consume it again. Call the method directly, `c.Close()`, or use the method expression, `Conn.Close(c)` (section 11.8, Method expressions).
+**Consuming methods.** A method with a value receiver on an owner type consumes its receiver (section 8.6, Method sets). Such a method has no method value. `c.Close`, where `Close` consumes `c`, is error E3315. A record that held `c` would own it, and every call of the record would consume it again. Call the method directly, `c.Close()`, or use the method expression, `Conn.Close(c)` (section 11.8, Method expressions).
 
 ```go
 type Conn owner struct{ fd int32 }
@@ -544,7 +544,7 @@ func (c *Conn) Fd() int32   { return c.fd } // pointer receiver: borrows c
 
 var c Conn
 fd := c.Fd  // allowed: the record holds the address of c
-done := c.Close // error: Close consumes c, so it has no method value
+done := c.Close // error E3315: Close consumes c, so it has no method value
 _ = Conn.Close  // allowed: a function that takes the Conn as its argument
 ```
 
