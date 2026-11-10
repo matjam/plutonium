@@ -288,7 +288,7 @@ func main() {
 
 ## 4. Locks and atomics (sections 19.3, F.5)
 
-- `sync.Mutex`, `sync.RWMutex` (`RLock` for readers), `sync.Once`, `sync.Cond` (`sync.NewCond(&mu)`),
+- `sync.Mutex`, `sync.RWMutex` (`RLock` for readers), `sync.Once`, `sync.Cond` (a value; `c.Wait(&mu)`),
   `sync.WaitGroup` (`Add`, `Done`, `Wait`, `Task`), `pluto/sync/atomic` (`atomic.Int64`, `atomic.Bool`, and the
   `atomic.AddInt64(&x, 1)` functions). A local `sync.WaitGroup` cannot be passed to a `task` statement by address
   (E3004): make it a package variable or a field of a `synced` object, or use `sync.Scope`. A `WaitGroup` or
@@ -310,7 +310,8 @@ func main() {
   atomic or guarded changing fields; dropping some other `File` does not count, so `fmt.Println` from any task
   is fine), a `synced` object, **memory a package variable or `synced` object owns, used only while its guard is
   held** (a package-level `vec.Vec`, `hash.Map` or `strings.Builder` under one mutex is fine; a pointer from
-  `items.Ptr(i)` kept past `Unlock`, returned from a function that unlocks, stored, sent or captured is E3501),
+  `items.Ptr(i)` kept past `Unlock`, or across a `Cond.Wait` or an `Unlock`/`Lock` pair, returned from a
+  function that unlocks, stored, sent or captured is E3501),
   or a struct whose fields are never overwritten once shared, atomic, or guarded by one lock of the same object.
   Otherwise E3501 names a write that could race.
 - **Rule 3, `synced[T]` objects and maps.** Every field some code changes must be atomic or guarded by a lock of
@@ -318,11 +319,20 @@ func main() {
   `Bank` that owns a map of accounts, does not guard the accounts (E3502). Give the record its own mutex, take
   the container's lock only to find the record, and lock the record to change it. The contents of a built-in map shared by tasks need one guard, package-level or a field of
   the owning struct, for writes and reads. A map used by one task at a time needs none.
-- **Two Go shapes that do not compile yet.** A package variable set inside `once.Do(f)` and read after `Do`
-  with no lock is E3503: the Once's own mutex is inferred as its guard (item 218). Create the object in a
-  package-level initializer, or keep it in a `synced[T]` set and copied out under a mutex. A `sync.Cond` wait
-  loop reads its data unguarded after `c.Wait()`, since `c.L` is reached through an interface (E3503, item
-  219). Use a buffered channel, or a `vec.Vec` under a mutex with a `chan struct{}` that wakes a waiter.
+- **Lazy initialization with `sync.Once`.** Data written only inside functions passed to `once.Do`, and read only
+  where `once.Do` has returned on every path in the reading function, needs no lock: `once.Do(func() { cfg =
+  new(Config{...}) }); return cfg.port` compiles. A package-level Once covers package variables; a Once field
+  covers the other fields of the same object (`t.once.Do(...)` then `t.index`). A write anywhere else, even in
+  a reset function reached through a func value, is E3502; a read with no `Do` before it, such as in a task
+  that `main` started after its own `Do`, is E3503. Do not reassign or copy the Once. A function passed to
+  `Do` that ends its task with `rt.ExitTask` leaves the Once not done; the next `Do` runs its function.
+- **`sync.Cond`.** `var c sync.Cond` (zero value ready, no `NewCond`, nothing to free). Wait with the lock:
+  `mu.Lock(); for q.Len() == 0 { c.Wait(&mu) }; j, _ := q.Pop(); mu.Unlock()`. The compiler counts
+  `c.Wait(&mu)` as `mu.Unlock()` then `mu.Lock()`, so the loop keeps its guard. A pointer loaded before the
+  `Wait` and used after it is E3501. Pass the lock as `&mu` or `&s.mu`: a `Locker` in a variable,
+  `rw.RLocker()`, or a `Wait` through an interface counts as unlocking every lock, and reads after it are
+  E3503. `Signal` and `Broadcast` need no lock. (Today's library still has `NewCond` and `c.Wait()`; see
+  known-gaps, items 197 and 219.)
 - `shared[T]` is for one task and never crosses; `synced[T]` counts atomically. A `string`, map or channel count
   becomes atomic as soon as the first task starts.
 

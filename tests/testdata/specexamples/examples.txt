@@ -775,6 +775,15 @@ known: 214: a load of a pointer from a package variable is not yet a crossing in
 == 19-concurrency.md 19.3 | // first lets a pointer into items escape its lock.
 known: 214: a view of guarded owned memory used after its guard is released is not yet E3501, so read is not an error
 
+== 19-concurrency.md 19.3 | type Config struct{ port int }
+known: 218: the read of cfg after cfgOnce.Do is still E3503, since Do holds its own mutex while f runs
+
+== 19-concurrency.md 19.3 | type Job struct{ id int }
+known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so nonEmpty.Wait(&mu) does not compile
+
+== 19-concurrency.md 19.3 | // second keeps a pointer into names across a Wait.
+known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so ready.Wait(&mu) does not compile
+
 == 19-concurrency.md 19.3 | type Counter struct {
 pre:
 	func work(c *Counter, done chan bool) { c.Add() }

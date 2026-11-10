@@ -32,8 +32,8 @@ one covers:
 - **Phase 0, the specification.** User and coordinator rulings on the audits (done: decisions D42 onward,
   each with the audit finding it settles, in [decisions.md](decisions.md)), audits E to J and their
   rulings, a test that compiles the spec's examples (item 185), this roadmap cleanup and the known-gaps
-  list, then spec version 0.4. Open decisions for after 0.4: lazy initialization through `sync.Once`
-  (item 218) and `sync.Cond.Wait` in the guard inference (item 219).
+  list, then spec version 0.4. Lazy initialization through `sync.Once` (item 218) and `sync.Cond.Wait`
+  in the guard inference (item 219) are decided (D105, D106); their compiler work is in phase 1.
 - **Phase 1, soundness in the compiler.** The rulings' compiler work (items 146 to 176, first A1, C1, C2,
   B1 and B10: items 146, 147, 148, 152, 159; and item 177); a consuming method value (item 178); the
   view-tracking cases left by item 138 (item 179); the escape contract of `rt.ReleaseValues` (item 180);
@@ -44,7 +44,9 @@ one covers:
   200); deferred calls in a scoped interval (item 201); generic conversions and the strictest rule for
   type arguments (items 204 and 208); frame storage in loops (item 206); a use before a move in one call
   (item 211); loads of views from shared memory, guarded owned memory, static objects and handler loads
-  (item 214).
+  (item 214). From D105 and D106: lazy initialization through `sync.Once` in the race check and the
+  `Once.Do` release on `rt.ExitTask` (item 218); `sync.Cond.Wait(l)` in the guard inference (item 219),
+  with the library's value `Cond` (item 197).
 - **Phase 2, test closure.** Tests for untested diagnostic codes and rules (item 184); codes for a
   `//pu:stack` size out of range and for implementation limits (item 207); the deadlock report names a
   panic in progress (item 205); CI gaps (item 186); close item 20 when nothing is left open under it.
@@ -56,8 +58,8 @@ one covers:
   phase 2 (item 193), then parallel compiler phases and incremental builds (item 34); DWARF variables and
   types (item 189); alternate signal stacks (item 190); optimizations and precision limits (items 24, 191,
   192, 194, 203 and the limit recorded in item 5).
-- **Phase 5, library.** `io`, `bufio`, scanning in `fmt`; time zones and layouts (item 45); `net` (item 46);
-  `sync.NewCond` (item 197).
+- **Phase 5, library.** `io`, `bufio`, scanning in `fmt`; time zones and layouts (item 45); `net` (item 46).
+  `sync.NewCond` (item 197) moved to phase 1 with item 219.
 - **Phase 6, platforms.** Items 38, 37, 36 and 39, in that order.
 
 Small cleanups that fit anywhere: item 187.
@@ -1124,15 +1126,24 @@ compiler (2026-10-11).
     (preemption count; in kernel mode RFLAGS.IF) after the prologue of every function marked
     `//pu:blocking`, and before each call of one without a body, panicking with "blocking with preemption
     disabled".
-218. **Lazy initialization through `sync.Once`** (planned, a decision; sections 19.3, 19.7, D105, audit J
-    walk-through): data written inside `once.Do(f)` gets the Once's own mutex as its guard, so the Go read
-    after `Do` is E3503. Audit the proposal that data written only inside `Do` of one Once and read only
-    after a `Do` on it has returned counts as written during that Once's initialization, then decide.
-219. **`sync.Cond.Wait` in the guard inference** (planned, a decision; sections 19.3, 19.7, F.5, D106, audit
-    J walk-through; with item 197): `c.Wait()` unlocks and relocks `c.L` through an interface, so no lock
-    counts as held after it and the usual wait loop reads its data unguarded (E3503). Audit the proposal
-    that `Wait` releases and retakes the lock `c.L` was made from when the compiler can name it, then
-    decide.
+218. **Lazy initialization through `sync.Once`** (planned, phase 1; sections 19.3, 19.7, F.5,
+    memory-model.md 3.4 and 4.1, D105, the "Once and Cond" section of the
+    [rulings](verification/2026-11-09-spec-rulings.md)): data written only during a call of a function
+    passed to `Do` of one Once (a package-level Once for package variables, a Once field for the fields of
+    the same object), and read only where a `Do` on that Once has returned on every path, needs no lock.
+    The race check must follow the call of `f` that `Do` makes, count writes in `f` and its callees on that
+    path as inside, find a returned `Do` on every path to each read, and fall back to rule 1 (E3502,
+    E3503) otherwise. Rule 2 case 2, rule 3 and the type rule accept Once-initialized memory. Library:
+    `Once.doSlow` releases its lock in a deferred call and sets `done` only after `f` returns, so an
+    `f` that ends its task with `rt.ExitTask` leaves the Once not done instead of locked for good. Spec
+    example: the `type Config struct{ port int }` and `type Limits struct{ max int }` blocks of 19.3.
+219. **`sync.Cond.Wait` in the guard inference** (planned, phase 1; sections 19.3, 19.7, F.5,
+    memory-model.md 3.4, D106, the "Once and Cond" section of the rulings; with item 197): `c.Wait(l)`
+    counts as `l.Unlock()` then `l.Lock()` when the compiler names the lock (`&mu`, `&s.mu`, or a pointer
+    named by where it came from); otherwise it counts as unlocking every lock and leaves none held, and
+    E3503 for a later read names the `Wait`. Rule 2 case 4 now needs the guard held with no release from a
+    view's load to its use, so a view kept across `Wait`, or across `Unlock` and `Lock`, is E3501. Spec
+    examples: the `type Job struct{ id int }` and "second keeps a pointer" blocks of 19.3.
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and
@@ -1392,7 +1403,7 @@ compiler (2026-10-11).
     `exec.Cmd`, `arena.Chunked`, `sync.Scope` and `os.File` (item 134) are owners with `Drop`; the
     [item 20 audit](verification/2026-10-31-item20-audit.md) found none missing. `sync.NewCond` still
     returns a `*Cond` from `alloc.New` that the caller frees with `alloc.Free`
-    (`lib/pluto/sync/waitgroup.p:108`); item 197 decides it.
+    (`lib/pluto/sync/waitgroup.p:108`); D106 decides it and item 197 makes the change.
 52. **The `pu` mirror package for self-hosting** (done, `de6aa50`, history;
     [plan](plans/2026-10-09-self-hosting-plan.md)): a Go package `pu` with the library owners,
     which go2pu mapped one to one. It was deleted with the Go implementation, so this item is history
@@ -1434,7 +1445,11 @@ compiler (2026-10-11).
     the debug allocator registers generation tags.
 190. **Alternate signal stacks for worker threads** (planned; sections 17.1, 21.7; moved from item 41): a
     per-thread alternate signal stack, so a fault on a worker thread's stack can still be reported.
-197. **`sync.NewCond` and its raw pointer** (planned, a decision; sections 7.18, 18.10, F.5; from item 51):
+197. **`sync.Cond` as a value** (planned, phase 1 with item 219; sections 19.3, F.5, A, D106; from item 51):
     `NewCond` returns a `*Cond` from `alloc.New` that the caller frees with `alloc.Free`
-    (`lib/pluto/sync/waitgroup.p:108`). Decide whether it returns an owner, a counted reference or a
-    value.
+    (`lib/pluto/sync/waitgroup.p:108`). Decided (D106): `Cond` becomes a value whose zero value is ready,
+    with no `L` field and no `NewCond`, and `Wait(l Locker)` unlocks `l`, parks, and locks `l` again.
+    `Signal` and `Broadcast` keep their forms. A `Cond` beside its mutex in a package variable or a struct
+    then holds no view and needs no free. Change `lib/pluto/sync/waitgroup.p`, its tests (among them
+    `tests/testdata/escape/review4/cd01_newcond_local_mutex.p`) and
+    `skill/plutonium/references/stdlib-memory-concurrency.md`.

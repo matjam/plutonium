@@ -88,6 +88,11 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - `vec`, `hash`, `strings` and `bytes` may not restore their invariants before every check that can panic (17.2,
   18.12). Item 165.
 - A closure region does not yet run drop glue for every captured variable with cleanup (11.5, 18.8). Item 169.
+- `sync.NewCond` still returns a `*Cond` from `alloc.New` that the caller frees with `alloc.Free`, `Cond` still
+  has an `L` field, and `Wait` takes no lock; F.5 makes `Cond` a value whose zero value is ready, with
+  `Wait(l Locker)`. Item 197.
+- `Once.Do` does not release its lock when `f` ends its task with `rt.ExitTask`, so later calls of `Do` on that
+  Once wait for good; F.5 says the next `Do` runs its own function. Item 218.
 - A large owner lent to an ordinary interface does not yet give a data word that points at the variable (7.9,
   abi.md 5). Item 171.
 - A range over a counted value does not hold its own count until the loop ends (12.10). Item 173.
@@ -104,6 +109,10 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - Conformance checks for `alloc.Default()`, the arena window, the panic buffer, F.3 and F.6 names and debug
   allocator tags are not all tested. Item 167.
 - `defer x.Drop()` may be treated as a copy of `x`, and a later move may not cancel it (18.5). Item 175.
+- Data written only inside `once.Do` and read after `Do` is still E3503: the race check infers the Once's own lock
+  as its guard instead of following lazy initialization (19.3, rule 1). Item 218.
+- `c.Wait()` of a `sync.Cond` is not treated as `Unlock` then `Lock` of a named lock, so data read after it in a
+  wait loop is E3503, and a view kept across it is not yet E3501 (19.3). Item 219.
 
 ## 4. Smaller notes
 

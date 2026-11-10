@@ -379,8 +379,8 @@ The audit is [2026-11-09-spec-audit-j.md](2026-11-09-spec-audit-j.md).
 | R2 | Resolved. Items 198 to 217 are placed in "Order of work" (arena and view soundness in phase 1, the wait check in phase 3, 205 and 207 in phase 2, 203 in phase 4), with the new open items 218 and 219 in phase 0. "D42 to D69" now reads "D42 onward". Phases 0 and 1 of the completion plan list the new items (D107). | Plain | roadmap.md, completion plan | No. |
 | R3 | Resolved. D85 says it was narrowed by D87 (and D97), and Superseded records the old D85 wording (D107). | Plain | decisions.md | No. |
 | R4 | Resolved. D45 says D70 replaced its panic message, and Superseded records the old message (D107). | Plain | decisions.md | No. |
-| `sync.Once` lazy initialization | Unresolved. The read after `Do` is E3503, since `Once.Do` holds its own mutex while `f` runs. Safe forms: a package-level initializer, or a `synced[T]` under a mutex. Proposal recorded (D105). | Go | 19.3 (deciding) | Item 218 (decision first). |
-| `sync.Cond` wait loop | Unresolved. Data read after `c.Wait()` is E3503, since `c.L` is reached through an interface. Safe forms: a buffered channel, or a `vec.Vec` under a mutex with a `chan struct{}` wake. Proposal recorded (D106). | Go | 19.3 (deciding) | Item 219, with item 197 (decision first). |
+| `sync.Once` lazy initialization | Unresolved in this pass; decided later the same day (D105, see "Once and Cond"). The read after `Do` is E3503, since `Once.Do` holds its own mutex while `f` runs. Safe forms: a package-level initializer, or a `synced[T]` under a mutex. Proposal recorded (D105). | Go | 19.3 (deciding) | Item 218, phase 1. |
+| `sync.Cond` wait loop | Unresolved in this pass; decided later the same day (D106, see "Once and Cond"). Data read after `c.Wait()` is E3503, since `c.L` is reached through an interface. Safe forms: a buffered channel, or a `vec.Vec` under a mutex with a `chan struct{}` wake. Proposal recorded (D106). | Go | 19.3 (deciding) | Item 219, with item 197, phase 1. |
 
 ### Eight Go programs
 
@@ -419,13 +419,15 @@ Each program is the shape a Go programmer would write first. The deciding senten
    open() })` and a read of `inst` after `Do`. Does not compile: `Once.Do` calls `f` while it holds
    `once.m`, so `once.m` is the inferred guard of `inst`, and the read after `Do` is E3503 (rule 1). Safe
    forms: `var inst = &DB{...}` as a package-level initializer (a static object), or `synced[DB]` copied out
-   under a mutex. No safe form keeps the lazy shape. Unresolved, with a proposal (D105, item 218).
+   under a mutex. No safe form keeps the lazy shape. Unresolved, with a proposal (D105, item 218). Redone under D105 in
+   "Once and Cond": it compiles.
 8. **A work queue with `sync.Cond`.** `q = append(q, job)` under `mu` with `c.Signal()`, and workers that
    run `for len(q) == 0 { c.Wait() }`. Does not compile: `append` on a package slice is E2013 (7.9), so the
    queue becomes a `vec.Vec`; then the read of the queue after `c.Wait()` is E3503, since `c.L` is reached
    through the `Locker` interface and no named lock counts as held after `Wait` (rule 1). Safe forms: a
    buffered channel of jobs, or a `vec.Vec` under a mutex with a buffered `chan struct{}` that wakes one
-   worker per push. Unresolved for the `Cond` shape, with a proposal (D106, item 219, with item 197).
+   worker per push. Unresolved for the `Cond` shape, with a proposal (D106, item 219, with item 197). Redone under D106
+   in "Once and Cond": it compiles with `c.Wait(&mu)`.
 
 Redo of the I1 map attack (R1), with legal maps:
 
@@ -494,7 +496,101 @@ handler's load before the first task, none of which is E3501 yet.
 
 Not added: the `sync.Once` and `sync.Cond` shapes. The specification rejects them on purpose today (D105,
 D106), so they are not gaps between the compiler and the specification. `skill/plutonium/references/concurrency.md`
-gives their safe forms.
+gave their safe forms. D105 and D106 then decided them; the lines added are in "Once and Cond".
+
+## Once and Cond
+
+Later the same day, D105 and D106 were decided. The rules are in 19.3 (rule 1, Lazy initialization; the
+Accesses-and-locks bullet for `Cond.Wait`; rule 2 cases 2 to 4), memory-model.md 3.4 and 4.1, F.5 and A.
+Item 218 makes the compiler change for Once, item 219 for Cond, and item 197 makes `sync.Cond` a value.
+
+The Once rule, in short:
+
+- A package-level Once initializes package variables; a Once field initializes fields of the same object.
+- A write counts as inside the Once when it is made in `f`, or in a function `f` calls, on `Do`'s call path.
+  Writes by tasks `f` starts, and by method values, are outside. A write through a pointer the compiler cannot
+  name counts as a write of all data of its type.
+- A read is ordered after the writes when every write is inside, and the reading function, or a direct callee
+  it calls on every path, has called `Do` on every path. A `Do` in another task, or reached through an
+  interface, a func value or `CatchExitTask`, does not count.
+- Otherwise the ordinary rules apply: E3502 names the write outside, E3503 notes the Once.
+- `rt.ExitTask` in `f` leaves the Once not done; the lock is released and the next `Do` calls its own
+  function. A panic stops the program.
+- Two different functions passed to one Once are fine. A Once that is reset or moved initializes nothing, and
+  a copy is another Once.
+- A view of data a Once initializes follows rule 2 case 2 (package memory) or case 3 (a synced object); a use
+  after the reference is dropped is E3313.
+
+The Cond rule, in short: `sync.Cond` is a value with no `L` field, and `c.Wait(l)` takes the lock. It counts
+as `l.Unlock()` then `l.Lock()` when the compiler names `l` (`&mu`, `&s.mu`, or a pointer named by where it
+came from). Otherwise it counts as unlocking every lock and leaves none held, and E3503 for a later read names
+the `Wait`. Signal and Broadcast need no lock. A stored `c.L` was dropped because a Cond beside its mutex in
+one struct would hold a view of its own object.
+
+Rule 2 case 4 was tightened while attacking it: a guarded view is used only while the lock it was loaded
+under is still held, with no release on any path from load to use, even if the lock is taken again.
+
+Programs 7 and 8, redone:
+
+7. **A `sync.Once` singleton.** `&DB{}` made in a function is a frame view, E3002 (18.3), so the variable
+   becomes `var inst owned[DB]`. With `once.Do(func() { inst = open() })` and a read of `inst` after `Do`, it
+   compiles: every write of `inst` is inside the Once and a `Do` has returned on every path before the read
+   (rule 1, Lazy initialization). A view of the `DB` follows rule 2 case 2. A write of `inst` anywhere else is
+   E3502 naming that write.
+8. **A work queue with `sync.Cond`.** `append` on a package slice is E2013 (7.9), so the queue is a
+   `vec.Vec[Job]`, with `var c sync.Cond`. Producers push under `mu` and call `c.Signal()`, which needs no
+   lock. Workers run `mu.Lock(); for q.Len() == 0 { c.Wait(&mu) }; j, _ := q.Pop(); mu.Unlock()`. It
+   compiles: the `Wait` counts as `mu.Unlock()` then `mu.Lock()`, so `mu` is held at `q.Len()` and `q.Pop()`
+   (rule 1), and `Pop` loads the backing memory under `mu` with no release before the use (rule 2 case 4).
+
+### Attacks on the Once and Cond rules
+
+None was compiled; the results follow from the rules as written.
+
+- Once, a second task that reads before any `Do`: it has no `Do` of its own on every path. E3503 noting the
+  Once. Closed.
+- Once, an `f` that starts a reader task: the reader's own reads need its own `Do`. Without one, E3503; with
+  one, its `Do` returns only after `f` has returned, so it is accepted, correctly. Closed.
+- Once, a write the analysis might miss: writes through func values and interfaces reach every possible
+  target, a method value's method counts as outside, and a write the compiler cannot name counts as a write
+  of the type. E3502. Unsafe code is not checked. Closed.
+- Once, a view kept after the object is dropped: E3313 (18.3). Closed.
+- Once, a `Do` in a helper called only on some paths: the `Do` must be on every path. E3503. Closed.
+- Once, `f` calls `rt.ExitTask` and another task calls `Do`: the Once is not done, so that `Do` runs its own
+  function before it returns. No read sees data `f` left half written as initialized. Closed, with the
+  library change in item 218.
+- Once, a hand-written double check with an `atomic.Bool` and a mutex: the fast-path read has no guard and no
+  Once. E3503. A false positive; the fix is `sync.Once`. Recorded.
+- Cond, a view kept across `Wait`: the second block of 19.3. The guard was released between load and use.
+  E3501. Closed.
+- Cond, a view kept across `mu.Unlock(); mu.Lock()`: the same case 4 condition. E3501. Closed (the
+  tightening above).
+- Cond, `Wait` with the wrong lock: `c.Wait(&mu2)` while `mu1` guards the data. It counts as unlocking and
+  locking `mu2`; `mu1` stays held, so the `mu1` data stays guarded. If `mu2` is not locked, the run-time check
+  stops the program. Closed, except for the finding below.
+- Cond, two Conds on one lock: each `Wait` counts as the same Unlock and Lock. Accepted, correctly.
+- Cond, `c.Wait(rw.RLocker())`, or a `Wait` through an interface or a func value: the lock cannot be named, so
+  no lock is held after it. Reads after it are E3503 naming the `Wait`. Closed; a false positive at worst.
+
+Open finding, not fixed: an `Unlock`, or a `Wait`, of a lock the task does not hold can release another
+task's lock without any error. `Mutex.Unlock` checks only that the mutex is locked, not by whom, and the guard
+inference counts locks per task, so it does not see the release. This holds for a plain `Unlock` today, not
+only for `Wait`. No rule here can close it without one of these:
+
+- an owner check in `Mutex.Unlock` and `Cond.Wait`, which is a run-time cost (a task id stored on Lock and
+  compared on Unlock);
+- a compile rule that an `Unlock` or a `Wait(l)` needs `l` held on every path in the same function, with an
+  annotation or a false positive for a lock taken in one function and released in another. It needs a code,
+  so the spec would say "a compile error" until one is assigned, as for G5.
+
+The coordinator decides; no roadmap item was added for it.
+
+### Known-gaps lines for Once and Cond
+
+Added to `skill/plutonium/references/known-gaps.md`: in section 3, a read after `Once.Do` is still E3503
+(item 218), and `Cond.Wait` does not count as Unlock then Lock and a view across it is not yet E3501 (item
+219); in section 2, `NewCond` still returns a raw pointer with an `L` field and `Wait` takes no lock (item
+197), and `Once.doSlow` does not release its lock or leave the Once not done on `ExitTask` (item 218).
 
 ## Diagnostics that need a code in phase 1
 
@@ -523,3 +619,8 @@ G5 (item 210) still needs a code; I2 changes which calls it follows, not its for
 Audit J adds no code. It narrows E3501 for guarded owned memory and static objects (J1, J2), widens E3501 to
 a view used after its guard is released (J1) and to a handler's load before the first task (J3), and uses
 E3503 for the `sync.Once` and `sync.Cond` shapes it leaves unresolved.
+
+The Once and Cond rulings (D105, D106) add no code. They narrow E3502 and E3503 for data a Once
+initializes and for a wait loop with a named lock, give E3503 a note naming the Once or the `Wait` whose
+lock could not be named, and widen E3501 to a view kept across a release of its guard, a `Cond.Wait`
+included. The open Unlock finding would need a code if it becomes a compile rule.

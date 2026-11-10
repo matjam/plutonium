@@ -1778,39 +1778,77 @@ Goal: Safe, Kernel.
 
 Lands with: item 214, with item 156.
 
-## D105. Lazy initialization through `sync.Once` stays unresolved (19.3, 19.7)
+## D105. Lazy initialization through `sync.Once` (19.3, 19.7, F.5, A, memory-model.md 3.4 and 4.1, skill)
 
 Question: the audit J walk-through. Go code writes a package variable inside `once.Do(f)` and reads it
 after `Do` returns with no lock. `Once.Do` calls `f` while it holds the Once's own mutex, so that mutex is
 inferred as the variable's guard, and the read after `Do` is E3503, naming a lock the program cannot see.
+For version 0.4 the rules stood, with the proposal below recorded under Deferred (history in Superseded).
 
-Decision: the rules stand for version 0.4. The safe forms are to create the object in a package-level
-initializer (a static object, D103), or to keep it in a `synced[T]` that a mutex guards and copy the
-reference out under the mutex. Proposal for a later decision: data written only inside functions passed to
-`Do` of one `sync.Once`, and read only where a `Do` on the same Once has returned on every path, counts as
-written during initialization of that Once. Memory-model.md 3 already orders the return of `f` before the
-return of every `Do`. Recorded under Deferred.
+Decision (2026-11-09, coordinator ruling after an audit of its own, the "Once and Cond" section of the
+[rulings](verification/2026-11-09-spec-rulings.md)): data that a Once initializes needs no lock. A package
+variable, with the memory it owns, is initialized by a package-level Once `o` when, once tasks have
+started, every write of it is made during a call of a function passed to `o.Do`, and every read outside
+such a call is made where a call of `o.Do` has returned on every path. A field of an object is initialized
+in the same way by a Once field of the same object, named as locks are named. The details:
 
-Why: the proposal is a new guard form and needs its own audit; adding it here would be a rule no audit has
-attacked. Goal: Go.
+- A write is inside when it is in `f` or a callee of `f` on the path from the call `Do` makes. The same
+  function reached any other way writes outside. A write through a pointer is a write of the data named as
+  its target; one with no name is a write of all data of its type. A task `f` starts writes outside. A
+  method value's method writes outside.
+- A `Do` counts for a read when it is in the reading function, or in a direct callee that calls it on
+  every path to its return. A `Do` in another task, or through an interface, func value or method value,
+  does not count. A handler cannot call `Do` (E2584).
+- Otherwise the ordinary rules apply: the writes inside hold the Once's lock, so a write outside with no
+  lock is E3502 and a read with no returned `Do` is E3503, naming the Once.
+- `Do` returns only after some `f` has returned. A panic in `f` stops the program. An `f` that ends its
+  task with `rt.ExitTask` leaves the Once not done, and the next `Do` runs its own function: the library
+  releases the lock in a deferred call and sets `done` only after `f` returns (item 218).
+- Different functions may be passed to one Once; only one returns, and all write inside.
+- A Once assigned as a whole, moved, dropped or freed once tasks have started initializes nothing. A copy
+  is another Once.
+- Views loaded from the data cross: memory the data owns is rule 2 case 2 for a package variable and case
+  3 for a `synced[T]` object; rule 3 and the type rule accept a field a Once of the same object
+  initializes. Dropping or replacing an owner the data holds, outside `f`, is a write outside.
+
+Why: the Once edge of memory-model.md 3.4 orders the return of `f` before the return of every `Do`, and
+the rule uses that edge only where a `Do` has returned in the reading task itself, so it needs no
+annotation and no run-time cost. Requiring every write inside a `Do` call of one Once keeps the data
+unwritten after the first `Do` returns. A Go-style `ExitTask` that marked the Once done would let a read
+follow a `Do` whose `f` left its writes half made, so the Once is left not done instead. Goal: Go, Safe.
 
 Lands with: item 218.
 
-## D106. `sync.Cond.Wait` in the guard inference stays unresolved (19.3, 19.7, F.5)
+## D106. `sync.Cond.Wait` in the guard inference, and `Cond` as a value (19.3, 19.7, F.5, A, memory-model.md 3.4, skill)
 
-Question: the audit J walk-through. `c.Wait()` unlocks `c.L` and locks it again through the `Locker`
-interface. The compiler cannot name a lock reached through an interface, so the `Unlock` counts as
-unlocking every lock and the `Lock` holds none it can name. Shared data read after `Wait` in the usual
-`for cond(...) { c.Wait() }` loop is then read without its guard (E3503).
+Question: the audit J walk-through, with item 197. `c.Wait()` unlocks `c.L` and locks it again through the
+`Locker` interface. The compiler cannot name a lock reached through an interface, so the `Unlock` counts
+as unlocking every lock and the `Lock` holds none it can name. Shared data read after `Wait` in the usual
+`for cond(...) { c.Wait() }` loop is then read without its guard (E3503). Separately, `sync.NewCond`
+returns a raw `*Cond` from `alloc.New` that the caller frees with `alloc.Free`. For version 0.4 the rules
+stood, with the proposal below recorded under Deferred (history in Superseded).
 
-Decision: the rules stand for version 0.4. The safe form of a work queue is a buffered channel of owners or
-values, or a `vec.Vec` under a mutex with a buffered `chan struct{}` that wakes one waiter after each push. Proposal for a later
-decision, with item 197: the guard inference treats `c.Wait()` as `Unlock` and then `Lock` of the lock
-`c.L` was made from, when the compiler can name it (`sync.NewCond(&mu)` with a lock it names, and `c.L`
-never assigned again). A view held across `Wait` would then count as used after the guard is released
-(D102). Recorded under Deferred.
+Decision (2026-11-09, coordinator ruling after an audit of its own, the "Once and Cond" section of the
+rulings):
 
-Why: as for D105, a new guard form needs its own audit. Goal: Go.
+- `sync.Cond` is a value whose zero value is ready, with no `L` field and no `NewCond`. `c.Wait(l Locker)`
+  unlocks `l`, parks, and locks `l` again; `Signal` and `Broadcast` keep their forms and need no lock
+  (F.5, item 197).
+- The guard inference counts `c.Wait(l)` as `l.Unlock()` then `l.Lock()` when it names the lock: `&mu`,
+  `&s.mu`, or a pointer named by where it came from. Otherwise, as for a `Locker` in a variable,
+  `rw.RLocker()`, or a `Wait` through an interface or func value, it counts as unlocking every lock and
+  leaves none held, and E3503 for a later read names the `Wait`.
+- Rule 2 case 4 needs the guard held with no release from a view's load to its use. A view kept across
+  `Wait`, or across `Unlock` and `Lock`, is E3501.
+
+Why: the proposal named the lock through `c.L` as `NewCond(&mu)` set it, with `c.L` never assigned again.
+That form keeps a view of the mutex inside the `Cond`. For a `Cond` beside its mutex in a struct, the view
+points into the object that holds it, and it would have to be followed through every move and free of
+that object; a `Cond` from `alloc.New` also needs a manual free. Passing the lock to `Wait` names it at the
+call, stores no view, and leaves nothing to free, so every form is the usual one. The tightened case 4
+closes a hole the Cond attacks found: a view loaded under a lock, kept across a release and a new `Lock`,
+passed the old wording ("used only where a guard of that memory is held"), though another task could free
+its memory in between. Goal: Go, Safe, Plain.
 
 Lands with: item 219, with item 197.
 
@@ -1834,10 +1872,8 @@ Lands with: roadmap.md, decisions.md and the completion plan; no compiler change
 
 ## Deferred
 
-- D105: lazy initialization through `sync.Once`. Proposal: data written only inside `Do` of one Once and
-  read only after a `Do` on it has returned counts as written during that Once's initialization. Item 218.
-- D106: `sync.Cond.Wait` releases and retakes a named lock. Proposal: treat it as `Unlock` then `Lock` of
-  the lock `c.L` was made from, when the compiler can name it. Item 219.
+None open. D105 (lazy initialization through `sync.Once`) and D106 (`sync.Cond.Wait`) were deferred for
+version 0.4 and decided on 2026-11-09.
 
 The entry on Linux file names that are not valid UTF-8 is closed by D36.
 
@@ -1873,3 +1909,19 @@ whichever function runs there, and listed hooks among the exact calls. D97 (audi
 one definition by target set: only calls with a single known target are followed, hooks are not, and a
 wait on only some paths of a followed callee is reported. D87's choice that the check accepts what it
 cannot resolve, and leaves it to the run-time panic, stands.
+
+### D105: lazy initialization through `sync.Once` stays unresolved
+
+For version 0.4, D105 kept the rules: the read after `Do` was E3503. The safe forms were a package-level
+initializer (a static object, D103) or a `synced[T]` under a mutex copied out under it. It recorded the
+proposal that data written only inside functions passed to `Do` of one Once, and read only where a `Do`
+on it has returned on every path, counts as written during that Once's initialization, and deferred it
+because a new guard form needed its own audit. The 2026-11-09 ruling adopted it after that audit.
+
+### D106: `sync.Cond.Wait` in the guard inference stays unresolved
+
+For version 0.4, D106 kept the rules: data read after `c.Wait()` was E3503. The safe form of a work queue
+was a buffered channel, or a `vec.Vec` under a mutex with a buffered `chan struct{}`. It recorded the
+proposal to treat `c.Wait()` as `Unlock` then `Lock` of the lock `c.L` was made from (`sync.NewCond(&mu)`
+with a named lock, and `c.L` never assigned again), and deferred it with item 197. The 2026-11-09 ruling
+adopted the rule with the lock passed to `Wait` instead of stored in `c.L`.

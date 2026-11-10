@@ -191,11 +191,20 @@ be called there), and which locks are held at each access:
 - A lock reached through a pointer is named by where the pointer came from, so `s.mu` and `s.items` in
   one method are the lock and the data of the same object.
 - Unlocking a lock the compiler cannot name counts as unlocking every lock.
+- `c.Wait(l)` of a `sync.Cond` counts as `l.Unlock()` followed by `l.Lock()` when the compiler can name
+  the lock: the argument is the address of a lock it names (`&mu`, `&s.mu`), or a pointer to a lock that
+  it names by where the pointer came from. So a lock held before the `Wait` is held again after it, and
+  a view loaded before the `Wait` has crossed a release of that lock (rule 2). When the compiler cannot
+  name the lock, as for a `sync.Locker` held in a variable, the result of `rw.RLocker()`, or a `Wait`
+  called through an interface or a func value, the `Wait` counts as unlocking every lock and leaves none
+  held, and the error for a read after it (E3503) names that `Wait`. `Signal` and `Broadcast` need no
+  lock, and they neither take nor release one.
 - A method value may be called later, anywhere, so what its method does counts as done with no lock
   held.
 - The order that channel operations, `sync.WaitGroup.Wait` and the end of a task impose is not used:
   reading shared data after `wg.Wait()` still holds the data's lock. The join of a `sync.Scope` is used,
-  for the frame data it covers (section 19.4).
+  for the frame data it covers (section 19.4), and so is the return of `sync.Once.Do`, for the data that
+  Once initializes (rule 1, Lazy initialization).
 
 **Non-migrating and interrupt-disabled regions.** These two kinds of region are found the way held locks are: on every path, across calls, with a
 deferred release counting as a release at the end of the function.
@@ -393,6 +402,105 @@ first task, may be read by every task without a lock. That covers the variable a
 pointer read from it still crosses, so memory the variable does not own, such as an object that a handler
 table registered during initialization points to, is safe only by rule 2.
 
+**Lazy initialization.** Data that a `sync.Once` initializes needs no lock either. A package variable,
+with the memory it owns, is **initialized by** a package-level Once `o` when, once tasks have started,
+every write of it is made during a call of a function passed to `o.Do`, and every read of it outside such
+a call is made where a call of `o.Do` has returned on every path to the read. A field of an object, with
+the memory it owns, is initialized in the same way by a Once that is a field of the same object. The
+Once is named as a lock is named (Accesses and locks, above), so `t.once` and `t.index` reached through
+one pointer are the Once and the data of one object. Data that a Once initializes may be read by every
+task without a lock. The return of `f` is synchronized before the return of every `Do` (memory-model.md
+section 3.4), so a read after a returned `Do` sees every write that `f` made.
+
+- **During a call of `f`.** A write is made during the call when it is in `f`, or in a function that `f`
+  calls, on the path from the call of `f` that `Do` makes; a callee counts as a lock held around a call
+  counts inside the callee. The same function reached in any other way, such as a literal that is also
+  called directly or stored, writes outside. A write through a pointer is a write of the data that the
+  compiler names as its target, by where the pointer came from; a write whose target it cannot name is a
+  write of all data of that type. A task that `f` starts is another task, so its writes are outside. A
+  method value's method counts as run outside every `Do`, as it counts as run with no lock held. Writes
+  made during package initialization, or by `main` before it starts its first task, do not count.
+- **After a returned `Do`.** A call of `o.Do` counts for a read when it is made in the reading function,
+  or in a function that it calls directly and that calls `o.Do` on every path to its return, as a lock
+  held at a return counts for the caller. A `Do` made by another task, such as the task that started
+  the reader, does not count, and neither does a `Do` reached through an interface, a func value or a
+  method value (`rt.CatchExitTask(func() { o.Do(f) })` included). An interrupt handler cannot call `Do`,
+  which may park (E2584), so it never reads data a Once initializes without the ordinary rules.
+- **Otherwise, the ordinary rules.** Data written outside these calls, or read on some path with no
+  returned `Do`, follows rule 1 as other data does. `Do` holds the Once's own lock while `f` runs, so the
+  writes inside `f` hold that lock and it is the inferred guard. A write outside with no lock is E3502,
+  which names that write. A read with no returned `Do`, when every write is inside, is E3503, which names
+  the Once and the read. Data written inside the calls of two Onces has no lock that every write holds
+  (E3502).
+- **When `f` does not return.** `Do` returns only after some `f` has returned. A panic in `f` stops the
+  program (section 17.1), and that `Do` never returns. If `f` ends its task with `rt.ExitTask` (section
+  17.3), `Do` does not return to its caller either: its frame leaves with the others. The Once releases
+  its lock and is not done, so the next call of `o.Do` calls its own function, which finds what the first
+  one left. Either way, the writes of an `f` that did not return are followed by the writes of the next
+  `f` under the same lock, and no read follows a returned `Do` until some `f` has returned.
+- **Several functions.** Different calls of `o.Do` may pass different functions. Only one of them
+  returns, and they all write inside. Data that the function which ran did not write keeps the value it
+  had when tasks started.
+- **Copying and resetting.** A Once whose whole value is assigned once tasks have started, or that is
+  moved, dropped or freed with the object that holds it, initializes nothing: its data follows the
+  ordinary rules. A copy of a Once is another Once, so a `Do` on the copy does not count for the data of
+  the first.
+- **Views.** A pointer or slice loaded from the data crosses (section 19.2), and rule 2 decides what it
+  may point to. Memory that the data owns is safe by rule 2 case 2 for a package variable, and case 3 for
+  a `synced[T]` object. Dropping or replacing an owner that the data holds is a write (Frees are writes,
+  above), so outside `f` it sends the data back to the ordinary rules, and a view loaded from it is E3501
+  as well, naming that write. A view obtained through a counted reference held in a local variable ends
+  with that reference (section 18.3), so a use after the reference is dropped is E3313.
+
+```go
+type Config struct{ port int }
+
+var (
+	cfgOnce sync.Once
+	cfg     owned[Config]
+)
+
+func port() int {
+	cfgOnce.Do(func() { cfg = new(Config{port: 8080}) })
+	return cfg.port // allowed: every write of cfg is inside cfgOnce.Do, which has returned here
+}
+
+func serve(done chan bool) {
+	println(port())
+	done <- true
+}
+
+func start(done chan bool) {
+	task serve(done)
+	task serve(done)
+}
+```
+
+A write outside the Once sends the data back to rule 1. Here `reload` replaces the owner with no lock:
+
+```go
+type Limits struct{ max int }
+
+var (
+	limOnce sync.Once
+	lim     owned[Limits]
+)
+
+func maxConns() int {
+	limOnce.Do(func() { lim = new(Limits{max: 64}) })
+	return lim.max
+}
+
+func reload() {
+	lim = new(Limits{max: 128}) // error: E3502, a write of lim outside limOnce.Do, with no lock
+}
+
+func start() {
+	task reload()
+	println(maxConns())
+}
+```
+
 **Rule 2: views that cross.** A pointer or slice that crosses to another task (section 19.2) must point
 to memory that is safe for both. That includes a pointer the task loads from a package variable, from the
 object of a `synced[T]` or from a map, and a view held in an interface, func value or method value that it
@@ -401,7 +509,8 @@ loads from one, wherever the view was stored. The memory must be:
 - memory of a `pluto/sync` or `pluto/sync/atomic` type, a runtime record (`rt.Task`, `rt.Timer`), a
   channel, or a struct of only those (`task worker(&wg)` with a package-level `wg`);
 - a package variable, or part of one, including the memory it owns (rule 1), that no task writes once
-  tasks have started. Replacing, dropping or moving an owner the variable holds writes the memory it
+  tasks have started, or that a package-level Once initializes (rule 1, Lazy initialization), read where
+  that Once's `Do` has returned. Replacing, dropping or moving an owner the variable holds writes the memory it
   owns (Frees are writes, above). This case also covers a **static object**: an object that a
   package-level initializer creates as a composite literal whose address it takes (`var Stdout =
   &File{fd: 1}`), so that it lives in static storage (section 18.2), and that no code moves, drops or
@@ -418,11 +527,15 @@ loads from one, wherever the view was stored. The memory must be:
   guard or an atomic store, and a task that loaded the old pointer may go on using the old object. A
   task that loads the variable after that gets the new object, which must be safe for it by its own
   case;
-- the object of a `synced[T]` (rule 3);
+- the object of a `synced[T]` (rule 3), and memory that it owns and that a Once of the same object
+  initializes, read where that Once's `Do` has returned;
 - memory that a package variable owns (rule 1), or that the object of a `synced[T]` owns through owners
   that hold one another, when every access to that memory, by every task and through every view of it,
   holds the guard inferred for it (Guards, above; a write holds it for writing), and the view is used
-  only where a guard of that memory is held. The guard of a package variable is the one rule 1 infers,
+  only while the guard it was loaded under is still held: on every path from the load to the use, the
+  guard is held and not released. A release between them counts even when the lock is taken again, by
+  `Unlock` and `Lock` or by a `Cond.Wait` that releases it (Accesses and locks, above), since another
+  task may have changed or freed the memory in between. The guard of a package variable is the one rule 1 infers,
   and the guard of a `synced[T]` object is the lock of the same object that rule 3 infers. A lock held
   around a call counts inside the callee, so `items.Push(x)` between `mu.Lock()` and `mu.Unlock()` may
   load the backing slice of a package-level `vec.Vec`; `hash.Map` and `strings.Builder` are used the
@@ -436,7 +549,8 @@ loads from one, wherever the view was stored. The memory must be:
 - an object of a struct type that satisfies the **type rule**: no code overwrites a whole object of the
   type through a pointer, or frees, drops or moves one (or replaces or drops an owner that holds one) once
   tasks have started, and each field either never changes once an object is shared, or is used only
-  atomically, or only under one lock of the same object or one package-level lock, inferred as above.
+  atomically, or only under one lock of the same object or one package-level lock, inferred as above,
+  or is initialized by a Once of the same object (rule 1, Lazy initialization).
   Writes that initialize an object do not count: writes through a pointer to memory the function
   allocated (or that a function returned after allocating it and keeping it to itself, such as a
   constructor), made before the pointer is stored, passed to a function that keeps it, sent or returned,
@@ -566,6 +680,81 @@ func start() {
 }
 ```
 
+A wait loop on a `sync.Cond` keeps its guard. `Wait(&mu)` releases `mu` while it waits and holds it again
+when it returns, so `mu` is held on every path to `Len` and `Pop`:
+
+```go
+type Job struct{ id int }
+
+var (
+	mu       sync.Mutex
+	nonEmpty sync.Cond
+	jobs     vec.Vec[Job]
+)
+
+func push(j Job) {
+	mu.Lock()
+	jobs.Push(j)
+	mu.Unlock()
+	nonEmpty.Signal() // needs no lock
+}
+
+func worker() {
+	mu.Lock()
+	for jobs.Len() == 0 {
+		nonEmpty.Wait(&mu) // allowed: counts as mu.Unlock() and then mu.Lock()
+	}
+	j, _ := jobs.Pop()
+	mu.Unlock()
+	println(j.id)
+}
+
+func start() {
+	task worker()
+	task worker()
+	push(Job{id: 1})
+	push(Job{id: 2})
+}
+```
+
+A view kept across the `Wait` crosses a release of its guard. Here `add` may grow `names` while `second`
+waits, which moves the elements and frees the storage that `p` points into:
+
+```go
+// second keeps a pointer into names across a Wait.
+var (
+	mu    sync.Mutex
+	ready sync.Cond
+	names vec.Vec[string]
+)
+
+func add(s string) {
+	mu.Lock()
+	names.Push(s)
+	mu.Unlock()
+	ready.Broadcast()
+}
+
+func second() {
+	mu.Lock()
+	for names.Len() < 1 {
+		ready.Wait(&mu)
+	}
+	p := names.Ptr(0)
+	for names.Len() < 2 {
+		ready.Wait(&mu)
+	}
+	println(*p) // error: E3501, p was loaded under mu and is used after a Wait released mu
+	mu.Unlock()
+}
+
+func start() {
+	task second()
+	add("a")
+	add("b")
+}
+```
+
 A static object needs no lock to be reached. `os.Stdout` points to a `File` that the package initializer
 of `pluto/os` created, so every task may print through it, even while other tasks drop the files they
 opened. The `File` fields that change are used atomically:
@@ -587,7 +776,8 @@ func start(done chan bool) {
 
 **Rule 3: synced objects and maps.** Every task that holds a reference to a `synced[T]` may use its
 object, so every field of `T` that some code changes must be guarded by a lock of the same object, or
-used only atomically, with the errors of rule 1 (E3502, E3503). Writes that initialize the object before
+used only atomically, or initialized by a Once of the same object (rule 1, Lazy initialization), with
+the errors of rule 1 (E3502, E3503). Writes that initialize the object before
 the reference is first copied do not count. Calling a pointer method on the box (`task s.Serve()`,
 `s.Add(1)`) uses the object in the same way.
 
@@ -1048,16 +1238,19 @@ in another. In brief:
   starts. A send on a channel happens before the receive that takes the value completes; closing a
   channel happens before a receive that returns because it is closed; for a channel of capacity `C`, the
   `k`-th receive happens before the `(k+C)`-th send completes. The `n`-th `Unlock` of a `sync.Mutex`
-  happens before the `(n+1)`-th `Lock` returns, with the matching rules for `RWMutex`, `WaitGroup` and
-  `Once`. A `sync.Cond`'s `Wait` unlocks its lock and locks it again before it returns, so it synchronizes
-  through that lock as `Lock` and `Unlock` do, and a `Signal` or `Broadcast` that wakes a `Wait` happens
-  before that `Wait` returns. The return of a scoped task happens before the return of the `Wait` or drop that joins it.
+  happens before the `(n+1)`-th `Lock` returns, with the matching rules for `RWMutex` and `WaitGroup`.
+  The return of the function that `once.Do(f)` runs to its end happens before the return of every call
+  of `once.Do`; `Do` returns only after such a return, and a function that ends its task with
+  `rt.ExitTask` leaves the Once not done, so the next `Do` runs its own function. A `sync.Cond`'s
+  `c.Wait(l)` unlocks `l` and locks it again before it returns, so it synchronizes through `l` as `Lock`
+  and `Unlock` do, and a `Signal` or `Broadcast` that wakes a `Wait` happens before that `Wait` returns. The return of a scoped task happens before the return of the `Wait` or drop that joins it.
   When package cleanup runs (section 15.4), every operation of every finished application task and
   callback happens before it begins. This supplies visibility across processors, without programmer
   fences or annotations, and is not an ordinary running-program join.
   `pluto/sync/atomic` operations are sequentially consistent.
-- **Safe code has no data races** (section 19.3). The race rules use locks, atomics, moves and scoped
-  joins to prove it, not the order that channels and `WaitGroup` give to plain data.
+- **Safe code has no data races** (section 19.3). The race rules use locks, atomics, moves, scoped
+  joins and the return of `Once.Do` to prove it, not the order that channels and `WaitGroup` give to
+  plain data.
 - **Unsafe code** can race. A race is a bug that gives torn or stale values, never undefined behavior in
   the compiler's sense: a racy read of a naturally aligned value of at most a word observes some value
   written to it, and larger values (strings, slices, interfaces, structs) may tear. The compiler may not

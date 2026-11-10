@@ -147,11 +147,16 @@ section 3.6. Their guarantees hold whichever scheduler backend is bound:
 - **WaitGroup.** A call of `wg.Done()`, or of `wg.Add` with a negative delta, that brings the counter to
   zero is synchronized before the return of every `wg.Wait()` it unblocks. The return of a function
   started with `wg.Task(f)` is synchronized before the return of every `wg.Wait()` it unblocks.
-- **Once.** The return of the single call of `f()` from `once.Do(f)` is synchronized before the return of
-  every call of `once.Do`.
-- **Cond.** `c.Wait()` unlocks `c.L` and locks it again before it returns, so it synchronizes through
-  `c.L` as `Lock` and `Unlock` do. A `c.Signal()` or `c.Broadcast()` that wakes a waiting `c.Wait()` is
-  synchronized before that `Wait` returns (section 3.6, park and ready).
+- **Once.** Some call of `once.Do(f)` runs its `f` to its return, and the return of that `f` is
+  synchronized before the return of every call of `once.Do`. Every write that `f` made is therefore
+  visible after any `Do` on the Once returns. `Do` returns only after such a return: a call of `f` that
+  ends its task with `rt.ExitTask` leaves the Once not done, and the next `Do` runs its own function. The
+  language spec (section 19.3, rule 1, Lazy initialization) uses this edge for data that a Once
+  initializes.
+- **Cond.** `c.Wait(l)` unlocks `l` and locks it again before it returns, so it synchronizes through `l`
+  as `Lock` and `Unlock` do. A `c.Signal()` or `c.Broadcast()` that wakes a waiting `c.Wait(l)` is
+  synchronized before that `Wait` returns (section 3.6, park and ready). `Signal` and `Broadcast` need no
+  lock.
 - **Scope.** See section 3.9.
 
 ### 3.5 `pluto/sync/atomic`
@@ -334,10 +339,14 @@ task and an interrupt handler, could make conflicting accesses that are not orde
   enables interrupts, and a static object that a package-level initializer created, which nothing frees
   or moves while tasks run, whose changing fields are atomic or guarded (rule 2 of language spec section
   19.3);
+- data that a `sync.Once` initializes: written only during the call of a function passed to `Do` of
+  one Once, and read only where a `Do` on that Once has returned on every path, ordered by the Once
+  edge of section 3.4 (rule 1 of language spec section 19.3, Lazy initialization);
 - data that every access reads or changes with `pluto/sync/atomic` operations;
 - data guarded by a lock that every access holds, the lock being inferred by the compiler: a package
   variable and the memory it owns (rule 1 of language spec section 19.3), with a view loaded from that
-  memory, or from memory a `synced[T]` object owns, used only while the lock is held (rule 2), an object reached through a
+  memory, or from memory a `synced[T]` object owns, used only while the lock it was loaded under is still
+  held, with no release in between (rule 2), an object reached through a
   pointer that crosses to another task, or that a task loads from a package variable, from the object of
   a `synced[T]` or from a map (a crossing too, language spec section 19.2), whose changing fields are guarded by a lock of the same object or a package-level lock
   (rule 2), and the object of a `synced[T]` or the contents of a map that several tasks use (rule 3).
@@ -346,7 +355,8 @@ task and an interrupt handler, could make conflicting accesses that are not orde
 - a variable of a function whose `sync.Scope` joins the tasks that use it, synchronized by its type,
   guarded by a lock, or partitioned among the tasks (language spec section 19.4).
 
-The proof uses locks, atomic operations, moves, the absence of writes, and scoped joins. It does not use
+The proof uses locks, atomic operations, moves, the absence of writes, scoped joins, and the return of
+`Once.Do`. It does not use
 the order that channel operations, `sync.WaitGroup.Wait` and other ends of tasks impose on plain shared
 data, although that order holds as section 3 states (it is what makes a moved owner visible to the task
 that receives it). A program that relies on such an order to share a variable without a lock is rejected,

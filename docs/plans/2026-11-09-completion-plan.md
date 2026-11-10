@@ -86,8 +86,9 @@ and the phase each goes in:
 - Phase 3, checks and kernel: items 210, 213, 215 and 216 (the wait check in non-migrating regions and its
   run-time tests).
 - Phase 4, optimizations: item 203 (a plain arena counter where no other task can reach).
-- Open decisions after version 0.4: items 218 (lazy initialization through `sync.Once`) and 219
-  (`sync.Cond.Wait` in the guard inference), both from the audit J walk-through.
+- Phase 1, from the audit J walk-through, decided in D105 and D106: items 218 (lazy initialization
+  through `sync.Once`) and 219 (`sync.Cond.Wait` in the guard inference), with item 197 (`sync.Cond` as a
+  value).
 
 ## Phase 1: soundness in the compiler
 

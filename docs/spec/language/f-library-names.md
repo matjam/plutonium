@@ -209,6 +209,27 @@ The compiler recognizes these types in `pluto/sync`:
 - `sync.WaitGroup`, `sync.Once` and `sync.Cond`, which synchronize as in section 19.7 (Memory model). A
   local `sync.WaitGroup` shared with a task by address is an error, because the view of the frame may
   outlive the frame: `sync.Scope` is the type for that.
+- `sync.Once`, whose `Do(f func())` the race analysis follows: data written only during the call of a
+  function passed to `Do` of one Once, and read only after a `Do` on it has returned, needs no lock
+  (section 19.3, rule 1, Lazy initialization). `Do` returns only after some call of `f` has returned. A
+  call of `f` that ends its task with `rt.ExitTask` releases the Once's lock and leaves it not done, so
+  the next `Do` calls its own function.
+- `sync.Cond`, a value whose zero value is ready, like `sync.Mutex`. It has no `L` field and no
+  constructor:
+
+  ```go
+  package sync
+
+  type Cond struct{ /* unexported */ }
+
+  func (c *Cond) Wait(l Locker) // unlocks l, waits for Signal or Broadcast, locks l again
+  func (c *Cond) Signal()       // wakes one waiting task, if there is one; needs no lock
+  func (c *Cond) Broadcast()    // wakes every waiting task; needs no lock
+  ```
+
+  The race analysis treats `c.Wait(&mu)` as `mu.Unlock()` then `mu.Lock()` when it can name the lock
+  (section 19.3, Accesses and locks). A `Cond` in a package variable or in a struct beside its mutex
+  holds no view of the mutex, so it has nothing to free and no drop of its own.
 
 Every type declared in `pluto/sync` or `pluto/sync/atomic`, and the runtime's own lock `rt.Lock`, is
 **synchronized by its own methods**: a view of one may cross between tasks (section 19.2, The sendable
