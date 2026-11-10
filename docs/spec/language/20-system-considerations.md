@@ -600,6 +600,12 @@ These rules apply:
 - `//pu:percpu` is a compile error outside kernel mode (E2551), and together with `//pu:section` (E2552).
 - Rule 1 of section 19.3 (Data race freedom) does not apply to a per-CPU variable: each processor has its
   own copy, so the copies are not shared. A per-CPU variable follows the rules of this section instead.
+- The memory a per-CPU variable owns (section 19.3, Memory and data), such as the storage of a
+  `vec.Vec` held in it, is part of that processor's copy and follows the same rules: it is reached only
+  through a method with a pointer receiver or through `&v`, so every access to it is inside the
+  non-migrating region, or interrupt-disabled region, that such an access needs. A view of that memory
+  is bounded by the region, as a pointer from `&v` is (below). So `runq.Push(t)` on a per-CPU
+  `vec.Vec` inside an interrupt-disabled region is allowed, and outside one it is E2022.
 - A lone load or a lone store of a whole per-CPU variable of at most a machine word, named directly
   (`current = t`, `t := current`), is allowed anywhere, provided the store does not depend on an earlier
   load of the same variable (the next bullet). It is one instruction, atomic with respect to the same
@@ -646,7 +652,7 @@ These rules apply:
   task can migrate between them. That is defined behavior, not a data race. Where the second depends on the
   first, it is the dependent store above and not a lone access.
 - A pointer or other view stored in a per-CPU variable and loaded from it crosses to the task or handler
-  that loads it (section 19.2), as a load from any package variable does: the rules above make the access
+  that loads it (section 19.3, Crossings), as a load from any package variable does: the rules above make the access
   of the variable itself safe, and rule 2 of section 19.3 decides whether the memory it points to is.
   A task can migrate after the load and use the pointer on another processor.
 - The kernel gives each processor its block and points `GS` at it before that processor touches a per-CPU
@@ -719,8 +725,9 @@ An interrupt handler is a party to the data race rules (section 19.3, Interrupt 
 handler accesses while other code may write it, or that a handler writes while other code may access it,
 must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable, whether the other party is a
 task, a handler on another processor or the same handler running on several processors at once. Data
-that is not written while a handler may run, such as a table filled before the first handler is
-installed, needs neither. A `sync.Mutex`
+that is not written after the first other party (task or interrupt handler) may run, such as a table
+filled before the first handler is installed and before interrupts are enabled, needs neither (section
+19.3, The start of sharing). A `sync.Mutex`
 cannot be taken in a handler (E2584). A handler starts with no lock held, even when the code it
 interrupted holds one, so it may release only an `rt.Lock` it took itself (section 19.3, Releasing a
 lock). `volatile[T]` alone, and an interrupt-disabled region alone, exclude
@@ -729,7 +736,7 @@ describes (memory-model.md section 6.1). Volatile supplies neither mutual exclus
 atomicity. The race errors (E3502, E3503) name the handler as the party. A pointer or other view that a
 handler loads from a package variable, a `synced[T]` object or a map crosses to the handler from the first
 statement that may install a handler or enable interrupts, whether or not a task has started (section
-19.2), so what it points to must be safe by rule 2 of section 19.3 (E3501). To hand work to normal code, a
+19.3, Crossings), so what it points to must be safe by rule 2 of section 19.3 (E3501). To hand work to normal code, a
 handler sends without waiting:
 
 ```go

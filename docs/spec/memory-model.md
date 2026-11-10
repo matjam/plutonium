@@ -151,7 +151,7 @@ section 3.6. Their guarantees hold whichever scheduler backend is bound:
   synchronized before the return of every call of `once.Do`. Every write that `f` made is therefore
   visible after any `Do` on the Once returns. `Do` returns only after such a return: a call of `f` that
   ends its task with `rt.ExitTask` leaves the Once not done, and the next `Do` runs its own function. The
-  language spec (section 19.3, rule 1, Lazy initialization) uses this edge for data that a Once
+  language spec (section 19.3, Lazy initialization) uses this edge for data that a Once
   initializes.
 - **Cond.** `c.Wait(l)` unlocks `l` and locks it again before it returns, so it synchronizes through `l`
   as `Lock` and `Unlock` do. A `c.Signal()` or `c.Broadcast()` that wakes a waiting `c.Wait(l)` is
@@ -334,22 +334,27 @@ task and an interrupt handler, could make conflicting accesses that are not orde
 
 - an owner moved from one task to another, which only the receiving task can then reach;
 - memory that does not change while shared (freeing or moving it, replacing or dropping an owner that
-  holds it, or a `Reset`, `Release` or `Drop` of an arena that takes it back, is a change), such as a package variable written only during package
-  initialization or by `main` before it starts its first task, installs its first interrupt handler or
-  enables interrupts, and a static object that a package-level initializer created, which nothing frees
-  or moves while tasks run, whose changing fields are atomic or guarded (rule 2 of language spec section
-  19.3);
+  holds it, or a `Reset`, `Release` or `Drop` of an arena that takes it back, is a change), such as a
+  package variable written only during package initialization or by `main` before the first other party
+  (task or interrupt handler) may run, with the memory it owns (language spec section 19.3, rule 2 case
+  2);
+- an object that several parties reach whose changing fields are each atomic, guarded by a lock of the
+  same object or a package-level lock, or initialized by a Once of the same object: a static object that
+  a package-level initializer created and that nothing frees or moves while tasks run, the object of a
+  `synced[T]`, or an object whose type satisfies the type rule (language spec section 19.3, rule 2 case
+  3, and rule 3);
 - data that a `sync.Once` initializes: written only during the call of a function passed to `Do` of
   one Once, and read only where a `Do` on that Once has returned on every path, ordered by the Once
-  edge of section 3.4 (rule 1 of language spec section 19.3, Lazy initialization);
+  edge of section 3.4 (language spec section 19.3, Lazy initialization);
 - data that every access reads or changes with `pluto/sync/atomic` operations;
-- data guarded by a lock that every access holds, the lock being inferred by the compiler: a package
-  variable and the memory it owns (rule 1 of language spec section 19.3), with a view loaded from that
-  memory, or from memory a `synced[T]` object owns, used only while the lock it was loaded under is still
-  held, with no release in between (rule 2), an object reached through a
-  pointer that crosses to another task, or that a task loads from a package variable, from the object of
-  a `synced[T]` or from a map (a crossing too, language spec section 19.2), whose changing fields are guarded by a lock of the same object or a package-level lock
-  (rule 2), and the object of a `synced[T]` or the contents of a map that several tasks use (rule 3).
+- data guarded by a lock, the lock being inferred by the compiler: a package variable, a field of a
+  static, `synced[T]` or type-rule object, or the contents of a map, with the memory each owns. The
+  guard set is the set of locks held at every write; a read by any party other than the only writer
+  holds one of them (language spec section 19.3, The guard set, and rule 1). A view loaded from such
+  memory, including one a task loads from shared memory (a crossing, language spec section 19.3,
+  Crossings), is used only while a lock of the guard set that was held at the load stays held, with no
+  release, `Cond.Wait` or call that may release it in between (language spec section 19.3, Views loaded
+  under a lock, and rule 2 case 4).
   For data that an interrupt handler accesses, the lock is an `rt.Lock` (language spec section 19.3,
   Interrupt handlers). A held lock excludes the other tasks only because every `Unlock`, `RUnlock` and
   `Cond.Wait` in safe code releases a lock that the calling task holds, on every path, in the matching
@@ -557,7 +562,7 @@ are met by switching only with `rt.Switch` and preempting only through `rt.Preem
 ### 6.4 Per-CPU data
 
 Per-CPU variables (`//pu:percpu`, language spec section 20.9) are ordinary locations, one copy per
-processor, and are not subject to rule 1 of language spec section 19.3. A task that can be preempted and
+processor, and follow language spec section 20.9 instead of rule 1 of section 19.3. A task that can be preempted and
 moved to another processor may read one processor's copy and write another's. The compiler therefore checks
 the accesses. A lone load or store of a whole per-CPU variable of at most a machine word is allowed
 anywhere: it compiles to one `GS`-relative instruction and is atomic with respect to interrupts on the same

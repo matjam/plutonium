@@ -62,6 +62,7 @@ program finishes, not what an operation means.
 | `copy(dst, src)` of owner elements | compile error (E3306): it would make a second owner | move the elements one at a time with `take` | 13.2, 18.5 |
 | a package variable written by code that more than one task can reach, without a lock or an atomic type | compile error that names both writes (E3502) | `pluto/sync/atomic` types, or hold the same `sync.Mutex` at every access | 19.3 |
 | a variable set inside `once.Do(f)` that is also written elsewhere, or read on a path where no `once.Do` has returned | compile error: a write outside `Do` with no lock (E3502), or a read with no `Do` before it (E3503) | write it only in functions passed to `Do` of one Once, and call `once.Do` before every read | 19.3 |
+| copying a `sync.Mutex`, `sync.RWMutex`, `sync.Once`, `sync.WaitGroup` or `sync.Cond`, or a struct that holds one, which Go compiles and `go vet` warns about | compile error, for every copy from a variable, field, element or dereference, a value receiver included | pass a pointer, or keep the value in one place | 19.3 |
 
 ### A.3 Changed
 

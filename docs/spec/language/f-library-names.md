@@ -212,12 +212,16 @@ The compiler recognizes these types in `pluto/sync`:
 - `rt.Lock`, the runtime's own lock, which the race analysis follows like `sync.Mutex`, the rule for
   releasing it included. It may be taken in interrupt context (section 19.3, Data race freedom; section
   20.10), which `sync.Mutex` may not.
-- `sync.WaitGroup`, `sync.Once` and `sync.Cond`, which synchronize as in section 19.7 (Memory model). A
-  local `sync.WaitGroup` shared with a task by address is an error, because the view of the frame may
-  outlive the frame: `sync.Scope` is the type for that.
+- `sync.WaitGroup`, which synchronizes as in section 19.7 (Memory model). A local `sync.WaitGroup`
+  shared with a task by address is an error, because the view of the frame may outlive the frame:
+  `sync.Scope` is the type for that. The race analysis does not use the order that `Wait` gives
+  (section 19.3, Ordering used).
+- A `sync.Mutex`, `sync.RWMutex`, `sync.Once`, `sync.WaitGroup` or `sync.Cond` may not be copied: a copy
+  of a value whose type holds one, from a variable, field, element or dereference, is a compile error
+  (section 19.3, Copying a lock). Go compiles such copies and `go vet` warns about them.
 - `sync.Once`, whose `Do(f func())` the race analysis follows: data written only during the call of a
   function passed to `Do` of one Once, and read only after a `Do` on it has returned, needs no lock
-  (section 19.3, rule 1, Lazy initialization). `Do` returns only after some call of `f` has returned. A
+  (section 19.3, Lazy initialization). `Do` returns only after some call of `f` has returned. A
   call of `f` that ends its task with `rt.ExitTask` releases the Once's lock and leaves it not done, so
   the next `Do` calls its own function.
 - `sync.Cond`, a value whose zero value is ready, like `sync.Mutex`. It has no `L` field and no
@@ -235,7 +239,7 @@ The compiler recognizes these types in `pluto/sync`:
 
   The race analysis treats `c.Wait(&mu)` as `mu.Unlock()` then `mu.Lock()`. The task must hold `mu` for
   writing, and the compiler must name it: a `Wait` whose lock it cannot name, such as `rw.RLocker()` or a
-  `Locker` in a variable, is a compile error (section 19.3, Accesses and locks; Releasing a lock). `Wait`
+  `Locker` in a variable, is a compile error (section 19.3, Releasing a lock). `Wait`
   makes every check that may panic before it unlocks `l`, so it returns, or ends by a panic, only with `l`
   locked, and a deferred `Unlock` of `l` stays correct. A `Cond` in a package variable or in a struct beside its mutex
   holds no view of the mutex, so it has nothing to free and no drop of its own.

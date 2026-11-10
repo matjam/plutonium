@@ -221,7 +221,7 @@ works this out from the whole program, as it does for allocation, and the error 
 initializer or `init` function that reaches it. The fix is to start the task from `main`, or from a
 function that `main` calls. The runtime's own threads are not tasks. The task that runs initialization is
 therefore the only task that exists while it runs, which is what lets a package variable that is written
-only during initialization be read by every task without a lock (section 19.3, Data race freedom).
+only during initialization be read by every task without a lock (section 19.3, Initialization).
 
 ### 15.3 Program initialization
 

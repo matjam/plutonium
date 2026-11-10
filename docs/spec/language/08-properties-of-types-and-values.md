@@ -466,7 +466,8 @@ Following the structure of the types:
   the rule of section 18.7 (Shared ownership). Its contents fall under the race rules of section 19.3 (Data race freedom).
 - `owned[T]` is sendable if `T` is. Sending it moves it, so only one task has it.
 - `synced[T]` and `weak[synced[T]]` are sendable if `T` is. The count is atomic. The data is not: the fields
-  of `T` that change are guarded by a lock of the same object or used atomically (section 19.3).
+  of `T` that change are guarded by a lock of the same object or a package-level lock, used atomically,
+  or initialized by a Once of the same object (section 19.3, rule 2 case 3).
 - An owner type is sendable if what it holds is sendable: its fields, and through a view field, the type
   the view points to. Sendability depends only on the types and the memory an owner holds, never on which
   packages its package imports. Interface types other than `error` are the one whole-program case (below). A view field that holds only memory the owner's own code allocated (inferred
@@ -494,10 +495,12 @@ Following the structure of the types:
 function that sends it (section 18.3, Views; E3004, E3005), and every view it contains points to memory that
 cannot change while both tasks may use it, or where every change is synchronized; freeing the memory,
 replacing or dropping an owner that holds it, or a `Reset`, `Release` or `Drop` of an arena that takes it
-back, is a change. Every change is synchronized when every access, by every task, holds one lock, and the
-view is used only while that lock is held: so a task may load a view of the storage of a `vec.Vec`,
-`hash.Map` or `strings.Builder` in a package variable or a `synced[T]` object while it holds the lock
-that guards it, but not keep the view past the `Unlock`. A static object that a package initializer
+back, is a change. Every change is synchronized when every write, by every task, holds a lock of one
+guard set, every other access holds one of those locks, and the view is used only while a lock of that
+set that was held at the load stays held, with no release between the load and the use: so a task may
+load a view of the storage of a `vec.Vec`, `hash.Map` or `strings.Builder` in a package variable or a
+`synced[T]` object while it holds the lock that guards it, but not keep the view past the `Unlock`, nor
+across an `Unlock` and a new `Lock` (section 19.3, Views loaded under a lock). A static object that a package initializer
 created, such as the `File` that `os.Stdout` points to, is never freed while tasks run, so only the
 changes to its fields need synchronizing. Section 19.2 (The sendable
 rule) states the rule at the places where values cross, and section 19.3 states which memory is safe and which

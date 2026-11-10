@@ -293,10 +293,18 @@ func main() {
   `atomic.AddInt64(&x, 1)` functions). A local `sync.WaitGroup` cannot be passed to a `task` statement by address
   (E3004): make it a package variable or a field of a `synced` object, or use `sync.Scope`. A `WaitGroup` or
   `Mutex` declared in a function **may** be used by that function's `Scope` tasks, which share its frame.
-- The compiler **infers which lock guards which data**: the lock held at every write. It follows `Lock`/`Unlock`,
-  `defer mu.Unlock()`, locks held around calls, and `s.mu` named through the pointer it came from. A lock counts
-  as held only if held on every path. `wg.Wait()` and channel operations do **not** order plain data for the
-  checker: reading shared data after `wg.Wait()` still needs its lock. The join of a `sync.Scope` does.
+- The compiler **infers which lock guards which data**: the **guard set** of a datum is the locks held at
+  every write (in write mode); every read by a task other than the only writer must hold one of them. It
+  follows `Lock`/`Unlock`, `defer mu.Unlock()`, locks held around calls, and `s.mu` named through the
+  pointer it came from. A lock counts as held only if held on every path. A guard must sit beside the data
+  (same object, no pointer load between) or be package-level. `wg.Wait()` and channel operations do
+  **not** order plain data for the checker: reading shared data after `wg.Wait()` still needs its lock.
+  The join of a `sync.Scope` and the return of `once.Do` do.
+- **Sharing starts** at the first statement that may start a task, install an interrupt handler, or
+  enable interrupts (`x86.Sti`). Before it, nothing counts.
+- **Range bodies.** A range-over-func body shares the function's locks only when the iterator calls
+  `yield` on the same task (`v.All()` does). An iterator that calls `yield` from `s.Task` runs the body on
+  that task: it holds nothing there, and `defer` in it is a compile error.
 - **Release only a lock you hold** (19.3, Releasing a lock; D108). Every `Unlock`, `RUnlock` and `c.Wait(&mu)`
   must release a lock the calling task holds on every path, in the same mode (`RUnlock` after `RLock`).
   Otherwise it is a compile error. This covers `rt.Lock` too. A task, a handler, and a function given to
@@ -308,34 +316,41 @@ func main() {
   stored method value (`u := mu.Unlock`) and a func value cannot release a lock. A helper that locks or
   unlocks its parameter or receiver works when every call matches (`s.lock(); defer s.unlock()`).
   `defer mu.Unlock()` needs `mu` held at every point after the `defer`. Not checked yet: item 220.
-- **Rule 1, package variables.** One written by code that several tasks may run must be atomic or have a lock held at
-  every write (E3502 names the write); every read must hold that lock too (E3503). A package variable written only
-  during initialization, or by `main` before the first task starts, needs nothing. The variable includes the memory
-  it owns (an `owned[T]` it holds, owner fields). A package variable that holds a `shared[T]` is for one task only
-  (E2010).
-- **Rule 2, views that cross** (a `*T` or `[]T` passed to a task or sent, or **loaded by a task** from a package
-  variable, a per-CPU variable, a `synced` object or a map, also inside an interface or func value; section 19.2).
-  So `p = &*b; task reader(); b = new(Node)` is E3501 when `reader` reads `p`: the drop frees what `p` points to. It must point to synchronized memory
-  (`sync`/`atomic` values, channels, a struct of only those), a package variable nobody writes after tasks start,
-  a **static object** (`var Stdout = &File{...}` in a package initializer, never moved or overwritten, with
-  atomic or guarded changing fields; dropping some other `File` does not count, so `fmt.Println` from any task
-  is fine), a `synced` object, **memory a package variable or `synced` object owns, used only while its guard is
-  held** (a package-level `vec.Vec`, `hash.Map` or `strings.Builder` under one mutex is fine; a pointer from
-  `items.Ptr(i)` kept past `Unlock`, or across a `Cond.Wait` or an `Unlock`/`Lock` pair, returned from a
-  function that unlocks, stored, sent or captured is E3501),
-  or a struct whose fields are never overwritten once shared, atomic, or guarded by one lock of the same object.
-  Otherwise E3501 names a write that could race.
-- **Rule 3, `synced[T]` objects and maps.** Every field some code changes must be atomic or guarded by a lock of
-  **the same object** (a field of `T`): a lock in the container that holds the `synced` references, such as the
-  `Bank` that owns a map of accounts, does not guard the accounts (E3502). Give the record its own mutex, take
-  the container's lock only to find the record, and lock the record to change it. The contents of a built-in map shared by tasks need one guard, package-level or a field of
-  the owning struct, for writes and reads. A map used by one task at a time needs none.
+- **Rule 1, shared data** (package variables, fields of static and `synced` objects, map contents, each with
+  the memory it owns: an `owned[T]` it holds, the storage of a `vec.Vec` or `hash.Map` in it). Data that two
+  tasks use, one writing, must be unchanged after sharing starts, initialized by a Once, atomic, or guarded:
+  a write with no lock common to every write is E3502 (it names the write), and a read without one of those
+  locks is E3503. A package variable that holds a `shared[T]` is for one task only (E2010).
+- **Rule 2, what may cross** (a `*T` or `[]T` passed to a task or sent, or **loaded by a task** from a package
+  variable, a per-CPU variable, a `synced` object or a map, also inside an interface or func value, an atomic
+  load included). So `p = &*b; task reader(); b = new(Node)` is E3501 when `reader` reads `p`: the drop frees
+  what `p` points to. It must point to: (1) an owner moved to the task; (2) a package variable or static-object
+  field nobody writes after sharing starts; (3) synchronized memory (`sync`/`atomic` values, channels, a struct
+  of only those), or a **static object** (`var Stdout = &File{...}` in a package initializer, never moved or
+  overwritten; dropping some other `File` does not count, so `fmt.Println` from any task is fine), a `synced`
+  object, or an object whose type passes rule 3, each of whose fields is unchanged, atomic, guarded by a lock of
+  the same object or a package-level one, or set by a Once of the same object; or (4) **guarded memory, used
+  through a view that is still valid**: loaded while a guard was held, and that guard held to the use with no
+  `Unlock`, `Cond.Wait` or call that may release it between (a package-level `vec.Vec` under one mutex is fine;
+  a pointer from `items.Ptr(i)` kept past `Unlock`, across a `Cond.Wait`, an `Unlock`/`Lock` pair or a helper
+  that waits, returned from a function that unlocks, stored, sent or captured is E3501). Otherwise E3501 names
+  a write that could race.
+- **Rule 3, the type rule.** An object of a struct type may be shared when no code frees, drops, moves or
+  overwrites one after sharing starts, and each field is unchanged, atomic, guarded by a lock of **the same
+  object**, or set by a Once of the same object. A lock in the container that holds the `synced` references,
+  such as the `Bank` that owns a map of accounts, does not guard the accounts (E3502). Give the record its own
+  mutex, take the container's lock only to find the record, and lock the record to change it. The contents of
+  a built-in map shared by tasks need one guard, package-level or a field of the owning struct, for writes and
+  reads. A map used by one task at a time needs none.
+- **Do not copy locks.** Copying a `sync.Mutex`, `RWMutex`, `Once`, `WaitGroup` or `Cond`, or a struct that
+  holds one, is a compile error (Go only has `go vet` warn); that includes a value receiver. Use pointers.
 - **Lazy initialization with `sync.Once`.** Data written only inside functions passed to `once.Do`, and read only
-  where `once.Do` has returned on every path in the reading function, needs no lock: `once.Do(func() { cfg =
+  where `once.Do` has returned on every path in the reading function (directly, or in a helper that calls it on
+  every path, at any depth), needs no lock: `once.Do(func() { cfg =
   new(Config{...}) }); return cfg.port` compiles. A package-level Once covers package variables; a Once field
   covers the other fields of the same object (`t.once.Do(...)` then `t.index`). A write anywhere else, even in
   a reset function reached through a func value, is E3502; a read with no `Do` before it, such as in a task
-  that `main` started after its own `Do`, is E3503. Do not reassign or copy the Once. A function passed to
+  that `main` started after its own `Do`, is E3503. Do not reassign the Once. A function passed to
   `Do` that ends its task with `rt.ExitTask` leaves the Once not done; the next `Do` runs its function.
 - **`sync.Cond`.** `var c sync.Cond` (zero value ready, no `NewCond`, nothing to free). Wait with the lock:
   `mu.Lock(); for q.Len() == 0 { c.Wait(&mu) }; j, _ := q.Pop(); mu.Unlock()`. The compiler counts

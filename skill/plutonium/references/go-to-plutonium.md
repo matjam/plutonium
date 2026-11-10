@@ -169,7 +169,7 @@ rt.ExitTask
 | `m[k] = append(m[k], x)` | no direct port: `map[K]shared[Group]` with `Group owner struct{ items vec.Vec[T] }` (`idioms-types-memory.md` #8) | a map cannot hold a growing slice |
 | a struct with a `[]string` history field it appends to | a `vec.Vec[string]` field, so the struct is declared `owner` | |
 | an interface holding tree nodes built by a parser | `type Node owner interface`, node structs `owner`, built with `new(T{...})` (`idioms-types-memory.md` #9) | `&T{...}` would be E3001 |
-| a mutex in the container guarding the records | each shared record needs a mutex of its own (E3502) | rule 3, `concurrency.md` |
+| a mutex in the container guarding the records | each shared record needs a mutex of its own (E3502) | rules 1 and 3 (a guard must sit beside the data or be package-level), `concurrency.md` |
 | `type T struct{ f *os.File }` | `type T owner struct{ f os.File }` | the struct owns the file and closes it when dropped; a borrowed file is a `*os.File` |
 | a struct holding a `vec.Vec`, `owned[T]`, `strings.Builder` | declare it `owner` | E3202 |
 | copying such a struct | moves it; `Clone()` to copy | E3301 |
