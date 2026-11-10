@@ -11,6 +11,10 @@
 #   sig: SIGNATURE     the function the statements go in
 #   values: top        var and const declarations go to package level
 #   with: KEY          the block assumes the declarations of block KEY
+#   together           the marked lines are errors of one program (section
+#                      1.3): the block builds once, whole, and each marked
+#                      line must report its code and no other line any
+#                      error; without it each marked line builds alone
 #   pre:               package-level declarations the block assumes
 #   body:              statements before the block's statements
 #   tail:              statements after the block's statements
@@ -810,6 +814,7 @@ known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so non
 known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so ready.Wait(&mu) does not compile
 
 == 19-concurrency.md 19.3 | type Counter struct {
+together
 pre:
 	func work(c *Counter, done chan bool) { c.Add() }
 main:

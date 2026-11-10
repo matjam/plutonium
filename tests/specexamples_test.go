@@ -33,8 +33,11 @@ import (
 // error on that line, with the code the comment states, and on no other
 // line. When a block has several marked lines, the statements after the
 // last of them are a fix: those units leave the fix out, and one more
-// unit builds the fix with no marked line. A block with no marked line
-// must build cleanly. The builds stop
+// unit builds the fix with no marked line. A block whose entry says
+// "together" states several errors of one program instead (section 1.3):
+// it is compiled once, whole, and every marked line must get the code its
+// comment states, and no other line may get a diagnostic. A block with no
+// marked line must build cleanly. The builds stop
 // after the object file (-c), so every static check runs: types, moves,
 // escapes and races. No program runs.
 //
@@ -95,6 +98,9 @@ func TestSpecExamples(t *testing.T) {
 			ctx.WriteString(o.declarations())
 		}
 		b.entry.pre = ctx.String() + b.entry.pre
+		if b.entry.together && len(b.marks()) < 2 {
+			t.Errorf("examples.txt: %q: together: the block has fewer than two marked lines", b.key)
+		}
 	}
 
 	var units []*exampleUnit
@@ -394,7 +400,7 @@ func (b *specBlock) packageName() string {
 // An exampleUnit is one build of a block, a package directory.
 type exampleUnit struct {
 	block    *specBlock
-	what     string           // "the block" or "the error on line N"
+	what     string           // "the block", "the error on line N" or "the errors on lines N, M"
 	src      string           // the source of main.p
 	lineOf   map[int]int      // a line of src to a line of the block, from 1
 	want     map[int][]string // block lines that must have an error, to the codes they must report
@@ -460,6 +466,11 @@ func (b *specBlock) units() []*exampleUnit {
 	if len(ms) == 0 {
 		return []*exampleUnit{b.unit(nil, nil)}
 	}
+	if b.entry != nil && b.entry.together {
+		// The marked lines are errors of one program: one build of the
+		// whole block wants them all.
+		return []*exampleUnit{b.unit(nil, ms)}
+	}
 	// A block with several marked lines shows alternatives (section 1.3),
 	// and the statements after the last of them show the fix, another
 	// alternative. The unit of each marked line leaves out the fix, and
@@ -490,22 +501,30 @@ func (b *specBlock) units() []*exampleUnit {
 				drop = append(drop, m.lines...)
 			}
 		}
-		us = append(us, b.unit(drop, &ms[k]))
+		us = append(us, b.unit(drop, ms[k:k+1]))
 	}
 	return us
 }
 
-// unit wraps the block, leaving out the lines of drop, and wants the error
-// of mark m (nil for none).
-func (b *specBlock) unit(drop []int, m *mark) *exampleUnit {
+// unit wraps the block, leaving out the lines of drop, and wants the errors
+// of the marks ms (none for a clean build).
+func (b *specBlock) unit(drop []int, ms []mark) *exampleUnit {
 	u := &exampleUnit{block: b, what: "the block", lineOf: map[int]int{}, want: map[int][]string{}, at: map[int]int{}}
-	if m != nil {
+	var nums []string
+	for _, m := range ms {
 		u.want[m.line+1] = m.codes
 		u.at[m.line+1] = m.line + 1
 		for _, j := range m.lines {
 			u.at[j+1] = m.line + 1
 		}
-		u.what = fmt.Sprintf("the error on line %d", m.line+1)
+		nums = append(nums, strconv.Itoa(m.line+1))
+	}
+	switch len(nums) {
+	case 0:
+	case 1:
+		u.what = "the error on line " + nums[0]
+	default:
+		u.what = "the errors on lines " + strings.Join(nums, ", ")
 	}
 	lines := make([]string, len(b.lines))
 	copy(lines, b.lines)
@@ -1481,6 +1500,7 @@ type exampleEntry struct {
 	sig       string   // the signature of the function the statements go in
 	main      string   // the body of the main function the wrapper adds
 	valuesTop bool     // var and const declarations go to package level
+	together  bool     // the marked lines are errors of one program, built together
 	with      []string // the blocks whose declarations the block assumes
 }
 
@@ -1556,6 +1576,11 @@ func readExampleData(t *testing.T, path string) map[string]*exampleEntry {
 			e.with = append(e.with, val)
 		case "values":
 			e.valuesTop = val == "top"
+		case "together":
+			if val != "" {
+				t.Errorf("%s:%d: together takes no value: %q", path, n, val)
+			}
+			e.together = true
 		case "pre":
 			multi = &e.pre
 		case "body":

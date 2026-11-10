@@ -1501,10 +1501,10 @@ compiler (2026-10-11).
     that starts a task or declares an interrupt handler gets a `main` that starts them: it installs each
     handler and calls each function nothing else in the block uses, and an entry's `main:` lines call one
     that takes parameters. Such a block builds as a program of its own; 19 blocks are built this way.
-    Known failures: 21, waiting on items 146, 147, 148, 149, 168, 197 (3), 199, 201, 208, 211, 214 (3),
-    215, 218 (2), 220 and 223, and one spec example that cannot be fixed under the rules as written (the
-    19.3 `type Counter struct {` block; see the race rules rewrite in
-    `docs/verification/2026-11-09-spec-rulings.md`). The 12 wrong spec examples were fixed with audit H
+    Known failures: 20, waiting on items 146, 147, 148, 149, 168, 197 (3), 199, 201, 208, 211, 214 (3),
+    215, 218 (2), 220 and 223. A block whose marked lines are errors of one program, not alternatives,
+    has `together` in its entry and builds once, whole: every marked line must report its code and no
+    other line any error (section 1.3; the 19.3 `type Counter struct {` block, D129). The 12 wrong spec examples were fixed with audit H
     (D95), and the section 7.9 example now marks both lines of the clash, since the rule names no single
     line.
 186. **CI gaps** (planned): CI installs only `binutils` and `qemu-system-x86`, so the gdb tests in
