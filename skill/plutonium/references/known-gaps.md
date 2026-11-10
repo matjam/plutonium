@@ -31,6 +31,12 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   variable (E3313, 18.3, 7.9). Item 199.
 - A deferred call that drops or writes what a scoped task uses, and that can run before the task is joined, is not
   E3404 or E3402 yet (19.4). Item 201.
+- A conversion of a value of a type parameter to an interface in generic code is not yet a frame copy for every
+  instantiation, nor, for `[T owner any]`, a view that the D3 events end (E3313, 18.3). Item 204.
+- A pointer from `&T{...}`, a slice literal or a variadic array made in a loop and kept past the iteration may not be
+  E3006 yet (18.4). Item 206.
+- A `//pu:stack` size outside 64K to 64G, and a program over an implementation limit, have no code yet (20.3, 21.4).
+  Item 207.
 - A moving assertion or bound type switch on a field, element or `*p` is not E3303 yet (11.13, 12.9). Item 172.
 - A closure passed through a func value or an interface may not yet count as kept for the region errors (11.5).
   Item 176.
@@ -43,6 +49,9 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 
 - Fixed and Chunked arenas do not count their live allocations (owners and counted objects made through `Alloc`),
   so `Reset`, `Release` and `Drop` do not panic with "arena has live allocations" (18.9). Items 152 and 198.
+- `New` and `Slice` of a Fixed or Chunked arena record no drop entries, so `Reset`, `Release` and `Drop` do not drop
+  the owners and counted values stored in plain views (18.9, Drop entries). Item 202.
+- A deadlock report does not name a panic in progress (19.1, 19.4). Item 205.
 - A Fixed arena still asks its parent for bookkeeping (18.9, F.2). Item 153.
 - `Free` through an arena still reclaims the latest allocation and can panic with "arena allocation freed" (18.9).
   Item 154.

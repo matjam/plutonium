@@ -109,10 +109,37 @@ The audit is [2026-11-09-spec-audit-e.md](2026-11-09-spec-audit-e.md).
 | C2 | Resolved under E1: the lent result is a view obtained from `x`. | Safe | 7.9, 11.13, 12.9, 18.3 | Item 199. |
 | D3 | Resolved under E1 and E5. | Safe | 18.3 | Item 199. |
 
+## Rulings on audit F
+
+The audit is [2026-11-09-spec-audit-f.md](2026-11-09-spec-audit-f.md).
+
+| Finding | Ruling | Goal | Sections changed (or deciding) | Compiler change |
+|---|---|---|---|---|
+| F1 | Resolved. `New` and `Slice` of a type with drop glue record a drop entry; `Reset`, `Release` (entries after the mark) and `Drop` run the entries in reverse order, then check the count. Emptied places hold the zero value; a panicking entry leaves the rest recorded and nothing taken back; the epoch ends after the entries; a Fixed keeps entries in its own bookkeeping and a full table fails the allocation. The false 18.9 sentence is replaced (D74). | Safe, Plain, NoGC | 18.9, 18.6, 18.8, 18.10, 13.7, 13.9, 16.7, 17.1, 21.5, F.2; abi.md 1.3; memory-model.md 3.8 | Yes: drop entries in the arena library and `New`/`Slice`. Item 202. |
+| F2 | Resolved. A type-parameter conversion to an interface is a frame copy for every instantiation; for `[T owner any]` it is also a view the D3 events end, with the stricter rule of each (D75). | Safe, Plain | 18.3, A.3 | Yes: E3313 and the frame rules in generic bodies. Item 204. |
+| F3 | Resolved. 18.4 lists the C7 frame storage; a view kept across iterations is E3006, fixed with `new`. 11.3 and 11.15 agree; 18.8's release list already named all five (D76). | Safe, Go | 18.4, 11.3, 11.15, A.3 | Yes, if E3006 does not cover them today. Item 206. |
+| F4 | Resolved. The atomic counter's cost is accepted; a plain counter is allowed where no other task can reach the arena or its allocations (D77). | Safe, Perf | 21.5, 18.9, abi.md 1.3 | Optional optimization. Item 203. |
+| F5 | Resolved. The count rises only when `Alloc` succeeds. | Safe | abi.md 1.3 | No. |
+| F6 | Resolved. The 18.13 arena example says the frees lower the count and keep the bytes. | Plain | 18.13 | No. |
+| F7 | Resolved. 18.9 shows a deferred `Reset` with a frame variable still holding arena memory, which still panics under F1 (`msg` is a frame variable, not a value in a plain view), and the fix: a helper function or nested block (D74). | Plain | 18.9 | No. |
+| F8 | Resolved. 18.11 says the rules prove it at compile time or the generation check catches it at run time, with the same-call alias as the example. | Plain | 18.11 | No. |
+| F9 | Resolved. A deferred `s.Wait()` during a panic waits for the scoped tasks; the deadlock report names the panic in progress (D79). | Safe, Plain | 19.4, 19.1, debugging.md 5 | Yes: the report line. Item 205. |
+| F10 | Resolved. "when the starting task panics". | Plain | 19.4 | No. |
+| F11 | Resolved. The kernel row names the float printing of `pluto/fmt` and the missing field names of `%+v`. | Go, Kernel | A (kernel facilities row) | No. |
+| F12 | Resolved without a code. A `//pu:stack` size out of range is "a compile error" (D78). | Plain | 20.3, 21.4 | Yes: a code. Item 207. |
+| F13 | Resolved. 21.4 states the E2530 rule as 12.19 does. | Plain | 21.4 | No. |
+| F14 | Resolved. The default task stack in freestanding and kernel builds is `rt.DefaultStackSize`, 64 KiB. 19.5 already required the backend guard of at least one page; it now names the stacks it covers (those not proven, as abi.md 12.1 says), and 19.1 includes freestanding builds (D80). | Kernel, Safe | 21.4, 19.1, 19.5 | No. |
+| F15 | Resolved without a code. Exceeding an implementation limit is "a compile error" with a code not yet assigned (D78). | Plain | 21.4 | Yes: a code. Item 207. |
+| E1 (verdict) | Completed by F2. | Safe | 18.3 | See F2. |
+| E3 (verdict) | Completed by F1 (the false sentence) and F6 (the example). | Safe | 18.9, 18.13 | See F1. |
+
 ## Diagnostics that need a code in phase 1
 
 None of these rulings invents a code. They extend E3313 (A1), E3212 (C1), E3302 (C3), E2313 (C4) and E2511
 (B7), whose catalog texts must widen. The new run-time panic "arena has live counted objects" (B1) needs no
 code. Audit D adds no code either: it widens E3313 (D3 and the candidates), E3303 (D5), E3501 and E3404
 (D1). Audit E adds no code: it widens E3313 (E1, E5), E3212 (E2) and E3402 and E3404 (E4), and renames the
-arena panic to "arena has live allocations" (E3).
+arena panic to "arena has live allocations" (E3). Audit F adds two errors that need a code: a `//pu:stack` size
+outside 64K to 64G (F12, section 20.3) and a program that exceeds an implementation limit (F15, section 21.4).
+The spec calls each "a compile error" until the codes are assigned (item 207). Audit F also widens E3006 (F3) and
+E3313 and E3314 (F2).

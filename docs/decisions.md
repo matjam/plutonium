@@ -1196,6 +1196,124 @@ panic runs no deferred calls, keeps one result for every build. Goal: Safe, Plai
 
 Lands with: section 19.4 and appendix A; roadmap item 201, which extends item 168.
 
+## D74. Arenas drop the values of their plain views (18.9, 18.6, 18.8, 18.10, 13.7, 13.9, 16.7, 17.1, 21.5, F.2, abi.md 1.3, memory-model.md 3.8)
+
+Question: audit F1. An owner or counted value stored in a plain view from `New` or `Slice` was never
+dropped, so it kept the arena's count up and `Reset` panicked. 18.9 claimed that a program that compiles
+drops such values before a local arena is dropped, which was false.
+
+Decision: for a type with drop glue, `New` and `Slice` of a Fixed or Chunked arena record a drop entry
+(address, element count, drop function). `Reset` and `Drop` run every entry, and `Release(m)` the entries
+recorded after the mark, in reverse order of allocation; each entry drops its values in place and leaves
+the zero value. Then the call checks the count. A type without drop glue records nothing. These details
+were settled here:
+- A place already emptied (by `take`, or by assigning the zero value) holds the zero value, whose drop
+  does nothing. Unsafe code that uses `unsafe.Drop` on arena memory must leave the zero value there.
+- The arena takes an entry off its table before running it. A drop function that panics leaves the call:
+  the other entries stay recorded, the count is not checked, the epoch does not end and nothing is taken
+  back. A deferred `Reset` for that panic starts from the entries left.
+- The order is: run the entries, check the count (and that no entry was recorded meanwhile), then zero
+  the granules, end the epoch and move the cursor back. Program views are dead from the start of the call
+  by the existing rules (E3313 for a local arena, the epoch check otherwise); the entries run while the
+  epoch is current.
+- A Fixed keeps its entries in its own bookkeeping table, growing down toward the allocation records; a
+  `New` or `Slice` that finds no room fails without advancing the cursor and panics, so payload capacity
+  holds in full only for allocations without entries. A Chunked keeps entries in blocks from its chunks.
+  The mark records the entry position.
+- The manual `Arena` of `arena.NewUnsafe` records no entries.
+- A deferred `Reset` of an arena that a frame variable still references (audit F7) still panics, since
+  deferred calls run before the frame's variables are dropped and the entries cover only plain views.
+  18.9 shows the case and the fix (a helper function or a nested block). No new compile error, since a
+  deferred `Reset` is correct when the window allocated nothing that survives.
+
+Why: the count exists so a reset never frees memory still in use. Without entries, the natural use of
+`a.Slice[string](n)` made every reset panic, and the only fix was to clear each place by hand. Recording
+an entry only for types with drop glue keeps plain arenas as cheap as before. Goal: Safe, Plain, NoGC.
+
+Lands with: the sections named above; roadmap item 202, which extends item 198.
+
+## D75. Type-parameter conversions to an interface (18.3, A.3)
+
+Question: audit F2 (verdict E1 incomplete). 18.3 decided a conversion of a type-parameter value to an
+interface by "if any instantiation is larger than a word", which a checker that checks a generic body once
+cannot know, and it named only the frame-copy half of E1.
+
+Decision: the conversion counts as a frame copy for every instantiation, whatever the size of the type
+argument. For a `[T owner any]` parameter it is also a view obtained from the variable that the D3 events
+end (E3313, E3314); the checker applies the stricter rule of each kind. Applying the frame-copy rule to a
+plain `[T any]` parameter regardless of its type argument was settled here: it is the rule a once-checked
+body can state, and it rejects only programs that keep such an interface past the frame.
+
+Why: one check per generic body must give one answer for every instantiation. Goal: Safe, Plain.
+
+Lands with: sections 18.3 and appendix A; roadmap item 204, which extends item 199.
+
+## D76. Frame storage in loops (18.4, 11.3, 11.15, A.3)
+
+Question: audit F3. 18.4 listed the loop storage before ruling C7 and missed the object of `&T{...}`, the
+array of a slice literal, the variadic array, a method value's receiver and a deferred call's saved
+arguments.
+
+Decision: 18.4 lists all five. Keeping a view of one across iterations is E3006; the fix is `new(T{...})`
+or an owner such as `vec.Vec`. 11.3 and 11.15 say the same, and appendix A has a row, since in Go each
+evaluation makes a new variable.
+
+Why: the storage is refilled when the same expression runs again (C7), so a kept view would see the next
+iteration's value. Goal: Safe, Go.
+
+Lands with: the sections named above; roadmap item 206, which extends item 160.
+
+## D77. The atomic arena counter is accepted (21.5, 18.9, abi.md 1.3)
+
+Question: audit F4. The cost of the atomic counter was stated but not decided.
+
+Decision: the cost is accepted. An implementation may use a plain counter where it proves that no other
+task can reach the arena or anything allocated from it.
+
+Why: an owner can be dropped, and a string released, in another task; the counter must see it. The proof
+removes the cost where no other task can be involved. Goal: Safe, Perf.
+
+Lands with: the sections named above; roadmap item 203, which extends item 198.
+
+## D78. Codes for a `//pu:stack` size out of range and for implementation limits (20.3, 21.4)
+
+Question: audits F12 and F15. Neither error had a code, and 21.1 requires one.
+
+Decision: both are compile errors. The spec does not invent codes here; it says "a compile error" and the
+rulings record lists both as needing codes.
+
+Why: the code catalog is assigned in phase 1 with the other new codes. Goal: Plain.
+
+Lands with: sections 20.3 and 21.4; roadmap item 207.
+
+## D79. A deferred `s.Wait()` during a panic (19.4, 19.1, debugging.md 5)
+
+Question: audit F9. A deferred `s.Wait()` that runs for a panic can wait for good when a scoped task waits
+on the panicking task, and the panic's report is replaced by a deadlock report.
+
+Decision: the deferred `s.Wait()` waits for the scoped tasks during a panic as on a return. The deadlock
+report names the panic in progress, with its message and where it happened. 19.4 gives the fix: close the
+task's channel, or cancel it, in a deferred call armed after the deferred `s.Wait()`. The `panicking:` line
+of the hosted report was settled here.
+
+Why: the join keeps D73's promise; naming the panic keeps its cause from being lost. Goal: Safe, Plain.
+
+Lands with: the sections named above; roadmap item 205, which extends item 201.
+
+## D80. Default task stack in freestanding and kernel builds (21.4, 19.1, 19.5)
+
+Question: audit F14. 19.1 pointed to a default stack size in 21.4 that 21.4 did not give, and the overflow
+behavior depended on the backend.
+
+Decision: the default is `rt.DefaultStackSize`, 64 KiB, the value the library already uses. 19.5 already
+required a backend to put a guard region of at least one page below each stack; it now says this applies
+to every stack whose size the compiler did not prove, as abi.md 12.1 says, and 19.1 says freestanding builds
+too. Overflow is then a stack overflow panic in every build mode.
+
+Why: a stated floor lets a program know when it must ask for more with `rt.Go`. Goal: Kernel, Safe.
+
+Lands with: sections 21.4, 19.1 and 19.5. No roadmap item: the library already uses this size.
+
 ## Deferred
 
 None. The entry on Linux file names that are not valid UTF-8 is closed by D36.

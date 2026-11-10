@@ -729,6 +729,16 @@ compiler (2026-10-11).
     `compiler/internal/scratch/mem_on.p` calls `Chunked.Reset` on a Region and a home that may still
     hold vectors, maps and strings, so check each `Reset` and `Release` there and in the library before
     the count lands.
+202. **Arenas run drop entries before they check the count** (planned; sections 18.9, 18.6, 18.8, 18.10,
+    13.7, 13.9, 16.7, 17.1, 21.5, F.2, abi.md 1.3, memory-model.md 3.8, D74, finding F1 of audit F;
+    extends item 198): `New[T]()` and `Slice[T](n)` of a Fixed or Chunked arena record a drop entry
+    (address, element count, drop-glue function) when `T` has drop glue, in the Fixed bookkeeping table
+    or in blocks taken from Chunked chunks; a full table fails the allocation. `Reset`, `Drop`, and
+    `Release` for the entries after the mark, run the entries in reverse order, then check the count, then
+    zero the granules and end the epoch. A panicking entry leaves the rest recorded.
+203. **Plain arena counter where no other task can reach** (planned, optimization; sections 21.5, 18.9,
+    abi.md 1.3, D77, finding F4 of audit F; extends item 198): use plain adds for the live-allocation
+    count where the compiler proves that no other task can reach the arena or anything allocated from it.
 158. **Task exit mid-statement and inside `Drop`** (planned; section 17.3, abi.md 12.10, D51, finding B8):
     `rt.ExitTask` drops operands already evaluated, and a `Drop` method it leaves still finishes the
     object's field drops and free.
@@ -738,6 +748,13 @@ compiler (2026-10-11).
 160. **Variadic arrays release their counted elements** (planned; section 18.8, finding C7): the array that
     holds a call's variadic arguments is frame storage whose counted elements are released at the end of
     the statement.
+206. **Frame storage in loops** (planned; sections 18.4, 11.3, 11.15, A.3, D76, finding F3 of audit F;
+    extends item 160): E3006 for a view of an `&T{...}` object, a slice literal's array, a variadic array,
+    a method value's receiver or a deferred call's saved arguments kept where the next iteration can see
+    it, with `new(T{...})` as the fix in the message.
+207. **Codes for a `//pu:stack` size out of range and for implementation limits** (planned; sections 20.3,
+    21.4, 21.1, D78, findings F12 and F15 of audit F): assign a code to each and add catalog entries; the
+    spec names them only as compile errors until then.
 162. **Explicit nil checks in freestanding builds outside kernel mode** (planned; section 17.5, D56, finding
     B21): one compare and branch before each dereference not proved non-nil.
 165. **Library invariants at panicking checks** (planned; sections 17.2, 18.12, D53, finding B9): review
@@ -752,6 +769,10 @@ compiler (2026-10-11).
     return before its join, counts as a statement of that interval for E3402 and E3404, in every build
     mode. A deferred `s.Wait()` joins the tasks started after its `defer` statement for the calls deferred
     before it.
+205. **The deadlock report names a panic in progress** (planned; sections 19.1, 19.4, debugging.md 5,
+    D79, finding F9 of audit F; extends item 201): a task running deferred calls for a panic when the
+    program deadlocks, as a deferred `s.Wait()` can, is listed with a `panicking:` line, the panic's
+    message and its trace.
 169. **Closure regions own captured variables** (planned; sections 11.5, 18.8, abi.md 4.1, D60, finding D2):
     the region's drop function runs owner drop glue for every captured variable with cleanup, and copies
     parameters into the region on entry.
@@ -767,6 +788,10 @@ compiler (2026-10-11).
     same events. The result of an assertion or type-switch clause from an owning interface to an ordinary
     interface is such a view of the asserted variable, for every payload size. Function literals that hold
     such views follow the same events.
+204. **Type-parameter conversions to an interface in generic code** (planned; sections 18.3, A.3, D75,
+    finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
+    is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end
+    (E3313, E3314), checked once for the generic body.
 173. **Range loops hold a count** (planned; section 12.10, D64, finding D7): the range temporary over a counted
     value holds its own count until the loop ends.
 174. **Owners in for clauses** (planned; sections 12.10, 18.6, D65, finding D8): an owner declared in a for
