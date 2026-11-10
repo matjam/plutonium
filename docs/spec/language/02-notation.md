@@ -41,9 +41,10 @@ identifier. Appendix E (Grammar) collects all productions.
 **Other notation in this manual.**
 
 - Code and tokens are set in `monospace`.
-- In examples, a comment that begins `error:` marks a line that is a compile error, and a comment that
-  begins `panics` marks a line that panics when it runs (section 1.3, Relation to Go, and how to read this
-  specification).
+- In examples, a comment that begins `error`, `illegal` or `invalid` marks a line that is a compile
+  error, and a comment that begins `panics` or `causes a run-time panic` marks a line that panics when it
+  runs. Section 1.3 (Relation to Go, and how to read this specification) says how the other lines of an
+  example are read.
 - A reference such as "section 11.12" names a section of this manual by number.
 
 Adapted in part from the Go specification (The Go Authors, CC BY 4.0); see [appendix G](g-attribution.md).

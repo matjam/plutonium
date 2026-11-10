@@ -154,7 +154,7 @@ boundary (section 18.12, Safe and unsafe code) or the explicit unchecked executi
 **Notation.** Syntax is given in the extended Backus-Naur form of chapter 2 (Notation). Each chapter
 gives the productions for the syntax it defines, and appendix E collects them.
 
-**Examples.** Examples are fenced `go` blocks. An example compiles unless a comment on the offending line begins with `error`, `illegal` or `invalid`. A comment that begins `panics` or `causes a run-time panic` marks a line that panics when it runs. The lines of a block that shows alternatives (several `:=` of one name, or a sequence of lines marked as errors) are independent of each other, and a block that ends in `...` is a fragment. Names such as
+**Examples.** Examples are fenced `go` blocks. Chapter 2 (Notation) gives the comments that mark a line as a compile error or as a panic; every other line compiles. The lines of a block that shows alternatives (several `:=` of one name, or a sequence of lines marked as errors) are independent of each other, and a block that ends in `...` is a fragment. Names such as
 `fmt`, `vec` and `alloc` in examples are packages of the standard library.
 
 **References.** A reference such as "section 11.12" or "chapter 18" names a section or chapter of this

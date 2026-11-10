@@ -1,7 +1,7 @@
 # The Plutonium Language
 
-**Version:** 0.3 (draft)
-**Date:** 2026-10-15
+**Version:** 0.4 (draft)
+**Date:** 2026-11-09
 
 Plutonium is a systems programming language for operating system kernels, drivers, boot code, allocators
 and other code that runs without a managed runtime, and for the ordinary programs that run on top of them.
