@@ -796,3 +796,258 @@ guard and E3502 a write without a common lock; neither covers a release. The spe
 until a code is assigned (item 220). It widens E3502 to the assignment of a new value to a lock that another
 task may use. The E3503 that D106 gave reads after a `Wait` whose lock could not be named no longer arises,
 since that `Wait` is now the new error.
+
+## Race rules rewrite
+
+On 2026-11-10 the coordinator asked for 19.2, 19.3 and the Sharing part of 19.4 to be written again as one
+text: a model that defines each term once, then the rules, each stated once with its code, then a
+conformance table. The same pass settles audit K ([2026-11-09-spec-audit-k.md](2026-11-09-spec-audit-k.md)).
+D109 onward in [decisions.md](../decisions.md) record it.
+
+### Checklist of the old rule sentences
+
+Every rule sentence of 19.2, 19.3 and 19.4 Sharing at 85312df7, before the rewrite, by paragraph. The
+mapping below gives each one its new place, or says why it was dropped.
+
+19.2 The sendable rule:
+
+- C1. A value crosses as an argument or receiver of a task statement, or a func value given to a function
+  that starts a task with it.
+- C2. A value crosses when sent on a channel or received from one.
+- C3. A value crosses when held inside an interface, struct or array that crosses.
+- C4. A variable a scoped task uses, taken or captured, crosses.
+- C5. A load of a value that holds a view, from a package variable (per-CPU included), a `synced[T]`
+  object, map contents, or memory reached through them, crosses to the loader; it counts in the task's
+  code and callees, atomic loads included, once a task other than the main task, or a handler, may run.
+- C6. What a value that holds a view is.
+- C7. A handler that loads such a value is a party in the same way.
+- C8. Every crossing value must be sendable and may not hold a view the other party could use while it
+  changes.
+- C9. A type holding `shared[T]` or `weak[shared[T]]` is not sendable: E2010 at the task statement, the
+  channel type or the send.
+- C10. Converting such a value to `error` or an interface embedding it: E2020.
+- C11. A frame view: E3004 (task statement), E3005 (send), E2011 (seen by the type checker).
+- C12. A view of heap or static memory that may change while both use it: E3501.
+- C13. Moving an owner is safe; the owner takes its managed memory.
+- C14. `synced[T]` and maps let several tasks reach memory, so 19.3 governs it.
+- C15. Strings are sendable: bytes never change, counts are atomic once a task has started.
+- C16. A string from `unsafe.String` is not counted; sending one is the unsafe code's responsibility.
+- C17. The type part is checked by the type checker on task arguments, receivers and channel element
+  types, looking through fields, elements, payloads, boxes, pointers, slices and the wrappers.
+- C18. The view part is checked where values cross, and through interfaces for every converted type,
+  except `error` and interfaces embedding it.
+- C19. A conversion whose result is a frame view is not counted.
+- C20. In generic code the rule is checked per instantiation.
+
+19.3, introduction:
+
+- R1. Definition of a data race.
+- R2. Safe code has none; the compiler rejects every program that could make one.
+- R3. Whole program, no annotations, three inferred rules.
+- R4. Shared memory is owned by one task, unchanged, atomic, or guarded by a lock every access holds.
+
+19.3, The tasks:
+
+- T1. The tasks: task statements, func values given to task-starting functions, `s.Task` calls.
+- T2. Installed interrupt handlers are parties.
+- T3. The main task runs package initialization and `main`.
+- T4. A task statement that may run more than once may start several tasks of the same code at once.
+- T5. Package initialization, and `main` before the first statement that may start a task, run while no
+  other task exists.
+- T6. No handler is a party until the first statement that may install one or enable interrupts.
+- T7. From then on, writes are checked against handlers and handler loads cross.
+
+19.3, Accesses and locks:
+
+- A1. Per task: reads and writes in its code and callees; an interface or func-value call reaches every
+  candidate; the locks held at each access.
+- A2. A lock is a `sync.Mutex`, `sync.RWMutex` or `rt.Lock`; a handler cannot take a `sync.Mutex` (E2584).
+- A3. Held from `Lock`, `RLock` or a successful `TryLock`/`TryRLock` to the release, or to the end of the
+  function after `defer`.
+- A4. Held at a statement only if held on every path.
+- A5. A function returning with a lock held holds it for its caller; a lock held around a call counts in
+  the callee.
+- A6. A lock reached through a pointer is named by where the pointer came from.
+- A7. Tasks, handlers and functions started by `s.Task`, `wg.Task` or a task statement begin with no lock.
+- A8. Every release must release a held lock; releasing an unnamed lock is a compile error.
+- A9. `c.Wait(l)` counts as `l.Unlock()` then `l.Lock()`; `l` names a lock held for writing.
+- A10. A view loaded before `Wait` has crossed a release.
+- A11. A `Locker` in a variable, `RLocker()`, or `Wait` through an interface or func value names no lock:
+  a compile error.
+- A12. `Signal` and `Broadcast` need no lock.
+- A13. A method value's method counts as run with no lock held.
+- A14. Channel, `WaitGroup` and task-end ordering is not used; the Scope join and the return of `Once.Do`
+  are.
+
+19.3, Releasing a lock:
+
+- L1. Every release must be of a lock held on every path, in the right mode; otherwise a compile error
+  naming the call and a path.
+- L2. Interrupt handlers follow the same rule.
+- L3. No annotation, no run-time cost.
+- L4. Each task releases only the read lock it took.
+- L5. A locked lock cannot be handed to another task; use a channel, a Scope or a buffered-channel
+  semaphore.
+- L6. A name: a non-pointer package variable, or a local or parameter, then fields and constant indexes;
+  only the variable may hold a pointer.
+- L7. `s.next.mu` is not a name; copy the pointer into a local.
+- L8. A local whose address is taken, or that a literal assigns, names nothing.
+- L9. A parameter names, at each call, what its argument names.
+- L10. Assigning a variable ends every name through it.
+- L11. Copies carry names; a release through one ends all.
+- L12. Assigning a new value to a lock, or moving or assigning the memory holding it, ends its name.
+- L13. A copy of a struct holding a lock holds a different lock, not held.
+- L14. Assigning a new value to a lock another task may use: E3502.
+- L15. Moving or freeing memory that holds such a lock is a write.
+- L16. A variable index is not a name; take a pointer once.
+- L17. `TryLock`: held in the branch where it returned true.
+- L18. `defer mu.Unlock()`: held at the `defer` and every point after; `Wait` keeps it; reverse order.
+- L19. Loops: held between take and release in one iteration; a release after a loop needs every exit.
+- L20. Calls: a callee returning holding maps through the argument; a release in a callee is allowed when
+  every call holds the lock; the caller then no longer holds it.
+- L21. Interface, func-value and method-value callees count as called with nothing held for this rule;
+  `withLock(&mu, f)` compiles.
+- L22. Recursion: every call, recursive ones included, must hold the lock.
+- L23. Literals called in place or deferred, and range-over-func bodies, are part of their function; other
+  literals are func values.
+- L24. Generics: per instantiation; a method of a type parameter is the type argument's.
+- L25. `Unlock` through an interface is a compile error.
+- L26. The lock methods and `Cond.Wait` are trusted; the rule is checked at their calls.
+- L27. `pluto/rt` is outside the rules.
+
+19.3, Non-migrating and interrupt-disabled regions:
+
+- G1. Regions are found as held locks are: every path, across calls, deferred releases at the end.
+- G2. Definition of a non-migrating region.
+- G3. Definition of an interrupt-disabled region, handler bodies and trap handlers.
+- G4. Exceptions and NMIs are not excluded.
+- G5. 20.9 uses both, also for a dependent store.
+- G6. The region calls are not unsafe; a wrong pairing is a liveness failure.
+
+19.3, Waiting in a non-migrating region:
+
+- W1. An operation that may park, reached inside a non-migrating region, is a compile error.
+- W2. The list of waiting operations.
+- W3. Why: the task would hold its processor or a spun-on lock.
+- W4. The calls followed: those with a single known target.
+- W5. Reported when every path to the wait lies inside the region; a wait on some paths of a callee too.
+- W6. Calls not followed: interface, func value, method value, hook, unnamed arena, allocator.
+- W7. The check starts only outside `pluto/rt`.
+- W8. The run-time test in `rt.Park` and at `//pu:blocking` entry, and what it tests.
+- W9. The promise covers waiting operations, not spin loops.
+- W10. Why this one check accepts on doubt.
+
+19.3, Guards:
+
+- U1. The guard: a lock every write holds for writing.
+- U2. Data is safe when every access holds the guard; a read may use `RLock`.
+- U3. Data accessed only atomically needs no lock.
+- U4. Datum granularity: a field; all elements of an array or slice together, except constant indexes; a
+  variable index is every element; a whole-struct write writes every field.
+
+19.3, Frees are writes:
+
+- F1. Dropping, freeing or moving an object, or assigning or dropping an owner holding it, writes the
+  whole object.
+- F2. An arena `Reset`, `Release` or `Drop` frees every object allocated by `New` or `Slice`, every type;
+  drop entries count on top.
+- F3. A live `Alloc` allocation makes the call panic, so nothing is freed.
+- F4. An arena is named as a lock; an unnamed one counts as every arena it may be, beyond the limits every
+  arena.
+- F5. The name follows a move.
+- F6. This holds for every rule and for scoped tasks.
+- F7. So no task frees memory another task may use.
+- F8. `pluto/sync` and atomic values synchronize themselves; assigning a whole value is a write.
+
+19.3, Rule 1:
+
+- P1. A package variable used by two tasks, or by the tasks of one statement, and written after tasks
+  start, must be atomic or guarded.
+- P2. Per-CPU variables follow 20.9.
+- P3. It includes the memory it owns.
+- P4. A view loaded from it crosses; the pointee follows rule 2.
+- P5. A non-sendable package variable used by two tasks: E2010.
+- P6. E3502: written with no common lock.
+- P7. E3503: read without its guard.
+- P8. Written only during initialization or before the first task: readable by all without a lock, with
+  its owned memory; a loaded pointer still crosses.
+
+19.3, Lazy initialization:
+
+- O1. Data a Once initializes needs no lock; a package Once for package variables, a field Once for
+  fields of its object.
+- O2. The Once is named as a lock.
+- O3. Readable without a lock; the return of `f` is synchronized before every `Do` return.
+- O4. Writes during `f`: in `f` and callees on `Do`'s path; tasks `f` starts, method values, and other
+  paths are outside; an unnamed target is all data of the type; initialization writes do not count.
+- O5. A read after `Do`: in the reading function or a direct callee on every path; a `Do` by another task
+  or through an interface, func value or method value does not count; a handler cannot call `Do`.
+- O6. Otherwise rule 1; the Once's lock is the guard; E3502 and E3503; two Onces: E3502.
+- O7. When `f` does not return.
+- O8. Several functions on one Once.
+- O9. A Once assigned, moved or dropped initializes nothing; a copy is another Once.
+- O10. Views of the data; dropping an owner outside `f`; E3313 for a counted reference.
+
+19.3, Rule 2:
+
+- V1. A crossing pointer or slice must point to memory safe for both, wherever loaded.
+- V2. Case 1: sync and atomic types, runtime records, channels, structs of them.
+- V3. Case 2: package memory unchanged after tasks start, or Once-initialized and read after `Do`.
+- V4. Case 2, static objects: definition, no free condition, field conditions, `take(p)` and `*p = v`
+  named, reassigning the variable.
+- V5. Case 3: a `synced[T]` object and its Once memory.
+- V6. Case 4: memory a package variable or `synced[T]` object owns, every access under the guard, the view
+  used only while it stays held with no release; lock around a call; copies that cannot be followed;
+  deferred arguments.
+- V7. Case 5, the type rule: no overwrite, free, drop or move of an object of the type once tasks start;
+  field conditions; initialization writes; freed objects are not safe.
+- V8. A non-struct crosses only in the first four cases.
+- V9. Otherwise E3501 naming a write; the fixes.
+
+19.3, Rule 3:
+
+- S1. Changing fields of a `synced[T]` object: a lock of the object, atomic, or a Once of the object;
+  E3502, E3503.
+- S2. Writes before the reference is first copied do not count.
+- S3. A pointer method on the box uses the object.
+- S4. Map contents are shared by every copy; writes hold one guard, reads too; the guard is a package
+  lock or a lock of the struct holding the map.
+- S5. A map used by one task at a time needs no lock.
+- S6. Scoped tasks writing a map need a guard.
+- S7. All maps of one type are one datum once one crosses; maps filled before sharing and types that
+  never cross need no lock.
+
+19.3, Interrupt handlers:
+
+- H1. A handler may run wherever interrupts are enabled, on any processor, on several at once.
+- H2. Rules 1 to 3 apply with handlers as parties.
+- H3. Data a handler shares must be atomic or guarded by an `rt.Lock`, or be per-CPU.
+- H4. Data not written while a handler may run needs neither.
+- H5. Handler loads cross; the record must be safe by rule 2.
+- H6. An `rt.Lock` is a lock for the inference.
+- H7. `volatile` and interrupt-disabled regions exclude only the same processor.
+- H8. An allocator has no exemption.
+- H9. Unsafe parts of an allocator are its own responsibility.
+
+19.3, Owner transfer requires exclusivity:
+
+- X1. A move is valid only with no other live view; E3313, E3314, E3501.
+- X2. Generation checks alone do not prevent races.
+- X3. `task c.bump()` hands over an `owned[Counter]` only under that proof.
+
+19.3, What is not checked:
+
+- N1. Unsafe code, `unsafe.Pointer`, `rt.Pinned`, bodyless functions, the runtime's variables, records and
+  regions.
+- N2. The runtime's regions are not checked for waits, nor its releases.
+- N3. The trusted lock bodies are not checked; their callers are.
+- N4. A race in unsafe code gives torn or stale values, never undefined behavior.
+
+19.4, Sharing:
+
+- Z1. A place a scoped task uses and anyone writes during an interval must be one of three forms.
+- Z2. Frees are writes here too.
+- Z3. Form 1: synchronized by its type; assigning a whole value is a write.
+- Z4. Form 2: every access holds one lock, inferred as in 19.3.
+- Z5. Form 3: partitioned.
+- Z6. A place nobody writes is readable by all; anything else is E3402.
