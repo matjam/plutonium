@@ -713,10 +713,22 @@ compiler (2026-10-11).
     11.3, 11.24, D43, finding C1): E3212 for conversions to an owner type, a pointer to one or an owner
     union outside its package, for pointer conversions from `*Owner`, and for literals of an owner struct
     with an unexported field; widen the catalog text.
+200. **Owner conversions through a type defined from another owner** (planned; sections 11.24, 18.5, 8.11,
+    7.18, D72, finding E2 of audit E; extends item 147): for `type T owner A`, `T(x)` and the pointer and
+    union forms are E3212 unless converting `x` to `A` is allowed too; `T(a)` with `a` of type `A` stays
+    allowed.
 152. **Arenas count their live counted objects** (planned; sections 18.8, 18.9, 17.1, F.2, abi.md 1.3,
     D45, finding B1): one atomic counter per Fixed and Chunked arena, raised at each counted allocation
     and lowered at its last release; `Reset`, `Release` and `Drop` panic with "arena has live counted
-    objects" while it is not zero.
+    objects" while it is not zero. Item 198 widens it to every allocation and renames the message.
+198. **Arenas count every live allocation** (planned; sections 18.8, 18.9, 13.7, 13.9, 16.7, 17.1, 17.6,
+    21.5, F.2, abi.md 1.3, memory-model.md 3.8, D70, finding E3 and E9 of audit E; extends item 152): the
+    counter of item 152 rises at every `Alloc` of a Fixed or Chunked arena, owners included, and falls at
+    every `Free`; only `New` and `Slice` views stay out of it. The panic message is "arena has live
+    allocations". The compiler's own arenas must then free everything before they reset:
+    `compiler/internal/scratch/mem_on.p` calls `Chunked.Reset` on a Region and a home that may still
+    hold vectors, maps and strings, so check each `Reset` and `Release` there and in the library before
+    the count lands.
 158. **Task exit mid-statement and inside `Drop`** (planned; section 17.3, abi.md 12.10, D51, finding B8):
     `rt.ExitTask` drops operands already evaluated, and a `Drop` method it leaves still finishes the
     object's field drops and free.
@@ -735,6 +747,11 @@ compiler (2026-10-11).
 168. **Frees count as writes in the race check** (planned; sections 19.3, 19.4, D59, finding D1): dropping,
     freeing or moving an object, or writing an owner that holds it, is a write of the whole object for E3501
     and E3404.
+201. **Deferred calls in a scoped interval** (planned; section 19.4, A.3, D73, finding E4 of audit E; extends
+    item 168): a deferred call armed on a path that then reaches a point of a scoped task's interval, or a
+    return before its join, counts as a statement of that interval for E3402 and E3404, in every build
+    mode. A deferred `s.Wait()` joins the tasks started after its `defer` statement for the calls deferred
+    before it.
 169. **Closure regions own captured variables** (planned; sections 11.5, 18.8, abi.md 4.1, D60, finding D2):
     the region's drop function runs owner drop glue for every captured variable with cleanup, and copies
     parameters into the region on entry.
@@ -742,6 +759,14 @@ compiler (2026-10-11).
     candidates 7.17 to 7.19): summaries record through which pointer parameters a function may free memory
     or move an owner out; E3313 at such calls, at owner field assignments on a view's path, and through
     other copies of a counted reference; owner-to-pointer conversions are bounded views.
+199. **One-word owners lent to an interface end at the D3 events** (planned; sections 18.3, 18.5, 7.9,
+    11.13, 12.9, A.3, D71, findings E1, E5 and E7 of audit E; extends items 170, 171 and 148): an ordinary
+    interface holding a box, a map, a channel, a `weak` reference, an owner defined from a pointer or a
+    one-field struct of one is a view obtained from the variable, so a move, drop or new value, a call that
+    may free or move out, or an owner field assignment on its path ends it (E3313), and E3314 covers the
+    same events. The result of an assertion or type-switch clause from an owning interface to an ordinary
+    interface is such a view of the asserted variable, for every payload size. Function literals that hold
+    such views follow the same events.
 173. **Range loops hold a count** (planned; section 12.10, D64, finding D7): the range temporary over a counted
     value holds its own count until the loop ends.
 174. **Owners in for clauses** (planned; sections 12.10, 18.6, D65, finding D8): an owner declared in a for

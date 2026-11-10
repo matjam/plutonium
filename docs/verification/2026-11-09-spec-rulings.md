@@ -88,9 +88,31 @@ Section numbers are those of the language specification unless another document 
 | 7.18 | Resolved. Converting an owner to a non-owner pointer or view (`(*T)(h)` for `type H owner *T`) gives a view bounded by the owner (E3313). | Safe | 11.24, 18.3 | Part of item 170. |
 | 7.19 | Resolved under D3. A call that may free memory through another copy of the same counted reference ends a view obtained through the local reference, unless the compiler knows the two point to different objects. | Safe | 18.3 | Part of item 170. |
 
+## Rulings on audit E
+
+The audit is [2026-11-09-spec-audit-e.md](2026-11-09-spec-audit-e.md).
+
+| Finding | Ruling | Goal | Sections changed (or deciding) | Compiler change |
+|---|---|---|---|---|
+| E1 | Resolved. Only `&v` and an owner larger than one word lent to an ordinary interface are views of the variable itself. An interface holding a one-word owner holds a copy and is a view obtained from the variable, ended by every D3 event (E3313). The lent result of an assertion or type-switch clause from an owning interface is such a view for every payload size (D71). abi.md 5 is unchanged. | Safe, Plain | 18.3, 18.5, 7.9, 11.13, 12.9 | Yes: E3313 for one-word interface views and lent assertions. Item 199. |
+| E2 | Resolved. For `type T owner A`, `T(x)` and the pointer and union forms are allowed only where converting `x` to `A` is allowed too (E3212). 8.11, 7.18 and 18.5 cite 11.24. | Safe | 11.24, 18.5, 8.11, 7.18 | Yes: E3212 through defined-from types. Item 200. |
+| E3 | Resolved. Fixed and Chunked arenas count every live allocation made through `Alloc`, owners included; only `New` and `Slice` views are not counted. The panic message is "arena has live allocations". `Release` checks the whole count. The local-arena window rule leaves the count a run-time check only for an earlier `Reset` or `Release` (D70). | Safe | 18.8, 18.9, 13.7, 13.9, 16.7, 17.1, 17.6, 21.5, F.2; abi.md 1.3; memory-model.md 3.8 | Yes: counter at every `Alloc` and `Free`; the compiler's own arenas must free before `Reset`. Item 198. |
+| E4 | Resolved, with the fix corrected. A deferred call that can run while a scoped task is not joined (on a return before the join, or on a panic) counts as a statement of the interval for the Sharing rules and E3404, in every build mode. "Declare the Scope before the deferred call" does not work under the 19.4 drop order; the fix is to arm the deferred call after `s.Wait()`, or a deferred `s.Wait()` after it and before the first `s.Task` (D73). | Safe, Plain | 19.4, A.3 | Yes: deferred calls in the interval check. Item 201. |
+| E5 | Resolved. The function-literal sentence and the E3314 list of 18.3 name every D3 event. | Safe | 18.3 | Part of item 199. |
+| E6 | Resolved. 18.4 says a kept view of a variable with drop glue is E3313 once the loop is left. | Plain | 18.4 | No (item 146 covers E3313). |
+| E7 | Resolved. 7.9 and appendix A row 80 say an owner larger than one word is viewed in place and a one-word value is copied, and that the copy of an owner ends at the D3 events. | FF | 7.9, A.3 | No. |
+| E8 | Resolved. Appendix A cites 21.4 for the limit of 64 `defer` statements. | | A.3 | No. |
+| E9 | Resolved under E3. | | 18.9 | No. |
+| A1 | Resolved under E6. | | 18.4 | No. |
+| B1 | Resolved under E3. | Safe | as E3 | Item 198. |
+| C1 | Resolved under E2. | Safe | as E2 | Item 200. |
+| C2 | Resolved under E1: the lent result is a view obtained from `x`. | Safe | 7.9, 11.13, 12.9, 18.3 | Item 199. |
+| D3 | Resolved under E1 and E5. | Safe | 18.3 | Item 199. |
+
 ## Diagnostics that need a code in phase 1
 
 None of these rulings invents a code. They extend E3313 (A1), E3212 (C1), E3302 (C3), E2313 (C4) and E2511
 (B7), whose catalog texts must widen. The new run-time panic "arena has live counted objects" (B1) needs no
 code. Audit D adds no code either: it widens E3313 (D3 and the candidates), E3303 (D5), E3501 and E3404
-(D1).
+(D1). Audit E adds no code: it widens E3313 (E1, E5), E3212 (E2) and E3402 and E3404 (E4), and renames the
+arena panic to "arena has live allocations" (E3).

@@ -1118,6 +1118,84 @@ Why: in Go a wrapped pointer error is the same pointer and sees later changes. A
 
 Lands with: sections 16.5 and 16.7 rule 4; roadmap item 177 (tests).
 
+## D70. An arena counts every live allocation (18.8, 18.9, 13.7, 13.9, 16.7, 17.1, 17.6, 21.5, F.2, abi.md 1.3, memory-model.md 3.8)
+
+Question: audit E3 and E9. D45 counted only counted objects and left owners uncounted. An owner allocated
+in a Fixed or Chunked arena (a box from `new(T, &a)`, a vector's array, a map table, a channel) can be moved
+to another task, and a `Reset` while that task still uses it frees its memory.
+
+Decision: this extends D45. Each Fixed and Chunked arena counts every allocation made through its `Alloc`
+that is not freed yet, owners and counted objects alike. Only the plain views of `New[T]()` and
+`Slice[T](n)` stay uncounted. `Reset`, `Release` and `Drop` panic with "arena has live allocations" while
+the count is not zero. `Release` still checks the whole count, so an owner that must outlive a `Release` is
+allocated from the parent or from another arena. Freeing into an arena still takes no memory back; it only
+lowers the count. For a local arena the compile-time window rule already proves that its allocations are
+freed before it is dropped, so the count matters there only for an earlier `Reset` or `Release`.
+
+Why: the D1 promise (no use after free) without tracking which owners cross tasks. The cost stays one atomic
+add at each end of an allocation's life. The other fix, forbidding an arena-backed owner from moving to
+another task, needs annotations the compiler does not have. Goal: Safe, with a small Perf cost.
+
+Lands with: the sections named above; roadmap item 198, which extends item 152.
+
+## D71. A one-word owner lent to an interface is a copy, ended by the D3 events (18.3, 18.5, 7.9, 11.13, 12.9, A.3)
+
+Question: audit E1, E5, E7 and the C2 and D3 verdicts. 18.3 exempted "an ordinary interface that lends"
+the variable from the events that end a view of an owner's memory. For a one-word owner the interface holds
+a copy of the word, not the variable's address, so `x := any(b); reset(&b); use(x)` read freed memory.
+
+Decision: only two views are views of the variable itself, exempt from calls and field assignments: `&v`,
+and an owner larger than one word lent to an ordinary interface, whose data word points at the variable. An
+ordinary interface holding a one-word owner (an `owned`, `shared` or `synced` box, a map, a channel, a
+`weak` reference, an owner defined from a pointer, a one-field struct or array of one) is a view obtained
+from the variable, and each D3 event ends it (E3313). The result of an assertion or type-switch clause from
+an owning interface to an ordinary interface is such a view of the asserted variable for every payload size,
+since a large payload is a frame copy, not the variable. The function-literal sentence and the E3314 list of
+18.3 name every D3 event. 7.9 and appendix A row 80 say which values the interface views in place and which
+it copies. abi.md 5 is unchanged.
+
+Why: the layout already copies one-word values; the rule now follows the layout. Extending the C2 case to
+large payloads was settled here: the frame copy is dropped when the owning interface is given a new value,
+so the result cannot be a view of the variable itself. Goal: Safe, Plain.
+
+Lands with: the sections named above; roadmap item 199, which extends items 170, 171 and 148.
+
+## D72. A conversion through a type defined from another owner type (11.24, 18.5, 8.11, 7.18)
+
+Question: audit E2 and the C1 verdict. Rule 3 of 11.24 let a package convert to a type it declares, so
+`type MyFrame owner p.Frame` and `MyFrame(Fake(0x1000))` forged a `p.Frame` outside `p`.
+
+Decision: when the target type `T` is defined from another owner type `A`, `T(x)` (and the pointer and union
+forms) is allowed only where converting `x` to `A` is allowed too; an operand of type `A` needs no
+conversion. 8.11, the 7.18 summary and 18.5 cite 11.24 for the full limit instead of restating part of it.
+
+Why: a new `T` holds an `A`, so making one makes an `A`. This keeps C1's promise that only `p` makes a
+`p.Frame`, with no new code. Goal: Safe.
+
+Lands with: the sections named above; roadmap item 200, which extends item 147.
+
+## D73. Deferred calls belong to a scoped task's interval (19.4, A.3)
+
+Question: audit E4. In a function's outermost block a Scope is dropped after the deferred calls run, and a
+panic runs the armed deferred calls while scoped tasks keep running. No rule checked a deferred call that
+drops or writes what a running task uses.
+
+Decision: a deferred call counts as a statement of a scoped task's interval when a path runs its `defer`
+statement and then reaches a point of that interval, or a return before the task is joined. The Sharing
+rules (E3402) and E3404 apply to it, with the accesses of its callee or literal. The rule is the same in every
+build mode. A deferred `s.Wait()` joins the tasks started on `s` after its `defer` statement before any call
+deferred earlier runs. The fix is to arm the deferred call after `s.Wait()`, or to arm a deferred `s.Wait()`
+after it and before the first `s.Task`; an owner may also be left to the end of its block.
+
+Why: keeps the D1 promise with no run-time cost. The ruling named "declare the Scope before the deferred
+call" as a fix, but the drop order of 19.4 runs every deferred call before any Scope of the outermost block is
+dropped, wherever the Scope is declared, so that fix does not work; the deferred `s.Wait()` does what it
+meant. A plain `s.Wait()` before the return covers the return path but not a panic between the `s.Task` and
+the `Wait`, so the rule counts panic paths too. Counting them in freestanding and kernel builds, where a
+panic runs no deferred calls, keeps one result for every build. Goal: Safe, Plain.
+
+Lands with: section 19.4 and appendix A; roadmap item 201, which extends item 168.
+
 ## Deferred
 
 None. The entry on Linux file names that are not valid UTF-8 is closed by D36.

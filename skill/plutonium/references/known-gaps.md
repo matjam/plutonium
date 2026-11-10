@@ -16,6 +16,8 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - A view of a local that has cleanup but is not an owner, used after its scope ends, is not E3313 yet (18.3). Item 146.
 - Conversions to an owner type, `*Owner` pointer conversions and literals of an owner struct with an unexported field
   outside the defining package are not E3212 yet (7.18, 11.24). Item 147.
+- A conversion to a type defined from another package's owner type (`MyFrame(x)` for `type MyFrame owner p.Frame`)
+  is not E3212 yet where converting `x` to `p.Frame` is not allowed (11.24). Item 200.
 - A type switch, assertion or conversion on an ordinary interface does not yet move or lend as 18.5 says. Item 148.
 - An enum-to-enum conversion such as `Shade(color)` is not E2313 yet (7.12, 11.24). Item 150.
 - `owned`, `shared`, `synced` and `weak` by value in `//pu:extern` or `//pu:export` signatures are not E2511 yet
@@ -24,6 +26,11 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   byte arrays, `string(c)`, owner conversions) are not all enforced. Item 166.
 - The race check does not yet treat frees, drops and moves as writes (19.3, 19.4). Item 168.
 - E3313 is not reported at calls that may free or move out what a view points into (18.3, 18.10). Item 170.
+- An ordinary interface holding a one-word owner (a box, a map, a channel), or the lent result of an assertion from
+  an owning interface, is not ended at a move, drop, new value, freeing call or owner field assignment of the
+  variable (E3313, 18.3, 7.9). Item 199.
+- A deferred call that drops or writes what a scoped task uses, and that can run before the task is joined, is not
+  E3404 or E3402 yet (19.4). Item 201.
 - A moving assertion or bound type switch on a field, element or `*p` is not E3303 yet (11.13, 12.9). Item 172.
 - A closure passed through a func value or an interface may not yet count as kept for the region errors (11.5).
   Item 176.
@@ -34,8 +41,8 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 
 ## 2. Behavior that differs at run time
 
-- Fixed and Chunked arenas do not count live counted objects, so `Reset`, `Release` and `Drop` do not panic with
-  "arena has live counted objects" (18.9). Item 152.
+- Fixed and Chunked arenas do not count their live allocations (owners and counted objects made through `Alloc`),
+  so `Reset`, `Release` and `Drop` do not panic with "arena has live allocations" (18.9). Items 152 and 198.
 - A Fixed arena still asks its parent for bookkeeping (18.9, F.2). Item 153.
 - `Free` through an arena still reclaims the latest allocation and can panic with "arena allocation freed" (18.9).
   Item 154.
