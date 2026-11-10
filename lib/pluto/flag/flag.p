@@ -165,6 +165,10 @@ type Flag struct {
 
 	kind string // type name for PrintDefaults, or "" for booleans
 	zero string // the type's zero value, as text
+
+	next    *Flag // the flag defined before it
+	nextSet *Flag // the flag set before it, once it is set
+	set     bool
 }
 
 // ErrorHandling says what Parse does when parsing fails.
@@ -188,11 +192,16 @@ type FlagSet owner struct {
 	handling ErrorHandling
 	parsed   bool
 	mem      arena.Chunked
-	flags    vec.Vec[*Flag]
-	actual   vec.Vec[*Flag] // flags that were set
-	args     []string       // arguments after the flags
-	output   io.Writer
-	osArgs   vec.Vec[string] // the process's arguments, for CommandLine
+	// The flags and the flags that were set, as lists in mem, newest
+	// first. Defining a flag or parsing frees nothing, so the variables
+	// that Int, String and the like return stay usable (language spec
+	// section 18.3, A local owner's memory).
+	flags  *Flag
+	actual *Flag
+	nset   int
+	args   []string // arguments after the flags
+	output io.Writer
+	osArgs vec.Vec[string] // the process's arguments, for CommandLine
 }
 
 // NewFlagSet returns an empty FlagSet with the given name and error
@@ -202,8 +211,6 @@ func NewFlagSet(name string, handling ErrorHandling, a alloc.Allocator = alloc.D
 		name:     name,
 		handling: handling,
 		mem:      arena.NewChunked(1024, a),
-		flags:    vec.New[*Flag](a),
-		actual:   vec.New[*Flag](a),
 	}
 }
 
@@ -211,8 +218,6 @@ func NewFlagSet(name string, handling ErrorHandling, a alloc.Allocator = alloc.D
 // arena's drop entries release the strings in them (language spec section
 // 18.9, Drop entries).
 func (f *FlagSet) Drop() {
-	f.flags.Free()
-	f.actual.Free()
 	f.osArgs.Free()
 	mem := take(&f.mem)
 	mem.Drop()
@@ -254,11 +259,11 @@ func (f *FlagSet) Arg(i int) string {
 }
 
 // NFlag returns the number of flags that have been set.
-func (f *FlagSet) NFlag() int { return f.actual.Len() }
+func (f *FlagSet) NFlag() int { return f.nset }
 
 // Lookup returns the named flag, or nil.
 func (f *FlagSet) Lookup(name string) *Flag {
-	for _, fl := range f.flags.Slice() {
+	for fl := f.flags; fl != nil; fl = fl.next {
 		if fl.Name == name {
 			return fl
 		}
@@ -273,19 +278,16 @@ func (f *FlagSet) Set(name, value string) error {
 		return fmt.Errorf("no such flag -%s", name)
 	}
 	fl.Value.Set(value) or return
-	for _, a := range f.actual.Slice() {
-		if a == fl {
-			return nil
-		}
-	}
-	f.actual.Push(fl)
+	f.setFlag(fl)
 	return nil
 }
 
 // VisitAll calls fn for every defined flag, in lexical order.
 func (f *FlagSet) VisitAll(fn func(*Flag)) {
-	v := vec.WithCapacity[*Flag](f.flags.Len())
-	v.Append(f.flags.Slice()...)
+	v := vec.New[*Flag]()
+	for fl := f.flags; fl != nil; fl = fl.next {
+		v.Push(fl)
+	}
 	all := v.Slice()
 	sort.SortFunc(all, func(a, b *Flag) bool { return a.Name < b.Name })
 	for _, fl := range all {
@@ -296,8 +298,10 @@ func (f *FlagSet) VisitAll(fn func(*Flag)) {
 
 // Visit calls fn for every flag that has been set, in lexical order.
 func (f *FlagSet) Visit(fn func(*Flag)) {
-	v := vec.WithCapacity[*Flag](f.actual.Len())
-	v.Append(f.actual.Slice()...)
+	v := vec.New[*Flag]()
+	for fl := f.actual; fl != nil; fl = fl.nextSet {
+		v.Push(fl)
+	}
 	all := v.Slice()
 	sort.SortFunc(all, func(a, b *Flag) bool { return a.Name < b.Name })
 	for _, fl := range all {
@@ -331,7 +335,19 @@ func (f *FlagSet) define(value Value, name, usage, kind, zero string) {
 	fl.DefValue = value.String()
 	fl.kind = kind
 	fl.zero = zero
-	f.flags.Push(fl)
+	fl.next = f.flags
+	f.flags = fl
+}
+
+// setFlag records that fl was set, once.
+func (f *FlagSet) setFlag(fl *Flag) {
+	if fl.set {
+		return
+	}
+	fl.set = true
+	fl.nextSet = f.actual
+	f.actual = fl
+	f.nset++
 }
 
 // BoolVar defines a bool flag stored in *p, with default value.
@@ -590,12 +606,7 @@ func (f *FlagSet) parseOne() (bool, error) {
 		}
 		fl.Value.Set(value) or return f.failf("invalid value %q for flag -%s: %v", value, name, err)
 	}
-	for _, a := range f.actual.Slice() {
-		if a == fl {
-			return true, nil
-		}
-	}
-	f.actual.Push(fl)
+	f.setFlag(fl)
 	return true, nil
 }
 

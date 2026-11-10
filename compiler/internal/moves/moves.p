@@ -174,6 +174,7 @@ type checker struct {
 	owned      map[string][]types2.Type       // ownedLeaves, by owner type
 	keeps      map[ast.Node][]keepSite        // what functions keep of the memory their inputs reach, by declaration, literal or range body (keeps.p)
 	keepDecls  map[*types2.Func]*ast.FuncDecl // the declarations of the functions with a body (keeps.p)
+	frees      map[ast.Node][]keepSite        // through which inputs functions may free memory or move an owner out, by declaration, literal or range body (frees.p)
 }
 
 // report records an error once per position and code.
@@ -268,6 +269,7 @@ const (
 	mvTake                     // emptied by take(&x) (views.go)
 	mvScopeEnd                 // dropped at the end of its block (views.go)
 	mvReclaim                  // a local arena's memory reclaimed by Reset or Release (views.go)
+	mvFree                     // a call that may free memory or move an owner out through a pointer (frees.p)
 )
 
 // A move records where and how a variable's value left it.

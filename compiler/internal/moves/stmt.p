@@ -274,7 +274,9 @@ func (f *fn) assignStmt(st *ast.AssignStmt) {
 	for i, l := range st.Lhs {
 		if len(st.Lhs) == len(st.Rhs) {
 			vs[i] = f.viewsTo(st.Rhs[i], f.lhsType(l))
-		} else {
+		} else if T := f.lhsType(l); T == nil || mayView(T) {
+			// A result that cannot hold a view, as the bool of
+			// p, ok := m.Upsert(k), gets none of the call's.
 			vs[i] = whole(f.viewsOf(st.Rhs[0]))
 		}
 	}
@@ -396,6 +398,14 @@ func (f *fn) assignLHS(lhs ast.Expr, tok token.Token) {
 		f.expr(ix.X)
 		f.expr(ix.Index)
 		return
+	}
+	// An owner or counted box in a part of a local owner given a new
+	// value drops the old one: the views that look at or into that part
+	// are stale (section 18.3).
+	if T := f.c.typeOf(lhs); T != nil && bounds(T) {
+		if v, path, _, ok := f.placePath(lhs); ok && v != nil && !f.captured(v) {
+			f.invalidatePart(v, path, move{kind: mvNewValue, pos: lhs.Pos()})
+		}
 	}
 	// A part of a variable is written, not read: the views it held are
 	// not used (views.go).

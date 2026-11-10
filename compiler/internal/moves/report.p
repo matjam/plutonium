@@ -101,6 +101,8 @@ func (c *checker) howMoved(mv *move) string {
 		return compat.Concat(verb, " at the end of its block")
 	case mvReclaim:
 		return compat.Concat("reclaimed by ", mv.to)
+	case mvFree:
+		return compat.Concat("passed to ", mv.to)
 	}
 	return "moved"
 }
@@ -167,6 +169,9 @@ func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic 
 	} else if w.stale.kind == mvReclaim {
 		rule = "A view of a local arena's memory may be used only until Reset or Release reclaims it."
 	}
+	if w.stale.kind == mvFree {
+		rule = compat.Concat(rule, " A call that may free memory the view looks at, or move an owner out of it, through a pointer to the variable or to memory it owns ends the view as well.")
+	}
 	d.Text = compat.Sprintfb("%s looks at memory that %s %s, without owning it: the view was made by %s at line %d. %s %s, so the view may look at memory that was released, or at a value that now belongs to something else.", compat.ArgS(holder), compat.ArgS(owner), compat.ArgS(owns), compat.ArgS(w.text), compat.ArgI(int64(made)), compat.ArgS(rule), compat.ArgS(lost))
 	switch w.stale.kind {
 	case mvNewValue:
@@ -183,9 +188,11 @@ func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic 
 			act = compat.Concat("empty ", owner)
 		case mvReclaim:
 			act = compat.Concat("call ", w.stale.to)
+		case mvFree:
+			act = "make that call"
 		}
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before line %d, or %s only after the last use of %s", compat.ArgS(name), compat.ArgI(int64(at)), compat.ArgS(act), compat.ArgS(name))})
-		if hasClone(w.of.Type()) && w.stale.kind != mvDrop && w.stale.kind != mvTake && w.stale.kind != mvReclaim {
+		if hasClone(w.of.Type()) && w.stale.kind != mvDrop && w.stale.kind != mvTake && w.stale.kind != mvReclaim && w.stale.kind != mvFree {
 			d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or move a copy at line %d, so that %s keeps its value", compat.ArgI(int64(at)), compat.ArgS(owner)), Code: compat.Concat(owner, ".Clone()")})})
 		}
 	}
@@ -236,6 +243,8 @@ func (c *checker) lostVerbBase(mv move) string {
 		return "empty it with take"
 	case mvReclaim:
 		return "reclaim its memory"
+	case mvFree:
+		return "make that call"
 	}
 	return "move it"
 }

@@ -235,6 +235,9 @@ func (f *fn) call(e *ast.CallExpr, kind moveKind) {
 	// (views.go), as the arguments are before the call moves any.
 	stores := f.argViews(e)
 	defer f.callStores(stores)
+	// The views the callee may free through (frees.p).
+	freed := f.freeArgs(e)
+	defer f.freeViews(e, freed)
 	name := exprText(e.Fun)
 	if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
 		if sel := f.c.selections[se]; sel != nil && sel.Kind() == types2.MethodVal {

@@ -53,6 +53,12 @@ type view struct {
 	// h.l.head), nil for all of it: take(&h.l) makes only the views of
 	// that part stale.
 	part Path
+	// itself: the view is &v of the whole variable, which a call that
+	// frees through a pointer to v does not end (section 18.3).
+	itself bool
+	// obj: the view is a pointer to the object of a box (boxView), which
+	// holds what the box owns as an owner's storage does.
+	obj bool
 }
 
 // A pinMark records that a view of an owner went where the walk cannot
@@ -214,6 +220,11 @@ func whole(vs []view) []view {
 // x is part of a local owner (or of the object of an owned box it holds),
 // together with the views that part holds.
 func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
+	if st, isStar := ast.Unparen(x).(*ast.StarExpr); isStar {
+		if vs := f.boxView(st.X, made); vs != nil {
+			return vs
+		}
+	}
 	v, path, box, ok := f.placePath(x)
 	if !ok || v == nil {
 		out := f.viewsOf(baseOf(x))
@@ -228,11 +239,29 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 	}
 	out = compat.Append(out, whole(f.held(v, path))...)
 	if o := f.ownerVar(v); o != nil {
-		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), inHeap: box, part: path})
+		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), inHeap: box, part: path, itself: !box && len(path) == 0})
 	} else if o := f.scopeVar(v); o != nil {
 		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), part: path})
 	}
 	return out
+}
+
+// boxView returns the view that a pointer to the object of the box at the
+// place x makes, with the views that object holds: &*b, b passed where a
+// *T is wanted, or a method with a pointer receiver called on b. It looks
+// at what the box holds on the heap, so the local owner x is part of
+// bounds it, or x itself for a counted box (sections 7.18, 7.19, 18.3).
+func (f *fn) boxView(x ast.Expr, made ast.Expr) []view {
+	T := f.c.typeOf(x)
+	if !isOwnedBox(T) && !isCountedBox(T) {
+		return nil
+	}
+	v, path, box, ok := f.placePath(x)
+	if !ok || box || v == nil || !f.vars[v] || !bounds(v.Type()) {
+		return nil
+	}
+	out := whole(f.held(v, path))
+	return compat.Append(out, view{of: v, pos: made.Pos(), text: exprText(made), inHeap: true, part: path, obj: true})
 }
 
 // scopeVar returns v if it is a local variable of this function declared
@@ -598,6 +627,11 @@ func (f *fn) litViews(lit *ast.CompositeLit) []view {
 // view of it.
 func (f *fn) viewsTo(e ast.Expr, T types2.Type) []view {
 	out := f.viewsOf(e)
+	if T != nil && !isOwner(T) {
+		if _, ok := T.Underlying().(*types2.Pointer); ok {
+			out = compat.Append(out, f.boxView(e, e)...)
+		}
+	}
 	if T != nil && types2.IsInterface(T) && !isOwner(T) && isOwner(f.c.typeOf(e)) {
 		out = compat.Append(out, f.selfView(e, e)...)
 	}
@@ -617,6 +651,7 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 		var out []view
 		for _, a := range call.Args {
 			out = compat.Append(out, f.viewsTo(a, tv.Type)...)
+			out = compat.Append(out, f.ownerPtrView(a, tv.Type, call)...)
 		}
 		return out
 	}
@@ -636,8 +671,9 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 	f.eachArg(call, func(key, val ast.Expr, T types2.Type) {
 		af := f.c.calls.Arg(key)
 		for _, w := range whole(f.viewsTo(val, T)) {
+			w.itself = false // a view obtained from the variable
 			if af != nil && !af.Returned {
-				if !f.loadsOwned(call, w) {
+				if !f.loadsOwned(call, w, T) {
 					continue
 				}
 				w.inHeap = true
@@ -655,6 +691,25 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 	return out
 }
 
+// ownerPtrView returns the view that the conversion made makes of a, an
+// owner defined from a pointer type (type H owner *T), converted to a
+// pointer type that is not an owner: (*T)(h) looks at the object h owns,
+// so it is bounded by the local variable a is part of, like &*b for a box
+// b (boxView; sections 7.18, 7.19 and 18.3).
+func (f *fn) ownerPtrView(a ast.Expr, T types2.Type, made ast.Expr) []view {
+	from := f.c.typeOf(a)
+	if from == nil || T == nil || !bounds(from) || isOwner(T) || isOwnedBox(from) || isCountedBox(from) {
+		return nil // a box: viewsTo
+	}
+	if _, ok := T.Underlying().(*types2.Pointer); !ok {
+		return nil
+	}
+	if v, _, _, ok := f.placePath(a); ok && v != nil && f.vars[v] && bounds(v.Type()) {
+		return compat.Clone([]view{{of: v, pos: made.Pos(), text: exprText(made), inHeap: true}})
+	}
+	return nil
+}
+
 // loadsOwned reports whether the result of call may look at memory that
 // the owner of view w holds, though the escape analysis says no result
 // derives from the argument that passes w. The escape analysis follows
@@ -663,16 +718,24 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 // heap-only fields). For an owner that memory is its own, released when it
 // is moved or dropped, so v.Slice() is a view of v even when v's buffer
 // field is heap-only. The call passes the owner's own storage (w is not of
-// its heap), and the result holds a pointer or slice of a type the owner
-// may hold, other than an owner (a new value, not a view).
-func (f *fn) loadsOwned(call *ast.CallExpr, w view) bool {
-	if w.inHeap || w.of == nil || !bounds(w.of.Type()) {
+// its heap) or the object of a box, and the result holds a pointer or slice of a type the owner
+// may hold, other than an owner (a new value, not a view). A parameter of
+// type T that is an ordinary interface lends the owner (section 7.9): the
+// callee reaches what the owner holds only through the results of T's
+// methods, so only the types those results hold count.
+func (f *fn) loadsOwned(call *ast.CallExpr, w view, T types2.Type) bool {
+	if w.inHeap && !w.obj || w.of == nil || !bounds(w.of.Type()) {
 		return false
 	}
 	if f.arenaAlloc(call, w.of) {
 		return true
 	}
 	res := resultLeaves(f.c.typeOf(call), 0)
+	if _, tp := types2.Unalias(T).(*types2.TypeParam); T != nil && !tp && types2.IsInterface(T) && !isOwner(T) {
+		if it, ok := T.Underlying().(*types2.Interface); ok {
+			res = methodLeaves(res, it)
+		}
+	}
 	if len(res) == 0 {
 		return false
 	}
@@ -688,6 +751,32 @@ func (f *fn) loadsOwned(call *ast.CallExpr, w view) bool {
 		}
 	}
 	return false
+}
+
+// methodLeaves returns the types in res that a result of a method of it
+// may hold.
+func methodLeaves(res []types2.Type, it *types2.Interface) []types2.Type {
+	var out []types2.Type
+	for _, r := range res {
+		for i := 0; i < it.NumMethods(); i++ {
+			sig, _ := it.Method(i).Type().(*types2.Signature)
+			if sig == nil {
+				continue
+			}
+			found := false
+			for _, m := range resultLeaves(sig.Results(), 0) {
+				if types2.Identical(r, m) {
+					found = true
+					break
+				}
+			}
+			if found {
+				out = compat.Append(out, r)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // resultLeaves returns the pointer, slice and unsafe.Pointer types a value
@@ -798,7 +887,9 @@ func (f *fn) eachArg(call *ast.CallExpr, fn func(key, val ast.Expr, T types2.Typ
 		if sel := f.c.selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
 			recv := methodRecv(sel.Obj().(*types2.Func))
 			val := se.X
-			if implicitAddr(f.c, se, recv) {
+			// A pointer method of what a counted box points to gets the
+			// box's object, not the box variable's address (boxView).
+			if implicitAddr(f.c, se, recv) && !isCountedBox(f.c.typeOf(se.X)) {
 				val = pu.New(ast.UnaryExpr{OpPos: se.X.Pos(), Op: token.AND, X: se.X})
 			}
 			fn(se.X, val, recv)

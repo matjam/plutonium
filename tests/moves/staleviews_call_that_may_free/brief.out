@@ -1,0 +1,14 @@
+$DIR/main.p:60:10: s holds a view of v (v.Slice(), line 58), which was passed to v.Push(1), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 59, so s can no longer be used here
+$DIR/main.p:67:10: t holds a view of w (w.Slice(), line 65), which was passed to push(&w), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 66, so t can no longer be used here
+$DIR/main.p:73:10: q holds a view of b (&*b, line 71), which was passed to reset(&b), which may free what it looks at or move it out (*p = ..., line 26) at line 72, so q can no longer be used here
+$DIR/main.p:79:10: c holds a view of n (&*n.child, line 77), which was passed to grow(&n), which may free what it looks at or move it out (n.child = ..., line 30) at line 78, so c can no longer be used here
+$DIR/main.p:86:11: k holds a view of m (&m.n, line 84), which was passed to grow(&m), which may free what it looks at or move it out (n.child = ..., line 30) at line 85, so k can no longer be used here
+$DIR/main.p:95:10: p holds a view of r (r.Peek(), line 91), which was passed to r.Pop(), which may free what it looks at or move it out at line 92, so p can no longer be used here
+$DIR/main.p:102:10: p2 holds a view of r2 (r2.Peek(), line 100), which was passed to r2.Reset(), which may free what it looks at or move it out at line 101, so p2 can no longer be used here
+$DIR/main.p:108:10: e holds a view of d (&*d.child, line 106), which was given a new value at line 107, so e can no longer be used here
+$DIR/main.p:116:10: sa holds a view of a (a.Slice(), line 114), which was passed to a2.Push(1), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 115, so sa can no longer be used here
+$DIR/main.p:123:10: gs holds a view of g (g.Slice(), line 121), which was passed to pushVia(&g), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 122, so gs can no longer be used here
+$DIR/main.p:131:10: bs holds a view of bb (bytesOf(&bb), line 129), which was passed to bb.Grow(), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 130, so bs can no longer be used here
+$DIR/main.p:139:11: sp holds a view of st (&st.a[1], line 136), which was passed to moveOut(&st, &out), which may free what it looks at or move it out (rt.MoveValues(dst, &p.a[0], 1), line 52) at line 138, so sp can no longer be used here
+$DIR/main.p:146:15: p4 holds a view of r4 (r4.Peek(), line 144), which was passed to r4.Reset(), which may free what it looks at or move it out at line 145, so p4 can no longer be used here
+$DIR/main.p:152:10: hp holds a view of h ((*Leaf)(h), line 150), which was given a new value at line 151, so hp can no longer be used here

@@ -1,0 +1,228 @@
+$DIR/main.p:60:10: s holds a view of v (v.Slice(), line 58), which was passed to v.Push(1), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 59, so s can no longer be used here
+    s looks at memory that v owns, without owning it: the view was made by
+    v.Slice() at line 58. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. A call
+    that may free memory the view looks at, or move an owner out of it, through
+    a pointer to the variable or to memory it owns ends the view as well. At
+    line 59 v was passed to v.Push(1), which may free what it looks at or move
+    it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434), so the
+    view may look at memory that was released, or at a value that now belongs to
+    something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use s before line 59, or make that call only after the last use of s
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:67:10: t holds a view of w (w.Slice(), line 65), which was passed to push(&w), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 66, so t can no longer be used here
+    t looks at memory that w owns, without owning it: the view was made by
+    w.Slice() at line 65. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. A call
+    that may free memory the view looks at, or move an owner out of it, through
+    a pointer to the variable or to memory it owns ends the view as well. At
+    line 66 w was passed to push(&w), which may free what it looks at or move it
+    out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434), so the view
+    may look at memory that was released, or at a value that now belongs to
+    something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use t before line 66, or make that call only after the last use of t
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:73:10: q holds a view of b (&*b, line 71), which was passed to reset(&b), which may free what it looks at or move it out (*p = ..., line 26) at line 72, so q can no longer be used here
+    q looks at memory that b owns, without owning it: the view was made by &*b
+    at line 71. A view of an owner held in a local variable may be used only
+    while the variable keeps the value the view was made from. A call that may
+    free memory the view looks at, or move an owner out of it, through a pointer
+    to the variable or to memory it owns ends the view as well. At line 72 b was
+    passed to reset(&b), which may free what it looks at or move it out (*p =
+    ..., line 26), so the view may look at memory that was released, or at a
+    value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use q before line 72, or make that call only after the last use of q
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:79:10: c holds a view of n (&*n.child, line 77), which was passed to grow(&n), which may free what it looks at or move it out (n.child = ..., line 30) at line 78, so c can no longer be used here
+    c looks at memory that n owns, without owning it: the view was made by
+    &*n.child at line 77. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. A call
+    that may free memory the view looks at, or move an owner out of it, through
+    a pointer to the variable or to memory it owns ends the view as well. At
+    line 78 n was passed to grow(&n), which may free what it looks at or move it
+    out (n.child = ..., line 30), so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use c before line 78, or make that call only after the last use of c
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:86:11: k holds a view of m (&m.n, line 84), which was passed to grow(&m), which may free what it looks at or move it out (n.child = ..., line 30) at line 85, so k can no longer be used here
+    k looks at memory that m owns, without owning it: the view was made by &m.n
+    at line 84. A view of an owner held in a local variable may be used only
+    while the variable keeps the value the view was made from. A call that may
+    free memory the view looks at, or move an owner out of it, through a pointer
+    to the variable or to memory it owns ends the view as well. At line 85 m was
+    passed to grow(&m), which may free what it looks at or move it out (n.child
+    = ..., line 30), so the view may look at memory that was released, or at a
+    value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use k before line 85, or make that call only after the last use of k
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:95:10: p holds a view of r (r.Peek(), line 91), which was passed to r.Pop(), which may free what it looks at or move it out at line 92, so p can no longer be used here
+    p looks at memory that r owns, without owning it: the view was made by
+    r.Peek() at line 91. A view of an owner held in a local variable may be used
+    only while the variable keeps the value the view was made from. A call that
+    may free memory the view looks at, or move an owner out of it, through a
+    pointer to the variable or to memory it owns ends the view as well. At line
+    92 r was passed to r.Pop(), which may free what it looks at or move it out,
+    so the view may look at memory that was released, or at a value that now
+    belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use p before line 92, or make that call only after the last use of p
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:102:10: p2 holds a view of r2 (r2.Peek(), line 100), which was passed to r2.Reset(), which may free what it looks at or move it out at line 101, so p2 can no longer be used here
+    p2 looks at memory that r2 owns, without owning it: the view was made by
+    r2.Peek() at line 100. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. A call
+    that may free memory the view looks at, or move an owner out of it, through
+    a pointer to the variable or to memory it owns ends the view as well. At
+    line 101 r2 was passed to r2.Reset(), which may free what it looks at or
+    move it out, so the view may look at memory that was released, or at a value
+    that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use p2 before line 101, or make that call only after the last use of p2
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:108:10: e holds a view of d (&*d.child, line 106), which was given a new value at line 107, so e can no longer be used here
+    e looks at memory that d owns, without owning it: the view was made by
+    &*d.child at line 106. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. At line
+    107 d was given a new value, so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use e before line 107, or give d its new value only after the last use of e
+    Or make the view again after line 107:
+        e = &*d.child
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:116:10: sa holds a view of a (a.Slice(), line 114), which was passed to a2.Push(1), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 115, so sa can no longer be used here
+    sa looks at memory that a refers to, without owning it: the view was made by
+    a.Slice() at line 114. A view obtained through a counted reference held in a
+    local variable may be used only while the variable keeps the reference the
+    view was made from. A call that may free memory the view looks at, or move
+    an owner out of it, through a pointer to the variable or to memory it owns
+    ends the view as well. At line 115 a was passed to a2.Push(1), which may
+    free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0],
+    len(old)), vec.p:434), so the view may look at memory that was released, or
+    at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use sa before line 115, or make that call only after the last use of sa
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:123:10: gs holds a view of g (g.Slice(), line 121), which was passed to pushVia(&g), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 122, so gs can no longer be used here
+    gs looks at memory that g owns, without owning it: the view was made by
+    g.Slice() at line 121. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. A call
+    that may free memory the view looks at, or move an owner out of it, through
+    a pointer to the variable or to memory it owns ends the view as well. At
+    line 122 g was passed to pushVia(&g), which may free what it looks at or
+    move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434), so
+    the view may look at memory that was released, or at a value that now
+    belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use gs before line 122, or make that call only after the last use of gs
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:131:10: bs holds a view of bb (bytesOf(&bb), line 129), which was passed to bb.Grow(), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 130, so bs can no longer be used here
+    bs looks at memory that bb owns, without owning it: the view was made by
+    bytesOf(&bb) at line 129. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. A call
+    that may free memory the view looks at, or move an owner out of it, through
+    a pointer to the variable or to memory it owns ends the view as well. At
+    line 130 bb was passed to bb.Grow(), which may free what it looks at or move
+    it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434), so the
+    view may look at memory that was released, or at a value that now belongs to
+    something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use bs before line 130, or make that call only after the last use of bs
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:139:11: sp holds a view of st (&st.a[1], line 136), which was passed to moveOut(&st, &out), which may free what it looks at or move it out (rt.MoveValues(dst, &p.a[0], 1), line 52) at line 138, so sp can no longer be used here
+    sp looks at memory that st owns, without owning it: the view was made by
+    &st.a[1] at line 136. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. A call
+    that may free memory the view looks at, or move an owner out of it, through
+    a pointer to the variable or to memory it owns ends the view as well. At
+    line 138 st was passed to moveOut(&st, &out), which may free what it looks
+    at or move it out (rt.MoveValues(dst, &p.a[0], 1), line 52), so the view may
+    look at memory that was released, or at a value that now belongs to
+    something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use sp before line 138, or make that call only after the last use of sp
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:146:15: p4 holds a view of r4 (r4.Peek(), line 144), which was passed to r4.Reset(), which may free what it looks at or move it out at line 145, so p4 can no longer be used here
+    p4 looks at memory that r4 owns, without owning it: the view was made by
+    r4.Peek() at line 144. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. A call
+    that may free memory the view looks at, or move an owner out of it, through
+    a pointer to the variable or to memory it owns ends the view as well. At
+    line 145 r4 was passed to r4.Reset(), which may free what it looks at or
+    move it out, so the view may look at memory that was released, or at a value
+    that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use p4 before line 145, or make that call only after the last use of p4
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:152:10: hp holds a view of h ((*Leaf)(h), line 150), which was given a new value at line 151, so hp can no longer be used here
+    hp looks at memory that h owns, without owning it: the view was made by
+    (*Leaf)(h) at line 150. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. At line
+    151 h was given a new value, so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use hp before line 151, or give h its new value only after the last use of
+    hp
+    Or make the view again after line 151:
+        hp = (*Leaf)(h)
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

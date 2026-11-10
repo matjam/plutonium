@@ -83,6 +83,9 @@ type keepScan struct {
 	own    map[*types2.Var]uint64
 	held   map[*types2.Var]uint64
 	change bool
+	// direct: a call's result holds nothing of its arguments. The frees
+	// scan uses it, where an imprecise answer would be a false error.
+	direct bool
 }
 
 // findKeeps computes c.keeps for every function of prog with a body, every
@@ -128,6 +131,7 @@ func (c *checker) findKeeps(prog *load.Program) {
 		}
 	}
 	var work []pending
+	var scans []keepFunc
 	for _, sc := range funcs {
 		node := sc.node
 		s := pu.New(keepScan{c: c, inputs: map[*types2.Var]int{}, own: map[*types2.Var]uint64{}, held: map[*types2.Var]uint64{}})
@@ -149,6 +153,7 @@ func (c *checker) findKeeps(prog *load.Program) {
 			c.keeps[node] = ks
 		}
 		s.taint(sc.body)
+		scans = compat.Append(scans, keepFunc{node: node, n: n, body: sc.body, scan: s})
 		s.calls(sc.body, func(in int, site keepSite) {
 			if !c.keeps[node][in].valid() {
 				c.keeps[node][in] = site
@@ -170,6 +175,7 @@ func (c *checker) findKeeps(prog *load.Program) {
 			work = compat.Append(work, pending{fn: e.from, j: e.in})
 		}
 	}
+	c.findFrees(scans)
 }
 
 // paramNames returns the names of the inputs of a function, the receiver
@@ -290,6 +296,9 @@ func (s *keepScan) sets(e ast.Expr) (own, held uint64) {
 				}
 			}
 			return own, held
+		}
+		if s.direct {
+			return 0, 0
 		}
 		// A result the escape analysis says may derive from an
 		// argument: memory loaded through it, as l.First() returns
