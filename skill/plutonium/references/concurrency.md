@@ -294,17 +294,21 @@ func main() {
   (E3004): make it a package variable or a field of a `synced` object, or use `sync.Scope`. A `WaitGroup` or
   `Mutex` declared in a function **may** be used by that function's `Scope` tasks, which share its frame.
 - The compiler **infers which lock guards which data**: the **guard set** of a datum is the locks held at
-  every write (in write mode); every read by a task other than the only writer must hold one of them. It
+  every write (in write mode); every read by a task other than the only writer must hold one of them, and the
+  only writer (a task not repeated) may also keep a view of the data with no lock. It
   follows `Lock`/`Unlock`, `defer mu.Unlock()`, locks held around calls, and `s.mu` named through the
-  pointer it came from. A lock counts as held only if held on every path. A guard must sit beside the data
+  pointer it came from, and through `p := &mu`. A lock counts as held only if held on every path. A call
+  through an interface, a func value or a method value runs with the caller's locks. A guard must sit beside the data
   (same object, no pointer load between) or be package-level. `wg.Wait()` and channel operations do
   **not** order plain data for the checker: reading shared data after `wg.Wait()` still needs its lock.
   The join of a `sync.Scope` and the return of `once.Do` do.
 - **Sharing starts** at the first statement that may start a task, install an interrupt handler, or
   enable interrupts (`x86.Sti`). Before it, nothing counts.
 - **Range bodies.** A range-over-func body shares the function's locks only when the iterator calls
-  `yield` on the same task (`v.All()` does). An iterator that calls `yield` from `s.Task` runs the body on
-  that task: it holds nothing there, and `defer` in it is a compile error.
+  `yield` on the same task (`v.All()` does). The body also holds the locks the iterator holds at every
+  `yield`, so a locked iterator (`mu.Lock(); defer mu.Unlock(); for ... { if !yield(p) { return } }`)
+  works, and the yielded pointer is valid in the body. An iterator that calls `yield` from `s.Task` runs
+  the body on that task: it holds nothing there, and `defer` in it is a compile error.
 - **Release only a lock you hold** (19.3, Releasing a lock; D108). Every `Unlock`, `RUnlock` and `c.Wait(&mu)`
   must release a lock the calling task holds on every path, in the same mode (`RUnlock` after `RLock`).
   Otherwise it is a compile error. This covers `rt.Lock` too. A task, a handler, and a function given to
@@ -339,9 +343,19 @@ func main() {
   overwrites one after sharing starts, and each field is unchanged, atomic, guarded by a lock of **the same
   object**, or set by a Once of the same object. A lock in the container that holds the `synced` references,
   such as the `Bank` that owns a map of accounts, does not guard the accounts (E3502). Give the record its own
-  mutex, take the container's lock only to find the record, and lock the record to change it. The contents of
-  a built-in map shared by tasks need one guard, package-level or a field of the owning struct, for writes and
-  reads. A map used by one task at a time needs none.
+  mutex, take the container's lock only to find the record, and lock the record to change it. A map **kept in
+  place** in a field or package variable (only ever set to `make`, a map literal or `nil` there, and only
+  indexed, ranged over, passed to `len`, `delete`, `clear`, compared with `nil`, or passed to a parameter that
+  does only those) belongs to that field: `c.mu` guards `c.m[k]` for each object, so a struct with a mutex and
+  a map works with many instances. A map copied out anywhere else (returned, assigned, sent, put in an
+  interface) joins the one datum of its map type, which only a package-level lock can guard. A map used by one
+  task at a time needs none.
+- A function started by `time.AfterFunc` is a repeated party: `Reset` can run it again while a run is going,
+  so what it writes needs a lock or an atomic even if nothing else touches it.
+- `rt.Yield` inside a non-migrating region (`rt.DisablePreemption`, a held `rt.Lock`, `x86.Cli`) is a compile
+  error, or panics where the call is not followed; the task could resume on another processor.
+- Moving, freeing or overwriting memory that holds a `sync` value or channel another task may use is an error,
+  whatever lock the write holds (E3502 by name, E3501 through a pointer).
 - **Do not copy locks.** Copying a `sync.Mutex`, `RWMutex`, `Once`, `WaitGroup` or `Cond`, or a struct that
   holds one, is a compile error (Go only has `go vet` warn); that includes a value receiver. Use pointers.
 - **Lazy initialization with `sync.Once`.** Data written only inside functions passed to `once.Do`, and read only
@@ -584,7 +598,8 @@ func main() {}
 - A `vec.Vec`, `hash.Map` or `strings.Builder` crosses with the memory it owns, also in a program that imports
   `pluto/fmt`. If it allocates from an allocator that has no lock of its own (an arena), the allocator is shared
   with the sender and E3501 names it.
-- The race rule groups built-in maps by type: if one map of a type crosses tasks, every map of that type needs the guard.
+- The race check groups built-in maps by type: if one map of a type crosses tasks, every map of that type needs
+  the guard. Maps kept in place are not grouped in the spec; the compiler does not do that yet (item 192).
 
 ## 6. Interrupt context (kernel code)
 

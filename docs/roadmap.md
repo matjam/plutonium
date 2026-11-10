@@ -1229,6 +1229,35 @@ compiler (2026-10-11).
     memory a per-CPU variable owns is part of each processor's copy, reached only through pointer methods
     or `&v`, so its accesses need the variable's region (E2022), and views of it are bounded by that
     region (E2023).
+229. **No task switch in a non-migrating region** (planned, phase 1; sections 19.3 (Switching tasks in a
+    non-migrating region), 17.1, 20.9, abi.md 12.4, D116, finding L1 of audit L): a call of `rt.Yield` or
+    `rt.Preempt`, or of a function whose summary may reach them, inside a non-migrating region is a
+    compile error, which needs a code; follow single-target calls as the wait check does, and in a region
+    opened only by `x86.Cli` or `x86.SaveFlagsCli`, also every candidate of interface, func-value,
+    method-value, hook and allocator calls. In the runtime, `rt.Yield` with a non-zero preemption count
+    panics with "blocking with preemption disabled"; the pending yield, `preemptPark` and the backend's
+    switch are exempt. Spec rows 73 to 76.
+230. **`AfterFunc` functions are repeated parties** (planned, phase 1; sections 19.3 (Parties), 19.6, D117,
+    finding L2 of audit L): the race check counts a function started by `time.AfterFunc` as a repeated
+    party at every call site. Spec rows 77 and 78.
+231. **`pluto/sync` calls and channel operations are atomic accesses** (planned, phase 1; section 19.3
+    (Accesses; rule 2 case 3), D118, finding L3 of audit L): collect each such call as an atomic write of
+    the value's memory that conflicts only with a plain write of that memory (a new value, or a free, move
+    or overwrite of what holds it); add the case 3 condition that crossing sync memory is not freed, moved
+    or overwritten while shared. Spec rows 79 to 81.
+232. **A range body holds the iterator's locks at `yield`** (planned, phase 1; sections 19.3 (Part of the
+    enclosing function; Lazy initialization), 12.11, D119, finding L4 of audit L): summaries record the
+    locks held at every call of each func parameter, with modes; a range body on the caller's task adds
+    them under the caller's names for accesses and views, and a view passed to `yield` counts as loaded
+    there. A returned `Do` counts in a callee whose every call on the same party follows one. Spec rows 82
+    to 85.
+233. **The only writer's views** (planned, phase 1; section 19.3 (Views loaded under a lock; rule 2 case
+    4), D121, finding L6 of audit L): a view loaded by the only writer of a datum, not repeated, is valid
+    with no lock. Check what the race check does today and add a test for spec row 90.
+234. **Smaller race-check fixes of audit L** (planned, phase 1; section 19.3, D122, findings L7, L11 and L13
+    of audit L): a method value's method runs with the caller's held set (and outside every `Do`); the
+    map trigger counts memory a callee on the same party allocated; `p := &mu` names `mu`. Check what the
+    race check does today for each, and add tests for spec rows 91, 94 and 96.
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and
@@ -1295,7 +1324,7 @@ compiler (2026-10-11).
     allocator; owner keys and elements are E3213; a map is sendable, and the contents of the maps of a type
     that crosses to another task fall under the guard rule of item 59; go2pu translates Go's maps as they
     are. `hash.Map` takes owner values and has `Remove` and `Pop` (item 132). The race rule groups maps
-    by type; item 192 tracks that.
+    by type, except maps kept in place; item 192 tracks that.
 61. **Removed conversions** (done, `080e49b`, `d611757`, `271e57f`; sections 11.24 and 18.8): `string(b)`
     is E2015, `[]byte(s)` and `[]rune(s)` are E2016, `string(i)` of a non-rune integer is E2017; the
     messages show the replacement (`strings.FromUTF8`, `strings.Bytes`, `strconv.Itoa`).
@@ -1389,9 +1418,15 @@ compiler (2026-10-11).
 191. **Counted string efficiency** (planned; sections 7.3, 18.8; moved from item 57): interface boxes hold
     their string until the function returns; `(string, error)` returns through memory;
     `compiler/compat` can drop helpers for what is native.
-192. **Maps of one type guarded together** (planned; sections 7.10, 19.3; moved from item 60): the race rule
-    groups maps by type, so two maps of one type are guarded together when either crosses. Precision,
-    not soundness.
+192. **Maps kept in place** (planned, phase 1; sections 7.10, 19.3 (Maps kept in place), D120, finding L5 of
+    audit L; moved from item 60): the race check groups maps by type, so two objects that each guard a map
+    with their own mutex are E3502. Find the places (package variables and struct fields of map type, per
+    instantiation) that are kept in place: every stored value is a `make`, a map literal or `nil` written
+    there, and every other use is an index, `len`, `delete`, `clear`, `range`, a comparison with `nil`, or
+    an argument for a parameter or receiver whose summary keeps it in place. Make the contents of such a
+    map part of the datum of its place, per object, guarded in place; leave other maps in the datum of
+    their type, which only a package-level lock guards. Summaries record, per map parameter and receiver,
+    whether it keeps it in place. Spec rows 86 to 89 and 101.
 195. **Generation check tuning** (planned; section 18.11; moved from item 85): coherent whole-range and
     ancestor snapshots, same-granule scalar checks, proven extent reuse and interval lookup hints without
     cached liveness. Item 85 records the current costs.

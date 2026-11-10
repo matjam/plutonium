@@ -1315,3 +1315,187 @@ These are the compiler's work list. Each is a roadmap item.
 - Crossing loads from shared memory, with static and type-rule objects and their owned memory (item
   214), `sync.Once` (item 218, which has no rule at all today), `sync.Cond` and `Wait` as a release
   (items 197 and 219) and the release rule (item 220).
+
+## Audit L
+
+Audit L (docs/verification/2026-11-09-spec-audit-l.md) checked the rewrite above. Every ruling follows
+the audit's proposed resolution. Decisions D116 to D122 record them; roadmap items 192 and 229 to 234 hold
+the compiler work; table rows 73 to 109 pin the shapes. Each edit was attacked before the next one.
+
+### Rulings
+
+- L1 (high): a call that may switch tasks (`rt.Yield`, `rt.Preempt`, or a function whose summary may reach
+  them) is a compile error inside a non-migrating region, followed as the wait check is. `rt.Yield` with a
+  non-zero count panics. New paragraph "Switching tasks in a non-migrating region"; the regions paragraph
+  defines "may switch"; 19.1, 17.1, 20.9, 20.10 and abi.md 12.4 restate it. D116, item 229.
+- L2 (high): an `AfterFunc` function is a repeated party wherever the call is (Parties, 19.6, F). No other
+  library entry starts a function more than once from one call. D117, item 230.
+- L3: a `pluto/sync` method call and a channel operation are atomic writes of the value's memory; rule 2
+  case 3 gets the not-freed condition. D118, item 231.
+- L4: a range body holds the iterator's locks at every `yield`; summaries record locks held at each call
+  of a func parameter; a view passed to `yield` is loaded there. D119, item 232.
+- L5: maps kept in place belong to their place (new paragraph "Maps kept in place"). D120, item 192.
+- L6: case 4 asks a lock only where the guard set does; the only writer's views are valid with no lock.
+  D121, item 233.
+- L7: the method-value sentence keeps only "outside every `Do`"; a method value runs with the caller's
+  held set. D122, item 234.
+- L8: an `rt.Timer` function is unsafe code and not a party (Parties, What is not checked).
+- L9: row 93. L10: rows 5 and 71. L11: the map trigger. L12: Frees are writes. L13: Locks and names.
+  D122.
+
+### Decisions beyond the rulings
+
+- L1, Cli-only regions. The ruling follows single-target calls and relies on the run-time count test for
+  the rest. A region opened only by `x86.Cli` or `x86.SaveFlagsCli` raises no count, and at run time it
+  looks like a handler body, which may yield. So in such a region, and only there, the check follows
+  every candidate, as E2584 does. Alternative: a run-time "in handler" depth so that `rt.Yield` can test
+  the interrupt flag outside handlers; that is a runtime change with a cost on every interrupt, and it
+  was not taken.
+- L1, `rt.Preempt`. abi.md 12.4 already makes `rt.Preempt` with a non-zero count set the pending flag and
+  not switch, so only `rt.Yield` gets the new panic. `rt.Preempt` is still a compile error in a
+  non-migrating region, since in a Cli-only region it does switch.
+- L4, Onces. The ruling asks the closure and range forms to agree in every respect. A range body got the
+  Onces returned before the loop; a literal passed to the iterator did not. So a returned `Do` now counts
+  inside a callee when every call of it on the same party follows a returned `Do`, as a held lock does.
+- L4, releases. A range body may release a lock held at the loop; a literal may not, since a func-value
+  candidate counts as called with nothing held for releases. This difference stays: a body is code of the
+  function, and the release rule is checked there; a literal may be called anywhere.
+- L5, other maps. The contents of a map that is not kept in place are one datum of its type, which no
+  lock of one object guards in place; the text now says only a package-level lock can guard them. This
+  is stricter than "a lock that guards the place" for a lone static object whose map is copied out, which
+  was unsound when the copy is used elsewhere under another lock.
+
+### Attacks
+
+L1:
+- `rt.DisablePreemption(); s := runq.Slice(); rt.Yield(); use(s[0])`: a direct call of `rt.Yield`, a
+  compile error (row 73). Before: accepted, and `s` could point to another processor's queue.
+- The same through an interface in a count-raised region: compiles; `rt.Yield` panics before switching
+  (row 74). Sound: the switch never happens.
+- The same in a Cli-only region in kernel mode: the count is zero and IF is clear, the same state as a
+  handler, so a run-time test cannot tell. The check follows every candidate: a compile error (row 75).
+- A handler calling `rt.Preempt`: a handler body is interrupt-disabled, not non-migrating, so it
+  compiles and its region ends at the call (row 76). Per-CPU views of the handler end there (20.9).
+- A handler that interrupts a task with preemption disabled calls `rt.Preempt`: the count is non-zero,
+  so `Preempt` sets the pending flag and does not switch. No panic, as before.
+- `rt.EnablePreemption` with a pending flag yields when the count reaches zero: outside the region, and
+  exempt anyway.
+- Parking inside the region: the wait check and the `rt.Park` panic, unchanged. `rt.ExitTask` ends the
+  task, so nothing resumes. Preemption is disabled in these regions. No other operation moves a task.
+- A backend's own locked code calls `rt.Switch`: not in the list, so not an error; the backend's switch
+  is the runtime's switch path.
+- Hosted builds: `x86.Cli` faults, so only count-raised regions exist, and the count test covers what
+  the check does not follow.
+
+L2:
+- `t := time.AfterFunc(d, f)`; `t.Reset(0)` while `f` runs, `f` does `n++` on a package `n` nothing else
+  uses: two instances of one repeated party conflict, no guard, E3502 (row 77). With `atomic.Int64`,
+  accepted (row 78).
+- `AfterFunc` called once, never `Reset`: still repeated, so `f` writing `n` with no lock is E3502. The
+  compiler cannot prove no handle is reset (the handle is a counted `synced[Timer]` that may be copied
+  anywhere). An `AfterFunc` callback in Go that writes shared data with no lock is already a data race
+  if any `Reset` happens; a single write needs an atomic. Accepted as the cost.
+- Other entries: `time.NewTicker` and `time.Tick` send on a channel, no function. `rt.Go`, `wg.Task`,
+  `s.Task` start one task per call; a call in a loop is already repeated. `rt.Timer` is unsafe code (L8).
+  No signal or event callbacks exist in the library.
+
+L3:
+- `task user(&b.mu); b = new(S{})`: `&b.mu` crosses; case 3 now needs the memory not freed while shared;
+  the assignment frees it: E3501 at the crossing (row 79). The result matches the `srv.cfg` example of
+  rule 2, which is the same structure.
+- Both tasks lock `b.mu` by name and one replaces `b` under `b.mu`: the free conflicts with the other
+  task's `Lock`, an atomic write; no common lock, E3502 (row 80). Sound: the other task may be inside
+  `Lock` on the freed mutex.
+- Both tasks lock `b.mu` and write `b.n` under it: `b` is one datum (owned memory), but the write of `n`
+  is other memory than `mu`, so it does not conflict with the `Lock` calls, and `b.n`'s writes all hold
+  `b.mu` (row 81). Without the "other memory" sentence this ordinary shape would have been E3502.
+- Two tasks `Lock` one package `mu`: atomic writes, no conflict, `mu` used only atomically: accepted.
+- `close(ch)` in one task and `ch <- v` in another: both atomic, no conflict; a send on a closed channel
+  panics at run time (17.1). Not a race.
+- A `synced[T]` object holding a `WaitGroup`: the object is counted and freed only after its last
+  reference, so no free conflicts with a use. Accepted, as the audit asked.
+- `wg = sync.WaitGroup{}` while another task calls `wg.Wait()`: a plain write of the value's memory,
+  conflicting: E3502, as row 24 says for a mutex.
+
+L4:
+- The locked iterator `All` (audit example): the body holds `mu` at every `yield`; `*p += 1` writes
+  memory `scores` owns, holding `mu`; `p` was passed to `yield` and counts as loaded there under `mu`:
+  accepted (row 82). The literal form: accepted, as before (row 83).
+- `All` locks and unlocks around each `yield`, and the body keeps `p` in an outer local for the next run:
+  the iterator counts as a call around the body that may release `mu`, which ends the view: E3501 (row
+  84).
+- The iterator holds `mu` at only some calls of `yield`: not "at every call", so not added. Sound.
+- The iterator holds `it.mu` of its own receiver: mapped to the caller's name for the receiver, as for a
+  returned lock; a lock with no name in the caller (`s.next.mu`) is not added.
+- The body calls `mu.Unlock()` on the lock the iterator holds: the added locks do not count for releases,
+  so this is a compile error by the release rule, as in the literal form.
+- An iterator that calls `yield` from `s.Task`: the body is not part of the function, so it gets
+  nothing, as before (D114).
+- Onces: `o.Do(load)` then a literal passed to `Each`, which calls it on the caller's party, reads `cfg`:
+  accepted by the new callee rule (row 85). If `Each` also is called from a task with no `Do`, not every
+  call follows a returned `Do`, and the read is E3503, as a range body there would be.
+- Recursion: a function that calls itself after the `Do` keeps the fact; every real entry comes from an
+  outside call first, and a returned `Do` stays returned unless the Once is reset (Resetting).
+
+L5:
+- Two static `Cache` objects, `Put` writes `c.m[k]` under `c.mu`: `Cache.m` stores only literals and is
+  used only by index, so it is kept in place; each object's contents are part of its own `m` field,
+  guarded in place by its own `mu` (row 86).
+- `Snapshot` returns `c.m`: a copy out; `Cache.m` is no longer kept in place anywhere, the contents join
+  the type's datum, and two objects' locks cannot guard it: E3502 (row 87). Sound: the caller of
+  `Snapshot` may read the map while another task writes it under a lock the caller does not hold.
+- `len`, `range`, and a helper `count(m)` that only calls `len`: kept (row 88). A helper that stores its
+  parameter in a package variable: not kept, and the place falls back.
+- `m := make(...); m["a"] = 1; c.m = m`: the stored value is not written at the place, and `m` is still
+  live, so not kept: E3502 with two objects (row 89). The rewrite `c.m = make(...)` then `c.m["a"] = 1`
+  is accepted. Chosen over a flow analysis of "the last use of `m`" so two implementers agree.
+- `x := *c` for a `Cache` with no lock: a copy of a struct value that holds the place, so a copy out.
+  With a lock it is a compile error already (Copying a lock).
+- A literal `func() { c.m[k] = 1 }` stored and called later: the occurrence `c.m` is an index operand,
+  so kept; the literal's accesses are of `c`'s `m` field and rule 1 checks them where they run.
+- `&c.m`: a copy out. A method of a named map type with a value receiver: the receiver is a parameter,
+  kept if the method does only the listed uses.
+- Moving an `owned[Cache]`, or a `vec.Vec[Cache]` growing: the place moves with its owner; no second
+  place sees the map.
+- Generic `Cache[K, V]`: per instantiation, as summaries are.
+- A map of maps: only the outer map's place is a variable or field; inner maps stay in their type's
+  datum.
+- Whole-program effect: one copy out anywhere makes the field fall back for every object. The error then
+  names a write of the type's datum, and the fix is to stop copying the map out. Accepted: it is the same
+  closed-world reasoning as summaries.
+
+L6:
+- The only writer pushes under `mu` and ranges over `items.Slice()` with no lock; readers hold `mu`: the
+  writer's reads do not conflict with other reads; no other party writes; accepted (row 90).
+- The writer pushes inside the loop: same party, so the view's end is checked by chapter 18 (a push that
+  may move the storage while a view is live), as for any one-party code.
+- The writer sends the view to a reader: counted as used with no lock held, E3501.
+- A repeated writer (a handler, an `AfterFunc` function): not "not repeated", so no exemption.
+
+L7:
+- `m := s.inc; mu.Lock(); m(); mu.Unlock()`: the call site is seen, `inc`'s write holds `mu`, accepted
+  (row 91). A method value stored and called by another task with nothing held: that call site holds
+  nothing, so the write has no common lock: E3502. Every call site is seen, so this is sound.
+- A method value's method still counts as outside every `Do`, since the Once rule needs the `Do` on the
+  path and a stored method value has no known path.
+
+L8 to L13:
+- L8: an `rt.Timer` function cannot be written without `unsafe.Pointer` in its signature, so it is always
+  unsafe code; row 92.
+- L9: hand-over-hand over `owned[Node]`: a node lock reached through a pointer load does not guard the
+  root in place: E3502 (row 93). Go code uses pointers and per-object `synced` nodes, which work.
+- L11: a map a callee made and returned on the same party: not a trigger (row 94). A callee that both
+  stores the map in a package variable and returns it: the trigger fires by the package variable.
+- L12: a view loaded before sharing and used under `mu` after another task's push: ordered by `mu`, so a
+  run-time panic and not a race (row 95). The sentence now promises only "at the same time".
+- L13: `p := &mu; p.Lock()`: `*p` names `mu`, a package-level lock, so it guards package data (row 96).
+  `p` reassigned, captured by an assigning literal, or with its address taken names nothing, as before.
+
+### Table rows added
+
+Rows 73 to 99 cover every finding (L1 rows 73 to 76, L2 77 and 78, L3 79 to 81, L4 82 to 85, L5 86 to
+89, L6 90, L7 91, L8 92, L9 93, L11 94, L12 95, L13 96) and the audit's eight missing shapes (rows 73,
+77, 79, 82, 86, 90, 91, and 97 to 99 for `wg.Task` against a Scope). Rows 100 to 109 are the ten common
+Go shapes of the audit's section 6. Rows 5 and 71 were fixed (L10).
+
+No code block was added or changed.

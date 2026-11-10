@@ -133,6 +133,17 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   wait loop is E3503, and a view kept across it is not yet E3501 (19.3). Item 219.
 - An `Unlock`, `RUnlock` or `c.Wait(l)` of a lock the task does not hold is not rejected, so one task can release
   another task's lock (19.3, Releasing a lock). Item 220.
+- `rt.Yield` inside a non-migrating region compiles and does not panic, so a task can resume on another processor
+  while it holds a view of per-CPU data (19.3, Switching tasks in a non-migrating region). Item 229.
+- A function started by `time.AfterFunc` counts as started once, so two runs after a `Reset` may race on what it
+  writes without an error (19.3, Parties). Item 230.
+- A `pluto/sync` method call or channel operation is not collected as an atomic access, so freeing memory that
+  holds a mutex another task locks is not rejected (19.3, Accesses). Item 231.
+- A range body does not get the locks its iterator holds at `yield`, so a locked iterator is E3502 or E3501 as a
+  range loop while the same literal passed to it compiles; a `Do` before a call does not count in the callee
+  (19.3, Part of the enclosing function). Item 232.
+- Maps are grouped by type, so two objects that each guard a map field with their own mutex are E3502 (19.3, Maps
+  kept in place). Item 192.
 
 ## 4. Smaller notes
 

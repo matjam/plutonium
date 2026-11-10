@@ -2051,6 +2051,119 @@ types `Copy`. A false friend becomes a compile error. Goal: Go, Safe.
 
 Lands with: item 225.
 
+## D116. No task switch inside a non-migrating region (19.1, 19.3, 20.9, 20.10, 17.1, abi.md 12.4)
+
+Question: audit L1. `rt.Yield` inside `rt.DisablePreemption` let a task resume on another processor
+while it still held a view of the first processor's per-CPU data. Only parking was checked.
+
+Decision: a call that may switch tasks (`rt.Yield`, `rt.Preempt`, or a function whose summary may reach
+them) is a compile error inside a non-migrating region, followed through calls with a single known
+target as the wait check is. In a region opened only by `x86.Cli` or `x86.SaveFlagsCli`, it is also
+followed through interfaces, func values, method values, hooks and allocators, as the handler check is.
+`rt.Yield` with a non-zero preemption count panics with "blocking with preemption disabled". The
+runtime's own switch path is exempt, and neither call tests the interrupt flag, so a handler can still
+yield.
+
+Why: a count-raised region is caught at run time by the count; a Cli-only region raises no count and looks
+like a handler body, which may yield, so only the compiler can catch it there. Goal: Safe.
+
+Lands with: item 229.
+
+## D117. A function started by `time.AfterFunc` is a repeated party (19.3, 19.6, F)
+
+Question: audit L2. `Reset` through any handle starts the function again, and a run may overlap one still
+going, but the function counted as started once.
+
+Decision: an `AfterFunc` function is repeated wherever the call is. No other library entry starts a
+function more than once from one call: tickers send on a channel, and `rt.Go`, `wg.Task` and `s.Task`
+start once per call. The function of an `rt.Timer` is unsafe code (it takes an `unsafe.Pointer`), so it is
+not a party; What is not checked says so (audit L8).
+
+Why: two runs of one function race on what it writes. Goal: Safe.
+
+Lands with: item 230.
+
+## D118. Calls of `pluto/sync` methods and channel operations are atomic accesses (19.3)
+
+Question: audit L3. Nothing said whether `mu.Lock()` is an access of the memory that holds `mu`, so a
+free of that memory while another task locks it was accepted under one reading.
+
+Decision: a call of a method of a `pluto/sync` value, and a send, receive or `close` on a channel, is an
+atomic write of that value's memory. It does not conflict with another such call or an atomic access. It
+conflicts with a plain write of the value's own memory: a new value, or a free, move or overwrite of what
+holds it. A write of other memory of the same datum does not conflict with it. Rule 2 case 3 gets the
+condition its struct objects have: the memory is not freed, moved or overwritten while shared.
+
+Why: it makes the E3502 bullet for locks and the case 3 crossing follow from one definition, and keeps
+locking a shared mutex legal. Goal: Safe.
+
+Lands with: item 231.
+
+## D119. A range body holds the locks its iterator holds at `yield` (19.3, 12.11)
+
+Question: audit L4. A locked iterator (`mu.Lock(); defer mu.Unlock(); ... yield(p)`) was accepted when
+the body was written as a literal, and rejected as a range loop.
+
+Decision: a range body that is part of the enclosing function also holds the locks the iterator's
+summary shows held at every call of `yield`, in the same mode, under the caller's names; a lock with no
+name in the caller is not added. They count for accesses and views, not for releases. A view passed to
+`yield` counts as loaded there under those locks. Summaries gain "the locks held at every call of each
+func parameter". A returned `Do` now counts inside a callee, as a held lock does, when every call of it on
+the same party follows a returned `Do`, so a literal passed to an iterator gets the Onces a range body
+gets. A body still differs from a literal where it can do more: release a lock held at the loop, `defer`
+to the end of the function, `break` and `return`.
+
+Why: the two forms are the same code; Go 1.23 iterators are written with the lock around `yield`. The
+Once rule is sound by program order and the Once edge. Goal: Go, Plain.
+
+Lands with: item 232.
+
+## D120. Maps kept in place belong to their place (19.3)
+
+Question: audit L5. The contents of all maps of one type were one datum, so two objects each with a mutex
+and a map could not guard their maps with their own mutexes.
+
+Decision: a package variable or a struct field of map type is kept in place when every value stored in it
+is new (`make`, a map literal or `nil`, written right there) and every other use is an index, `len`,
+`delete`, `clear`, `range`, a comparison with `nil`, or an argument for a parameter or receiver that keeps
+it in place. Everything else copies the map out, including a copy of a struct value that holds it. The
+contents of a map kept in place are part of the datum of its place, per object, so the lock that guards
+the place guards them. Other maps stay in the datum of their type, which only a package-level lock can
+guard. A summary records, per map parameter and receiver, whether it keeps it in place.
+
+Why: a struct with a mutex and a map is the commonest concurrent Go type. The test is syntactic, so two
+implementers agree, and a struct with a mutex cannot be copied anyway (D115). Goal: Go, Safe.
+
+Lands with: item 192.
+
+## D121. The only writer may keep views without a lock (19.3)
+
+Question: audit L6. The guard set let the only writer read without a lock, but rule 2 case 4 asked every
+access to hold one, and a view was valid only when loaded under a lock.
+
+Decision: case 4 asks a lock of every access that the guard set requires to hold one. A view loaded by the
+only writer of D, not a repeated party, from D or memory D owns, is valid at each use with no lock; it
+still counts as used with no lock held if it crosses.
+
+Why: no other party writes D, so only the writer's own code can end the view, and chapter 18 checks that.
+Goal: Safe, Plain.
+
+Lands with: item 233.
+
+## D122. Smaller fixes of audit L (19.3)
+
+Question: audit L7, L9 to L13.
+
+Decision: a method value's method runs with the caller's held set, like any func value; it still counts as
+run outside every `Do` (L7). Locks inside `owned` children cannot guard the root datum, and a row says so
+(L9). Rows 5 and 71 are fixed (L10). The map trigger counts memory that the party's own code, or a function
+it called on its own party, allocated (L11). Frees are writes promises that no party frees memory another
+may use at the same time (L12). `p := &mu` makes `*p` a name of `mu` (L13).
+
+Why: each makes the text say one thing. Goal: Plain.
+
+Lands with: item 234.
+
 ## Deferred
 
 None open. D105 (lazy initialization through `sync.Once`) and D106 (`sync.Cond.Wait`) were deferred for
