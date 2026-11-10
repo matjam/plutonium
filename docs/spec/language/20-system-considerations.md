@@ -253,7 +253,8 @@ becoming unreasonably large: an implementation documents it.
 guard region of 1 MiB below it, so that an overflow is a fault reported as a panic (section 17.5, Faults).
 Without the directive `main` runs on the stack the system gave the process. The directive is an error
 when its size is missing or malformed (E2603), on any function other than `main`
-of package `main` (E2602), when the size is outside 64K to 64G, and in a freestanding build,
+of package `main` (E2602), when the size is outside 64K to 64G (a compile error whose code is not
+assigned yet; section 21.4), and in a freestanding build,
 where the program sets up its own stack (E2560). A program that
 recurses deeply asks how much stack remains with `rt.StackLeft()`, which returns the bytes between the
 caller's frame and the limit of its stack, or `^uintptr(0)` where the limit is unknown.

@@ -108,19 +108,25 @@ optimization. Debugging information does not change the generated code.
 An implementation may limit the size of the programs it accepts, such as the depth of nested expressions
 and types, the size of a function, the number of packages, or the size of a closure region. It documents
 its limits, and a program that exceeds one is a compile error that names the limit. It is never a crash or
-wrong code.
+wrong code. Like every compile error it has a code (section 21.1); the code is not assigned yet.
 
 The language itself fixes these limits, which every implementation provides:
 
 - A function contains at most 64 `defer` statements, because each has a slot in the function's frame
-  (E2531). A `defer` statement inside a loop is an error (section 12.19, Defer statements).
+  (E2531). A `defer` statement that a path can reach again in the same call, without first leaving every
+  loop that contains it, is an error (E2530; section 12.19, Defer statements).
 - A task's stack is at least `rt.MinStackSize` bytes, 8 KiB. A hosted task whose needs cannot be computed
   has at least 64 MiB of stack where the address space allows; where it does not, the runtime reserves
-  smaller stacks, never below 64 KiB (section 19.1, Tasks). Overflowing a task's stack is a panic with
-  a trace.
+  smaller stacks, never below 64 KiB (section 19.1, Tasks). In freestanding and kernel builds such a
+  task, started without a size, gets the default task stack size `rt.DefaultStackSize`, 64 KiB; a program
+  that needs more asks for it with `rt.Go` (section 19.1). The scheduler backend puts a guard region of
+  at least one page below every stack whose size the compiler did not prove (section 19.5, The scheduler
+  contract), so overflowing a task's stack is a fault, reported as a stack overflow panic with a trace
+  (section 17.5, Faults), in every build mode.
 - The size of a closure region is fixed at compile time (section 11.5, Closures and their regions). A
   program whose region cannot have a fixed size is an error, never a region that grows.
-- `//pu:stack` accepts sizes from 64 KiB to 64 GiB (section 20.3).
+- `//pu:stack` accepts sizes from 64 KiB to 64 GiB (section 20.3). A size outside that range is a
+  compile error; its code is not assigned yet.
 
 ### 21.5 Run-time checks and the unchecked mode
 
@@ -169,9 +175,15 @@ and counts and not freed memory.
 An `arena.Fixed` or `arena.Chunked` counts its live allocations (every allocation made through its `Alloc`
 and not freed yet, owners and counted objects alike; not the plain views of `New` and `Slice`), and its
 `Reset`, `Release` and `Drop` panic while the count is not zero (section 18.9, Allocators, Live
-allocations). The cost is one atomic counter per arena and one increment and one decrement per allocation
-made through `Alloc`. The unchecked mode keeps this check too: without it a reset could free the bytes of
-a string, or the memory of an owner, that another task still uses, which no epoch check can catch.
+allocations). Before they check it, they run the arena's drop entries, which drop the values of `New` and
+`Slice` allocations of types with drop glue in reverse order of allocation (section 18.9, Drop entries);
+a type without drop glue records no entry and costs nothing. The cost of the count is one atomic counter
+per arena and one increment and one decrement per allocation made through `Alloc`. That cost is accepted:
+an owner can be dropped, and the last reference to a string released, in another task, and the counter
+must see it. An implementation may use a plain counter instead where it proves that no other task can
+reach the arena or anything allocated from it. The unchecked mode keeps this check and the drop entries
+too: without them a reset could free the bytes of a string, or the memory of an owner, that another task
+still uses, which no epoch check can catch.
 
 The implementation provides a tool that lists unsafe code (section 20.1, Package `unsafe`): for each
 package, the functions that use unsafe code, and the safe functions that call them (`pluto vet -unsafe`).

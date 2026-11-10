@@ -62,7 +62,7 @@ knows where the pointers into it are, so it cannot be moved. The size is chosen 
    allows, with a guard region below it, whose memory is committed only as it is touched. When it does
    not allow (the process has an address-space limit), the runtime reserves smaller stacks, never below
    64 KiB, and a program that needs a deeper stack asks for its size with `rt.Go`. In freestanding and
-   kernel builds the task gets the default task stack size that the implementation documents (section
+   kernel builds the task gets the default task stack size, `rt.DefaultStackSize` (64 KiB; section
    21.4, Implementation limits). `--stackreport` lists the tasks whose size could not be computed.
 
 **Where a stack comes from.** A task's stack never comes from an allocator that the starting task
@@ -75,8 +75,9 @@ it owns. `rt.Go(f, size, a)` has an optional third argument, the allocator that 
 in the stack request and may take the memory from it or from its own pages.
 
 A guard region is at least one page. Running past the end of a stack with a guard region is a fault, reported as a stack overflow panic with
-the task's trace and the size it had, and how to ask for more (section 17.5, Faults). In kernel builds
-the scheduler backend provides the guard (section 19.5). `rt.StackLeft()` returns the bytes left between
+the task's trace and the size it had, and how to ask for more (section 17.5, Faults). In freestanding and
+kernel builds the scheduler backend provides the guard, below every stack whose size the compiler did not
+prove (section 19.5). `rt.StackLeft()` returns the bytes left between
 the caller's frame and the limit of its stack, for code that recurses deeply.
 
 **Parallelism and preemption.** Tasks run in parallel on the processors the backend uses. A task that
@@ -91,7 +92,8 @@ or calling `rt.Yield()`, gives up the processor early.
 **Deadlock.** In hosted builds, when every task waits for another task and none waits for I/O, a system
 call or an armed timer, the program ends with a fatal error and status 2 (section 17.1) after printing the
 state of every task: what it waits for (a channel operation, a `select`, a lock, a `sync.Scope`) and its
-stack trace. The wording of the report is not part of the language (section 21.1); debugging.md section 5
+stack trace. For a task that was running deferred calls for a panic, such as a deferred `s.Wait()`, the
+report also names that panic, with its message and where it happened (section 19.4, Deferred calls). The wording of the report is not part of the language (section 21.1); debugging.md section 5
 describes what the hosted implementation prints.
 
 **Program exit.** When `main` returns, the program ends; tasks still running are not waited for and their
@@ -554,7 +556,7 @@ Reading a variable nobody writes, and calling `s.Task` again, are allowed.
 
 **Deferred calls.** A deferred call can run while a scoped task is not joined: when the function returns
 before the join, since deferred calls run before the function's variables are dropped (section 18.6), and
-when the task panics, since a panic runs the armed deferred calls while other tasks keep running
+when the starting task panics, since a panic runs the armed deferred calls while other tasks keep running
 (section 17.2). So a deferred call counts as a statement of a task's interval when a path runs its `defer`
 statement and then reaches a point of that interval, or a return before the task is joined. It is checked
 by the Sharing rules above and by E3404, with the accesses of its callee or its literal. The rule is the
@@ -585,6 +587,14 @@ func fill() {
 	s.Task(func() { w.Push(1) })   // allowed
 }
 ```
+
+A deferred `s.Wait()` that runs for a panic waits for the scoped tasks as it does on a return. If a scoped
+task waits for something only the panicking task would do (a send, a `close`, an `Unlock` that no
+deferred call makes), the wait never ends, and the program ends with a deadlock report instead of the
+panic's report. The deadlock report then names the panic in progress, with its message and where it
+happened (section 19.1, Deadlock), so the cause is not lost. A scoped task that may wait for the starting
+task is given a way to stop: close its channel, or cancel it, in a deferred call armed after the deferred
+`s.Wait()`, which runs before it.
 
 **Non-local exits.** Every path out of the Scope's block drops it, so `return`, `break`, `continue` and
 `goto` join. `rt.ExitTask` leaves every frame through its ordinary return path, so the Scope's drop joins
@@ -665,7 +675,7 @@ backend's clock, and channels, `select` and `pluto/sync` built only on those.
 
 **A backend** provides the policy and the memory. It is a type that implements `rt.Scheduler`, whose
 methods allocate and free task records and stacks, with a guard region of at least one page below each
-stack (`NewTask`, `FreeTask`), make tasks runnable (`Spawn`,
+stack whose size the compiler did not prove (`NewTask`, `FreeTask`; abi.md section 12.1), make tasks runnable (`Spawn`,
 `Wake`), and switch away from the running task (`Park`, `Yield`). Optional methods give the runtime an
 initialization hook (`Init`), a way to refuse waits in interrupt context (`InInterrupt`), and a clock and
 a timer (`Now`, `ArmTimer`, section 19.6).

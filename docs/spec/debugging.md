@@ -308,6 +308,11 @@ deadlocked), and for `pluto/sync` `sync.Mutex.Lock`, `sync.RWMutex.RLock`, `sync
 prints the numbers and reasons without frames. Tests: `testdata/trace/deadlockchan.p`, and
 `internal/build/deadlock_test.go` for tasks parked in the library.
 
+A task that was running deferred calls for a panic when the deadlock came (a deferred `s.Wait()`,
+language spec section 19.4) has a line after its reason that names the panic, `panicking: ` and its
+message, then the trace of the panic, as the panic report would have printed it. This line is planned
+(roadmap item 205).
+
 When the task that runs `main` ended with `rt.ExitTask` and no task is left, or all wait for good, the
 program also ends with a fatal error, one that says `main` called `rt.ExitTask`, and status 2 (language spec
 sections 15.4 and 17.3). A deadlock is not a panic (language spec section 17.1).
