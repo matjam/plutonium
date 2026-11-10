@@ -203,11 +203,14 @@ subtest calls, not in the frame that defers the release: a frame releases its co
 released after it (a generation check panic). With generation checks a Region, a
 home and the scratch levels are `pluto/arena` Chunked, which ends each allocation's
 registration when it is reset. The light package `internal/escape2/typesprobe` links types2
-and `pluto/testing` with generation checks on, in 12 to 15 min and 10 GB on kraken: it is the
-cheap check that the escape analysis accepts the code the heavy escape2 builds check in an
-hour (a rejection of types2's `conversions.p` or `unify.p`, or of `testing.p`, shows there
-first). Run it alone with `pluto test ./compiler/internal/escape2/typesprobe` after a change
-to escape2.
+and `pluto/testing` with generation checks on. TestCompilerUnits builds it with
+`PLUTO_PROFILE_PHASE=opt`, which stops the build after the escape, move and race checks
+(exit status 130), in about 7 min and 10 GB on kraken. It is the cheap check that the escape
+analysis accepts the code the heavy escape2 builds check in an hour: a rejection of types2's
+`conversions.p` or of `testing.p` shows there first. A limit in a solve of the heavy builds
+only (`unify.p`'s nify) does not. Run it alone with
+`PLUTO_PROFILE_PHASE=opt pluto test ./compiler/internal/escape2/typesprobe` after a change to
+escape2.
 The `internal/build` program tests are Go tests in `tests/build_*_test.go`.
 
 Known gaps: these guards went with the Go implementation and have no replacement yet.

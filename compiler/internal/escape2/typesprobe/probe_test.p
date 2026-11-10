@@ -1,17 +1,16 @@
 // Package typesprobe is a cheap check that the escape analysis accepts
-// types2 in a test build with generation checks (TestCompilerUnits runs it
-// with the light units, in minutes). The heavy escape2 test builds link
-// types2 too, but take an hour.
+// types2 in a test build with generation checks. TestCompilerUnits builds
+// it with the light units and stops before optimisation, after the checks
+// (about 7 min). The heavy escape2 test builds link types2 too, but take
+// an hour.
 //
-// It caught three false rejections, each of a pointer the analysis took to
+// It caught two false rejections, each of a pointer the analysis took to
 // escape through a call through an interface (spec 18.3):
 //   - conversions.p, "cannot pass &cause to (*operand).convertibleTo": a
 //     cut of a deep path stood for the pointer loaded from it;
 //   - testing.p, "cannot pass &buf to sprintln": a join kept one of the
 //     two narrowings of a key (its receiver's type and a pointer's type
-//     further down), and lost the other;
-//   - (*operand).convertibleTo over MaxFuncArena (E3010): a chain of
-//     conjunct filters, one per call through an interface on the way.
+//     further down), and lost the other.
 package typesprobe
 
 import (
