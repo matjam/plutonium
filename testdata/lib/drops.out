@@ -42,6 +42,14 @@ drop 52
 in deferred 60
 drop 60
 --
+consume 61
+drop 61
+end deferredThenMoved
+end deferredThenMoved
+drop 61
+took 62 0
+drop 62
+--
 took 70 0
 drop 70
 pair drop 0 71

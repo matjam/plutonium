@@ -91,6 +91,25 @@ func deferred() {
 	println("in deferred", r.peek())
 }
 
+// defer r.Drop() saves &r and drops what r holds when it runs: after a
+// move it drops the empty variable, so nothing is dropped twice (sections
+// 12.19, 18.5 and 18.6).
+func deferredThenMoved(move bool) {
+	r := mk(61)
+	defer r.Drop()
+	if move {
+		consume(r)
+	}
+	println("end deferredThenMoved")
+}
+
+func deferredThenTaken() {
+	r := mk(62)
+	defer r.Drop()
+	s := take(&r)
+	println("took", s.peek(), r.peek())
+}
+
 func taking() {
 	p := Pair{a: mk(70), b: mk(71)}
 	a := take(&p.a)
@@ -159,6 +178,10 @@ func main() {
 	explicit()
 	println("--")
 	deferred()
+	println("--")
+	deferredThenMoved(true)
+	deferredThenMoved(false)
+	deferredThenTaken()
 	println("--")
 	taking()
 	println("--")
