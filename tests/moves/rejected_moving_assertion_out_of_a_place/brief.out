@@ -1,0 +1,6 @@
+$DIR/main.p:41:7: cannot move d.r out of d with the assertion d.r.(owned[Buf]): d.r is a field, not a variable
+$DIR/main.p:44:11: cannot move d.rs[1] out of d.rs with the assertion d.rs[1].(owned[Buf]): d.rs[1] is an element, not a variable
+$DIR/main.p:47:7: cannot move (*p) out of the value p points to with the assertion (*p).(owned[Buf])
+$DIR/main.p:50:7: cannot move d.s out of d with the assertion d.s.(Slot.Open): d.s is a field, not a variable
+$DIR/main.p:53:14: cannot move d.r out of d with switch v := d.r.(type): d.r is a field, not a variable
+$DIR/main.p:58:14: cannot move d.s out of d with switch v := d.s.(type): d.s is a field, not a variable

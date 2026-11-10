@@ -425,6 +425,39 @@ func (c *checker) placeDiag(e ast.Expr, k placeKind) *diag.Diagnostic {
 	return d
 }
 
+// assertPlaceDiag explains a moving assertion to typ, or a type switch
+// with a binding, on a field, an element or *p.
+func (c *checker) assertPlaceDiag(e ast.Expr, k placeKind, typ string, isSwitch bool) *diag.Diagnostic {
+	x := exprText(e)
+	root, what, taken := x, "a field", compat.Concat("take(&", x, ")")
+	switch p := ast.Unparen(e).(type) {
+	case *ast.SelectorExpr:
+		root = exprText(p.X)
+	case *ast.IndexExpr:
+		root, what = exprText(p.X), "an element"
+	case *ast.StarExpr:
+		root, taken = exprText(p.X), compat.Concat("take(", exprText(p.X), ")")
+	}
+	how := compat.Concat("the assertion ", x, ".(", typ, ")")
+	subject := compat.Concat("The assertion ", x, ".(", typ, ")")
+	code := compat.Concat("v := ", taken, ".(", typ, ")")
+	if isSwitch {
+		how = compat.Concat("switch v := ", x, ".(type)")
+		subject = compat.Concat("A type switch that declares a variable, such as ", how, ",")
+		code = compat.Concat("switch v := ", taken, ".(type) {")
+	}
+	var d *diag.Diagnostic
+	if k == placePointer {
+		d = c.newDiag(e.Pos(), diag.MoveOutOfPlace, "cannot move %s out of the value %s points to with %s", pu.Box(x), pu.Box(root), pu.Box(how))
+		d.Text = compat.Sprintfb("%s moves the value out of %s. But the value belongs to whatever %s points into, which would drop it again when it is dropped. Only a whole variable or a temporary can be asserted out of.", compat.ArgS(subject), compat.ArgS(x), compat.ArgS(root))
+	} else {
+		d = c.newDiag(e.Pos(), diag.MoveOutOfPlace, "cannot move %s out of %s with %s: %s is %s, not a variable", pu.Box(x), pu.Box(root), pu.Box(how), pu.Box(x), pu.Box(what))
+		d.Text = compat.Sprintfb("%s moves the value out of %s. But %s would still believe it holds the value and would drop it again when %s is dropped. Only a whole variable or a temporary can be asserted out of.", compat.ArgS(subject), compat.ArgS(x), compat.ArgS(root), compat.ArgS(root))
+	}
+	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Take the value out first, which leaves the zero value in %s, and put back what you keep", compat.ArgS(x)), Code: code})
+	return d
+}
+
 // rangeDiag explains a range loop that would copy owner elements.
 func (c *checker) rangeDiag(st *ast.RangeStmt, elem types2.Type) *diag.Diagnostic {
 	x := exprText(st.X)

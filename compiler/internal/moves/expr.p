@@ -80,6 +80,9 @@ func (f *fn) expr(e ast.Expr) {
 	case *ast.TypeAssertExpr:
 		f.temp(e)
 		if e.Type != nil && f.assertMoves(e.X, f.c.typeOf(e.Type)) {
+			if f.assertPlace(e.X, exprText(e.Type), false) {
+				return
+			}
 			// Moves the owner out of the interface variable, which lowering
 			// clears as for any move.
 			f.consume(e.X, f.c.typeOf(e.X), move{kind: mvAssert, to: exprText(e)})
@@ -510,7 +513,10 @@ func (f *fn) assertMoves(x ast.Expr, T types2.Type) bool {
 // that moves an owner out of x: x must be a variable, which holds nothing
 // afterwards (where the assertion fails it still does, which lowering
 // arranges and the if statement of a comma-ok assertion follows).
-func (f *fn) assertOut(x ast.Expr, to string) bool {
+func (f *fn) assertOut(x ast.Expr, to, typ string, isSwitch bool) bool {
+	if f.assertPlace(x, typ, isSwitch) {
+		return false
+	}
 	if id, ok := ast.Unparen(x).(*ast.Ident); ok {
 		if v := f.varOf(id); v != nil {
 			f.moveOut(id, v, move{kind: mvAssert, to: to})
@@ -556,6 +562,35 @@ const (
 	placeGlobal
 	placeEmbedded
 )
+
+// assertPlace reports a moving assertion to typ, or a type switch with a
+// binding, whose operand x is a field, an element or *p (sections 11.13
+// and 12.9): it would move out of a place that still holds the value.
+func (f *fn) assertPlace(x ast.Expr, typ string, isSwitch bool) bool {
+	var k placeKind
+	switch p := ast.Unparen(x).(type) {
+	case *ast.SelectorExpr:
+		if sel := f.c.selections[p]; sel == nil || sel.Kind() != types2.FieldVal {
+			return false
+		}
+		k = placeField
+	case *ast.IndexExpr:
+		if types2.IndexesByMethod(f.c.typeOf(p.X)) {
+			return false
+		}
+		k = placeElem
+	case *ast.StarExpr:
+		k = placePointer
+	default:
+		return false
+	}
+	f.checkView(x)
+	f.expr(x)
+	if f.report {
+		f.c.report(f.c.assertPlaceDiag(x, k, typ, isSwitch))
+	}
+	return true
+}
 
 func (f *fn) placeErr(e ast.Expr, k placeKind) {
 	if f.report {

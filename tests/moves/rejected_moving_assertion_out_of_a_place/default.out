@@ -1,0 +1,85 @@
+$DIR/main.p:41:7: cannot move d.r out of d with the assertion d.r.(owned[Buf]): d.r is a field, not a variable
+    The assertion d.r.(owned[Buf]) moves the value out of d.r. But d would still
+    believe it holds the value and would drop it again when d is dropped. Only a
+    whole variable or a temporary can be asserted out of.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Take the value out first, which leaves the zero value in d.r, and put back
+    what you keep:
+        v := take(&d.r).(owned[Buf])
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3303" for a longer explanation)
+
+$DIR/main.p:44:11: cannot move d.rs[1] out of d.rs with the assertion d.rs[1].(owned[Buf]): d.rs[1] is an element, not a variable
+    The assertion d.rs[1].(owned[Buf]) moves the value out of d.rs[1]. But d.rs
+    would still believe it holds the value and would drop it again when d.rs is
+    dropped. Only a whole variable or a temporary can be asserted out of.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Take the value out first, which leaves the zero value in d.rs[1], and put
+    back what you keep:
+        v := take(&d.rs[1]).(owned[Buf])
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3303" for a longer explanation)
+
+$DIR/main.p:47:7: cannot move (*p) out of the value p points to with the assertion (*p).(owned[Buf])
+    The assertion (*p).(owned[Buf]) moves the value out of (*p). But the value
+    belongs to whatever p points into, which would drop it again when it is
+    dropped. Only a whole variable or a temporary can be asserted out of.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Take the value out first, which leaves the zero value in (*p), and put back
+    what you keep:
+        v := take(p).(owned[Buf])
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3303" for a longer explanation)
+
+$DIR/main.p:50:7: cannot move d.s out of d with the assertion d.s.(Slot.Open): d.s is a field, not a variable
+    The assertion d.s.(Slot.Open) moves the value out of d.s. But d would still
+    believe it holds the value and would drop it again when d is dropped. Only a
+    whole variable or a temporary can be asserted out of.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Take the value out first, which leaves the zero value in d.s, and put back
+    what you keep:
+        v := take(&d.s).(Slot.Open)
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3303" for a longer explanation)
+
+$DIR/main.p:53:14: cannot move d.r out of d with switch v := d.r.(type): d.r is a field, not a variable
+    A type switch that declares a variable, such as switch v := d.r.(type),
+    moves the value out of d.r. But d would still believe it holds the value and
+    would drop it again when d is dropped. Only a whole variable or a temporary
+    can be asserted out of.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Take the value out first, which leaves the zero value in d.r, and put back
+    what you keep:
+        switch v := take(&d.r).(type) {
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3303" for a longer explanation)
+
+$DIR/main.p:58:14: cannot move d.s out of d with switch v := d.s.(type): d.s is a field, not a variable
+    A type switch that declares a variable, such as switch v := d.s.(type),
+    moves the value out of d.s. But d would still believe it holds the value and
+    would drop it again when d is dropped. Only a whole variable or a temporary
+    can be asserted out of.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Take the value out first, which leaves the zero value in d.s, and put back
+    what you keep:
+        switch v := take(&d.s).(type) {
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3303" for a longer explanation)

@@ -111,7 +111,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 		_, binds := st.Assign.(*ast.AssignStmt)
 		if binds && f.assertMoves(x, f.c.typeOf(x)) {
 			// The binding takes the owner in every clause.
-			if f.assertOut(x, compat.Concat("switch ", exprText(x), ".(type)")) && f.report {
+			if f.assertOut(x, compat.Concat("switch ", exprText(x), ".(type)"), "type", true) && f.report {
 				f.c.info.SwitchMoves[st] = true
 			}
 		} else {
@@ -380,7 +380,7 @@ func (f *fn) multi(e ast.Expr) {
 		f.expr(x.Index)
 	case *ast.TypeAssertExpr:
 		if f.assertMoves(x.X, f.c.typeOf(x.Type)) {
-			if f.assertOut(x.X, exprText(x)) && f.report {
+			if f.assertOut(x.X, exprText(x), exprText(x.Type), false) && f.report {
 				f.c.info.AssertMoves[x] = true
 			}
 			return
