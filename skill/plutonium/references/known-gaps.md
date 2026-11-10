@@ -32,7 +32,8 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - A deferred call that drops or writes what a scoped task uses, and that can run before the task is joined, is not
   E3404 or E3402 yet (19.4). Item 201.
 - A conversion of a value of a type parameter to an interface in generic code is not yet a frame copy for every
-  instantiation, nor, for `[T owner any]`, a view that the D3 events end (E3313, 18.3). Item 204.
+  instantiation, nor, for every type parameter (`[T any]` too), a view that the D3 events end (E3313, 18.3). A `T`
+  local is not yet treated as having drop glue whenever a type of its type set has it. Items 204 and 208.
 - A pointer from `&T{...}`, a slice literal or a variadic array made in a loop and kept past the iteration may not be
   E3006 yet (18.4). Item 206.
 - A `//pu:stack` size outside 64K to 64G, and a program over an implementation limit, have no code yet (20.3, 21.4).
@@ -51,6 +52,10 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   so `Reset`, `Release` and `Drop` do not panic with "arena has live allocations" (18.9). Items 152 and 198.
 - `New` and `Slice` of a Fixed or Chunked arena record no drop entries, so `Reset`, `Release` and `Drop` do not drop
   the owners and counted values stored in plain views (18.9, Drop entries). Item 202.
+- E2584, the race check and E3313 do not yet follow a `Reset`, `Release` or `Drop` of a Fixed or Chunked arena into
+  the drops its entries would run (18.9, 19.3, 20.10). Item 209.
+- Waiting (a channel operation, `Lock`, `Wait`, `rt.Park`) inside a preemption-disabled region compiles; it should be
+  a compile error, and today it panics with "blocking with preemption disabled" at run time (19.3). Item 210.
 - A deadlock report does not name a panic in progress (19.1, 19.4). Item 205.
 - A Fixed arena still asks its parent for bookkeeping (18.9, F.2). Item 153.
 - `Free` through an arena still reclaims the latest allocation and can panic with "arena allocation freed" (18.9).

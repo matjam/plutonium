@@ -305,6 +305,9 @@ generic types and **generic methods** (a method may have its own type parameters
   not (E3213): put `synced[T]`/`shared[T]` boxes in it, or use a `hash.Map`.
 - A generic type that stores an owner (a `vec.Vec[T]`, an `owned[T]`) is itself an owner and must be declared
   `owner` (E3202).
+- A generic body is checked once with the strictest rule any type argument needs. Converting a `T` to an
+  interface copies it into the frame and is a view of the variable, for every `T`. A `T` local counts as having
+  drop glue unless no type in its set has it.
 - Constraint `portable` (section 8.9) means "can cross address spaces"; it is for kernels.
 
 ```pluto-run
@@ -423,8 +426,10 @@ Red:r Green:g Blue:b 7 is not a color: Red
 Interfaces and type switches work as in Go, with ownership rules:
 
 - Converting an owner, counted box, channel or map to an ordinary interface (`any`, `error`, `fmt.Stringer`)
-  **lends** it: the interface is a view of the variable and cannot outlive it. `fmt.Println(v)` therefore
-  works on a `vec.Vec` without moving it.
+  **lends** it: the interface cannot outlive the variable. A one-word value (a box, a map, a channel) is copied
+  into the interface with no count of its own, and a larger owner is viewed in place; either way the interface
+  is a view obtained from the variable, so moving, dropping or assigning the variable ends it (E3313).
+  `fmt.Println(v)` therefore works on a `vec.Vec` without moving it.
 - You cannot assert an owner back out of an ordinary interface (E3308). An *owning* interface
   (`type R owner interface{ ... }`) owns what it holds and moves.
 - A value-receiver method of an owner type is not in the interface method set (it would consume the owner).

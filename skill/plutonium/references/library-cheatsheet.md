@@ -65,7 +65,7 @@ by the skill's test. The complete lists are `stdlib.md`, `stdlib-os-time-math.md
 | `atomic.Int64`, `atomic.Int32`, `atomic.Uint64`, `atomic.Bool` with `Load`, `Store`, `Add`, `CompareAndSwap` | `atomic.AddInt64(&x, 1)` functions exist too |
 | `make(chan T, n)`, `ch <- v`, `<-ch`, `close(ch)`, `for v := range ch`, `select` | owners sent are moved |
 | `alloc.Owned[T]()`, `alloc.Shared[T]()`, `alloc.Synced[T]()`, `new(T{...})` | boxes; `alloc.Use(&a).Restore()` installs an allocator |
-| `arena.NewFixed(n)`, `arena.NewChunked()`; `a.New[T]()`, `a.Slice[T](n)`, `a.Mark()`, `a.Release(m)`, `a.Reset()` | arena views are valid until reset or drop |
+| `arena.NewFixed(n)`, `arena.NewChunked()`; `a.New[T]()`, `a.Slice[T](n)`, `a.Mark()`, `a.Release(m)`, `a.Reset()` | arena views are valid until reset or drop; `Reset`, `Release` and `Drop` run drop entries and panic while an owner made through the arena is live |
 | `func TestXxx(t *testing.T)`: `t.Errorf`, `t.Fatalf`, `t.Fatal`, `t.Log`, `t.Run(name, func(t *testing.T){...})`, `t.Helper()`, `t.Skip` | in `*_test.p` files of the package; `pluto test` |
 
 ```pluto-names

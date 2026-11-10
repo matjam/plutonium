@@ -15,7 +15,8 @@ copy from: `testdata/kernel/` (smoke, irq, panic, sched, gsuser).
 - Freestanding and kernel builds have generation checks by default (section 18.11). A checked one must export
   the runtime's metadata source, `//pu:export pluto_gen_metadata` on a `func(n uintptr) uintptr` that returns
   `n` bytes of page-aligned memory it never takes back, or 0 (abi.md section 1.3); it must not allocate. Without
-  it the build fails with E2588. A checked kernel refuses to start under 5-level paging. `--gencheck=false`
+  it the build fails with E2588 (section 21.5). A checked freestanding or kernel build needs 4-level paging: under
+  5-level paging it panics before `main`. `--gencheck=false`
   builds unchecked, with no source: a use of freed heap memory is then not detected.
 - `--ldscript file` gives your own linker script, `--format binary` writes a flat image, `-c` writes only the
   object file (the checker uses it), `--fieldnames` records struct field names for `%+v` (off in kernel mode).
@@ -32,8 +33,9 @@ copy from: `testdata/kernel/` (smoke, irq, panic, sched, gsuser).
   `pluto/sync` must bind a scheduler with `//pu:scheduler` on a package variable whose type implements
   `rt.Scheduler` (`NewTask`, `FreeTask`, `Spawn`, `Park`, `Wake`, `Yield`; optional `Init`, `InInterrupt`,
   `Now`, `ArmTimer`). Without one the build fails with E2593. The dependency can be indirect, through a library
-  function that waits; the arenas of `pluto/arena` do not wait, so a kernel that allocates from an arena binds a
-  scheduler only if it starts tasks (see `testdata/kernel/sched`).
+  function that waits; allocation from an arena of `pluto/arena` never waits (its `Reset`, `Release` and `Drop` run
+  the drops that `New` and `Slice` recorded, and wait only if that drop glue waits), so a kernel that allocates from
+  an arena binds a scheduler only if it starts tasks (see `testdata/kernel/sched`).
 - Kernel `main` normally never returns. Package cleanup at exit is a hosted notion.
 
 ```pluto-compile mode=kernel
@@ -68,7 +70,7 @@ Ordinary hosted code needs only the first group.
 | `//pu:build expr` | file | include only when the tag expression holds (`kernel && !hosted`) |
 | `//pu:inline`, `//pu:noinline` | function | request or forbid inlining |
 | `//pu:stack 8M` | `func main`, hosted | main runs on a stack of that size |
-| `//pu:extern name`, `//pu:export [name]` | function | C linkage (System V convention); signatures limited to integers, floats, bool, pointers, boxes, packed, structs of those (E2511) |
+| `//pu:extern name`, `//pu:export [name]` | function | C linkage (System V convention); signatures limited to integers, floats, bool, pointers, packed types and structs of those (E2511); a box by value is E2511, so pass `unsafe.Pointer(b)` and keep the box alive |
 | `//pu:section name` | function or variable | link into that section |
 | `//pu:interrupt` | function | interrupt or exception handler, entered through an interrupt gate (`x86.InterruptGate`): its body is an interrupt-disabled region until `x86.Sti` (below) |
 | `//pu:interrupt trap` | function | the same handler entered through a trap gate (`x86.TrapGate`), so it can be re-entered: its body is not an interrupt-disabled region. `trap` is the only argument (E2603 otherwise) |
@@ -170,7 +172,7 @@ Each function expands inline to its instruction and is a compiler barrier: `Cli`
 `//pu:interrupt` function, `TrapGate` a `//pu:interrupt trap` one, E2572);
 `NewDescriptorTablePointer`; types `Gate`, `DescriptorTablePointer`, `FPUState` (`aligned[[512]byte, 16]`),
 `InterruptFrame` (`RIP, CS, RFLAGS, RSP, SS`). The package is unsafe code except `Cli`, `Sti`, `SaveFlagsCli`,
-`RestoreFlags`. See `stdlib-system.md` for the exact list.
+`RestoreFlags`, `Pause`, `Cpuid`, `Rdtsc` and `Rdtscp` (section 18.12). See `stdlib-system.md` for the exact list.
 
 ## 5. Interrupt handlers (sections 19.3, 20.10)
 
@@ -198,11 +200,14 @@ which returns the `x86.Gate` (a table is an array of `Gate`; `x86.Lidt` loads it
 - **Nothing a handler (or the panic handler, or the scheduler's `Wake`) can reach may wait.** No channel send or
   receive except as a `select` with `default`, no `range` over a channel, no `sync.Mutex.Lock`, `WaitGroup.Wait`,
   `Scope.Wait` or `time.Sleep`, no task start (E2585), no allocator whose `Alloc`/`Free` waits. The check follows
-  every call across all packages, including drops the compiler inserts, and through interface and func-value calls
-  (conservatively): E2584 names the path. Allowed: `select` with `default`, `close`, `len`, `cap`, `TryLock`,
+  every call across all packages, including drops the compiler inserts, the drop entries that an arena's `Reset`,
+  `Release` or `Drop` runs (the drop glue of every type given to its `New` or `Slice`), and through interface and
+  func-value calls (conservatively): E2584 names the path. Allowed: `select` with `default`, `close`, `len`, `cap`, `TryLock`,
   `rt.Ready`, atomics, runtime timers, and interrupt-safe spin locks (`rt.Lock`).
-- **A handler is a party in the data-race rules.** Anything it touches (except per-CPU variables) must be atomic or
-  guarded by an `rt.Lock` (a `sync.Mutex` cannot be taken in a handler: E2584). `volatile` alone and disabling
+- **A handler is a party in the data-race rules.** Data it touches while other code may write it, or writes while
+  other code may touch it, must be atomic or guarded by an `rt.Lock`, except per-CPU variables (a `sync.Mutex`
+  cannot be taken in a handler: E2584). Data nobody writes while a handler may run, such as a table filled before
+  the first handler is installed, needs neither. `volatile` alone and disabling
   interrupts exclude only the same processor. A race is E3502 or E3503 naming the handler.
 - To hand work to normal code, send without waiting: `select { case work <- item: default: /* full */ }`.
 - Format text in a handler with `fmt.Appendf` or `strconv.Append...` into a `vec.Fixed[byte]` over an array; those
@@ -443,9 +448,12 @@ func main() {
   fault from an exception handler. `rt.Abort()` stops after a custom report.
 - `print` and `println` (any integer, bool, string, pointer, float) write to the function registered with
   `rt.SetConsole(func(p unsafe.Pointer, n int))`; each statement is atomic and masks interrupts in kernel mode so
-  a handler may print. `rt.Console{}` is an `io.Writer` that writes to the same place:
+  a handler may print. A print in an exception or NMI handler that interrupts a print on the same processor drops
+  its output. A panic message is cut after 1024 bytes. `rt.Console{}` is an `io.Writer` that writes to the same place:
   `fmt.Fprintf(rt.Console{}, "x=%d\n", x)`. `fmt.Println` and `fmt.Print` (which need `os`) do not exist.
-- Inside a task, a stack overflow is a panic with a trace; `rt.StackLeft()` reports the bytes left.
+- A task whose stack size the compiler cannot compute gets `rt.DefaultStackSize` (64 KiB) with a guard page; ask for
+  more with `rt.Go(f, size)` (at least `rt.MinStackSize`, 8 KiB). A stack overflow panics with a trace in every build
+  mode; `rt.StackLeft()` reports the bytes left.
 
 ```pluto-compile mode=kernel
 package main
@@ -488,9 +496,13 @@ func main() {
 
 1. `pluto build --mode kernel --gencheck=false -c` the package often; E2520, E2584, E2593 and E2022 are the kernel-specific errors.
 2. Floats only in `//pu:fpu` functions; no `fmt.Sprintf` of floats in kernel paths.
-3. Handlers: atomics and `rt.Lock` only; send with `select`/`default`; no allocation unless the allocator never waits.
-4. Per-CPU state: lone word accesses or an explicit non-migrating region.
-5. Raw memory is `unsafe`: keep it in a few small packages and audit them with `pluto vet -unsafe --mode kernel`.
-6. Allocation: install the allocator in the entry function (`alloc.SetDefault`); give long-lived and interrupt-time
+3. Handlers: data shared with code that may write it is atomic or under `rt.Lock`; send with `select`/`default`; no
+   allocation unless the allocator never waits.
+4. No waiting with preemption disabled: between `rt.DisablePreemption` and `rt.EnablePreemption`, while an `rt.Lock`
+   is held or with interrupts disabled, a wait the compiler can see is a compile error, and one it cannot panics
+   with "blocking with preemption disabled" (section 19.3).
+5. Per-CPU state: lone word accesses or an explicit non-migrating region.
+6. Raw memory is `unsafe`: keep it in a few small packages and audit them with `pluto vet -unsafe --mode kernel`.
+7. Allocation: install the allocator in the entry function (`alloc.SetDefault`); give long-lived and interrupt-time
    code explicit allocators; strings never allocate unless made (`+`, `Sprintf`, `Itoa`).
-7. `%+v` field names are omitted in kernel builds unless you pass `--fieldnames`.
+8. `%+v` field names are omitted in kernel builds unless you pass `--fieldnames`.

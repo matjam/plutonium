@@ -19,8 +19,9 @@ under rules the compiler checks: **safe code has no data races**. Spec chapter 1
 - `task p.Serve()` on an `owned[T]` box moves the box into the task; on a `synced[T]` it gives the task its own
   reference.
 - No task may be started during package initialization (an initializer or `init`, directly or through calls): E2587.
-- A task has a fixed stack (computed when the call graph is bounded, else 64 MiB of address space in hosted
-  builds); overflow is a panic with a trace. `rt.Go(f, size)` starts one with an explicit size.
+- A task has a fixed stack: computed when the call graph is bounded, else 64 MiB of address space in hosted builds
+  and `rt.DefaultStackSize` (64 KiB) in freestanding and kernel builds. Overflow is a panic with a trace in every
+  build mode. `rt.Go(f, size)` starts one with an explicit size, at least `rt.MinStackSize` (8 KiB).
 - A task ends when its function returns; `rt.ExitTask()` ends it early after running deferred calls and drops.
   A **panic in any task ends the program**. When `main` returns the program exits (after a grace of about a
   millisecond for tasks that are finishing), even with tasks running: join them (channel, `sync.WaitGroup` or
@@ -154,6 +155,10 @@ other variables, so the variables outlive the tasks. Rules the compiler enforces
   slices overlap without starting together); `in[i+1]` stays E3402.
 - While tasks run, the starter must not move, drop or reassign a variable they use (E3404) nor move the
   scope (E3405). A scope reached through a pointer or field still waits but its tasks may not use the frame.
+  Dropping, moving or replacing an owner is a write of everything it holds.
+- A deferred call that drops or writes a variable a scoped task uses counts as running while the task runs (E3404,
+  E3402). Arm it after `s.Wait()`, or arm `defer s.Wait()` after it and before the first `s.Task`.
+- One task waits on a Scope at a time: a second waiter panics with "sync: two tasks wait on one Scope".
 - A `task` statement never starts a scoped task; `sync.WaitGroup` tasks are not scoped.
 
 ```pluto-run
@@ -535,5 +540,8 @@ func main() {}
 
 Nothing an interrupt handler or the panic handler can reach may wait: no channel send or receive except in a
 `select` with `default`, no `Lock` of a `sync.Mutex` (use `rt.Lock`), no `time.Sleep`, `s.Wait`, task start or
-allocator that waits (E2584, E2585). Data a handler touches must be atomic or guarded by an `rt.Lock`. See
-`kernel-mode.md`.
+allocator that waits (E2584, E2585). Data a handler touches while other code may write it, or writes while other
+code may touch it, must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable; data nobody writes
+while a handler may run needs neither. The same waits are a compile error inside a region with preemption disabled
+(`rt.DisablePreemption`, a held `rt.Lock`, interrupts off), and one the compiler cannot see panics with "blocking
+with preemption disabled" (section 19.3). See `kernel-mode.md`.

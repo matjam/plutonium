@@ -222,7 +222,9 @@ type Log owner File                          // dropping a Log runs File's drop 
   and `m[k] = v` move one in (dropping the one replaced), `Pop`, `Remove` (`m.Remove(k)`) and `m.Pop()` move one
   out, `Ptr` lends one, a `range` yields pointers to the elements, and dropping the container drops the elements in
   order. The methods that copy an element (`At`, `v[i]`, `Last`, `Get`, `Clone`) do not compile for owners.
-- Converting a plain value into an owner type is allowed only in the package that declares it (E3212).
+- A conversion to an owner type, or to or from a pointer to one, is allowed only in the package that declares the
+  type (E3212). A literal of another package's owner struct needs every field exported. A type defined from another
+  package's owner type converts only where converting to that type is allowed.
 
 ## 4. Drops
 
@@ -283,13 +285,24 @@ it looks at is. Rules (section 18.3):
   received (E3002), passed to a function that keeps it (E3003), passed to a `task` statement (E3004 or E2011) or
   sent on a channel (E3005 or E2011). Fixes: return an owner (`vec.Vec`, `new(...)`), copy the data, or make the
   data live longer (package variable, caller-provided buffer).
-- A view of a **local owner's** memory (`v.Slice()`, `&*p`, `s.top.val`) cannot be used after the owner is
-  moved, dropped or reassigned (E3313), and an owner that holds a view of another local must be declared after it
-  so it drops first. A view of a temporary owner (`makeVec().Slice()`) dies at the end of the statement (E3009).
+- A view of a **local owner's** memory (`v.Slice()`, `&*p`, `s.top.val`) cannot be used after any of these
+  (E3313): the owner is moved, dropped or reassigned; a call that takes it by pointer may free or move out what the
+  view looks at (`s := v.Slice(); v.Push(1); s[0]` is E3313, since `Push` may move the array); an owner field on
+  the view's path is assigned (`p := &*n.child; n.child = new(Leaf)` ends `p`). The same holds for a view through
+  a counted reference held in a local, and for an ordinary interface holding a one-word owner, box, map or channel
+  lent from a local (`x := any(m); m = nil; use(x)` is E3313). An owner that holds a view of another local must be
+  declared after it so it drops first. A view of a temporary owner (`makeVec().Slice()`) dies at the end of the
+  statement (E3009).
+- A view of **any local with drop glue** (an owner, a string, a box, a map, a channel, or a struct or array holding
+  one) cannot be used after the local's scope ends (E3313): `p = &s` inside a block, used after the block.
 - The compiler follows a view through local variables, their fields and the calls that store it into other
   arguments. A view stored anywhere it cannot follow (through a pointer, in a variable that a closure uses or
-  whose address is kept, by a call it cannot see into) forbids moving, dropping or reassigning the owner while the
-  view could still be used: E3314. Keep such views in local variables and end their use before the owner changes.
+  whose address is kept, by a call it cannot see into) forbids every event of the E3313 list while the view could
+  still be used: E3314. Keep such views in local variables and end their use before the owner changes.
+- **Generic code** is checked once, with the strictest rule any type argument needs. `any(x)` of a type
+  parameter value is a frame copy and a view of `x` for every `T` (`[T any]` too, since `T` may be a map or a
+  box): it cannot leave the frame, and `x = z` or a freeing call ends it (E3313). A `T` local counts as having
+  drop glue.
 - A **loop** reuses its variables: keeping a view of an iteration's variable or a closure that captures it where
   the next iteration can see it is E3006.
 - Views into heap memory reached through other heap memory are checked at run time: a use after the memory was
@@ -477,13 +490,18 @@ until `alloc.SetDefault`). `new`, `make(chan/map)` and the library constructors 
 the last argument (`new(T, &a)`, `vec.New[int](&a)`, `make(map[K]V, n, &a)`; library functions declare it as the
 defaulted parameter `a alloc.Allocator = alloc.Default()`); variadic functions such as `fmt.Sprintf`, and the
 operations that make strings (`+`), use the current allocator, which `alloc.Use` replaces. Owners remember the
-allocator they came from and free to it, so an owner built in an arena drops normally and its free costs nothing.
+allocator they came from and free to it, so an owner built in an arena drops normally. Its free takes no memory
+back; it lowers the arena's count of live allocations, which must be zero at `Reset`, `Release` or `Drop`.
 
 - `arena.NewFixed(capacity)` is an owner with fixed private backing. `arena.NewChunked()` grows from its parent.
   `a.New[T]()` returns a `*T` and `a.Slice[T](n)` a `[]T`, valid until `a.Reset()`, `a.Release(mark)` or `a` is
   dropped. Using a view of a local arena after its `Reset` or `Release` is E3313; where the compiler cannot
-  tell which arena was reclaimed (through a pointer), the stale use panics at run time. A mark is not a view. The values in arena memory are not
-  dropped for you.
+  tell which arena was reclaimed (through a pointer), the stale use panics at run time. A mark is not a view.
+- For a type with drop glue, `New` and `Slice` record a drop entry (a `Slice` of length zero records none).
+  `Reset`, `Release` and `Drop` drop those values in place, last first, and leave the zero value. Then they panic
+  with "arena has live allocations" while anything made through the arena's `Alloc` is still live: a box from
+  `new(T, &a)`, a vector's array, a map or a string. A `New` or `Slice` with no room panics with "arena: out of
+  memory".
 - `defer alloc.Use(&a).Restore()` makes `a` the current allocator for the rest of the function. Anything allocated
   in that window is a **view of the arena**: returning it or storing it past the arena is E3001. Allocate what must
   survive from `alloc.Default()` captured before `Use`, or from an arena the caller passes.
@@ -551,7 +569,8 @@ func main() {
 
 ## 8. Unsafe code
 
-`import "unsafe"`, `pluto/arch/x86`, `alloc.Raw/New/Free`, `arena.NewUnsafe`, bodiless functions, `rt.Pinned` and
+`import "unsafe"`, `pluto/arch/x86` (except `Cli`, `Sti`, `SaveFlagsCli`, `RestoreFlags`, `Pause`, `Cpuid`, `Rdtsc` and
+`Rdtscp`, which are safe), `alloc.Raw/New/Free`, `arena.NewUnsafe`, bodiless functions, `rt.Pinned` and
 `//pu:nochecks` are the unsafe surface (section 18.12). Application code needs none of it. `pluto vet -unsafe`
 lists every unsafe function and the safe code that calls it. `unsafe.Drop(p)` drops `*p` without freeing it.
 
