@@ -14,14 +14,18 @@ type staticCleanupRecord struct {
 }
 
 var staticCleanupTable []staticCleanupRecord
-var staticCleanupReady uint32
+
+// cleanupStarted is the program-wide flag that gates the write check for
+// cleaned places (language spec sections 15.4 and 21.5, abi.md 12.10). It
+// is set before the first package cleanup glue runs and never cleared.
+var cleanupStarted uint32
 var staticCleanupCurrent uint64
 var staticCleanupTask uint64
 
 func staticCleanupSet(p unsafe.Pointer, n uintptr) {
 	staticCleanupTable = unsafe.Slice((*staticCleanupRecord)(p), n)
 	store64(&staticCleanupTask, staticCleanupIdentity())
-	store32(&staticCleanupReady, 1)
+	store32(&cleanupStarted, 1)
 }
 
 func staticCleanupSelect(i uintptr) {
@@ -72,14 +76,14 @@ func staticCleanupIdentity() uint64 {
 //
 //pu:inline
 func staticCleanupCheck(p unsafe.Pointer, n uintptr) {
-	if staticCleanupReady != 0 && n != 0 {
+	if cleanupStarted != 0 && n != 0 {
 		staticCleanupScan(p, n)
 	}
 }
 
 //pu:noinline
 func staticCleanupScan(p unsafe.Pointer, n uintptr) {
-	if load32(&staticCleanupReady) == 0 {
+	if load32(&cleanupStarted) == 0 {
 		return
 	}
 	a := uintptr(p)

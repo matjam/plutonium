@@ -8917,58 +8917,58 @@ package pluto/rt
       pluto/rt/shutdown.p:239:2: call pluto/rt.flushShutdownCaches
   unsafe pluto/rt.StackLeft pluto/rt/stack.p:43:1
     pluto/rt/stack.p:45:23: unsafe.Pointer
-  unsafe pluto/rt.staticCleanupSet pluto/rt/static_cleanup.p:21:1
-    pluto/rt/static_cleanup.p:21:23: unsafe.Pointer
-    pluto/rt/static_cleanup.p:21:32: unsafe.Pointer
-    pluto/rt/static_cleanup.p:22:23: unsafe.Slice
-    pluto/rt/static_cleanup.p:22:59: unsafe.Pointer
-  unsafe pluto/rt.staticCleanupSelect pluto/rt/static_cleanup.p:27:1
-    pluto/rt/static_cleanup.p:28:55: unsafe.Pointer
-  safe pluto/rt.staticCleanupPause pluto/rt/static_cleanup.p:34:1
+  unsafe pluto/rt.staticCleanupSet pluto/rt/static_cleanup.p:25:1
+    pluto/rt/static_cleanup.p:25:23: unsafe.Pointer
+    pluto/rt/static_cleanup.p:25:32: unsafe.Pointer
+    pluto/rt/static_cleanup.p:26:23: unsafe.Slice
+    pluto/rt/static_cleanup.p:26:59: unsafe.Pointer
+  unsafe pluto/rt.staticCleanupSelect pluto/rt/static_cleanup.p:31:1
+    pluto/rt/static_cleanup.p:32:55: unsafe.Pointer
+  safe pluto/rt.staticCleanupPause pluto/rt/static_cleanup.p:38:1
     calls pluto/rt.load64
-      pluto/rt/static_cleanup.p:38:7: call pluto/rt.load64
+      pluto/rt/static_cleanup.p:42:7: call pluto/rt.load64
     calls pluto/rt.store64
-      pluto/rt/static_cleanup.p:39:2: call pluto/rt.store64
+      pluto/rt/static_cleanup.p:43:2: call pluto/rt.store64
     calls pluto/rt.staticCleanupIdentity
-      pluto/rt/static_cleanup.p:35:6: call pluto/rt.staticCleanupOnTask
-      pluto/rt/static_cleanup.p:52:23: call pluto/rt.staticCleanupIdentity
-  safe pluto/rt.staticCleanupResume pluto/rt/static_cleanup.p:44:1
+      pluto/rt/static_cleanup.p:39:6: call pluto/rt.staticCleanupOnTask
+      pluto/rt/static_cleanup.p:56:23: call pluto/rt.staticCleanupIdentity
+  safe pluto/rt.staticCleanupResume pluto/rt/static_cleanup.p:48:1
     calls pluto/rt.store64
-      pluto/rt/static_cleanup.p:46:3: call pluto/rt.store64
+      pluto/rt/static_cleanup.p:50:3: call pluto/rt.store64
     calls pluto/rt.load64
-      pluto/rt/static_cleanup.p:45:5: call pluto/rt.staticCleanupOnTask
-      pluto/rt/static_cleanup.p:51:11: call pluto/rt.load64
+      pluto/rt/static_cleanup.p:49:5: call pluto/rt.staticCleanupOnTask
+      pluto/rt/static_cleanup.p:55:11: call pluto/rt.load64
     calls pluto/rt.staticCleanupIdentity
-      pluto/rt/static_cleanup.p:45:5: call pluto/rt.staticCleanupOnTask
-      pluto/rt/static_cleanup.p:52:23: call pluto/rt.staticCleanupIdentity
-  safe pluto/rt.staticCleanupOnTask pluto/rt/static_cleanup.p:50:1
+      pluto/rt/static_cleanup.p:49:5: call pluto/rt.staticCleanupOnTask
+      pluto/rt/static_cleanup.p:56:23: call pluto/rt.staticCleanupIdentity
+  safe pluto/rt.staticCleanupOnTask pluto/rt/static_cleanup.p:54:1
     calls pluto/rt.load64
-      pluto/rt/static_cleanup.p:51:11: call pluto/rt.load64
+      pluto/rt/static_cleanup.p:55:11: call pluto/rt.load64
     calls pluto/rt.staticCleanupIdentity
-      pluto/rt/static_cleanup.p:52:23: call pluto/rt.staticCleanupIdentity
-  unsafe pluto/rt.staticCleanupIdentity pluto/rt/static_cleanup.p:58:1
-    pluto/rt/static_cleanup.p:60:32: unsafe.Pointer
-    pluto/rt/static_cleanup.p:62:31: unsafe.Pointer
-  unsafe pluto/rt.staticCleanupCheck pluto/rt/static_cleanup.p:74:1
-    pluto/rt/static_cleanup.p:74:25: unsafe.Pointer
-    pluto/rt/static_cleanup.p:74:34: unsafe.Pointer
-    pluto/rt/static_cleanup.p:76:21: unsafe.Pointer
-  unsafe pluto/rt.staticCleanupScan pluto/rt/static_cleanup.p:81:1
-    pluto/rt/static_cleanup.p:81:24: unsafe.Pointer
-    pluto/rt/static_cleanup.p:81:33: unsafe.Pointer
-    pluto/rt/static_cleanup.p:85:15: unsafe.Pointer
-    pluto/rt/static_cleanup.p:88:18: unsafe.Pointer
-  unsafe pluto/rt.staticCleanupDone pluto/rt/static_cleanup.p:101:1
-    pluto/rt/static_cleanup.p:101:24: unsafe.Pointer
-    pluto/rt/static_cleanup.p:101:33: unsafe.Pointer
-    pluto/rt/static_cleanup.p:105:37: unsafe.Pointer
-    pluto/rt/static_cleanup.p:109:32: unsafe.Pointer
-    pluto/rt/static_cleanup.p:117:55: unsafe.Pointer
-  unsafe pluto/rt.staticCleanupRecordDone pluto/rt/static_cleanup.p:124:1
-    pluto/rt/static_cleanup.p:124:54: unsafe.Pointer
-    pluto/rt/static_cleanup.p:124:63: unsafe.Pointer
-    pluto/rt/static_cleanup.p:125:18: unsafe.Pointer
-    pluto/rt/static_cleanup.p:125:32: unsafe.Pointer
+      pluto/rt/static_cleanup.p:56:23: call pluto/rt.staticCleanupIdentity
+  unsafe pluto/rt.staticCleanupIdentity pluto/rt/static_cleanup.p:62:1
+    pluto/rt/static_cleanup.p:64:32: unsafe.Pointer
+    pluto/rt/static_cleanup.p:66:31: unsafe.Pointer
+  unsafe pluto/rt.staticCleanupCheck pluto/rt/static_cleanup.p:78:1
+    pluto/rt/static_cleanup.p:78:25: unsafe.Pointer
+    pluto/rt/static_cleanup.p:78:34: unsafe.Pointer
+    pluto/rt/static_cleanup.p:80:21: unsafe.Pointer
+  unsafe pluto/rt.staticCleanupScan pluto/rt/static_cleanup.p:85:1
+    pluto/rt/static_cleanup.p:85:24: unsafe.Pointer
+    pluto/rt/static_cleanup.p:85:33: unsafe.Pointer
+    pluto/rt/static_cleanup.p:89:15: unsafe.Pointer
+    pluto/rt/static_cleanup.p:92:18: unsafe.Pointer
+  unsafe pluto/rt.staticCleanupDone pluto/rt/static_cleanup.p:105:1
+    pluto/rt/static_cleanup.p:105:24: unsafe.Pointer
+    pluto/rt/static_cleanup.p:105:33: unsafe.Pointer
+    pluto/rt/static_cleanup.p:109:37: unsafe.Pointer
+    pluto/rt/static_cleanup.p:113:32: unsafe.Pointer
+    pluto/rt/static_cleanup.p:121:55: unsafe.Pointer
+  unsafe pluto/rt.staticCleanupRecordDone pluto/rt/static_cleanup.p:128:1
+    pluto/rt/static_cleanup.p:128:54: unsafe.Pointer
+    pluto/rt/static_cleanup.p:128:63: unsafe.Pointer
+    pluto/rt/static_cleanup.p:129:18: unsafe.Pointer
+    pluto/rt/static_cleanup.p:129:32: unsafe.Pointer
   unsafe pluto/rt.addCount pluto/rt/str.p:62:1
     pluto/rt/str.p:64:20: unsafe.Pointer
     pluto/rt/str.p:66:39: unsafe.Pointer
