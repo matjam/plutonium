@@ -102,8 +102,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - Data written only inside `once.Do` and read after `Do` is still E3503: the race check has no rule for
   `sync.Once`, so it infers the Once's own lock as the guard instead of following lazy initialization, and it
   does not reject a write outside the Once's function as such (19.3, Lazy initialization). Item 218.
-- Deferred calls are checked with the locks and regions held at the function's returns only, not at every point
-  after their `defer` where a callee that ends the task or a panic may run them (19.3, Held sets). Item 236.
 - `c.Wait()` of a `sync.Cond` is not treated as `Unlock` then `Lock` of a named lock, so data read after it in a
   wait loop is E3503, and a view kept across it is not yet E3501 (19.3). Item 219.
 - `rt.Yield` inside a non-migrating region compiles and does not panic, so a task can resume on another processor

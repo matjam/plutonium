@@ -769,9 +769,7 @@ func (w *walker) inlineLit(lit *ast.FuncLit, args []origins, task bool, pos toke
 	w.exit = join(w.exit, w.st)
 	w.st = w.exit
 	if !w.st.dead {
-		for i := len(w.defers) - 1; i >= 0; i-- {
-			w.deferred(w.defers[i])
-		}
+		w.runDefers()
 	}
 	var res []origins
 	if f.sig != nil {

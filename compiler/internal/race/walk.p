@@ -151,7 +151,7 @@ type walker struct {
 	loops      int         // loop nesting, for spawns that may run more than once
 	targets    []*target
 	exit       *state
-	defers     []*ast.CallExpr
+	defers     []*pendingDefer
 	gotos      map[string]bool
 	depth      int               // nested applications of func-valued arguments
 	created    map[ast.Node]bool // allocations made by this function
@@ -235,6 +235,45 @@ func (w *walker) runProgram() {
 	}
 }
 
+// A pendingDefer is a deferred call and the join of the states at its
+// defer statement and at every point after it.
+type pendingDefer struct {
+	call *ast.CallExpr
+	at   *state
+}
+
+// seeDefers joins the current state into the states of the deferred calls
+// so far: a deferred call runs where its function leaves, which may be at
+// any point after its defer statement, in a callee that ends the task with
+// rt.ExitTask or in a panic (language spec section 19.3, Held sets).
+func (w *walker) seeDefers() {
+	for _, d := range w.defers {
+		d.at = join(d.at, w.st)
+	}
+}
+
+// runDefers applies the deferred calls, last deferred first, from the state
+// at the function's exit. Each call's accesses use what holds both there
+// and at every point after its defer statement; the state it leaves is the
+// one from the exit.
+func (w *walker) runDefers() {
+	for i := len(w.defers) - 1; i >= 0; i-- {
+		d := w.defers[i]
+		at := join(w.st, d.at)
+		if at.equal(w.st) {
+			w.deferred(d.call)
+			continue
+		}
+		exit := w.st
+		w.st = at
+		w.deferred(d.call)
+		w.st = exit
+		w.quiet++
+		w.deferred(d.call)
+		w.quiet--
+	}
+}
+
 // finish applies the deferred calls and records what the function leaves
 // held.
 func (w *walker) finish() {
@@ -244,9 +283,7 @@ func (w *walker) finish() {
 		// Deferred calls run before any variable of the function is
 		// dropped, a Scope included.
 		w.noFilter = true
-		for i := len(w.defers) - 1; i >= 0; i-- {
-			w.deferred(w.defers[i])
-		}
+		w.runDefers()
 		w.noFilter = false
 	}
 	if w.st.dead {
@@ -321,6 +358,7 @@ func (w *walker) block(b *ast.BlockStmt) {
 }
 
 func (w *walker) stmt(st ast.Stmt, label string) {
+	w.seeDefers()
 	switch st := st.(type) {
 	case nil, *ast.EmptyStmt, *ast.BadStmt:
 	case *ast.LabeledStmt:
@@ -415,7 +453,7 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 	case *ast.ReturnStmt:
 		w.returnStmt(st)
 	case *ast.DeferStmt:
-		w.defers = compat.Append(w.defers, st.Call)
+		w.defers = compat.Append(w.defers, pu.New(pendingDefer{call: st.Call, at: w.st.clone()}))
 		// The arguments are evaluated now.
 		if op, _ := w.lockOp(st.Call); op == "" {
 			for _, arg := range st.Call.Args {
