@@ -299,8 +299,12 @@ func main() {
   checker: reading shared data after `wg.Wait()` still needs its lock. The join of a `sync.Scope` does.
 - **Rule 1, package variables.** One written by code that several tasks may run must be atomic or have a lock held at
   every write (E3502 names the write); every read must hold that lock too (E3503). A package variable written only
-  during initialization, or by `main` before the first task starts, needs nothing.
-- **Rule 2, views that cross** (a `*T` or `[]T` passed to a task or sent). It must point to synchronized memory
+  during initialization, or by `main` before the first task starts, needs nothing. The variable includes the memory
+  it owns (an `owned[T]` it holds, owner fields). A package variable that holds a `shared[T]` is for one task only
+  (E2010).
+- **Rule 2, views that cross** (a `*T` or `[]T` passed to a task or sent, or **loaded by a task** from a package
+  variable, a per-CPU variable, a `synced` object or a map, also inside an interface or func value; section 19.2).
+  So `p = &*b; task reader(); b = new(Node)` is E3501 when `reader` reads `p`: the drop frees what `p` points to. It must point to synchronized memory
   (`sync`/`atomic` values, channels, a struct of only those), a package variable nobody writes after tasks start,
   a `synced` object, or a struct whose fields are never overwritten once shared, atomic, or guarded by one lock
   of the same object. Otherwise E3501 names a write that could race.
@@ -542,4 +546,4 @@ Nothing an interrupt handler or the panic handler can reach may wait: no channel
 `select` with `default`, no `Lock` of a `sync.Mutex` (use `rt.Lock`), no `time.Sleep`, `s.Wait`, task start or
 allocator that waits (E2584, E2585). Data a handler touches while other code may write it, or writes while other
 code may touch it, must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable; data nobody writes
-while a handler may run needs neither. The same waits, on an exact path, are a compile error inside a non-migrating region (`rt.DisablePreemption`, a held `rt.Lock`, interrupts off); any other wait there (through an interface, a func value, or an allocator only some of which wait) panics with "blocking with preemption disabled", and in kernel mode `rt.Park` also panics with interrupts disabled (section 19.3). See `kernel-mode.md`.
+while a handler may run needs neither. The same waits are a compile error inside a non-migrating region (`rt.DisablePreemption`, a held `rt.Lock`, interrupts off) when reached through calls with one known target (direct calls, methods of a concrete type, deferred calls, a literal called where written), even on only some paths of the callee. A wait behind an interface, a func value, a hook or an allocator compiles and panics with "blocking with preemption disabled" when it would park; so does a call of a `//pu:blocking` function there, which tests at entry. In kernel mode the test also panics with interrupts disabled (section 19.3). A plain spin loop is not a wait and is not caught. See `kernel-mode.md`.

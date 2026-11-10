@@ -47,6 +47,11 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   Item 177.
 - The race check does not follow an allocator behind a parameter, a heap pointer or an `alloc.Use` window, or bulk
   calls outside scoped tasks (19.4). Item 196.
+- The race check does not yet treat a task's or handler's load of a pointer or other view from a package variable, a
+  per-CPU variable, a `synced` object or a map as a crossing, so `p = &*b; task reader(); b = new(Node)` compiles
+  (19.2, 19.3 rules 1 and 2). A package variable holding a `shared[T]` used by two tasks is not yet E2010. Item 214.
+- The race check does not yet name an arena beyond the precision limits as every arena, or follow an arena's name
+  through a move (19.3, Frees are writes). Item 217.
 
 ## 2. Behavior that differs at run time
 
@@ -58,9 +63,12 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   the drops its entries would run (18.9, 19.3, 20.10). Item 209.
 - The race check and E3313 do not yet treat a `Reset`, `Release` or `Drop` of an arena as a free of every object it
   takes back, of every type (19.3, 18.3, memory-model.md 3.8). Item 212.
-- Waiting (a channel operation, `Lock`, `Wait`, `rt.Park`) on an exact path inside a non-migrating region compiles;
-  it should be a compile error, and today it panics with "blocking with preemption disabled" at run time (19.3).
-  Item 210.
+- Waiting (a channel operation, `Lock`, `Wait`, `rt.Park`) inside a non-migrating region, reached through calls with
+  one known target, compiles; it should be a compile error, and today it panics with "blocking with preemption
+  disabled" at run time only when it parks (19.3). Items 210 and 215.
+- A function marked `//pu:blocking` does not yet test preemption and the interrupt flag at entry, or before each call
+  when it has no body, so calling one in a non-migrating region can hang instead of panicking (19.3, 20.3, abi.md
+  12.4). Item 216.
 - In kernel mode, `rt.Park` does not yet panic when interrupts are disabled, so a wait with interrupts disabled and
   no lock held is not caught at run time (19.3, abi.md 12.4). Item 213.
 - A deadlock report does not name a panic in progress (19.1, 19.4). Item 205.

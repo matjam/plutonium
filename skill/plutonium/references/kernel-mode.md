@@ -499,7 +499,7 @@ func main() {
 3. Handlers: data shared with code that may write it is atomic or under `rt.Lock`; send with `select`/`default`; no
    allocation unless the allocator never waits.
 4. No waiting with preemption disabled: between `rt.DisablePreemption` and `rt.EnablePreemption`, while an `rt.Lock`
-   is held or with interrupts disabled, a wait on an exact path is a compile error, and any other (through an interface, a func value or an allocator only some of which wait) panics with "blocking with preemption disabled"; in kernel mode `rt.Park` also panics when interrupts are disabled (section 19.3).
+   is held or with interrupts disabled, a wait reached through calls with one known target (direct, concrete method, deferred, a literal called where written) is a compile error, and one behind an interface, a func value, a hook or an allocator panics with "blocking with preemption disabled" when it would park. A `//pu:blocking` function tests the same at entry (or, without a body, before each call). In kernel mode the test also panics when interrupts are disabled (section 19.3). A spin loop without `//pu:blocking` is not caught.
 5. Per-CPU state: lone word accesses or an explicit non-migrating region.
 6. Raw memory is `unsafe`: keep it in a few small packages and audit them with `pluto vet -unsafe --mode kernel`.
 7. Allocation: install the allocator in the entry function (`alloc.SetDefault`); give long-lived and interrupt-time
