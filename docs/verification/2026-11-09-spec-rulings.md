@@ -1317,8 +1317,8 @@ The blocks that had been unchecked:
   block cannot show the type rule alone. A non-static object would avoid rule 1, but an unscoped task can
   only share an object that some party reaches by name: a frame or local owner may not cross (it may be
   dropped first), and memory from `alloc.New` is unsafe code. So in safe code the field conditions of rule 2
-  case 3 always come with a rule 1 error for the same read. The block is `known: spec example wrong` until
-  the rule or the example is settled.
+  case 3 always come with a rule 1 error for the same read. Settled by D129 (Counter, below): the block
+  marks both lines and its entry has no `known` line.
 
 ### Where the model differs from the checker
 
@@ -1746,3 +1746,54 @@ Added: 122 and 123 (the deferred read rejected and accepted), 124 and 125 (held 
 literal), 126 (a deferred write of `main` is after the start of sharing). No row changed.
 
 No code block was added or changed.
+
+## Counter
+
+The CI run found that the 19.3 `Counter` block gives E3503 at `return c.n` as well as E3501 at the task
+statement. Ruling: keep the rules, fix the example and the text (D129).
+
+The check. Can a safe program give the type rule's error without a rule 1 error for the same object? Each
+shape the ruling names:
+
+- A pointer that crossed by channel: it points to memory some party reached first. That memory is a
+  package variable or memory one owns, a static object, a `synced[T]` object or map contents (rule 1), or
+  a frame or local owner, whose views may not cross to an unscoped task (18.3), or an owner, which moves.
+- From a `synced[T]` object: the object and the memory it owns are rule 1 data. A plain pointer in one of
+  its fields points to memory of the kinds above.
+- From a map kept in place: its contents are part of the datum of the place, which is rule 1 data.
+- From a static object's field: each field is a datum of rule 1, with the memory it owns.
+- From an arena: the arena owns its objects, so they are part of the datum that holds the arena. A local
+  arena's plain views do not outlive it and do not reach an unscoped task.
+
+So no: outside a Scope's frame (19.4), the type rule's errors come with rule 1's in safe code. The
+objects it alone decides are those no party names, which safe code gets only from code built on the
+unchecked layer (`alloc.New` memory with no owner, handed out by a pool). Folding the type rule into
+rule 1 was rejected because those objects would lose their only check.
+
+Changes:
+
+- 19.3: a paragraph "Where the type rule decides" after rule 3, saying the above.
+- The `Counter` block marks both lines: `// error: E3503` on `Peek` and `// error: E3501` on the task
+  statement. The old two-line comment on `Peek` is gone.
+- Rows 127 (E3501, rule 3), 128 (E3503, rule 1) and 129 (the pool shape: E3501 only, rule 3). The
+  conformance intro names them.
+- examples.txt: the `known: spec example wrong` line is removed. Expected compiler output for the
+  block: E3501 at `task work(&counter, done)` and E3503 at `return c.n`, nothing else.
+- D129; the skill's rule 3 bullet says the same in short.
+
+Attacks:
+
+- "A field passes rule 1 but fails the field conditions, so the type rule decides alone for a package
+  variable." The field conditions allow locks of the same object or package-level ones; a lock rule 1
+  can name for a package variable is one of those, since a lock reached through a loaded pointer cannot
+  be named (row 23). And when rule 1 guards the datum, `&counter` crosses by case 4, so the type rule is
+  not consulted. Holds.
+- "A scoped task shares a local `Counter` and only the type rule sees it." Frame memory follows 19.4,
+  not rule 3, so the paragraph names the frame as outside its claim. Holds.
+- "The pool's caller is not safe code." The caller is safe; only the pool uses the unchecked layer, and
+  the paragraph says the object comes from such code. Holds.
+- "Row 129 should also give a rule 1 error at `p.Peek()`." The object is in no package variable, static
+  object, `synced[T]` or map, so rule 1 does not cover it. Holds.
+- Not settled here: rows 30 and 79 list only the crossing's E3501 for a free while shared. When the
+  freed memory is rule 1 data (a package-level arena, `var b owned[S]`), rule 1 may report the free as
+  E3502 too, as row 80 does when both parties name `b`. Left for the CI run of those rows' shapes.

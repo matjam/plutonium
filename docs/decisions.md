@@ -2260,6 +2260,23 @@ inside the first `f`, which need no `Do`, still read and write the data. Goal: S
 
 Lands with: items 236 and 218.
 
+## D129. Where the type rule decides (19.3)
+
+Question: compiling the 19.3 `Counter` block gave E3501 at the task statement, as the text said, and also
+E3503 at `return c.n` in `Peek`. Can a safe program show the type rule alone?
+
+Decision: no, outside a Scope's frame. Every object that several parties use in safe code is one some
+party reaches by name (a frame or local-owner view cannot cross to an unscoped task, and a crossing owner
+moves), so it is rule 1 data, and a field that fails the field conditions fails rule 1 too. The text says
+so, and that the type rule decides alone only for objects no party names, which safe code gets from code
+built on the unchecked layer (a pool handing out `alloc.New` memory with no owner). The block marks both
+lines; rows 127 to 129 give one deciding rule each.
+
+Why: the rules are right and the example claimed a separation the model does not have. Folding the type
+rule into rule 1 was rejected: the objects no party names would lose their only check. Goal: Plain, Safe.
+
+Lands with: no compiler change; the checker already reports both errors.
+
 ## Deferred
 
 None open. D105 (lazy initialization through `sync.Once`) and D106 (`sync.Cond.Wait`) were deferred for

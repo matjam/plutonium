@@ -346,7 +346,10 @@ func main() {
   a write that could race.
 - **Rule 3, the type rule.** An object of a struct type may be shared when no code frees, drops, moves or
   overwrites one after sharing starts, and each field is unchanged, atomic, guarded by a lock of **the same
-  object**, or set by a Once of the same object. A lock in the container that holds the `synced` references,
+  object**, or set by a Once of the same object. For an object some party names (package variable, static or
+  `synced` object, map contents), a field that fails this also fails rule 1, so E3501 at the crossing comes with
+  E3502 or E3503 at the access; the rule decides alone only for objects no party names, such as memory a pool
+  built on `alloc.New` hands out with no owner. A lock in the container that holds the `synced` references,
   such as the `Bank` that owns a map of accounts, does not guard the accounts (E3502). Give the record its own
   mutex, take the container's lock only to find the record, and lock the record to change it. A map **kept in
   place** in a field or package variable (only ever set to `make`, a map literal or `nil` there, and only

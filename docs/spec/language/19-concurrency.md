@@ -1037,6 +1037,18 @@ frees while tasks run fails the free condition, since a task could still use it:
 of a `synced[T]`, whose last release frees it after every use, or hand it over by moving its owner. A
 type that fails the rule gives E3501 at the crossing, which names a write that breaks it.
 
+**Where the type rule decides.** Outside the frame of a function that starts scoped tasks (section 19.4),
+every object that several parties use in safe code is one that some party reaches by name: a view of a
+frame or of a local owner cannot cross to an unscoped task, and an owner that crosses moves. So the
+object is data of rule 1: a package variable or memory one owns, a static object, a `synced[T]` object, or the contents of
+a map. For such an object the field conditions ask of each field what rule 1 asks of it, so a field that
+fails them also fails rule 1: the type rule's E3501 at the crossing comes with rule 1's E3502 or E3503
+for the same field, as in the block below. There the type rule adds only the report at the crossing. It
+decides alone for an object that no party reaches by name, which safe code gets only from code built on
+the unchecked layer (section 18.12), such as a pool that hands out memory from `alloc.New` with no owner.
+Rule 1 does not cover such an object, so the type rule is what checks its fields and its frees when safe
+code shares it.
+
 ```go
 type Counter struct {
 	mu sync.Mutex
@@ -1044,13 +1056,12 @@ type Counter struct {
 }
 
 func (c *Counter) Add()      { c.mu.Lock(); c.n++; c.mu.Unlock() }
-func (c *Counter) Peek() int { return c.n } // makes the task statement below error E3501:
-                                            // n is changed under c.mu in Add and read here without it
+func (c *Counter) Peek() int { return c.n } // error: E3503, n is changed under c.mu in Add and read here without it
 
 var counter Counter
 
 func run(done chan bool) {
-	task work(&counter, done) // error: E3501, work calls Add, and run calls Peek
+	task work(&counter, done) // error: E3501, work calls Add under c.mu, and run calls Peek, which reads n without it
 	println(counter.Peek())
 }
 ```
@@ -1372,7 +1383,8 @@ Go programmer would write; rows 13 to 21 are Go locking idioms; rows 52 to 66 se
 (docs/verification/2026-11-09-spec-audit-k.md); rows 73 to 99 settle audit L
 (docs/verification/2026-11-09-spec-audit-l.md), and rows 100 to 109 are the common Go shapes it lists;
 rows 110 to 121 settle audit M (docs/verification/2026-11-09-spec-audit-m.md); rows 122 to 126 settle
-audit N (docs/verification/2026-11-09-spec-audit-n.md).
+audit N (docs/verification/2026-11-09-spec-audit-n.md); rows 127 to 129 settle the `Counter` block
+(decision D129).
 
 | # | Program | Result | Deciding rule |
 |---|---|---|---|
@@ -1502,6 +1514,9 @@ audit N (docs/verification/2026-11-09-spec-audit-n.md).
 | 124 | N2: `n` written by other tasks under `mu`; `func f() { mu.Lock(); defer mu.Unlock(); defer func() { n++ }(); step() }` | accepted (the literal runs before the deferred `Unlock`, and `mu` is held at its `defer` statement and every point after it) | Held sets (deferred calls) |
 | 125 | N2: as row 124, but `func f() { defer func() { n++ }(); mu.Lock(); defer mu.Unlock(); step() }` | E3502 (`n++` runs with no lock if `step` ends the task before `mu.Lock`, or after the deferred `Unlock`) | Held sets (deferred calls) |
 | 126 | N2: `func main() { defer func() { cfg = 0 }(); task reader() }`, where `reader` reads `cfg` with no lock | E3503 (the deferred write runs after the task start, so it is a shared write) | The start of sharing (a deferred call counts after it) |
+| 127 | The `Counter` example above: `task work(&counter, done)`, where `work` calls `Add`, which writes `c.n` under `c.mu`, and `run` calls `Peek`, which reads it with no lock | E3501 at the task statement | rule 3 (field conditions; `n` is not guarded in place) |
+| 128 | The same program, at `return c.n` in `Peek` | E3503 | rule 1 (`counter` is a package variable) |
+| 129 | As row 127, but the `*Counter` comes from a pool built on `alloc.New` that hands it out with no owner, and `run` calls `p.Peek()` | E3501 at the task statement, and no rule 1 error | rule 3 (no party reaches the object by name, so rule 1 does not cover it) |
 
 ### 19.4 Scoped tasks
 

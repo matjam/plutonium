@@ -810,7 +810,6 @@ known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so non
 known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so ready.Wait(&mu) does not compile
 
 == 19-concurrency.md 19.3 | type Counter struct {
-known: spec example wrong: counter is a package variable, so rule 1 also makes the read of c.n in Peek E3503; safe code has no object outside rule 1 that an unscoped task can share
 pre:
 	func work(c *Counter, done chan bool) { c.Add() }
 main:
