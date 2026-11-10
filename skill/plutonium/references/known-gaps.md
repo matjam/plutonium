@@ -10,19 +10,19 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - Four view-tracking cases of 18.3: a view stored into memory a local owner's method returned, a pointer to caller
   memory that loses its tie when the owner moves, a view kept in a moved local owner then stored in a package
   variable, a view of a table a map walk retired. Item 179.
-- A local `vec.Vec` of owners whose element drops run through `rt.ReleaseValues` or `ZeroValues`: the escape
-  analysis gives those calls no effects (`review3/o14`). Item 180.
-- A view of a local that has cleanup but is not an owner, used after its scope ends, is not E3313 yet (18.3). Item 146.
 - A type switch, assertion or conversion on an ordinary interface does not yet move or lend as 18.5 says. Item 148.
 - `owned`, `shared`, `synced` and `weak` by value in `//pu:extern` or `//pu:export` signatures are not E2511 yet
   (20.4). Item 157.
 - The conversion checks of 11.12 and 11.24 (slicing a type parameter with a string in its type set, packed types and
   byte arrays, `string(c)`, owner conversions) are not all enforced. Item 166.
 - The race check does not yet treat frees, drops and moves as writes (19.3, 19.4). Item 168.
-- E3313 is not reported at calls that may free or move out what a view points into (18.3, 18.10). Item 170.
-- An ordinary interface holding a one-word owner (a box, a map, a channel), or the lent result of an assertion from
-  an owning interface, is not ended at a move, drop, new value, freeing call or owner field assignment of the
-  variable (E3313, 18.3, 7.9). Item 199.
+- A map or channel lent to an ordinary interface is not ended by the events of 18.3; a call through a copy of a counted
+  reference in a field or parameter does not end views obtained through a local reference; a call of an unknown func
+  value or of a function without a body is taken to free nothing; a free through a pointer a call returned is not
+  found; a call that frees what a local owner holds is not E3314 for a view of that memory kept where the walk cannot
+  follow; a method called through an ordinary interface held in a field is taken to free nothing of the owner holding
+  the field (E3313, E3314, 18.3, 7.9, 7.19).
+  Item 237.
 - A deferred call that drops or writes what a scoped task uses, and that can run before the task is joined, is not
   E3404 or E3402 yet (19.4). Item 201.
 - A conversion to an interface of a value whose type contains a type parameter, in generic code, is not yet a frame copy for every

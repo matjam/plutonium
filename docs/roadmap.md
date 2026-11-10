@@ -724,9 +724,17 @@ compiler (2026-10-11).
    func main() { var p *E; errors.As(root(0), &p); println(p.n) }
    ```
 
-146. **Views of a local with cleanup end at its scope** (planned; section 18.3, D42, finding A1 of the
-    [rulings](verification/2026-11-09-spec-rulings.md)): E3313 covers every local whose type has drop glue, not only owners, and its catalog text
-    says so.
+146. **Views of a local with cleanup end at its scope** (done, `db734f44`; section 18.3, D42, finding A1 of the
+    [rulings](verification/2026-11-09-spec-rulings.md)): a view of a local whose type has drop glue (a
+    string, box, map, channel, allocated error, or a struct, array or union holding one), the variable
+    itself included, used after the end of the block that declares it is E3313, also when a `break`,
+    `continue` or `goto` leaves the block; the catalog text of E3313 covers every such local, not only
+    owners. A local of the function's top block, and one with no drop glue, is bounded by the frame alone.
+    A function that calls a func value it was given (D49) keeps of an argument what the function its
+    caller passes there keeps: the move checker's call facts read the summary of a declared function or a
+    literal without captures passed for it, so `run(f, i, &out)` from Go's range test keeps nothing of
+    `out` when `f` keeps nothing. Tests: `tests/diag/stale_scope_views` and
+    `tests/moves/accepted_views_within_their_scope`.
 147. **Owner conversions and literals stay in the defining package** (done, `ee470311`; sections 7.13, 7.18, 8.11,
     11.3, 11.24, D43, finding C1): E3212 for conversions to an owner type, a pointer to one or an owner
     union outside its package, for pointer conversions from `*Owner`, and for literals of an owner struct
@@ -848,18 +856,53 @@ compiler (2026-10-11).
 169. **Closure regions own captured variables** (planned; sections 11.5, 18.8, abi.md 4.1, D60, finding D2):
     the region's drop function runs owner drop glue for every captured variable with cleanup, and copies
     parameters into the region on entry.
-170. **E3313 at calls that may free** (planned; sections 18.3, 18.10, 18.11, 7.17, 11.24, D61, finding D3 and
-    candidates 7.17 to 7.19): summaries record through which pointer parameters a function may free memory
-    or move an owner out; E3313 at such calls, at owner field assignments on a view's path, and through
-    other copies of a counted reference; owner-to-pointer conversions are bounded views.
-199. **One-word owners lent to an interface end at the D3 events** (planned; sections 18.3, 18.5, 7.9,
+170. **E3313 at calls that may free** (done, `7acbe902`; sections 18.3, 7.17, 7.18, 7.19, D61, finding D3 and
+    candidates 7.17 to 7.19): the move checker's summaries (`compiler/internal/moves/frees.p`, over every
+    package, to a fixed point like `keeps.p`) record through which inputs a function may free memory or
+    move an owner out: an assignment that replaces an owner or counted box through a pointer, `take`,
+    `clear` and `delete` of such elements, an allocator's `Free`, an owner's `Drop`, a ring's `Pop`,
+    `Reset` and `Drop`, `rt.ReleaseValues` and `MoveValues` (the source, unless a `RetainValues` of the
+    same destination and count follows it: the pair copies, as `vec.Append` does), and calls that pass
+    the input on. A result that cannot hold a view, such as the `bool` of `p, ok := m.Upsert(k)`, gets
+    none of the call's views. A call that
+    passes a local owner, or memory it owns, to such an input ends the views obtained from it (E3313),
+    all but `&v` itself; a call through a counted
+    reference ends the views obtained through every other local reference of the same box type; `(*T)(h)`
+    for an owner defined from a pointer type, and for a box, is a view bounded by the variable, as are
+    `&*b` and a box passed where a `*T` is wanted, a pointer receiver among them. A call
+    through the address of a local owner ends that owner's views, not those of a variable the owner holds
+    a view of, such as an allocator lent to it (the example of section 18.13). A method called through an
+    ordinary interface loaded through an input frees nothing of that input's memory (section 7.9: the
+    interface lends), so an arena's parent allocator does not end the arena's views, and the views of a
+    checked arena's allocations end only at its `Reset`, `Release` and drop (section 18.9). The result of a
+    function given an owner as an ordinary interface is a view of the owner only when a result of one of
+    the interface's methods may hold what the owner holds, so `ReadAll(&f)` through an `io.Reader` is not
+    ended by `f.Close()`. `pluto/flag` keeps
+    its flags and string variables in lists in its arena, so defining flags and parsing free nothing and
+    the variables `Int`, `String` and the like return stay usable. The limits are item 237's.
+    Tests:
+    `tests/moves/staleviews_call_that_may_free` and `accepted_views_across_calls_that_free_nothing`.
+199. **One-word owners lent to an interface end at the D3 events** (done, `2343726a`; sections 18.3, 18.5, 7.9,
     11.13, 12.9, A.3, D71, findings E1, E5 and E7 of audit E; extends items 170, 171 and 148): an ordinary
     interface holding a box, a map, a channel, a `weak` reference, an owner defined from a pointer or a
     one-field struct of one is a view obtained from the variable, so a move, drop or new value, a call that
-    may free or move out, or an owner field assignment on its path ends it (E3313), and E3314 covers the
-    same events. The result of an assertion or type-switch clause from an owning interface to an ordinary
-    interface is such a view of the asserted variable, for every payload size. Function literals that hold
-    such views follow the same events.
+    may free or move out, or an owner field assignment on its path ends it (E3313). The result of an assertion from an owning interface to an ordinary interface is such a
+    view of the asserted variable, for every payload size; a type-switch clause naming an ordinary
+    interface makes the same view, and is tested once item 148 stops it moving. Function literals that hold
+    such views follow the same events. An owner larger than one word lent to an interface stays a view of
+    the variable itself. A map or channel lent to an interface is not followed yet: the move checker bounds
+    views by owners and counted boxes only (item 237). Tests: `tests/moves/staleviews_one_word_owner_lent_to_an_interface` and
+    `accepted_large_owner_lent_to_an_interface_across_a_call`.
+237. **The freeing events items 170 and 199 leave** (planned; sections 18.3, 7.9, 7.19; moved from items 170
+    and 199): a map or channel held in a local and lent to an ordinary interface is not ended by the events
+    of section 18.3; a call through a copy of a counted reference held in a field or parameter does not end
+    the views obtained through a local reference of the same type; a call of a func value whose candidates
+    are not known, or of a function without a body other than the primitives `frees.p` names, is taken to
+    free nothing; a free through a pointer that a call returned is not found (the summaries take a call's
+    result to hold nothing of its arguments); a call that frees what a local owner holds is not E3314 for a
+    view of that memory kept where the walk cannot follow, as the owner's drop at the end of its block is
+    not; a method called through an ordinary interface that a field of the
+    input holds is taken to free nothing of the input's memory, even when the interface points back into it.
 204. **Type-parameter conversions to an interface in generic code** (planned; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end
@@ -895,10 +938,14 @@ compiler (2026-10-11).
     its tie to the caller when the owner moves. A view kept in a local owner that is moved and then
     stored in a package variable is not caught. A view of a table a map walk retired may outlive the walk
     while the map lives.
-180. **The escape contract of `rt.ReleaseValues` and `ZeroValues`** (planned; sections 18.3, 18.6; found by
-    the third adversarial review, program `review3/o14_drop_in_vec_of_owners_local`): the contract table
-    gives them no effects, though they run the elements' `Drop` methods, so the analysis accepts o14. It
-    is the one entry of `knownEscapeGaps` in `tests/escapereview_test.go`; remove it when o14 is rejected.
+180. **The escape contract of `rt.ReleaseValues` and `ZeroValues`** (done, `10086fdc`; sections 18.3, 18.6;
+    found by the third adversarial review, program `review3/o14_drop_in_vec_of_owners_local`): the
+    escape analysis adds, after `rt.ReleaseValues(p, n)`, the drop of a `T` at `p`, so a `Drop` that keeps
+    its receiver is E3003 for elements in the frame. `ZeroValues` writes zeros and drops nothing, so it
+    keeps no effect. o14 stays in `knownEscapeGaps`, with a new reason: `vec` now drops its elements with
+    `clear`, the elements are in the heap, where a kept receiver is the generation checks' case, and the
+    one escape error the program gets is in `vec.p` (`AppendSeq`'s local), not in `main.p`. Tests:
+    `tests/escape/release_values_drops_frame_elements` and `accepted_release_values_keeping_no_frame_address`.
 196. **Allocators the race check does not follow** (planned; sections 19.4, 18.9; moved from item 140): an
     allocator reached other than through the variable itself or a field holding its address (one behind
     a parameter or a heap pointer, `alloc.Use` windows), and bulk calls seen by the race checks outside
@@ -1538,7 +1585,7 @@ compiler (2026-10-11).
     that starts a task or declares an interrupt handler gets a `main` that starts them: it installs each
     handler and calls each function nothing else in the block uses, and an entry's `main:` lines call one
     that takes parameters. Such a block builds as a program of its own; 19 blocks are built this way.
-    Known failures: 18, waiting on items 146, 148, 149, 168, 197 (3), 199, 201, 208, 214 (3),
+    Known failures: 16, waiting on items 148, 149, 168, 197 (3), 201, 208, 214 (3),
     215, 218 (2), 220 and 223. A block whose marked lines are errors of one program, not alternatives,
     has `together` in its entry and builds once, whole: every marked line must report its code and no
     other line any error (section 1.3; the 19.3 `type Counter struct {` block, D129). The 12 wrong spec examples were fixed with audit H
