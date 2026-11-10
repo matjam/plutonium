@@ -683,6 +683,32 @@ compiler (2026-10-11).
    func main() { var p *E; errors.As(root(0), &p); println(p.n) }
    ```
 
+146. **Views of a local with cleanup end at its scope** (planned; section 18.3, D42, finding A1 of the
+    [rulings](verification/2026-11-09-spec-rulings.md)): E3313 covers every local whose type has drop glue, not only owners, and its catalog text
+    says so.
+147. **Owner conversions and literals stay in the defining package** (planned; sections 7.13, 7.18, 8.11,
+    11.3, 11.24, D43, finding C1): E3212 for conversions to an owner type, a pointer to one or an owner
+    union outside its package, for pointer conversions from `*Owner`, and for literals of an owner struct
+    with an unexported field; widen the catalog text.
+152. **Arenas count their live counted objects** (planned; sections 18.8, 18.9, 17.1, F.2, abi.md 1.3,
+    D45, finding B1): one atomic counter per Fixed and Chunked arena, raised at each counted allocation
+    and lowered at its last release; `Reset`, `Release` and `Drop` panic with "arena has live counted
+    objects" while it is not zero.
+158. **Task exit mid-statement and inside `Drop`** (planned; section 17.3, abi.md 12.10, D51, finding B8):
+    `rt.ExitTask` drops operands already evaluated, and a `Drop` method it leaves still finishes the
+    object's field drops and free.
+159. **Count before release in `copy` and borrowed parameters** (planned; sections 13.2, 18.8, abi.md 3.3,
+    findings B10 and B18): check that `copy` counts the source before it releases the destination, and
+    that a first assignment to a borrowed string parameter releases nothing.
+160. **Variadic arrays release their counted elements** (planned; section 18.8, finding C7): the array that
+    holds a call's variadic arguments is frame storage whose counted elements are released at the end of
+    the statement.
+162. **Explicit nil checks in freestanding builds outside kernel mode** (planned; section 17.5, D56, finding
+    B21): one compare and branch before each dereference not proved non-nil.
+165. **Library invariants at panicking checks** (planned; sections 17.2, 18.12, D53, finding B9): review
+    `vec`, `hash`, `strings` and `bytes` so each type restores its invariants before every check that can
+    panic.
+
 ## Gaps the integrated specification defines (complete-spec section 6.5)
 
 73. **Order of evaluation** (done, gap 1, `f74c4a4`; section 11.26): calls, method calls, receives and
@@ -794,6 +820,14 @@ compiler (2026-10-11).
     exact destruction counts and native verification pass. The obsolete G44 block and allowlist
     entry are removed. See [verification](verification/2026-10-12-initialization-tasks.md).
 
+153. **Fixed arena bookkeeping from its own backing** (planned; section 18.9, F.2, abi.md 1.3, D54, finding
+    B2 of the [rulings](verification/2026-11-09-spec-rulings.md)): the table is sized from the arena's backing at creation; allocation fails when it is
+    full, and the parent is never asked again.
+154. **Arenas free in bulk only** (planned; section 18.9, F.2, abi.md 1.3, D46, finding B3): `Free` through
+    an arena reclaims nothing; remove the "arena allocation freed" panic and its epoch check.
+155. **Gate the cleanup write check on a flag** (planned; sections 15.4, 21.5, abi.md 12.10, D55, finding
+    B4): the store check runs only once package cleanup has started.
+
 ## Kernel enablement
 
 6. **Memory model** (done, `9723c79`; section 19.7, [memory-model.md](spec/memory-model.md)): packed
@@ -828,6 +862,12 @@ compiler (2026-10-11).
 55. **Interrupt context cannot wait** (done, `1fd3e85`, `662497a`; section 20.10): a whole-program check
     from every interrupt handler and the panic handler against blocking operations, conservative through
     interfaces and func values.
+
+161. **Safe x86 intrinsics** (planned; section 18.12, D56, finding B14 of the [rulings](verification/2026-11-09-spec-rulings.md)): `pluto vet -unsafe`
+    stops listing `x86.Pause`, `Cpuid`, `Rdtsc` and `Rdtscp`, and lists `//pu:export` functions (D50).
+163. **A handler's print does not wait on its own processor** (planned; sections 13.12, 20.10, D58, finding
+    B15): the console lock records its holder's processor, and an exception or NMI handler that finds its
+    own processor holding it drops its output.
 
 ## Concurrency
 
@@ -886,6 +926,11 @@ compiler (2026-10-11).
     section 12.6): a channel is a counted reference freed with its last reference. `time.NewTimer`,
     `NewTicker` and `AfterFunc` return `owned[Timer]` and `owned[Ticker]`, which stop and free the timer
     when dropped (section F.7, gap 19); nothing is freed by hand.
+
+156. **Interrupt handlers as race parties** (planned; section 19.3, memory-model.md 3.1, 4.1, 6.1, D52,
+    finding B6 of the [rulings](verification/2026-11-09-spec-rulings.md)): the race check treats handlers as parties from the first statement that may
+    install one or enable interrupts, and does not require locks for data no one writes while a handler
+    may run.
 
 ## Language
 
@@ -984,6 +1029,26 @@ compiler (2026-10-11).
     grows, `vec.Fixed` is bounded; `fmt.Appendf` replaces `Bprintf`; `make([]T, ...)` is E2014 (fix
     `vec.Make`). Item 83 removes the name from the predeclared scope.
 
+148. **Moves through type switches, assertions and conversions** (planned; sections 7.9, 11.13, 11.26, 12.9,
+    18.5, D44, findings C2 and A3 of the [rulings](verification/2026-11-09-spec-rulings.md)): a clause or assertion naming an ordinary interface lends
+    instead of moving; the operand is possibly moved after a switch where another clause moved it; a
+    moving conversion moves at the enclosing call or assignment.
+149. **Follow comma-ok `ok` through direct tests** (planned; sections 11.13, 18.5, D47, finding C3): the move
+    analysis knows `ok` on the branches of a direct test, and the E3302 message suggests `if !ok`.
+150. **An enum is not an integer type** (planned; sections 7.12, 11.24, D48, finding C4): `Shade(color)` and
+    the other enum-to-enum conversions are E2313; update the catalog text.
+151. **Defined union and packed types** (planned; sections 7.13, 7.14, 8.2, 10.8, D49, findings C5 and C6):
+    `type V U` for a union or packed `U` gets the variants or fields and layout, no methods, and explicit
+    conversion.
+157. **The C boundary refuses boxes** (planned; sections 20.4, 18.12, abi.md 9.1, D50, finding B7): E2511 for
+    `owned`, `shared`, `synced` and `weak` by value in `//pu:extern` and `//pu:export` signatures.
+164. **`owner` as a type parameter name** (planned; section 4.6, D57, finding A2): the parser takes `owner`
+    as the keyword only after the identifier list, before a constraint.
+166. **Conversion checks** (planned; sections 11.12, 11.24, findings C8, C10, C11, C12): E2019 for slicing a
+    type parameter with a string in its type set; packed types to and from byte arrays; `string(c)` only for
+    untyped integer or rune constants and `rune` constants; owner conversions need a valid conversion of
+    the underlying types.
+
 ## Tooling
 
 30. **`pluto fmt`** (done, `9015b55`): the formatter, from the forked printer; `TestFmtRepoFormatted`
@@ -1073,3 +1138,8 @@ compiler (2026-10-11).
     7.3 and F.6): `Truncate(s, n)` returns the longest prefix of at most `n` bytes that ends on a rune
     boundary, and `RuneStartBefore(s, i)` rounds a byte offset down to the start of a rune. The panic of
     `strings.Slice` off a rune boundary names them (item 104).
+167. **Conformance checks for the 2026-11-09 rulings** (planned; sections 18.9, F.2, F.3, F.6, 17.4,
+    debug-allocator.md, findings B12, B13, B16, B17 and B19 of the [rulings](verification/2026-11-09-spec-rulings.md)): tests that `alloc.Default()` is
+    nil only before `SetDefault` in a freestanding build, that the arena window follows the `Restore`'s
+    extent, that the panic buffer is 1024 bytes, that the library names in F.3 and F.6 exist, and that
+    the debug allocator registers generation tags.

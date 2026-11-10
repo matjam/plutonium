@@ -22,7 +22,9 @@ D12 to D30 record the owner's design decisions DD1 to DD19 of 2026-10-17 (the pl
 `plans/2026-10-17-review-design-decisions.md`), in that order. D31 to D35 record later
 review decisions of the same day, and D36 to D40 the owner's final decisions on the open
 questions about operating-system names, per-CPU access, interrupt gates, waiting for tasks and
-`time.AfterFunc`.
+`time.AfterFunc`. D41 records the kernel lifetime protection decisions of 2026-10-28. D42 to D58
+record the specification rulings of 2026-11-09 (`verification/2026-11-09-spec-rulings.md`); D42 to D46 are the
+user's decisions on audit findings A1, C1, C2, B1 and B3.
 
 ## D1. `errors.As` matches a counted error against a `*T` target (16.6, 16.7)
 
@@ -761,6 +763,229 @@ untag is noncanonical, so it faults instead of reading memory.
 
 Lands with: phase 0 (the rejection) and phase 1 (the encoding in abi.md section 1.3) of item 101. Phases 2 to
 4 follow the plan.
+
+## D42. A view of a local with cleanup ends at the local's scope (18.3, A.3)
+
+Question: audit A1. A view `&s` of a counted local could be used after the block that declares `s` ended and
+released it. E3313 named owners only.
+
+Decision (final, user, 2026-11-09): E3313 covers every local whose type has drop glue (an owner, a counted
+value, or a type with a counted or owner field). A view of such a local, or of memory it owns, may not be used
+after the local's scope ends, as after a move, drop or new value.
+
+Why: Rust-level safety without annotations. The compiler already tracks block ends to run drops, so the rule
+needs no annotation and adds no run-time cost.
+
+Lands with: section 18.3 and appendix A.3; roadmap item 146.
+
+## D43. Owner conversions and owner literals are limited to the defining package (7.13, 7.18, 8.11, 11.3, 11.24)
+
+Question: audit C1. A conversion to an owner type, or a literal of one, could forge an owner in another package.
+
+Decision (final, user, 2026-11-09): a conversion whose result is an owner type, a pointer to one, or an owner
+union is valid only in the package that defines the result type (E3212). A conversion between owner types
+defined from each other is valid only in the package of the defined type. A pointer conversion from `*Owner`
+to a non-owner pointer type is limited the same way. A struct literal of an owner type in another package is
+valid only if every field is exported (keyed or not); exported variants of an owner union are public in the
+same way.
+
+Why: an owner's invariant (one live owner, one drop) is the defining package's promise. The audit's broader
+exception for operands defined from the result type would let any package forge an owner in two steps.
+
+Lands with: the sections named above; roadmap item 147.
+
+## D44. A type-switch clause or assertion to an ordinary interface lends (7.9, 11.13, 12.9, 18.5)
+
+Question: audit C2. Whether a type switch on an owning interface moves the operand in a clause that names an
+ordinary interface.
+
+Decision (final, user, 2026-11-09): a clause that names a single ordinary interface type binds a view lent from
+the operand and does not move it. An assertion from an owning interface to an ordinary interface lends the
+same way. After the switch the operand is possibly moved if any clause moved it (E3302 on later use).
+
+Why: an ordinary interface is a view kind; moving into it would lose the drop obligation. Lending keeps the
+common "does it implement Stringer" test free of moves.
+
+Lands with: the sections named above; roadmap item 148.
+
+## D45. An arena counts its live counted objects (18.8, 18.9, 13.7, 16.7, 17.1, 17.6, 21.5, F.2, abi.md 1.3, memory-model.md 3.8)
+
+Question: audit B1. A string, box, map, channel or error allocated in an arena could outlive a `Reset`,
+`Release` or `Drop` of the arena through a count held elsewhere.
+
+Decision (final, user, option a, 2026-11-09): each Fixed and Chunked arena keeps a live count of the counted
+objects allocated in it. `Reset`, `Release` and `Drop` panic with "arena has live counted objects" while the
+count is not zero. `Release` checks the whole count. The manual `arena.NewUnsafe` arena keeps no count.
+
+Why: safety without a borrow checker. The cost is one atomic counter per arena and one atomic increment and
+decrement per counted object allocated in an arena; plain values pay nothing. The check stays in unchecked mode
+because it guards a free, not an access.
+
+Lands with: the sections named above; roadmap item 152.
+
+## D46. An arena takes memory back in bulk only (18.9, F.2, abi.md 1.3)
+
+Question: audit B3. `Free` of an arena's latest allocation reclaimed it, which needed a per-allocation epoch
+check and a panic.
+
+Decision (final, user, 2026-11-09): an arena reclaims memory only through `Reset`, `Release` and `Drop`.
+`Free` through an arena allocator reclaims nothing, and the "arena allocation freed" panic is removed.
+
+Why: one reclaim path keeps the epoch rule simple and the check cheap; a stack-like `Free` saved little.
+
+Lands with: the sections named above; roadmap item 154.
+
+## D47. The comma-ok move is followed through direct tests of `ok` (11.13, 18.5, 7.13)
+
+Question: audit C3. After `v, ok := x.(T)` from an owning interface, whether `x` is moved on the paths where
+`ok` is false.
+
+Decision: the compiler follows `ok` only through direct tests: an `if` condition that is `ok`, `!ok`, or a
+chain of `&&` or `||` with one of these as an operand, with no assignment to `ok` in between. On a branch where
+the condition fixes `ok`, `x` is moved when `ok` is true and still holds its value when it is false. On any
+other path `x` is possibly moved (E3302).
+
+Why: ordinary code needs no annotation, and the rule stays local and predictable.
+
+Lands with: the sections named above; roadmap item 149.
+
+## D48. An enum type is not an integer type (7.12, 11.24)
+
+Question: audit C4. Whether the integer conversion rules apply between enum types.
+
+Decision: an enum type is not an integer type for conversions. A conversion between two enum types, or a
+constant that is not a member in the comma-ok form, is E2313. An enum converts to and from its integer type
+as section 7.12 says.
+
+Why: no false friends. In Go an enum is an integer, so the difference is listed in appendix A.
+
+Lands with: sections 7.12 and 11.24; roadmap item 150.
+
+## D49. Defined union and packed types (7.13, 7.14, 8.2, 10.8)
+
+Question: audits C5 and C6. What `type V U` means when `U` is a union or packed type, and the underlying type of
+a type constructor instance.
+
+Decision: `type V U` declares a new union or packed type with `U`'s variants or fields and layout and none of
+its methods. `V` and `U` convert explicitly. A defined union or packed type and each instance of a type
+constructor is its own underlying type.
+
+Why: Go-familiar. It is how a defined struct type behaves.
+
+Lands with: the sections named above; roadmap item 151.
+
+## D50. The C boundary refuses boxes by value (20.4, 18.12, abi.md 9.1)
+
+Question: audit B7. C could copy or keep a counted box passed by value, which breaks its count.
+
+Decision: `owned[T]`, `shared[T]`, `synced[T]` and `weak[T]` are errors as by-value parameters and results of
+`//pu:extern` and `//pu:export` functions (E2511). A program passes `unsafe.Pointer(b)` and keeps the box alive.
+Behind a pointer, C may read a box but not copy or store it. Functions marked `//pu:export` are unsafe code
+for `pluto vet -unsafe`.
+
+Why: C cannot keep a count or run a drop. `owned` is included because C cannot drop it either.
+
+Lands with: the sections named above; roadmap item 157.
+
+## D51. A task exit mid-statement or inside `Drop` (17.3, abi.md 12.10)
+
+Question: audit B8. What `rt.ExitTask` does to operands already evaluated, and to a `Drop` method it passes
+through.
+
+Decision: operands already evaluated are dropped as on a return from the enclosing statement; an owner moved
+into a call in progress belongs to the callee. A `Drop` method that `rt.ExitTask` leaves still finishes its
+object's field drops and free, so no task ends inside a drop.
+
+Why: every owner is dropped exactly once on every exit path.
+
+Lands with: section 17.3 and abi.md 12.10; roadmap item 158.
+
+## D52. Interrupt handlers follow Rules 1 to 3; the init exemption ends at the first handler (19.3, memory-model.md 3.1, 4.1, 6.1)
+
+Question: audit B6. The handler sentence required atomics or locks for all shared data, which is stricter than
+Rules 1 to 3, and the init exemption did not say when handlers start.
+
+Decision: data a handler accesses while other code may write it, or writes while other code may access it,
+must be atomic or guarded by an `rt.Lock` (unless per-CPU). Data not written while a handler may run needs
+neither. The package initialization exemption ends at the first statement that may install a handler or enable
+interrupts (`x86.Sti`, `x86.RestoreFlags`).
+
+Why: one race rule for tasks and handlers; read-only tables in kernels need no lock.
+
+Lands with: the sections named above; roadmap item 156.
+
+## D53. Library state at a panic (17.2, 18.12)
+
+Question: audit B9. What state deferred calls see when a check panics inside a library operation, and whether
+an `rt.Lock` held at a panic is released.
+
+Decision: no deferred calls run while an `rt.Lock` is held, because a runtime lock disables preemption
+(abi.md 12.4, 12.5); 17.2 already decided this and now says so by name. The standard library's types, and every
+type that wraps unsafe code, restore their invariants before each check that can panic, so deferred calls see
+consistent state. A held `sync.Mutex` stays locked until a deferred `Unlock` runs.
+
+Why: safe code must not observe a broken invariant through a deferred call.
+
+Lands with: sections 17.2 and 18.12; roadmap item 165 (library review).
+
+## D54. A Fixed arena's bookkeeping lives in its own backing (18.9, F.2, abi.md 1.3)
+
+Question: audit B2. Whether a Fixed arena may ask its parent for bookkeeping memory.
+
+Decision: a Fixed arena sizes its bookkeeping table from its own backing and never allocates from the parent
+after creation. Allocation fails (nil, or the allocation-failure panic of the caller) when the table is full.
+
+Why: a Fixed arena is the kernel's bounded allocator; it must not allocate behind the program's back.
+
+Lands with: the sections named above; roadmap item 153.
+
+## D55. The cleanup write check is gated on a flag (15.4, 21.5, abi.md 12.10)
+
+Question: audit B4. The write check for static objects with cleanup obligations ran on every store for the
+whole program.
+
+Decision: the check runs only after package cleanup has started, gated on a program-wide flag. Its cost, one
+load and branch per store that may reach such an object, is listed in 21.5, and unchecked mode keeps it.
+
+Why: performance near Rust; the check matters only during cleanup.
+
+Lands with: the sections named above; roadmap item 155.
+
+## D56. Safe x86 intrinsics and explicit nil checks for freestanding builds (18.12, 17.5)
+
+Question: audits B14 and B21. Whether every x86 intrinsic is unsafe, and how a freestanding build outside
+kernel mode catches a nil dereference with no guard page.
+
+Decision: `x86.Pause`, `Cpuid`, `Rdtsc` and `Rdtscp` are safe. A freestanding build outside kernel mode checks
+nil explicitly before each dereference it cannot prove non-nil (one compare and branch).
+
+Why: these intrinsics touch no memory or processor state a program relies on; the nil panic is a promise
+every build keeps.
+
+Lands with: sections 18.12 and 17.5; roadmap items 161 and 162.
+
+## D57. `owner` as a type parameter name (4.6)
+
+Question: audit A2. Whether `[owner any]` declares a parameter named `owner`.
+
+Decision: in a type parameter declaration `owner` is the keyword only after the identifier list and before a
+constraint. `[owner any]` declares a parameter named `owner`.
+
+Why: a contextual keyword must not take a name a Go user would write.
+
+Lands with: section 4.6; roadmap item 164.
+
+## D58. A handler's print may drop its output; the panic buffer is 1024 bytes (13.12, 20.10, 17.4)
+
+Question: audits B15 and B16. A print in an exception or NMI handler could wait forever on the console lock its
+own processor holds, and the panic message limit was not stated.
+
+Decision: a `print` in an exception or NMI handler that interrupts a `print` on its own processor drops its
+output. A panic message is cut after 1024 bytes with no marker, possibly inside a UTF-8 sequence.
+
+Why: suitable for the kernel. A handler must not deadlock on output. The limit matches the runtime.
+
+Lands with: the sections named above; roadmap item 163.
 
 ## Deferred
 
