@@ -158,6 +158,9 @@ rules below like a task (see Interrupt handlers). The **main task** runs package
 (in a loop, or in a function that may be called more than once) may start several tasks that run the
 same code at once. Package initialization, which may not start a task (section 15.2, Panics and tasks), and
 the part of `main` before the first statement that may start a task, run while no other task exists.
+No handler is a party during that time either, until the first statement that may install an interrupt
+handler (section 20.10) or enable interrupts (`x86.Sti`, `x86.RestoreFlags`), whichever comes first. From
+that statement on, writes are checked against the handlers like writes in any task.
 
 **Accesses and locks.** For each task the compiler collects what it reads and writes, in its own code and
 in every function it calls (a call through an interface or func value reaches every function that could
@@ -308,9 +311,11 @@ it shares them, and maps of types that never cross, need no lock.
 
 **Interrupt handlers.** Each interrupt handler the program installs (section 20.10) is a party that may run
 at any point where interrupts are enabled, on any processor, and on several processors at once. Rules 1 to 3
-apply with handlers as parties, and the errors name the handler as the party (E3502, E3503). Data that a
-handler accesses, other than per-CPU variables (section 20.9), must be atomic or guarded by an `rt.Lock`,
-which the guard inference recognizes as it recognizes a `sync.Mutex`. A `volatile[T]` access, and an
+apply with handlers as parties, and the errors name the handler as the party (E3502, E3503). So data that
+a handler accesses while other code may write it, or that a handler writes while other code may access it,
+must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable (section 20.9). Data that is
+not written while a handler may run, such as a table filled before the first handler is installed, needs
+neither. The guard inference recognizes an `rt.Lock` as it recognizes a `sync.Mutex`. A `volatile[T]` access, and an
 interrupt-disabled region, exclude only code on the same processor, so alone they satisfy the rules only for
 per-CPU variables. An allocator has no exemption: its state is data like any other, and when a handler can
 reach its `Alloc` or `Free`, the state they share with other code meets these rules (for example per-CPU

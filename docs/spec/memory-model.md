@@ -93,7 +93,9 @@ each read observing the latest write to its location before it in that order.
 Package initialization runs in one task, the main task, which then calls `main`. Initializing a package
 is sequenced before initializing any package that imports it, and all initialization is sequenced before
 `main` starts (language spec section 15.3, Program initialization). Initialization starts no task
-(language spec section 15.2, Package initialization), so no other task exists while it runs.
+(language spec section 15.2, Package initialization), so no other task exists while it runs. No
+interrupt handler is a party until the first handler is installed or interrupts are enabled (language
+spec section 19.3).
 
 ### 3.2 Starting a task
 
@@ -243,9 +245,15 @@ concurrent use (`alloc.Slab` without a lock, an `arena.Arena`) may be used by on
 which is why every task starts with the program-wide default allocator, never with an override that the
 starting task installed with `alloc.Use` (language spec section 19.1, Tasks).
 
-An arena takes its memory back only in bulk, through `Reset`, `Release` or `Drop`. Strings and counted
-boxes made in an arena are dropped before the arena takes back their memory, since dropping one writes its
-count (language spec section 18.9).
+An arena takes its memory back only in bulk, through `Reset`, `Release` or `Drop`. Counted objects made in
+an arena (strings, boxes, maps, channels and allocated errors) must be released before the arena takes back
+their memory, since releasing one writes its count. `arena.Fixed` and `arena.Chunked` make this hold: each
+keeps an atomic count of its live counted objects, and `Reset`, `Release` and `Drop` panic while the count
+is not zero (language spec section 18.9). A counted object may be released in another task than the one
+that uses the arena. That release changes only the arena's count, with an atomic decrement, and the
+decrement that brings the count to zero is synchronized before the `Reset`, `Release` or `Drop` that reads
+it. So a task that still holds a string made in another task's arena keeps the arena from taking back its
+bytes, and the owner of the arena panics instead of reusing them.
 
 In a checked build, freeing heap memory gives it a new generation, and taking arena memory back
 ends the incarnation of the reclaimed allocations (language spec section 18.11, Generation checks).
@@ -307,7 +315,8 @@ task and an interrupt handler, could make conflicting accesses that are not orde
 
 - an owner moved from one task to another, which only the receiving task can then reach;
 - memory that does not change while shared, such as a package variable written only during package
-  initialization or by `main` before it starts its first task;
+  initialization or by `main` before it starts its first task, installs its first interrupt handler or
+  enables interrupts;
 - data that every access reads or changes with `pluto/sync/atomic` operations;
 - data guarded by a lock that every access holds, the lock being inferred by the compiler: a package
   variable (rule 1 of language spec section 19.3), an object reached through a pointer that crosses to
@@ -433,8 +442,8 @@ An interrupt handler (`//pu:interrupt`, language spec section 20.10) is asynchro
 interrupts. Same-processor instruction sequencing alone does not publish ordinary variables kept in
 registers or permit unprotected plain sharing. The following protocols define visibility:
 
-- Data that a handler shares with other code is accessed with atomic operations or under an `rt.Lock`
-  (language spec section 19.3, Interrupt handlers), because a handler may run on any processor and on
+- Data that a handler shares with other code, while either side may write it, is accessed with atomic
+  operations or under an `rt.Lock` (language spec section 19.3, Interrupt handlers), because a handler may run on any processor and on
   several at once. Volatile accesses and interrupt-disabled regions exclude only code on the same
   processor, so they are the checked protocol only for per-CPU data (section 6.4). Volatile operations keep their
   specified compiler ordering. For same-processor sharing, eligible accesses completed before handler

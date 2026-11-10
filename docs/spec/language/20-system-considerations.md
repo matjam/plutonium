@@ -348,9 +348,8 @@ These rules apply to the signature of every `//pu:extern` and `//pu:export` func
 - A call of `rt.ExitTask` that would leave a `//pu:export` function panics at the boundary (section 17.3),
   and a panic ends the program as everywhere else (section 17.4).
 - The types that may appear in parameters and results are integers, enum types (as their underlying
-  integer), `uintptr`, `bool`, `float32` and `float64`, pointers and `unsafe.Pointer`, `owned`, `shared`,
-  `synced` and `weak` references (which cross as the address of the object), and structs of these, with
-  arrays as fields. `volatile[T]` and `aligned[T, N]` with `N` at most 8 cross
+  integer), `uintptr`, `bool`, `float32` and `float64`, pointers and `unsafe.Pointer`, and structs of
+  these, with arrays as fields. `volatile[T]` and `aligned[T, N]` with `N` at most 8 cross
   as `T`. A packed type crosses as its storage.
 - Strings, slices, interfaces, func values, maps, channels, rings and unions have no C type and are errors in a
   by-value parameter or result, including inside structs. Pass `unsafe.StringData(s)` and `len(s)`
@@ -358,6 +357,12 @@ These rules apply to the signature of every `//pu:extern` and `//pu:export` func
   struct that contains slices may be shared with C, with the layout of section 20.2; one that contains
   strings may be read by C but not copied or stored by it, because a copy would hold a reference that the
   string's count does not know about.
+- `owned`, `shared`, `synced` and `weak` references are errors in a by-value parameter or result for the
+  same reason, including inside structs: C cannot keep a count, drop an owner or check a generation, so a
+  reference that C kept or returned would be one that no count knows about. Pass `unsafe.Pointer(b)`, a
+  view of the object (section 11.24), and keep the box on the Plutonium side for as long as C may use the
+  address. Behind a pointer, a struct that contains boxes may be read by C but not copied or stored by
+  it, as with strings.
 - Arrays as a whole parameter or result, zero-size types, types aligned to more than 8 bytes and variadic
   functions are errors; so are generic functions.
 - All of these are reported at the declaration even if nothing calls the function (E2511). `//pu:extern`
@@ -657,7 +662,7 @@ E2603.
 
 Exceptions and nonmaskable interrupts are not held off by an interrupt gate, and no region excludes them.
 That remains a contract of the kernel: a handler for one of them must not use data that the code it
-interrupts may be changing. It is a plain function with a body (not a method, not generic) and no results, with one
+interrupts may be changing. A `print` in such a handler may drop its output (section 13.12). It is a plain function with a body (not a method, not generic) and no results, with one
 parameter, the address of the interrupt frame, or two, the frame and the error code. The frame parameter
 may be any pointer type, `unsafe.Pointer` or `uintptr`, and the error code is `uint64` or `uintptr`.
 Handlers for the exceptions that push an error code take two parameters, and all others take one; the

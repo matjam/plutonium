@@ -108,8 +108,10 @@ belong to someone else. This makes `copy` the way to fill an array or a vector t
 `copy(buf[:], s)` replaces the conversion `[]byte(s)`, which does not exist (section 11.24, Conversions).
 
 If the elements are of a counted type (a string, a `shared[T]`, a `synced[T]`, a channel or a map), each
-copy is a copy of a counted value: the reference the destination element held is released, and the source's
-is counted (section 18.7, Shared ownership). If the elements are owners, `copy` is a compile error
+copy is a copy of a counted value: the source's reference is counted first, and then the reference the
+destination element held is released, as in an assignment (section 12.7), so a copy between overlapping
+slices, or onto an element that holds the last reference to the same object, frees nothing in use
+(section 18.7, Shared ownership). If the elements are owners, `copy` is a compile error
 (E3306): it would make a second owner of every element. Move the elements one by one, or use the container
 type's `Clone` (section 18.5, Moves).
 
@@ -292,8 +294,9 @@ map, `n` is only a hint: the precise behavior is not specified, and the map stil
 call returns the first reference to a new channel or map; copying it counts another, and the object is
 freed to its allocator when the last reference goes (section 18.7, Shared ownership). The allocator is
 recorded in the object, so freeing goes to the allocator the object came from, whichever is the default
-at the time. A map made in an arena needs no release: the arena takes its memory back when it is reset or
-dropped.
+at the time. A map or channel made in an arena is released like any other, and the
+arena counts it as a live counted object until then: `Reset`, `Release` and `Drop` of the arena panic
+while it is referenced (section 18.9, Arenas).
 
 A map literal allocates a map from the current allocator. A map in a package-level initializer is subject
 to the rule of section 15.2 (Package initialization).
@@ -544,7 +547,10 @@ other tasks or processors never mix their output within the statement. Its piece
 written together when the statement ends. A statement whose output is longer than the runtime's buffer is
 written in several pieces, which still do not mix with another statement's. In kernel mode the statement
 also masks interrupts on its processor while it runs, so an interrupt handler may print (section 20.10,
-Interrupts), and the console function runs with them masked and must not wait for another task. The
+Interrupts), and the console function runs with them masked and must not wait for another task. Masking
+does not hold off an exception or a nonmaskable interrupt, so a handler for one of them may interrupt a
+`print` on its own processor. Its `print` then does not wait for the statement it interrupted, which could
+never finish: the handler's output is dropped. On another processor it waits as usual. The
 message of a panic bypasses this mechanism, so that a panic can always report itself (section 17.4).
 
 Nothing in these functions allocates. They are documented for use during bootstrapping and in the panic

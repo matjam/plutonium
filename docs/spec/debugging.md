@@ -437,7 +437,7 @@ that `go tool pprof` and other pprof viewers read with the executable for its sy
 - `StartAllocProfile(rate)` and `StopAllocProfile(name)` sample allocations through the default
   allocator (`rt.SetDefaultAllocator`), one sample each time another `rate` bytes have been allocated
   (512 KiB by default), so a sample stands for `rate` bytes. Allocations through an allocator a task
-  chose with `UseAllocator` are not seen.
+  chose with `alloc.Use` are not seen.
 
 The stacks of a profile are lists of code addresses (`rt.CallerPCs`); `rt.PCFrames` turns an address
 into its function, file and line and the calls inlined at it, which the profile records as the lines of a

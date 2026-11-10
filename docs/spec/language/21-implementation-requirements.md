@@ -160,6 +160,17 @@ another arena. This applies to hosted and kernel encodings; safe exhaustion hand
 issuing an incarnation that could match a stale view (section 18.11;
 abi.md section 1.3).
 
+Package cleanup adds one check of its own: a typed write to a static place whose cleanup has finished is a
+run-time panic (section 15.4). It runs only once cleanup has started. Before that, a store that may reach a
+static object with a cleanup obligation tests one program-wide flag, a load and a branch; a store the
+compiler proves cannot reach one has no test. The unchecked mode keeps this check, since it guards owners
+and counts and not freed memory.
+
+An `arena.Fixed` or `arena.Chunked` counts its live counted objects, and its `Reset`, `Release` and `Drop`
+panic while the count is not zero (section 18.9, Arenas). The cost is one atomic counter per arena and one
+increment and one decrement per counted object made in it. The unchecked mode keeps this check too: without
+it a reset could free the bytes of a string another task still reads, which no epoch check can catch.
+
 The implementation provides a tool that lists unsafe code (section 20.1, Package `unsafe`): for each
 package, the functions that use unsafe code, and the safe functions that call them (`pluto vet -unsafe`).
 

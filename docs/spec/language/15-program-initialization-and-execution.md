@@ -322,6 +322,14 @@ static object containing no owned or counted resources is unaffected. Unsafe raw
 retain their existing obligations. Compiler mandatory zeroing is part of cleanup, not a prohibited
 program write.
 
+The write check runs only once package cleanup has started. Before that, no place is cleaned, so a typed
+store that may reach static storage tests one program-wide flag, set when cleanup starts, and does nothing
+more while it is clear. After it is set, such a store compares its address with the bounds of the static
+objects that have a cleanup obligation and with cleanup progress. A store the compiler knows reaches no
+static object with a cleanup obligation, such as a store to a local variable or through a view of the heap
+the compiler can follow, needs no test. The cost in ordinary execution is one load and one predictable
+branch per store that may reach such an object (section 21.5, Run-time checks and the unchecked mode).
+
 Starting a task or scheduling an application callback during package cleanup is a run-time panic,
 including through a helper or destructor. Operand evaluation retains its ordinary order; a failed start
 does not transfer ownership of its arguments. Runtime services needed for synchronous cleanup remain

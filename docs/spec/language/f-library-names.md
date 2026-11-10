@@ -95,7 +95,7 @@ type Allocator interface {
 	Free(p unsafe.Pointer, size, align uintptr)
 }
 
-func Default() Allocator       // the current default allocator, or nil
+func Default() Allocator       // the current allocator; nil before SetDefault in a freestanding or kernel build
 func SetDefault(a Allocator)   // replace the program-wide default
 func Use(a Allocator) Restore  // install a for the calling task until the Restore ends
 
@@ -118,15 +118,19 @@ unchecked layer that owner types are written with (section 20.1).
 
 `arena.NewFixed(capacity uintptr, parent alloc.Allocator = alloc.Default()) Fixed` explicitly allocates
 private fixed-capacity backing. `Fixed` is a movable owner; it never grows its payload and returns its
-backing on drop. `arena.Chunked` grows by taking chunks from its parent allocator. Freeing into an
-arena ordinarily does nothing, except that the latest allocation may be reclaimed; `Reset` reclaims everything.
+backing on drop; its allocation bookkeeping comes out of that backing, sized when it is constructed, so an
+allocation never asks the parent for more and fails when the table is full. `arena.Chunked` grows by
+taking chunks from its parent allocator. An arena takes memory back in bulk only: freeing into it takes
+nothing back, and `Reset`, `Release(m)` and `Drop` reclaim. Both count their live counted objects, and
+`Reset`, `Release` and `Drop` panic while the count is not zero (section 18.9, Arenas).
 An arena's `New[T]()` and `Slice[T](n)` methods return views that live until the arena takes their
 memory back. Fixed and Chunked ordinary APIs enforce that lifetime statically or, in a checked build,
 at runtime (sections 18.9 and 18.11). Direct raw allocation and unsafe pointer access retain their
 manual lifetime obligations (section 18.12). `arena.NewUnsafe(buf []byte) Arena` is a borrowed-buffer
 manual allocator. Its constructor and typed allocation/reclamation methods are explicit unsafe
-operations; it preserves the caller's buffer and owns no private payload. No arena is safe for
-unsynchronized simultaneous use by several tasks.
+operations; it preserves the caller's buffer and owns no private payload, and it keeps no count of live
+counted objects. No arena is safe for unsynchronized simultaneous use by several tasks, except that the
+release of a counted object made in a `Fixed` or `Chunked` arena may happen in any task.
 
 ### F.3 Iterators and containers
 
@@ -155,7 +159,10 @@ forms, not on the constraints; the constraints give generic code a name for a co
 `pluto/vec` has the growable owner `vec.Vec[T]`, created by `vec.New[T]`, by `vec.Make[T](n)` (an owner
 of `n` zero elements) and by `vec.WithCapacity[T](c)` (an empty one with room for `c`), each with an
 optional allocator. It has the methods `Push`, `Append`, `Insert`, `Replace`, `AppendSeq`, `Len`, `Slice`
-(which lends the elements as a slice) and `Truncate`, and the iterators `All`, `Values` and `Backward`,
+(which lends the elements as a slice), `Ptr(i)` (a view of element `i`), `Pop` (the last element and whether
+there was one) and `Remove(i)` (which take an element out, moving it to the caller), `Clone` (an explicit
+copy with an optional allocator, when `T` is not an owner) and
+`Truncate`, and the iterators `All`, `Values` and `Backward`,
 which read the length once when the loop starts. `vec.Fixed[T]` is a bounded vector over a caller's array
 (`vec.NewFixed(buf[:])`), which never allocates and records what did not fit. `vec.Appender[T]` is the
 constraint that both satisfy, and `vec.AppendString` appends a string's bytes. `hash.Map[K, V]` is the
@@ -215,6 +222,11 @@ package utf8
 
 func RuneStartBefore(s string, i int) int // rounds the byte offset i down to the start of a rune
 ```
+
+`strings.Builder` is an owner that builds a string in memory it holds. Its zero value is ready to use
+with the task's allocator, and `Init(a)` gives it an allocator. It is an `io.Writer`, `Bytes` lends what
+it holds as a slice, and `String` returns a counted string of it, with each byte that does not begin a
+valid UTF-8 sequence replaced by U+FFFD.
 
 They are the replacements for the conversions and the string slice expression that Plutonium removes
 (appendix A, section A.2). The compiler lowers `Slice` and `SliceFrom` inline, to the checks of section 7.3

@@ -128,6 +128,12 @@ The ordinary language contract prevents stale use statically or diagnoses it at 
 reaches a retained protected page, or changed bytes are found during poison/canary inspection. Its
 retained records can also describe where the block was allocated and freed.
 
+Like every allocator, the debug allocator registers a generation tag for each allocation in the shared
+metadata directory and retires it at `Free` (abi.md section 1.3, Generation tags and arena epochs). In a
+checked build a stale access through a view therefore panics with "use of freed memory" (section 17.6)
+before it reaches a protected page. The fault below is what such an access does when the checks are off
+(`--gencheck=false`), or when unsafe code uses an untagged pointer.
+
 Freeing fills the allocation with `PoisonByte` (`0xDD`) and, for a page-guarded block, makes its pages
 inaccessible. An access to those pages faults while that protection remains, before reuse:
 

@@ -67,6 +67,9 @@ dependent value and neither panics nor faults (section 11.24).
   `alloc.SetDefault`; an allocation with a nil allocator argument; an allocator that returns no memory
   ("out of memory"). These are `new`, `make`, the operations that make strings, and the allocating
   functions of the standard library (sections 13.7, 13.9 and 18.9).
+- `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked` while a counted object made in it
+  (a string, a box, a map, a channel or an allocated error) is still referenced, in any task ("arena has
+  live counted objects"; section 18.9, Arenas). The arena takes nothing back.
 
 *Control.*
 
@@ -131,8 +134,15 @@ process(items)          // panics on bad input
   deferred calls on the faulting task's own stack. No deferred calls run after a stack overflow, which
   leaves no stack to run them on, after a heap error that the debug allocator reports or a stop by
   `rt.Abort` or `rt.PanicFault` (after which the program's state is not to be trusted), while the task has
-  preemption disabled (it holds a runtime lock or is inside the scheduler, where a deferred call could
-  wait for good), or outside any task (a scheduler's own context).
+  preemption disabled (it holds a runtime lock such as an `rt.Lock`, abi.md section 12.4, or is inside the
+  scheduler, where a deferred call could wait for good), or outside any task (a scheduler's own context).
+  A panic while an `rt.Lock` is held therefore goes to the handler with no deferred calls, and the data the
+  lock guards is never seen half changed by them.
+- **Library state.** A deferred call may use an object that the panicking code was changing, such as a
+  `vec.Vec` or a map reached from an outer frame, since inner frames do nothing as the panic passes. The
+  standard library's types, and any type that wraps unsafe code (section 18.12), restore their invariants
+  before every check that can panic, so a deferred call sees them in a valid state. A `sync.Mutex` that
+  the panicking frames hold stays locked until a deferred `Unlock` runs.
 - **A panic in a deferred call** that runs for a panic goes straight to the panic handler: the deferred
   calls after it do not run. The new panic's `rt.Panic.During` points to the first. The built-in handler
   prints both messages, then the trace of the second panic through the deferred call into the frames where
@@ -166,6 +176,14 @@ not a panic: no handler is called, and other tasks are not affected.
 - **In the task that runs `main`.** `main` does not return. Its deferred calls run, the other tasks go on,
   and once none of them is left, or all of them wait for good, the program ends with a fatal error ("main
   called rt.ExitTask") and status 2 (section 15.4, Program execution).
+- **Mid-statement.** Operands that the statement containing the call has already evaluated, such as the
+  result of `make1()` in `f(make1(), g())` when `g` calls `ExitTask`, are dropped as on a return from that
+  statement, before the frame's variables. An owner already moved into a call in progress belongs to the
+  callee's frame, which drops it as it leaves.
+- **In a `Drop` method.** `ExitTask` in a `Drop` method, or in a function it calls, leaves the method
+  through its return path, and the drop of that object then finishes: its remaining fields are dropped and
+  its memory is freed, as after any return of `Drop` (section 18.6). Only then do the outer frames leave.
+  No object is left half dropped.
 - **Scopes.** A frame that holds a `sync.Scope` joins its tasks as it leaves, as on any return
   (section 19.4, Scoped tasks), so `ExitTask` needs no extra step for them.
 - **Tests.** The testing package ends a test that fails with `FailNow`, `Fatal` and `Fatalf`, and one that
@@ -235,7 +253,7 @@ func (p *Panic) PrintTrace[W rt.Writer](w W) // the stack trace alone
 (section 13.12, Bootstrapping). The methods are generic so that a writer of a known type is called
 directly: a call through the `rt.Writer` interface counts, for the check of section 20.10, as calling
 every writer the program has. For the same reason a hosted handler writes to `rt.Console{}` rather than to
-`os.Stderr`. The message lives in a buffer of the runtime and is cut when it is longer than that buffer; the size of the buffer is not specified. Printing the trace reads the trace table and the stack, so nothing allocates. Since a panic
+`os.Stderr`. The message lives in a buffer of the runtime of 1024 bytes and is cut after its first 1024 bytes, which may end in the middle of a UTF-8 sequence; nothing marks the cut. Printing the trace reads the trace table and the stack, so nothing allocates. Since a panic
 does not unwind, the stack the trace describes is still there while the handler runs, with the deferred
 calls having run below it (section 17.2).
 
@@ -291,7 +309,10 @@ that unmapped region (a field at a large offset, or an element of a large array 
 to it), the compiler checks the pointer explicitly before the access. A slice of an array through a
 pointer is checked explicitly as well, however small the array: forming the slice computes its base
 address but reads no memory, so no fault would report the nil. Ordinary accesses therefore cost no check,
-and no nil dereference reads or writes memory.
+and no nil dereference reads or writes memory. A freestanding build outside kernel mode has no such
+promise, since its target may map address zero and may have no handler to turn a fault into a panic: there
+the compiler checks the pointer explicitly before every dereference, at the cost of a compare and a branch
+per access that it cannot prove non-nil.
 
 **Divide errors.** An integer division by zero is checked before the hardware sees it and panics as
 section 17.1 says. A divide error that the hardware reports anyway (from assembly or unsafe code) becomes a
@@ -327,8 +348,9 @@ println(*first)               // panic: use of freed memory
 ```
 
 A use is a read, a write, or a drop that updates a count. Dropping a string or a counted box whose memory
-an arena has taken back is a use, since the drop changes its count. A string made in an arena between
-`m := a.Mark()` and `a.Release(m)` must go out of scope before the `Release`.
+an arena has taken back is a use, since the drop changes its count. An `arena.Fixed` or `arena.Chunked`
+keeps this from happening: its `Reset`, `Release` and `Drop` panic while a counted object made in it is
+still referenced (section 18.9, Arenas), so a string made in the arena must be released before any of them.
 
 The panic for arena memory names the call that ended the arena's epoch, such as `Reset`.
 

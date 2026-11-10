@@ -207,9 +207,9 @@ with `Unwrap() error` or `Unwrap() []error`, in a preorder walk.
   tree of `err` whose dynamic type is assignable to `E`, stores it in `*target`, and reports `true`; it
   reports `false` if there is none. The call `errors.As(err, &perr)` works without reflection, with `E`
   inferred from the type of `target`.
-  A counted `shared[T]` or `synced[T]` error also matches a `*T` target; the pointer stored in
+  A counted `synced[T]` error also matches a `*T` target; the pointer stored in
   the target borrows the object and remains valid while the counted error is held (section 16.7).
-- `errors.AsType[E error](err error) (E, bool)` returns the first error in the tree that `errors.As` would store in a target of type `E`, and whether there was one. A counted `shared[T]` or `synced[T]` error therefore matches `E = *T`, and the result borrows the object as for `As` (section 16.7).
+- `errors.AsType[E error](err error) (E, bool)` returns the first error in the tree that `errors.As` would store in a target of type `E`, and whether there was one. A counted `synced[T]` error therefore matches `E = *T`, and the result borrows the object as for `As` (section 16.7).
 
 ```go
 package main
@@ -262,7 +262,8 @@ that refers to it goes, and no code releases it by hand.
    `synced` reference that it holds. Copying the interface increments the count. Dropping it, or
    overwriting it, decrements the count. At zero the error's `Drop` runs, which drops the errors it wraps,
    and the memory is freed to the allocator recorded in the object (section 18.7, Shared ownership). In an
-   arena, freeing does nothing and the arena reclaims the memory when it is reset.
+   arena, freeing takes no memory back; it lowers the arena's count of live counted objects, and the arena
+   reclaims the memory when it is reset (section 18.9, Arenas).
 3. Every other error value copies as a value: codes, sentinels, and errors that live in a field of an owner.
    Whether an `error` value is counted is a property of its dynamic type, so a program whose errors are
    only codes, as a kernel's are, pays nothing beyond one predictable test when it copies or drops a
@@ -270,7 +271,8 @@ that refers to it goes, and no code releases it by hand.
 4. `%w` copies the wrapped error into the wrapper (count plus one). A wrapper keeps what it wraps alive,
    and the caller's own copy is released when it goes out of scope.
 5. There is no `errors.Free`. Errors made under an arena (`defer alloc.Use(&a).Restore()`) are freed
-   into the arena, and `a.Reset()` reclaims them.
+   into the arena when their last reference goes, and `a.Reset()` then reclaims them. A `Reset` while one
+   is still referenced panics (section 18.9, Arenas).
 6. A program's own error type that needs heap storage is allocated with `alloc.Synced[MyErr]()` and
    returned as an `error`. An owner converted to `error` directly is only lent (section 7.9), so returning
    it is the compile error of section 18.3 (E3001). A value whose type is not sendable (section 8.8,

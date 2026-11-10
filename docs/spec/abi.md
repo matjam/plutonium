@@ -332,9 +332,10 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   backing allocation's identity. Allocations start on a granule, so each granule in the arena's table
   belongs to one allocation. The arena's current epoch, taken from a
   noncolliding incarnation source in the range `0x8000` to `0xffff`, goes into the granules
-  of each allocation and the tag of its pointer. `Reset`, `Release`, `Drop` and a `Free` of the latest
-  allocation zero the granules they take back (no pointer has tag 0) and end the epoch: the next
-  allocation takes a new one, so a stale pointer does not match the memory once it is handed out again.
+  of each allocation and the tag of its pointer. `Reset`, `Release` and `Drop` zero the granules they take
+  back (no pointer has tag 0) and end the epoch: the next allocation takes a new one, so a stale pointer
+  does not match the memory once it is handed out again. An arena takes memory back in bulk only: `Free`
+  takes back nothing, not even the latest allocation, and ends no epoch (language spec section 18.9).
   Incarnation history survives arena destruction and reuse of its backing, since a new arena may
   receive a dropped arena's addresses. No modulo wrap may make a stale pointer match a later
   incarnation. Before exhaustion, the implementation retires affected storage or widens the
@@ -347,7 +348,18 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   Registration must preserve caller payload, requested alignment, backing identity and the validity
   of still-live prefix allocations after a partial release. The fixed arena's metadata layout need
   not be the Chunked layout; its storage and ownership must follow the explicit allocation contract
-  rather than silently using caller payload or a different payload allocator.
+  rather than silently using caller payload or a different payload allocator. A `Fixed` sizes its
+  bookkeeping table from its own backing when it is constructed, as part of the one backing request to
+  its parent, with room for the largest number of allocations its payload capacity can hold. It takes
+  no record from the parent per allocation, so allocation, `Reset` and `Release` never call the parent,
+  and an allocation fails, without advancing the cursor, when the table is full.
+- **Live counted objects.** A `Fixed` and a `Chunked` each hold one atomic word, the number of live
+  counted objects (strings, boxes, maps, channels and allocated errors) in their memory. When the
+  runtime allocates such an object from an arena it tells the arena so, the arena records it in the
+  allocation's bookkeeping entry and adds one; the `Free` of an allocation so recorded subtracts one,
+  from whichever task released the last reference. Other allocators are not told. `Reset`, `Release` and `Drop` load the word with acquire ordering and panic with "arena
+  has live counted objects" when it is not zero, before taking anything back (language spec section
+  18.9). The cost is the word and one atomic add per counted object at each end of its life.
 - **Disjoint ranges.** A stale arena pointer into memory a slab now uses, or a stale slab pointer into
   an arena chunk, never matches.
 - **Counted strings and boxes.** A string's control word (section 1.1) keeps the tag of its buffer, and
@@ -356,8 +368,7 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   and the allocators otherwise only remove tags.
 - **Panics.** A failed check calls `pluto/rt.panicStale`: "use of freed memory" for a slab tag;
   "use of memory from an arena that was reset at F (file:line)" for an arena tag, naming the call that
-  last took back memory of that epoch (`rt.EpochEnded` records it); "use of freed memory: an arena
-  allocation freed at F (file:line)" when that was a `Free`.
+  last took back memory of that epoch (`rt.EpochEnded` records it).
   The recorded site identifies the reclaimed address and incarnation together. The same numeric
   tag at an unrelated address must not replace the origin of a stale pointer's diagnostic.
 
@@ -502,7 +513,9 @@ order. The callee writes the results there and returns nothing in registers; unl
 not hold the buffer address on return.
 
 **Strings across calls.** A string argument is borrowed: the caller keeps its buffer alive for the
-call, and the callee takes a reference only for a copy it keeps. A string result carries one reference,
+call, and the callee takes a reference only for a copy it keeps. Assigning to the parameter does not
+release the borrowed value; the compiler tracks whether the parameter still holds it (a flag, or a path
+known at compile time) and releases only a value the callee counted. A string result carries one reference,
 which passes to the caller (language spec section 18.8).
 
 ### 3.4 Examples
@@ -854,7 +867,7 @@ the internal ABI already passes a signature exactly as System V does (every para
 bytes, a float or a pointer, and at most one such result), the call is an ordinary internal-ABI call and
 an export is a second symbol on the same code, as before. Otherwise lowering classifies the signature:
 
-- **Type mapping.** Integers, enum types, `uintptr`, pointers, `unsafe.Pointer` and `owned`/`shared`/`synced`/`weak` map to
+- **Type mapping.** Integers, enum types, `uintptr`, pointers and `unsafe.Pointer` map to
   the C integer or pointer type of the same size; `bool` is C `_Bool` (1 byte); `float32` and `float64` are
   `float` and `double`; structs and arrays inside structs are laid out as in section 1, which matches C
   for these members. `volatile[T]` and `aligned[T, N]` (N at most 8) are `T`. A packed type crosses as its
@@ -880,7 +893,9 @@ an export is a second symbol on the same code, as before. Otherwise lowering cla
   parameter.
 - **Rejected,** at the declaration, even if nothing calls it (language spec section 20.4; E2511 unless
   noted): `string` and slices (no C type; pass
-  `unsafe.StringData(s)` or `unsafe.SliceData(b)` and the length), interfaces, func values (a func value
+  `unsafe.StringData(s)` or `unsafe.SliceData(b)` and the length), `owned`, `shared`, `synced` and
+  `weak` (C cannot keep a count or drop an owner; pass `unsafe.Pointer(b)` and keep the box on the
+  Plutonium side), interfaces, func values (a func value
   points at a closure record, not at code), maps, channels, rings and unions (their layout is not part of the
   ABI; pass a struct of a tag and the payload), anywhere in a by-value parameter or result,
   including inside structs; arrays as a whole parameter or result (C cannot pass them by value; wrap them
@@ -1563,7 +1578,11 @@ resource-bearing place, including aliases, scalar fields and zero writes, with a
 mandatory zeroing remains part of cleanup. The check precedes old-value
 release or ownership transfer. Completed fields/elements are protected while their enclosing object
 is still being finalized. Metadata is bounded by the compiler-known static objects and types; no
-application heap allocation or general ownership tracing is introduced by this bookkeeping.
+application heap allocation or general ownership tracing is introduced by this bookkeeping. The check is
+gated by one program-wide flag, `rt.cleanupStarted`, which the runtime sets before the first package
+cleanup glue runs. A typed store that may overlap a static object with a cleanup obligation loads the flag
+and branches past the bounds and progress comparison while it is clear; a store the compiler proves cannot
+reach such an object has no test. Before cleanup the cost is that load and branch.
 
 Runtime scheduler, timer, poller, allocator and reporting facilities remain usable until their clients
 finish. Backend-specific queued application work must be retired before package cleanup; essential
@@ -1587,12 +1606,14 @@ return and does not enter this schedule (language spec section 17.3).
 of every last release of a `shared` or `synced` object (before its drop, until its memory is returned), and
 `rt.dropEnd` at the end; the runtime does the same around the free of a string's buffer. `rt.Task.drops`
 counts the drops a task is inside, and a global count the tasks that are inside one once tasks have
-started (`rt.taskMain` uncounts a task that leaves one with `rt.ExitTask`). This bookkeeping does not
+started. A drop that `rt.ExitTask` passes through still finishes its field drops and reaches its
+`rt.dropEnd` (language spec section 17.3), so no task ends inside a drop. This bookkeeping does not
 substitute for full task retirement at normal termination. The main task may park with the reason
 `exit` (`rt.WaitExit`) while ended tasks complete their retirement; a program without tasks carries no
 scheduler solely for shutdown. `os.Exit` and `rt.Exit` do not perform that retirement or package cleanup.
-A `sync.Scope` that moves while tasks it started may run stops the program (`rt.joinMoved`, which the
-compiler calls before any move of a value that holds a `Scope`).
+Moving a `Scope` on which the function calls `Task` is error E3405 (language spec section 19.4). A
+`sync.Scope` that moves while tasks it started may run, where the compiler cannot see it, stops the
+program (`rt.joinMoved`, which the compiler calls before any move of a value that holds a `Scope`).
 
 Wait reasons in a deadlock trace: `sync.Scope.Wait` for a task parked in `Wait` or a drop, and `exit` for
 `main` waiting for ended tasks to retire at normal termination.
