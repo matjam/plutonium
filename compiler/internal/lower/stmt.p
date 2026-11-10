@@ -738,9 +738,10 @@ func (s *fnState) callsFunction(e ast.Expr) bool {
 
 // rangeString iterates over the runes of a string.
 func (s *fnState) rangeString(st *ast.RangeStmt, label *types2.Label) {
-	// The string is evaluated once and must stay alive for the loop. An
-	// untyped constant takes the type string.
-	str := s.hold(s.materialize(s.exprAs(st.X, types2.Typ[types2.String])))
+	// The string is evaluated once and the loop holds its own count of it
+	// until the loop ends, even of a variable the body assigns (language
+	// spec section 12.10). An untyped constant takes the type string.
+	str := s.holdOwned(s.materialize(s.exprAs(st.X, types2.Typ[types2.String])))
 	ptr, n := s.stringParts(str)
 	keyLV := s.rangeVar(st, st.Key)
 	valLV := s.rangeVar(st, st.Value)
