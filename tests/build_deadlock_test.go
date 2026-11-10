@@ -101,9 +101,9 @@ func waitGroup() {
 
 func condition() {
 	mu2 := sync.Mutex{}
-	c := sync.Cond{L: &mu2}
+	var c sync.Cond
 	mu2.Lock()
-	c.Wait()
+	c.Wait(&mu2)
 }
 
 func main() {

@@ -81,9 +81,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - `vec`, `hash`, `strings` and `bytes` may not restore their invariants before every check that can panic (17.2,
   18.12). Item 165.
 - A closure region does not yet run drop glue for every captured variable with cleanup (11.5, 18.8). Item 169.
-- `sync.NewCond` still returns a `*Cond` from `alloc.New` that the caller frees with `alloc.Free`, `Cond` still
-  has an `L` field, and `Wait` takes no lock; F.5 makes `Cond` a value whose zero value is ready, with
-  `Wait(l Locker)`. Item 197.
 - `Once.Do` does not release its lock when `f` ends its task with `rt.ExitTask`, so later calls of `Do` on that
   Once wait for good; F.5 says the next `Do` runs its own function. Item 218.
 - A large owner lent to an ordinary interface does not yet give a data word that points at the variable (7.9,

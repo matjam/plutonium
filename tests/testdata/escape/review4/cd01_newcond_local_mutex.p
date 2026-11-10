@@ -1,20 +1,33 @@
 package main
 
 import (
-	"unsafe"
+	"pluto/alloc"
 	"pluto/sync"
+	"unsafe"
 )
 
 var keep *int
 
 func kept() unsafe.Pointer { return unsafe.Pointer(keep) }
 
-var gc *sync.Cond
+// condLock is what sync.NewCond built before sync.Cond became a value
+// (roadmap item 197): an object from alloc.New that keeps the lock its
+// Wait releases.
+type condLock struct {
+	l Locker
+	c sync.Cond
+}
+
+type Locker = sync.Locker
+
+var gc *condLock
 
 //pu:noinline
 func f() {
 	var mu sync.Mutex
-	gc = sync.NewCond(&mu)
+	c := alloc.New[condLock](alloc.Default())
+	c.l = &mu
+	gc = c
 }
 
 //pu:noinline

@@ -800,16 +800,15 @@ known: 218: the race check has no rule for sync.Once, so its E3502 names the wri
 known: 214: memory owned by a static object is not yet part of its field, so Push's writes of buf's storage in vec's realloc are E3502 though l.mu is held
 
 == 19-concurrency.md 19.3 | // peekWait keeps a view across a call that may release q.mu.
-known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so q.nonEmpty.Wait(&q.mu) does not compile
+known: 214: a view of guarded memory used after its lock is released is not yet E3501, so the use of p after q.waitNonEmpty() is not an error
 
 == 19-concurrency.md 19.3 | // par runs the loop body in a scoped task.
 known: 223: summaries do not record a call of yield on another party, so the Unlock in the loop body is not an error
 
 == 19-concurrency.md 19.3 | type Job struct{ id int }
-known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so nonEmpty.Wait(&mu) does not compile
 
 == 19-concurrency.md 19.3 | // second keeps a pointer into names across a Wait.
-known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so ready.Wait(&mu) does not compile
+known: 214: a view of guarded memory used after its lock is released is not yet E3501, so the use of p after ready.Wait is not an error
 
 == 19-concurrency.md 19.3 | type Counter struct {
 together

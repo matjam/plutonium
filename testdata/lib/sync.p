@@ -70,7 +70,7 @@ func useOnce() {
 // A queue guarded by a mutex and a condition variable.
 var (
 	qmu    sync.Mutex
-	qcond  = sync.Cond{L: &qmu}
+	qcond  sync.Cond
 	queue  [16]int
 	qn     int
 	closed bool
@@ -82,7 +82,7 @@ func consume() {
 	for {
 		qmu.Lock()
 		for qn == 0 && !closed {
-			qcond.Wait()
+			qcond.Wait(&qmu)
 		}
 		if qn == 0 && closed {
 			qmu.Unlock()
@@ -101,7 +101,7 @@ func produce(n int) {
 	for i := 1; i <= n; i++ {
 		qmu.Lock()
 		for qn == len(queue) {
-			qcond.Wait()
+			qcond.Wait(&qmu)
 		}
 		queue[qn] = i
 		qn++

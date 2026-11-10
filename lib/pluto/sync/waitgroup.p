@@ -1,7 +1,6 @@
 package sync
 
 import (
-	"pluto/alloc"
 	"pluto/rt"
 	"pluto/sync/atomic"
 )
@@ -96,34 +95,43 @@ func (o *Once) doSlow(f func()) {
 }
 
 // A Cond is a condition variable: a point at which tasks wait for, or
-// announce, an event. L is held while the condition is checked and
-// changed, and Wait releases it while it waits.
+// announce, an event. Its zero value is ready to use. The lock passed to
+// Wait is held while the condition is checked and changed, and Wait
+// releases it while it waits. A Cond must not be copied.
 type Cond struct {
-	L  Locker
 	mu rt.Lock
 	q  waitQueue
 }
 
-// NewCond returns a Cond using l, allocated from a (by default the default
-// allocator); free it with alloc.Free.
-func NewCond(l Locker, a alloc.Allocator = alloc.Default()) *Cond {
-	c := alloc.New[Cond](a)
-	c.L = l
-	return c
-}
-
-// Wait unlocks c.L, parks until Signal or Broadcast wakes it, and locks
-// c.L again before it returns. As in Go, the caller must check its
-// condition in a loop.
-func (c *Cond) Wait() {
+// Wait unlocks l, parks until Signal or Broadcast wakes it, and locks l
+// again before it returns. As in Go, the caller must check its condition
+// in a loop. The task must hold l for writing. Wait makes every check that
+// may panic before it unlocks l, so it returns, or ends by a panic, only
+// with l locked.
+func (c *Cond) Wait(l Locker) {
+	if l == nil {
+		fail("sync: Cond.Wait with a nil Locker")
+	}
+	switch m := l.(type) {
+	case *Mutex:
+		if atomic.LoadUint32(&m.state)&mutexLocked == 0 {
+			fail("sync: unlock of unlocked mutex")
+		}
+	case *RWMutex:
+		if atomic.LoadInt32(&m.readerCount) >= 0 {
+			fail("sync: Unlock of unlocked RWMutex")
+		}
+	case *rlocker:
+		fail("sync: Cond.Wait needs a lock held for writing, not an RLocker")
+	}
 	var w waiter
 	w.t = self()
 	c.mu.Lock()
 	c.q.push(rt.Pinned(&w)) // popped before this task is readied
 	c.mu.Unlock()
-	c.L.Unlock()
+	l.Unlock()
 	rt.ParkReason(rt.WaitCond)
-	c.L.Lock()
+	l.Lock()
 }
 
 // Signal wakes one task waiting on c, if there is one. It never

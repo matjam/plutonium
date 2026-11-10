@@ -104,11 +104,11 @@ type Chunked owner struct { _ unexported }  [owner (moves)]
   func (a *Chunked) Free(p unsafe.Pointer, size, align uintptr)
   func (a *Chunked) Held() int
   func (a *Chunked) Mark() ChunkMark
-  func (a *Chunked) New[T any]() *T
+  func (a *Chunked) New[T owner any]() *T
   func (a *Chunked) Release(m ChunkMark)
   func (a *Chunked) Reset()
   func (a *Chunked) SetPoison(on bool)
-  func (a *Chunked) Slice[T any](n int) []T
+  func (a *Chunked) Slice[T owner any](n int) []T
   func (a *Chunked) Trim()
   func (a *Chunked) Used() int
 type Fixed owner struct { _ unexported }  [owner (moves)]
@@ -119,16 +119,17 @@ type Fixed owner struct { _ unexported }  [owner (moves)]
   func (a *Fixed) Drop()
   func (a *Fixed) Free(p unsafe.Pointer, size, align uintptr)
   func (a *Fixed) Mark() FixedMark
-  func (a *Fixed) New[T any]() *T
+  func (a *Fixed) New[T owner any]() *T
   func (a *Fixed) Release(m FixedMark)
   func (a *Fixed) Reset()
-  func (a *Fixed) Slice[T any](n int) []T
+  func (a *Fixed) Slice[T owner any](n int) []T
   func (a *Fixed) Used() int
 type FixedMark struct { _ unexported }  [value]
   // FixedMark belongs to one Fixed and a still-live allocation position.
 type Mark struct{ _ unexported }  [value]
   // A Mark records how much of an arena is in use; see Arena.Mark.
 func NewChunked(chunkSize uintptr = DefaultChunkSize, parent alloc.Allocator = alloc.Default()) Chunked
+func NewChunkedUnsafe(chunkSize uintptr = DefaultChunkSize, parent alloc.Allocator = alloc.Default()) Chunked
 func NewFixed(capacity uintptr, parent alloc.Allocator = alloc.Default()) Fixed
 func NewUnsafe(buf []byte) Arena
 ```
@@ -441,11 +442,11 @@ func Values[K, V any](seq Seq2[K, V]) Seq[V]
 Package sync provides mutual exclusion locks, wait groups, one-time initialisation and condition variables, as Go's sync package does (language spec section F.5, memory-model.md section 3.4).
 
 ```
-type Cond struct { L Locker; _ unexported }  [view]
+type Cond struct { _ unexported }  [view]
   // A Cond is a condition variable: a point at which tasks wait for, or announce, an event.
   func (c *Cond) Broadcast()
   func (c *Cond) Signal()
-  func (c *Cond) Wait()
+  func (c *Cond) Wait(l Locker)
 type Locker interface { Lock(); Unlock() }  [view]
   // A Locker represents an object that can be locked and unlocked.
 type Mutex struct { _ unexported }  [view]
@@ -476,7 +477,6 @@ type WaitGroup struct { _ unexported }  [view]
   func (wg *WaitGroup) Done()
   func (wg *WaitGroup) Task(f func())
   func (wg *WaitGroup) Wait()
-func NewCond(l Locker, a alloc.Allocator = alloc.Default()) *Cond
 ```
 
 ## pluto/sync/atomic
