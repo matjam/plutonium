@@ -331,10 +331,13 @@ task and an interrupt handler, could make conflicting accesses that are not orde
 - memory that does not change while shared (freeing or moving it, replacing or dropping an owner that
   holds it, or a `Reset`, `Release` or `Drop` of an arena that takes it back, is a change), such as a package variable written only during package
   initialization or by `main` before it starts its first task, installs its first interrupt handler or
-  enables interrupts;
+  enables interrupts, and a static object that a package-level initializer created, which nothing frees
+  or moves while tasks run, whose changing fields are atomic or guarded (rule 2 of language spec section
+  19.3);
 - data that every access reads or changes with `pluto/sync/atomic` operations;
 - data guarded by a lock that every access holds, the lock being inferred by the compiler: a package
-  variable and the memory it owns (rule 1 of language spec section 19.3), an object reached through a
+  variable and the memory it owns (rule 1 of language spec section 19.3), with a view loaded from that
+  memory, or from memory a `synced[T]` object owns, used only while the lock is held (rule 2), an object reached through a
   pointer that crosses to another task, or that a task loads from a package variable, from the object of
   a `synced[T]` or from a map (a crossing too, language spec section 19.2), whose changing fields are guarded by a lock of the same object or a package-level lock
   (rule 2), and the object of a `synced[T]` or the contents of a map that several tasks use (rule 3).

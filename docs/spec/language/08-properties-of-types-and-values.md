@@ -494,7 +494,12 @@ Following the structure of the types:
 function that sends it (section 18.3, Views; E3004, E3005), and every view it contains points to memory that
 cannot change while both tasks may use it, or where every change is synchronized; freeing the memory,
 replacing or dropping an owner that holds it, or a `Reset`, `Release` or `Drop` of an arena that takes it
-back, is a change. Section 19.2 (The sendable
+back, is a change. Every change is synchronized when every access, by every task, holds one lock, and the
+view is used only while that lock is held: so a task may load a view of the storage of a `vec.Vec`,
+`hash.Map` or `strings.Builder` in a package variable or a `synced[T]` object while it holds the lock
+that guards it, but not keep the view past the `Unlock`. A static object that a package initializer
+created, such as the `File` that `os.Stdout` points to, is never freed while tasks run, so only the
+changes to its fields need synchronizing. Section 19.2 (The sendable
 rule) states the rule at the places where values cross, and section 19.3 states which memory is safe and which
 error (E3501) reports the rest.
 

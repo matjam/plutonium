@@ -208,7 +208,10 @@ which returns the `x86.Gate` (a table is an array of `Gate`; `x86.Lidt` loads it
   other code may touch it, must be atomic or guarded by an `rt.Lock`, except per-CPU variables (a `sync.Mutex`
   cannot be taken in a handler: E2584). Data nobody writes while a handler may run, such as a table filled before
   the first handler is installed, needs neither. `volatile` alone and disabling
-  interrupts exclude only the same processor. A race is E3502 or E3503 naming the handler.
+  interrupts exclude only the same processor. A race is E3502 or E3503 naming the handler. A pointer a handler
+  loads from a package variable, a `synced` object or a map crosses to it from the first handler install or
+  interrupt enable, before any task starts: what it points to must not be freed while the handler may run
+  (a static object, a guarded or atomic field, a `synced` object), or it is E3501.
 - To hand work to normal code, send without waiting: `select { case work <- item: default: /* full */ }`.
 - Format text in a handler with `fmt.Appendf` or `strconv.Append...` into a `vec.Fixed[byte]` over an array; those
   never allocate.

@@ -306,8 +306,13 @@ func main() {
   variable, a per-CPU variable, a `synced` object or a map, also inside an interface or func value; section 19.2).
   So `p = &*b; task reader(); b = new(Node)` is E3501 when `reader` reads `p`: the drop frees what `p` points to. It must point to synchronized memory
   (`sync`/`atomic` values, channels, a struct of only those), a package variable nobody writes after tasks start,
-  a `synced` object, or a struct whose fields are never overwritten once shared, atomic, or guarded by one lock
-  of the same object. Otherwise E3501 names a write that could race.
+  a **static object** (`var Stdout = &File{...}` in a package initializer, never moved or overwritten, with
+  atomic or guarded changing fields; dropping some other `File` does not count, so `fmt.Println` from any task
+  is fine), a `synced` object, **memory a package variable or `synced` object owns, used only while its guard is
+  held** (a package-level `vec.Vec`, `hash.Map` or `strings.Builder` under one mutex is fine; a pointer from
+  `items.Ptr(i)` kept past `Unlock`, returned from a function that unlocks, stored, sent or captured is E3501),
+  or a struct whose fields are never overwritten once shared, atomic, or guarded by one lock of the same object.
+  Otherwise E3501 names a write that could race.
 - **Rule 3, `synced[T]` objects and maps.** Every field some code changes must be atomic or guarded by a lock of
   **the same object** (a field of `T`): a lock in the container that holds the `synced` references, such as the
   `Bank` that owns a map of accounts, does not guard the accounts (E3502). Give the record its own mutex, take

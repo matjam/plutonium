@@ -724,7 +724,10 @@ installed, needs neither. A `sync.Mutex`
 cannot be taken in a handler (E2584). `volatile[T]` alone, and an interrupt-disabled region alone, exclude
 only the same processor, so they satisfy the rules only for a per-CPU variable, accessed as section 20.9
 describes (memory-model.md section 6.1). Volatile supplies neither mutual exclusion nor compound-operation
-atomicity. The race errors (E3502, E3503) name the handler as the party. To hand work to normal code, a
+atomicity. The race errors (E3502, E3503) name the handler as the party. A pointer or other view that a
+handler loads from a package variable, a `synced[T]` object or a map crosses to the handler from the first
+statement that may install a handler or enable interrupts, whether or not a task has started (section
+19.2), so what it points to must be safe by rule 2 of section 19.3 (E3501). To hand work to normal code, a
 handler sends without waiting:
 
 ```go

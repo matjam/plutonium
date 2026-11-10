@@ -121,7 +121,8 @@ A value **crosses** to another task when it is
   view: a load from a package variable (a per-CPU variable included), from the object of a `synced[T]`,
   or from the contents of a map, or from memory reached through one of those, crosses to the task that
   loads it. The load counts in the task's own code and in every function it calls, an atomic load
-  included, once a task other than the main task may run. A value that holds a view is a pointer, a slice,
+  included, once a task other than the main task, or an interrupt handler, may run (section 19.3, The
+  tasks). A value that holds a view is a pointer, a slice,
   an interface, a func value, a method value, or a struct, array or union that holds one of them. An interrupt handler that loads such a value is a party in the same way
   (section 19.3, Interrupt handlers).
 
@@ -173,7 +174,8 @@ same code at once. Package initialization, which may not start a task (section 1
 the part of `main` before the first statement that may start a task, run while no other task exists.
 No handler is a party during that time either, until the first statement that may install an interrupt
 handler (section 20.10) or enable interrupts (`x86.Sti`, `x86.RestoreFlags`), whichever comes first. From
-that statement on, writes are checked against the handlers like writes in any task.
+that statement on, writes are checked against the handlers like writes in any task, and a view that a
+handler loads crosses to it (section 19.2), whether or not a task has started.
 
 **Accesses and locks.** For each task the compiler collects what it reads and writes, in its own code and
 in every function it calls (a call through an interface or func value reaches every function that could
@@ -400,8 +402,37 @@ loads from one, wherever the view was stored. The memory must be:
   channel, or a struct of only those (`task worker(&wg)` with a package-level `wg`);
 - a package variable, or part of one, including the memory it owns (rule 1), that no task writes once
   tasks have started. Replacing, dropping or moving an owner the variable holds writes the memory it
-  owns (Frees are writes, above);
+  owns (Frees are writes, above). This case also covers a **static object**: an object that a
+  package-level initializer creates as a composite literal whose address it takes (`var Stdout =
+  &File{fd: 1}`), so that it lives in static storage (section 18.2), and that no code moves, drops or
+  overwrites as a whole once tasks have started. Nothing frees static storage, and its cleanup runs only
+  in package cleanup, after the tasks have ended (section 15.4), so the free condition of the type rule
+  below does not apply to it: a drop, free, move or overwrite of another object of the same type does
+  not count. A static object may change, but each of its fields or elements must meet the field
+  conditions of the type rule: it never changes once tasks have started, or it is used only atomically,
+  or only under one lock of the same object or one package-level lock. The compiler names the target of
+  a `take(p)` or an assignment `*p = v` as it names a lock, by where the
+  pointer came from; one it cannot name counts as a move of every static object of the type. A static
+  object stays static when code assigns a new pointer to the package variable that refers to it: the
+  assignment is a write of the variable under rule 1, so once tasks have started it needs the variable's
+  guard or an atomic store, and a task that loaded the old pointer may go on using the old object. A
+  task that loads the variable after that gets the new object, which must be safe for it by its own
+  case;
 - the object of a `synced[T]` (rule 3);
+- memory that a package variable owns (rule 1), or that the object of a `synced[T]` owns through owners
+  that hold one another, when every access to that memory, by every task and through every view of it,
+  holds the guard inferred for it (Guards, above; a write holds it for writing), and the view is used
+  only where a guard of that memory is held. The guard of a package variable is the one rule 1 infers,
+  and the guard of a `synced[T]` object is the lock of the same object that rule 3 infers. A lock held
+  around a call counts inside the callee, so `items.Push(x)` between `mu.Lock()` and `mu.Unlock()` may
+  load the backing slice of a package-level `vec.Vec`; `hash.Map` and `strings.Builder` are used the
+  same way. A use of the view where no guard is held, on some path, is error E3501. That includes a view
+  used after `Unlock`, or returned to a caller that uses it after the callee unlocks. A copy of the view
+  whose uses the compiler cannot follow counts as used with no lock held: one stored anywhere but in
+  memory that the same guard guards, sent on a channel, passed to a task, captured by a function literal
+  that is not called where it is written, or held in a method value. An argument of a deferred call is
+  used when the call runs, at the end of the function, so it holds the guard only if the guard is still
+  held there (a `defer mu.Unlock()` written before it runs after it);
 - an object of a struct type that satisfies the **type rule**: no code overwrites a whole object of the
   type through a pointer, or frees, drops or moves one (or replaces or drops an owner that holds one) once
   tasks have started, and each field either never changes once an object is shared, or is used only
@@ -415,10 +446,11 @@ loads from one, wherever the view was stored. The memory must be:
   task could still use it: such an object is shared as the object of a `synced[T]`, whose last release
   frees it after every use (rule 3), or handed over by moving its owner.
 
-A pointer to, or slice of, anything other than a struct crosses only in the first three cases. Anything
+A pointer to, or slice of, anything other than a struct crosses only in the first four cases. Anything
 else is error E3501, which names a write that could change the memory while the other task uses it. The
 fixes: pass a copy of the value; move an owner (a `vec.Vec` instead of a slice) so that only the receiver
-has it; or keep the shared data where rules 1 and 3 guard it.
+has it; or keep the shared data where rules 1 and 3 guard it, and use views of it only while the guard
+is held.
 
 ```go
 type Config struct{ n int }
@@ -476,6 +508,83 @@ func run(done chan bool) {
 }
 ```
 
+A container in a package variable under one lock is the common case of guarded owned memory. Here every
+access to `items`, and to the storage it owns, holds `mu`. `Push` loads the backing slice from that
+storage, which is a crossing, and uses it only inside the call, where `mu` is held:
+
+```go
+// items and the storage it owns are guarded by mu.
+var (
+	mu    sync.Mutex
+	items vec.Vec[int]
+)
+
+func add(x int, done chan bool) {
+	mu.Lock()
+	items.Push(x) // allowed: Push uses the backing slice while mu is held
+	mu.Unlock()
+	done <- true
+}
+
+func start(done chan bool) {
+	for i := 0; i < 4; i++ {
+		task add(i, done)
+	}
+}
+```
+
+A view that outlives the guard is the error. Here `first` returns a pointer into the storage after its
+deferred `Unlock` has run, and `Push` in another task may move the elements and free that storage:
+
+```go
+// first lets a pointer into items escape its lock.
+var (
+	mu    sync.Mutex
+	items vec.Vec[int]
+)
+
+func first() *int {
+	mu.Lock()
+	defer mu.Unlock()
+	return items.Ptr(0)
+}
+
+func grow() {
+	mu.Lock()
+	items.Push(1)
+	mu.Unlock()
+}
+
+func read() {
+	p := first()
+	println(*p) // error: E3501, p points into items and is used after mu is released
+}
+
+func start() {
+	task grow()
+	task read()
+}
+```
+
+A static object needs no lock to be reached. `os.Stdout` points to a `File` that the package initializer
+of `pluto/os` created, so every task may print through it, even while other tasks drop the files they
+opened. The `File` fields that change are used atomically:
+
+```go
+func work(name string, done chan bool) {
+	if f, err := os.Open(name); err == nil {
+		f.Close() // f is dropped at the end of the if: another File, which does not count
+	}
+	fmt.Println("done with", name) // allowed: os.Stdout points to a static File
+	done <- true
+}
+
+func start(done chan bool) {
+	task work("a", done)
+	task work("b", done)
+}
+```
+
 **Rule 3: synced objects and maps.** Every task that holds a reference to a `synced[T]` may use its
 object, so every field of `T` that some code changes must be guarded by a lock of the same object, or
 used only atomically, with the errors of rule 1 (E3502, E3503). Writes that initialize the object before
@@ -502,8 +611,8 @@ a handler accesses while other code may write it, or that a handler writes while
 must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable (section 20.9). Data that is
 not written while a handler may run, such as a table filled before the first handler is installed, needs
 neither. A pointer that a handler loads from such a table crosses to the handler (section 19.2), so the
-device record it points to is safe by rule 2: a package variable no party writes, or an object whose type
-satisfies the type rule. The guard inference recognizes an `rt.Lock` as it recognizes a `sync.Mutex`. A `volatile[T]` access, and an
+device record it points to is safe by rule 2: a package variable no party writes, a static object, or an
+object whose type satisfies the type rule. The guard inference recognizes an `rt.Lock` as it recognizes a `sync.Mutex`. A `volatile[T]` access, and an
 interrupt-disabled region, exclude only code on the same processor, so alone they satisfy the rules only for
 per-CPU variables. An allocator has no exemption: its state is data like any other, and when a handler can
 reach its `Alloc` or `Free`, the state they share with other code meets these rules (for example per-CPU
