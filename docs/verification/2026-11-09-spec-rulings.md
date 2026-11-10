@@ -297,6 +297,8 @@ Each edit was attacked with a program that might slip past it.
   frees the object while A may use it: E3501. Closed.
 - I1, a map: `var m map[int]owned[Node]`; a task takes `&*m[k]` under the map's guard and uses the
   pointer after another task deletes the entry, which drops the node. The map contents follow rule 3, and the loaded pointer crosses: E3501. Closed.
+  Corrected by audit J (R1): `owned[Node]` is not a legal map element, so this program does not reach the
+  race check. The attack is redone with legal maps under "Rulings on audit J".
 - I1, a `shared[T]` package variable copied by two tasks: before, no rule covered the count. Now E2010.
   Closed.
 - I1, a handler table filled during initialization with `&devs[i]` (package memory) and with heap records
@@ -364,6 +366,136 @@ By design, and so not a gap: a wait behind an interface, a func value, a hook or
 non-migrating region compiles and panics at run time (D97); a spin loop not marked `//pu:blocking` is not
 caught (D98).
 
+## Rulings on audit J
+
+The audit is [2026-11-09-spec-audit-j.md](2026-11-09-spec-audit-j.md).
+
+| Finding | Ruling | Goal | Sections changed (or deciding) | Compiler change |
+|---|---|---|---|---|
+| J1 | Resolved. Rule 2 gets a fourth case: memory a package variable owns, or that a `synced[T]` object owns through owners that hold one another, may be reached through a crossing view when every access holds the inferred guard (a write for writing) and the view is used only where a guard is held, on every path. A use with no guard held is E3501, including a view returned by a function that unlocks first. A copy whose uses cannot be followed counts as used with no lock; a deferred call's argument is used at the end of the function (D102). | Go, Plain, Safe | 19.3 (rule 2, two new examples), 8.8, A, memory-model.md 4.1; skill concurrency | Yes. Item 214. |
+| J2 | Resolved. Rule 2 case 2 covers static objects: made by a composite literal whose address a package-level initializer takes, in static storage (18.2), and not moved, dropped or overwritten as a whole once tasks start. The free condition does not apply; the field conditions do. The compiler names the target of `take(p)` and `*p = v` by where `p` came from; one it cannot name makes every static object of the type not static. Reassigning the package variable is a rule 1 write; the old object stays static and the new one needs its own case (D103). | Go, Plain | 19.3 (rule 2, Interrupt handlers, new example), 8.8, 20.10, memory-model.md 4.1; skill concurrency | Yes. Item 214. |
+| J3 | Resolved. A load of a view crosses once a task other than the main task, or an interrupt handler, may run; a handler's load crosses from the first install or interrupt enable, whether or not a task has started (D104). | Safe, Kernel | 19.2, 19.3 (The tasks), 20.10; skill kernel-mode | Yes. Item 214, with item 156. |
+| R1 | Resolved. The I1 map attack used `map[int]owned[Node]`, which is not a legal map. Redone below with a map of pointers and a map of `synced` values. | Safe | this record | No. |
+| R2 | Resolved. Items 198 to 217 are placed in "Order of work" (arena and view soundness in phase 1, the wait check in phase 3, 205 and 207 in phase 2, 203 in phase 4), with the new open items 218 and 219 in phase 0. "D42 to D69" now reads "D42 onward". Phases 0 and 1 of the completion plan list the new items (D107). | Plain | roadmap.md, completion plan | No. |
+| R3 | Resolved. D85 says it was narrowed by D87 (and D97), and Superseded records the old D85 wording (D107). | Plain | decisions.md | No. |
+| R4 | Resolved. D45 says D70 replaced its panic message, and Superseded records the old message (D107). | Plain | decisions.md | No. |
+| `sync.Once` lazy initialization | Unresolved. The read after `Do` is E3503, since `Once.Do` holds its own mutex while `f` runs. Safe forms: a package-level initializer, or a `synced[T]` under a mutex. Proposal recorded (D105). | Go | 19.3 (deciding) | Item 218 (decision first). |
+| `sync.Cond` wait loop | Unresolved. Data read after `c.Wait()` is E3503, since `c.L` is reached through an interface. Safe forms: a buffered channel, or a `vec.Vec` under a mutex with a `chan struct{}` wake. Proposal recorded (D106). | Go | 19.3 (deciding) | Item 219, with item 197 (decision first). |
+
+### Eight Go programs
+
+Each program is the shape a Go programmer would write first. The deciding sentence is in 19.3 unless named.
+
+1. **A cache.** `var mu sync.Mutex; var cache = map[string]*Entry{}`, and `get` does `cache[k] = &Entry{}`
+   under `mu`. Does not compile: `&Entry{}` in a function is a frame view stored in package memory, E3002
+   (18.3). Safe form: `var cache = map[string]synced[Entry]{}` under `mu`, with `get` copying the
+   `synced[Entry]` out under the lock. It compiles: the map follows rule 1 (guard `mu`), the entry's object
+   follows rule 3, and fields of `Entry` that change need its own lock or atomics. A second safe form keeps
+   the entries in a package-level `vec.Vec[Entry]` and the map holds `*Entry` into it, used only under `mu`:
+   it compiles by rule 2 case 4 (J1), and a use of a pointer after `Unlock` is E3501.
+2. **A logger.** `var std = &Logger{w: os.Stderr, prefix: "app: "}` with a `sync.Mutex` field taken by
+   `Printf`. Compiles. `std` points to a static object (rule 2 case 2, J2); `mu` is a lock of the same
+   object; `w` holds a view of the static `File` behind `os.Stderr`, which never changes; `prefix` never
+   changes once tasks start.
+3. **A registry.** `func init() { Register("echo", &echoHandler{}) }` storing into `var handlers
+   map[string]Handler`. Does not compile: `&echoHandler{}` in `init` is a frame view kept in a package
+   variable, E3002 (18.3). Safe form: `var handlers = map[string]Handler{"echo": &echoHandler{}}` as a
+   package-level initializer. The composite literal is a static object (J2), the map is written only during
+   initialization (rule 1), and its contents are filled before any task can see them (rule 3). A map of
+   plain functions or small values compiles the same way.
+4. **A config swap.** `var cfg atomic.Pointer[Config]` with `cfg.Store(&Config{...})` in a reload task.
+   Does not compile: a frame view stored in package memory, E3003 (18.3). Keeping an owner in a package
+   variable and replacing it frees the old `Config` while readers may hold it: E3501 (rule 2, Frees are
+   writes). Safe form: `var cfg synced[Config]` behind a `sync.Mutex`, with readers copying the reference
+   out under the lock and the reload task assigning a new one under it. It compiles by rules 1 and 3.
+5. **A connection pool.** `var mu sync.Mutex; var free vec.Vec[owned[Conn]]`, with `Get` popping and
+   `Put` pushing under `mu`. Compiles. `Pop` and `Push` load the backing slice of memory `free` owns, under
+   `mu`, and the view does not outlive the lock (rule 2 case 4, J1). The `owned[Conn]` that `Pop` returns
+   is moved out under the lock and is the task's own.
+6. **An atomic counter struct.** `var stats Stats` with `atomic.Int64` fields, or `var stats = &Stats{}`.
+   Compiles. Every access is atomic (rule 1); the pointer form points to a static object whose fields are
+   used only atomically (rule 2 case 2, J2).
+7. **A `sync.Once` singleton.** `var inst *DB; var once sync.Once`, with `once.Do(func() { inst =
+   open() })` and a read of `inst` after `Do`. Does not compile: `Once.Do` calls `f` while it holds
+   `once.m`, so `once.m` is the inferred guard of `inst`, and the read after `Do` is E3503 (rule 1). Safe
+   forms: `var inst = &DB{...}` as a package-level initializer (a static object), or `synced[DB]` copied out
+   under a mutex. No safe form keeps the lazy shape. Unresolved, with a proposal (D105, item 218).
+8. **A work queue with `sync.Cond`.** `q = append(q, job)` under `mu` with `c.Signal()`, and workers that
+   run `for len(q) == 0 { c.Wait() }`. Does not compile: `append` on a package slice is E2013 (7.9), so the
+   queue becomes a `vec.Vec`; then the read of the queue after `c.Wait()` is E3503, since `c.L` is reached
+   through the `Locker` interface and no named lock counts as held after `Wait` (rule 1). Safe forms: a
+   buffered channel of jobs, or a `vec.Vec` under a mutex with a buffered `chan struct{}` that wakes one
+   worker per push. Unresolved for the `Cond` shape, with a proposal (D106, item 219, with item 197).
+
+Redo of the I1 map attack (R1), with legal maps:
+
+- `var m map[int]synced[Node]` under `mu`. A task copies `m[k]` out under `mu` and uses the node under the
+  node's own lock; another task deletes the entry. The copy keeps a count, so the delete frees nothing the
+  first task uses. Compiles by rules 1 and 3. Accepted, correctly.
+- `var m map[int]*Node`, where the nodes are owned by a package-level `vec.Vec[owned[Node]]` and both are
+  guarded by `mu`. A task loads `m[k]` under `mu` and uses the pointer after `Unlock`, while another task
+  removes the node from the vec, which drops it. The use is outside the guard: E3501 (rule 2 case 4). Used
+  only under `mu`, it compiles by case 4. Nodes owned by something the guard does not cover follow the type
+  rule, which fails once any task drops a `Node`: E3501. Closed.
+
+### Attacks on the audit J edits
+
+Each edit was attacked with a program that might slip past it. None was compiled (no builds in this pass);
+the results follow from the rules as written.
+
+- J1, a view kept by a function literal: `p := items.Ptr(0)` under `mu`, then `go func() { use(p) }()`.
+  Passed to a task: a copy whose uses cannot be followed. E3501. Closed.
+- J1, a view returned after `Unlock`: the `first` example of 19.3, which unlocks in a deferred call and
+  returns `items.Ptr(0)`. Judged at the caller's use, where no lock is held: E3501. Closed.
+- J1, a view stored in a package variable not guarded by `mu`, or in a field of a heap object: a copy
+  whose uses cannot be followed. E3501. Closed.
+- J1, a view sent on a channel or held in a method value: same rule. E3501. Closed.
+- J1, a deferred use: `defer use(items.Ptr(0))` written after `defer mu.Unlock()`. The argument is used at
+  the end of the function, where deferred calls run in reverse order, so `use` runs before `Unlock` and the
+  guard is held. Written before `defer mu.Unlock()`, `use` runs after it: E3501. Closed.
+- J1, a guard held on only some paths: `if fast { mu.Lock() }; p := items.Ptr(0)`. A lock counts only when
+  held on every path. E3501. Closed.
+- J1, two locks: `Push` under `a` in one task and under `b` in another. No lock is held by every write, so
+  there is no guard: rule 1 reports E3502 or E3503. Closed.
+- J1, `RLock`: a read through the view under `RLock` passes; a write through it fails the case, E3501.
+  Closed.
+- J1, a method value: `f := items.Push` called under `mu`. A method value's method counts as run with no
+  lock held: E3502 (rule 1). Closed; a false positive at worst.
+- J1, a view stored in memory under the same guard and freed later under the guard: ordered by the lock,
+  so not a race; whether the stored view may still be used is decided by 18.3 and 18.11. Recorded, not a
+  hole.
+- J1, a `synced[T]` whose object owns a `vec.Vec`: a pointer into it loaded under the object's lock and
+  used after `Unlock` while another task pushes: E3501. Used only under the lock: compiles. Closed.
+- J2, reassigning the variable: `os.Stdout = &File{fd: 3}` in `main` after tasks start, with no lock. A
+  rule 1 write with unguarded reads: E3502 or E3503. Under a guard, the old `File` stays static for a task
+  that loaded it; the new one, made in a function, is a frame view stored in package memory (E3002) unless
+  it is itself static or owned and follows a case. Closed.
+- J2, a mutable field: a static object whose `count int` field a task writes without a lock. The field
+  conditions fail: E3501. Closed.
+- J2, `take(os.Stdout)` in one task while another prints: the object is no longer static, and the type
+  rule fails for `File` once any `File` is dropped. E3501. Closed.
+- J2, a `take(p)` whose `p` the compiler cannot name: counts as a move of every static object of the type.
+  A false positive at worst. Closed.
+- J2, dropping an unrelated `File`: the 19.3 example closes its own file and prints. The free condition
+  does not apply to a static object: compiles. Accepted, correctly.
+- J2, an object made by `new` in an initializer: not a composite literal, so not static; an owner holds
+  it, and replacing the owner frees it. E3501 if a task loads it then. Closed.
+- J3, a handler installed before any task: it loads `p` from a package variable, and `main` then replaces
+  the owner of `*p`. The load crosses from the install: E3501. Closed.
+- J3, a handler that loads from a static object or from unchanged package memory: rule 2 case 2. Compiles.
+  Accepted, correctly.
+- R1 to R4: records only; no program can slip past them.
+
+### Known-gaps lines
+
+Changed in `skill/plutonium/references/known-gaps.md`: the item 214 line also names a pointer into a guarded
+package-level `vec.Vec` used after the `Unlock`, a static object moved with `take` while tasks read it, and a
+handler's load before the first task, none of which is E3501 yet.
+
+Not added: the `sync.Once` and `sync.Cond` shapes. The specification rejects them on purpose today (D105,
+D106), so they are not gaps between the compiler and the specification. `skill/plutonium/references/concurrency.md`
+gives their safe forms.
+
 ## Diagnostics that need a code in phase 1
 
 None of these rulings invents a code. They extend E3313 (A1), E3212 (C1), E3302 (C3), E2313 (C4) and E2511
@@ -387,3 +519,7 @@ frees of every type (H1), and names E3313, E3314 and E3501 for views at an owner
 Audit I adds no code. It widens E3501 to views loaded from package variables, `synced` objects and maps
 (I1) and E2010 to a package variable that holds a `shared[T]` used by two tasks (I1). The wait error of
 G5 (item 210) still needs a code; I2 changes which calls it follows, not its form.
+
+Audit J adds no code. It narrows E3501 for guarded owned memory and static objects (J1, J2), widens E3501 to
+a view used after its guard is released (J1) and to a handler's load before the first task (J3), and uses
+E3503 for the `sync.Once` and `sync.Cond` shapes it leaves unresolved.

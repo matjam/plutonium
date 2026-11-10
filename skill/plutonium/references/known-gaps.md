@@ -49,7 +49,9 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   calls outside scoped tasks (19.4). Item 196.
 - The race check does not yet treat a task's or handler's load of a pointer or other view from a package variable, a
   per-CPU variable, a `synced` object or a map as a crossing, so `p = &*b; task reader(); b = new(Node)` compiles
-  (19.2, 19.3 rules 1 and 2). A package variable holding a `shared[T]` used by two tasks is not yet E2010. Item 214.
+  (19.2, 19.3 rules 1 and 2). A package variable holding a `shared[T]` used by two tasks is not yet E2010. A
+  pointer into a guarded package-level `vec.Vec` used after the `Unlock`, a static object that code moves with
+  `take` while tasks read it, and a handler's load before the first task are not yet E3501 either. Item 214.
 - The race check does not yet name an arena beyond the precision limits as every arena, or follow an arena's name
   through a move (19.3, Frees are writes). Item 217.
 

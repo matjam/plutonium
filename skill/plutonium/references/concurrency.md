@@ -318,6 +318,11 @@ func main() {
   `Bank` that owns a map of accounts, does not guard the accounts (E3502). Give the record its own mutex, take
   the container's lock only to find the record, and lock the record to change it. The contents of a built-in map shared by tasks need one guard, package-level or a field of
   the owning struct, for writes and reads. A map used by one task at a time needs none.
+- **Two Go shapes that do not compile yet.** A package variable set inside `once.Do(f)` and read after `Do`
+  with no lock is E3503: the Once's own mutex is inferred as its guard (item 218). Create the object in a
+  package-level initializer, or keep it in a `synced[T]` set and copied out under a mutex. A `sync.Cond` wait
+  loop reads its data unguarded after `c.Wait()`, since `c.L` is reached through an interface (E3503, item
+  219). Use a buffered channel, or a `vec.Vec` under a mutex with a `chan struct{}` that wakes a waiter.
 - `shared[T]` is for one task and never crosses; `synced[T]` counts atomically. A `string`, map or channel count
   becomes atomic as soon as the first task starts.
 
