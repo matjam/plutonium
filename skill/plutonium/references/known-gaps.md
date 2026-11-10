@@ -44,8 +44,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   pointer into a guarded package-level `vec.Vec` used after the `Unlock`, a static object that code moves with
   `take` while tasks read it, and a handler's load before the first task are not yet E3501 either, and memory
   owned by a static or type-rule object is not yet counted as part of its field. Item 214.
-- The guard set is not yet the locks held at every shared write: a single writer that writes under `L` at one
-  write and `M` at another, read under `L`, compiles (19.3, The guard set). Item 221.
 - Summaries do not yet record which locks a call may release, so a view kept across a helper that waits on a
   `Cond` is not E3501 (19.3, Views loaded under a lock). Item 222.
 - A range-over-func body whose iterator calls `yield` from a scoped task still counts as part of the enclosing

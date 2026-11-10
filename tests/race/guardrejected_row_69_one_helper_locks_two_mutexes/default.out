@@ -1,0 +1,23 @@
+$DIR/main.p:12:2: x is written here with no lock that guards it, while another task may use it
+    x is written at main.p:12 in bump by the task started by task withA at
+    main.p:28 holding a, and the task started by task withB at main.p:29 writes
+    it at main.p:12 in bump holding b. Two tasks may run these at the same time,
+    one of them writing, which is a data race: the other may see a value half
+    written, or lose an update.
+    The compiler infers which lock guards shared data from the locks held where
+    it is written: a lock that every write holds. Here no one lock is held at
+    every write.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Hold one sync.Mutex at every access, writes and reads (a sync.RWMutex's
+    RLock is enough for reads):
+        mu.Lock()
+        x = v
+        mu.Unlock()
+    Or, for a number, use an atomic type from pluto/sync/atomic, such as
+    atomic.Int64, and its methods at every access.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3502" for a longer explanation)

@@ -750,32 +750,51 @@ var syncedVar = types2.NewVar(token.NoPos, nil, "the synced object", nil)
 // access that may meet a write by another task must hold a lock that every
 // such write holds.
 func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text func(*access) string) {
+	// The accesses each one conflicts with. A write is shared when it
+	// conflicts with some access (section 19.3, The guard set). A write in
+	// a task that may run several times meets itself.
+	conf := compat.Make[[]int](len(es))
+	shared := map[int]bool{}
 	for i, p := range es {
-		if !p.x.write {
-			continue
-		}
-		// The guard candidates of this write: what it and every write it
-		// may meet hold. A write in a task that may run several times
-		// meets itself.
-		pg := guards(p.x, true, rel)
-		g := pg
-		var conf []int
 		for j, q := range es {
 			if (i == j && !p.g.multi) || !conflict(p, q) {
 				continue
 			}
-			conf = compat.AppendPlain(conf, j)
-			if q.x.write {
+			conf[i] = compat.AppendPlain(conf[i], j)
+		}
+		if p.x.write && len(conf[i]) > 0 {
+			shared[i] = true
+		}
+	}
+	// The guard set of the datum a shared write writes: the locks that it
+	// and every shared write of the same datum hold in write mode. Every
+	// shared write counts, not only the ones that meet each other: a
+	// party that is the only writer still needs one lock at all its
+	// writes for a reader to know which to hold.
+	gs := map[int]map[string]bool{}
+	guardSet := func(i int) map[string]bool {
+		if g, ok := gs[i]; ok {
+			return g
+		}
+		g := guards(es[i].x, true, rel)
+		for j, q := range es {
+			if j != i && shared[j] && overlaps(es[i].x.place, q.x.place) {
 				g = intersect(g, guards(q.x, true, rel))
 			}
 		}
-		if len(conf) == 0 || len(g) > 0 {
+		gs[i] = g
+		return g
+	}
+	for i, p := range es {
+		if !shared[i] || len(guardSet(i)) > 0 {
 			continue
 		}
 		// Report the write that holds no lock if there is one, against
 		// an access it meets.
-		target, other := p, es[conf[0]]
-		for _, j := range conf {
+		pg := guards(p.x, true, rel)
+		target, other := p, es[conf[i][0]]
+		var also *entry // a write of the same party that holds other locks
+		for _, j := range conf[i] {
 			q := es[j]
 			if !q.x.write {
 				continue
@@ -791,34 +810,60 @@ func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text f
 			}
 			break
 		}
-		a.add(compat.Concat("nolock|", text(p.x)), a.noLockError(target, other, es, rel, text))
+		tg := guards(target.x, true, rel)
+		if len(tg) > 0 && (!other.x.write || len(intersect(tg, guards(other.x, true, rel))) > 0) {
+			// No write the reported one meets breaks the guard: one of
+			// its own party's does.
+			for j, q := range es {
+				if shared[j] && q.x != target.x && overlaps(target.x.place, q.x.place) && len(intersect(tg, guards(q.x, true, rel))) == 0 {
+					also = pu.New(q)
+					break
+				}
+			}
+		}
+		d := a.noLockError(target, other, es, rel, text)
+		if also != nil {
+			ag := guards(also.x, true, rel)
+			held := "with no lock held"
+			if len(ag) > 0 {
+				var names []string
+				for k := range ag {
+					names = compat.Append(names, a.lockText(k, rel, es))
+				}
+				sort.Strings(names)
+				held = compat.Concat("holding ", compat.Join(names, " and "))
+			}
+			d.Text = compat.Concat(d.Text, compat.Sprintfb(" %s also writes it at %s %s, so the locks that guard it would differ from write to write.", compat.ArgS(capitalize(also.g.name(a))), compat.ArgS(a.where(also.x)), compat.ArgS(held)))
+		}
+		a.add(compat.Concat("nolock|", text(p.x)), d)
 		return
 	}
 	for i, p := range es {
 		if p.x.write {
 			continue
 		}
-		var writes []entry
+		// The read needs a lock of the guard set of each datum a write it
+		// may meet writes.
+		// A write whose guard set is empty is E3502 already.
+		held := guards(p.x, false, rel)
 		var g map[string]bool
-		for j, q := range es {
-			if i == j || !q.x.write || !conflict(p, q) {
-				continue
-			}
-			writes = compat.Append(writes, q)
-			qg := guards(q.x, true, rel)
-			if g == nil {
-				g = qg
-			} else {
-				g = intersect(g, qg)
+		for _, j := range conf[i] {
+			if es[j].x.write && len(guardSet(j)) > 0 && len(intersect(held, guardSet(j))) == 0 {
+				g = guardSet(j)
+				break
 			}
 		}
-		if len(writes) == 0 || len(g) == 0 {
+		if g == nil {
 			continue
 		}
-		held := guards(p.x, false, rel)
-		if len(intersect(held, g)) == 0 {
-			a.add(compat.Sprintfb("read|%d", compat.ArgI(int64(p.x.pos))), a.unguardedError(p, writes, g, rel, text))
+		// The writes it may meet that hold that guard set, for the message.
+		var writes []entry
+		for _, j := range conf[i] {
+			if es[j].x.write && sameKeys(guardSet(j), g) {
+				writes = compat.Append(writes, es[j])
+			}
 		}
+		a.add(compat.Sprintfb("read|%d", compat.ArgI(int64(p.x.pos))), a.unguardedError(p, writes, g, rel, text))
 	}
 }
 
