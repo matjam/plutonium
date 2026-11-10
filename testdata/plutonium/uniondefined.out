@@ -1,0 +1,19 @@
+12 rect 3x4 shape
+12 circle 2
+0 none true true
+circle again 1.5
+true true
+42 -1
+err bad
+0x12340b 5 4660 true
+0x12340b true 4660
+0xabcd0b 5 43981 true
+0xabcd05 0xabcd05
+4 4 true
+pair 9 200 0xc813 0xc813
+small 77 0x9a
+pair 0 3 2
+open a
+close a
+close b
+done

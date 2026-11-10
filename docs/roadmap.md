@@ -1416,9 +1416,13 @@ compiler (2026-10-11).
     the other enum-to-enum conversions are E2313; update the catalog text. Constant, comma-ok and plain
     forms are all E2313, and the message shows the conversion through the integer type. Tests:
     `tests/types2/enumerrors_enum_conversion` and `enumconversion_through_integer`.
-151. **Defined union and packed types** (planned; sections 7.13, 7.14, 8.2, 10.8, D49, findings C5 and C6):
+151. **Defined union and packed types** (done; sections 7.13, 7.14, 8.2, 10.8, D49, findings C5 and C6):
     `type V U` for a union or packed `U` gets the variants or fields and layout, no methods, and explicit
-    conversion.
+    conversion. The checker and lowering already did this; the item adds the tests:
+    `testdata/plutonium/uniondefined` (unions, a generic instance, packed types and packed unions, an
+    owner union defined from another, conversions both ways and layout) and
+    `tests/types2/uniondefined_errors` (no methods, no implicit conversion, exhaustive switches, the owner
+    mark).
 157. **The C boundary refuses boxes** (planned; sections 20.4, 18.12, abi.md 9.1, D50, finding B7): E2511 for
     `owned`, `shared`, `synced` and `weak` by value in `//pu:extern` and `//pu:export` signatures.
 164. **`owner` as a type parameter name** (planned; section 4.6, D57, finding A2): the parser takes `owner`

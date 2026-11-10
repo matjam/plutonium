@@ -1,0 +1,66 @@
+$DIR/test.p:28:12: Slot2 must be declared owner: Slot2 is defined from Slot, which is an owner
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A type defined from an owner owns the
+    same things.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Plutonium does not make Slot2 an owner silently; the keyword is written in
+    its declaration, so that a change to the type of a field elsewhere is
+    reported here, at the declaration, and not at every place that copies a
+    value. Write owner after the name:
+        type Slot2 owner Slot
+    (see "Owner types" in the Plutonium spec, section 7.18)
+    (run "pluto explain E3202" for a longer explanation)
+
+$DIR/test.p:30:62: f.Kind undefined (type Figure has no field or method Kind)
+    f has type Figure, declared on line 10, which has no field or method Kind.
+    It has no fields or methods at all.
+    (see "Selectors" in the Plutonium spec, section 11.7)
+    (run "pluto explain E0076" for a longer explanation)
+
+$DIR/test.p:30:72: c.Mode undefined (type Ctrl2 has no field or method Mode, but does have field mode)
+    c has type Ctrl2, declared on line 19, which has no field or method Mode. It
+    has no fields or methods at all.
+    (see "Selectors" in the Plutonium spec, section 11.7)
+    (run "pluto explain E0076" for a longer explanation)
+
+$DIR/test.p:33:16: cannot use f (variable of union type Figure) as Shape value in variable declaration
+    s is declared as Shape, so it can only hold values of that type; f is a
+    Figure. Plutonium, like Go, does not convert between different types
+    automatically.
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E0023" for a longer explanation)
+
+$DIR/test.p:34:15: cannot use c (variable of packed type Ctrl2) as Ctrl value in variable declaration
+    k is declared as Ctrl, so it can only hold values of that type; c is a
+    Ctrl2. Plutonium, like Go, does not convert between different types
+    automatically.
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E0023" for a longer explanation)
+
+$DIR/test.p:38:36: cannot use s (variable of union type Shape) as Figure value in return statement
+    back is declared on line 38 to return Figure, so it can only hold values of
+    that type; s is a Shape. Plutonium, like Go, does not convert between
+    different types automatically.
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E0023" for a longer explanation)
+
+$DIR/test.p:41:2: missing case in type switch on f (Figure): None (add it or a default case)
+    A type switch on a union value that has no default case must name every
+    variant. That way, adding a variant to the union shows every switch that
+    needs to handle it.
+    Add a case for each missing variant, or a default case if the remaining
+    variants share one action. A switch that names every variant needs no
+    default to end a function.
+    Go cannot check this for interfaces, whose set of types is open. A union's
+    variants are a closed set, so the compiler can tell when one is forgotten.
+    (see "Switch statements" in the Plutonium spec, section 12.9)
+    (run "pluto explain E2414" for a longer explanation)
+
+$DIR/test.p:48:39: Figure.Square undefined (type Figure has no field or method Square)
+    Figure has type Figure, declared on line 10, which has no field or method
+    Square. It has no fields or methods at all.
+    (see "Selectors" in the Plutonium spec, section 11.7)
+    (run "pluto explain E0076" for a longer explanation)

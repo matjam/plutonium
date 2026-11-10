@@ -109,7 +109,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 ## 3. Checks that are missing or too strict
 
 - Comma-ok `ok` is not followed through direct tests, so some correct programs get E3302 (11.13, 18.5). Item 149.
-- `type V U` for a union or packed `U` is not supported as 7.13 and 7.14 define it. Item 151.
 - Interrupt handlers are not yet race parties from the point one may be installed (19.3). Item 156.
 - `pluto vet -unsafe` still lists `x86.Pause`, `Cpuid`, `Rdtsc` and `Rdtscp`, and does not list `//pu:export`
   functions (18.12). Item 161.

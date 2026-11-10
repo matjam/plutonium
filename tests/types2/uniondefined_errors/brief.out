@@ -1,0 +1,8 @@
+$DIR/test.p:28:12: Slot2 must be declared owner: Slot2 is defined from Slot, which is an owner
+$DIR/test.p:30:62: f.Kind undefined (type Figure has no field or method Kind)
+$DIR/test.p:30:72: c.Mode undefined (type Ctrl2 has no field or method Mode, but does have field mode)
+$DIR/test.p:33:16: cannot use f (variable of union type Figure) as Shape value in variable declaration
+$DIR/test.p:34:15: cannot use c (variable of packed type Ctrl2) as Ctrl value in variable declaration
+$DIR/test.p:38:36: cannot use s (variable of union type Shape) as Figure value in return statement
+$DIR/test.p:41:2: missing case in type switch on f (Figure): None (add it or a default case)
+$DIR/test.p:48:39: Figure.Square undefined (type Figure has no field or method Square)

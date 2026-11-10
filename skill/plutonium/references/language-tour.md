@@ -365,6 +365,8 @@ b 9 b
   `Result[int].Ok(5)`. Take apart with a type switch (`case Circle:` names the variant; `v` is its
   payload). The zero value is the **first** variant. A union with an owner payload must be `owner union`.
 - `packed`: bit-exact layout for registers and headers; see `kernel-mode.md` for `volatile`, `ring` and more.
+- `type V U` for a union or packed `U` has `U`'s variants or fields and layout, none of its methods, and converts
+  to and from `U` explicitly (`V(u)`, `U(v)`).
 
 ```pluto-run
 package main
