@@ -23,7 +23,9 @@ import (
 //
 // Every allocation made through Alloc must be freed before Reset, Release
 // or Drop, which panic with "arena has live allocations" otherwise; the
-// views of New and Slice are not counted. Memory a Reset, Release, Drop or
+// views of New and Slice are not counted. For a type with drop glue, New
+// and Slice record a drop entry, and Reset, Release and Drop first drop
+// those values in place, newest first. Memory a Reset, Release, Drop or
 // latest Free takes back must not be used afterwards. Checked builds validate persistent allocation incarnations;
 // unchecked builds omit that validation (language spec section 18.11).
 //
@@ -54,7 +56,9 @@ type Chunked owner struct {
 	poison    bool
 	uncounted bool // made by NewChunkedUnsafe: no count of live allocations
 	life      lifetime
-	live      int64 // allocations made through Alloc and not freed yet
+	live      int64       // allocations made through Alloc and not freed yet
+	entries   *entryBlock // the newest block of drop entries
+	added     uint64      // drop entries ever recorded
 }
 
 // A chunk is a block from the parent allocator: this header, then size
@@ -91,8 +95,8 @@ func NewChunked(chunkSize uintptr = DefaultChunkSize, parent alloc.Allocator = a
 }
 
 // NewChunkedUnsafe is NewChunked for a Chunked that keeps no count of live
-// allocations, so its Reset, Release and Drop take back memory that is
-// still in use. As with NewUnsafe, the caller is responsible for every
+// allocations and records no drop entries, so its Reset, Release and Drop
+// take back memory that is still in use and drop nothing in it. As with NewUnsafe, the caller is responsible for every
 // allocation it makes in the arena: nothing may use one, and no count
 // obligation may stay in one, after the arena takes it back (language spec
 // section 18.12). The compiler's own scratch memory, whose allocations are
@@ -174,6 +178,55 @@ func (a *Chunked) bump(size, align uintptr) unsafe.Pointer {
 	return p
 }
 
+// allocEntry allocates n values of size bytes in all and records a drop
+// entry for them, or returns nil when the parent has no memory for them or
+// for a new block of entries.
+func (a *Chunked) allocEntry(size, align, n uintptr, fn func(unsafe.Pointer, uintptr)) unsafe.Pointer {
+	if a.uncounted {
+		return a.alloc(size, align)
+	}
+	b := a.entries
+	if b == nil || b.used == entriesPerBlock {
+		raw := a.alloc(unsafe.Sizeof(entryBlock{}), unsafe.Alignof(entryBlock{}))
+		if raw == nil {
+			return nil
+		}
+		b = (*entryBlock)(raw)
+		b.prev = a.entries
+		a.entries = b
+	}
+	p := a.alloc(size, align)
+	if p == nil {
+		return nil
+	}
+	b.e[b.used] = dropEntry{p: p, n: n, fn: fn}
+	b.used++
+	a.added++
+	return p
+}
+
+// runEntries runs the drop entries recorded after the first used entries
+// of block stop (all of them for a nil stop), last first. An entry recorded
+// while they run is not run, and makes the call panic.
+func (a *Chunked) runEntries(stop *entryBlock, used int) {
+	added := a.added
+	for b := a.entries; b != nil; b = b.prev {
+		low := 0
+		if b == stop {
+			low = used
+		}
+		for i := b.used - 1; i >= low; i-- {
+			runEntry(&b.e[i])
+		}
+		if b == stop {
+			break
+		}
+	}
+	if a.added != added {
+		panic("arena has live allocations")
+	}
+}
+
 // grow makes a chunk with at least need bytes of data the current one: a
 // spare standard chunk if one fits, otherwise a new one from the parent.
 func (a *Chunked) grow(need uintptr) bool {
@@ -240,12 +293,18 @@ type ChunkMark struct {
 	reset    uint64
 	sequence uint64
 	end      uintptr
+	entries  *entryBlock
+	used     int // entries used in the block entries
 }
 
 // Mark returns the current fill level. Release(m) frees everything
 // allocated after it, leaving earlier allocations intact.
 func (a *Chunked) Mark() ChunkMark {
-	return ChunkMark{a.cur, a.off, a.before, a.life.identity, a.life.reset, a.life.sequence(), a.life.end()}
+	m := ChunkMark{a.cur, a.off, a.before, a.life.identity, a.life.reset, a.life.sequence(), a.life.end(), a.entries, 0}
+	if a.entries != nil {
+		m.used = a.entries.used
+	}
+	return m
 }
 
 // Release frees every allocation made since m was taken: chunks taken since
@@ -264,7 +323,12 @@ func (a *Chunked) release(m ChunkMark, pc uintptr) bool {
 	if !a.life.valid(m.identity, m.reset, m.sequence, m.end) || genCheck && m.cur != nil && !rt.GenRegisteredLive(unsafe.Pointer(m.cur)) {
 		panic("arena: Release of a stale mark")
 	}
+	a.runEntries(m.entries, m.used)
 	a.checkLive()
+	a.entries = m.entries
+	if m.entries != nil {
+		m.entries.used = m.used
+	}
 	exiting := a.life.reclaim(m.sequence, pc, false)
 	for a.cur != m.cur {
 		c := a.cur
@@ -321,6 +385,7 @@ func (a *Chunked) Reset() {
 	if a.life.identity == 0 {
 		return
 	}
+	a.runEntries(nil, 0)
 	a.checkLive()
 	a.life.resetMarks()
 	if a.release(ChunkMark{identity: a.life.identity, reset: a.life.reset}, rt.CallerPC()) {
@@ -361,6 +426,7 @@ func (a *Chunked) Drop() {
 	if a.life.identity == 0 {
 		return
 	}
+	a.runEntries(nil, 0)
 	a.checkLive()
 	a.life.resetMarks()
 	exiting := a.release(ChunkMark{identity: a.life.identity, reset: a.life.reset}, rt.CallerPC())

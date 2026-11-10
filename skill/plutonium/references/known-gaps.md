@@ -65,8 +65,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 
 ## 2. Behavior that differs at run time
 
-- `New` and `Slice` of a Fixed or Chunked arena record no drop entries, so `Reset`, `Release` and `Drop` do not drop
-  the owners and counted values stored in plain views (18.9, Drop entries). Item 202.
 - E2584, the race check and E3313 do not yet follow a `Reset`, `Release` or `Drop` of a Fixed or Chunked arena into
   the drops its entries would run (18.9, 19.3, 20.10). Item 209.
 - The race check and E3313 do not yet treat a `Reset`, `Release` or `Drop` of an arena as a free of every object it

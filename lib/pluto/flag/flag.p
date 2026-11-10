@@ -19,7 +19,6 @@ import (
 	"pluto/fmt"
 	"pluto/io"
 	"pluto/os"
-	"pluto/rt"
 	"pluto/sort"
 	"pluto/strconv"
 	"pluto/strings"
@@ -193,8 +192,7 @@ type FlagSet owner struct {
 	actual   vec.Vec[*Flag] // flags that were set
 	args     []string       // arguments after the flags
 	output   io.Writer
-	osArgs   vec.Vec[string]  // the process's arguments, for CommandLine
-	strs     vec.Vec[*string] // the string variables String allocated in mem
+	osArgs   vec.Vec[string] // the process's arguments, for CommandLine
 }
 
 // NewFlagSet returns an empty FlagSet with the given name and error
@@ -206,21 +204,13 @@ func NewFlagSet(name string, handling ErrorHandling, a alloc.Allocator = alloc.D
 		mem:      arena.NewChunked(1024, a),
 		flags:    vec.New[*Flag](a),
 		actual:   vec.New[*Flag](a),
-		strs:     vec.New[*string](a),
 	}
 }
 
-// Drop frees the FlagSet's flags and the variables it allocated, releasing
-// the strings in them (language spec section 18.8), whose memory the arena
-// frees without looking at it.
+// Drop frees the FlagSet's flags and the variables it allocated. The
+// arena's drop entries release the strings in them (language spec section
+// 18.9, Drop entries).
 func (f *FlagSet) Drop() {
-	for _, fl := range f.flags.Slice() {
-		rt.ReleaseValues(fl, 1)
-	}
-	for _, p := range f.strs.Slice() {
-		rt.ReleaseValues(p, 1)
-	}
-	f.strs.Free()
 	f.flags.Free()
 	f.actual.Free()
 	f.osArgs.Free()
@@ -431,7 +421,6 @@ func (f *FlagSet) StringVar(p *string, name string, value string, usage string) 
 // String defines a string flag and returns its variable, which f owns.
 func (f *FlagSet) String(name string, value string, usage string) *string {
 	p := f.mem.New[string]()
-	f.strs.Push(p)
 	f.StringVar(p, name, value, usage)
 	return p
 }
