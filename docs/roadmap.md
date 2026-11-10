@@ -37,7 +37,7 @@ one covers:
   view-tracking cases left by item 138 (item 179); the escape contract of `rt.ReleaseValues` (item 180);
   the false escape errors in `types2` unit-test builds (item 181); the lowering backstops (item 182); the
   order of evaluation in the rest of lowering (item 183); the allocators the race check does not follow
-  (item 196).
+  (item 196); a use before a move in one call (item 211).
 - **Phase 2, test closure.** Tests for untested diagnostic codes and rules (item 184); CI gaps (item 186);
   close item 20 when nothing is left open under it.
 - **Phase 3, checks, kernel and performance evidence.** Item 101 phases 3 and 4; proven task stacks in
@@ -746,6 +746,14 @@ compiler (2026-10-11).
     arena into the drop glue of every type passed to `New` or `Slice` of that arena, or of every arena
     where the compiler cannot tell which. A `Slice` of length zero records no entry. The count check after
     the entries panics only for an allocation still live then, or an entry recorded while they ran.
+    Item 212 widens the race check and E3313 to every object the arena takes back, of every type.
+212. **Arena frees of every type** (planned; sections 19.3, 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
+    and 4.1, D86 and D93, findings H1 and H8 of audit H; extends items 168 and 209): a `Reset`, `Release`
+    or `Drop` of an arena is a free, and so a write, of every object it takes back, of every type, for
+    E3501, E3404 and the E3313 events, not only of objects whose type has drop glue. `Release` counts
+    every object of the arena, since the compiler cannot order objects against marks. An arena is named
+    by its variable or field, as a lock is: `workers[i].arena` counts as every arena it may be, and an
+    arena behind a parameter or a heap pointer stays item 196.
 158. **Task exit mid-statement and inside `Drop`** (planned; section 17.3, abi.md 12.10, D51, finding B8):
     `rt.ExitTask` drops operands already evaluated, and a `Drop` method it leaves still finishes the
     object's field drops and free.
@@ -836,6 +844,11 @@ compiler (2026-10-11).
     allocator reached other than through the variable itself or a field holding its address (one behind
     a parameter or a heap pointer, `alloc.Use` windows), and bulk calls seen by the race checks outside
     scoped tasks.
+211. **A use before a move in one call** (planned, phase 1, wrong acceptance; sections 11.14, 11.26, 18.5,
+    E3301; extends item 75): `send(buf.Len(), buf)`, a use of a variable in an argument before the
+    argument that moves it, compiles. Sections 11.14, 11.26 and 18.5 make a move and a use in one
+    expression an error in either order, and item 75 records the check as done. The other order
+    (`send(buf, buf.Len())`) is reported. Report both, and add the case to the E3301 tests.
 
 ## Gaps the integrated specification defines (complete-spec section 6.5)
 
@@ -1056,9 +1069,18 @@ compiler (2026-10-11).
 210. **No waiting in a preemption-disabled region** (planned; sections 19.3, 19.1, 17.1, 20.10, abi.md 12.4,
     D85, finding G5 of audit G; extends items 120 and 156): from each non-migrating region (between
     `rt.DisablePreemption` and `rt.EnablePreemption`, while an `rt.Lock` is held, or with interrupts
-    disabled), follow every call as the E2584 analysis does and reject a path to an operation that may
-    park, naming each call. The diagnostic needs a code (E2584 is defined for interrupt handlers). The
-    run-time panic "blocking with preemption disabled" stays as the backstop.
+    disabled), follow every exact call path and reject a path to an operation that may park, naming each call.
+    An interface or func-value call where only some candidates wait, and an allocation or drop where only
+    some installed allocators wait, compile; the run-time panic "blocking with preemption disabled"
+    catches them (D87, finding H2 of audit H). Regions in the code of `pluto/rt` are not checked (D89,
+    finding H4). The diagnostic needs a code (E2584 is defined for interrupt handlers). Item 213 adds
+    the kernel-mode interrupt test to the backstop.
+213. **`rt.Park` tests the interrupt flag in kernel mode** (planned; sections 19.3, 19.1, 17.1, abi.md
+    12.4, D88, finding H3 of audit H; extends item 210): in kernel mode, `park` reads RFLAGS on entry,
+    before it takes any runtime lock, and panics with "blocking with preemption disabled" when IF is
+    clear. The switch inside the scheduler's `Park`, and `Yield`, `Preempt` and `preemptPark`, do not
+    call `park` and are not tested. Hosted builds have no such regions; other freestanding builds do not
+    test the flag.
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and
@@ -1263,10 +1285,9 @@ compiler (2026-10-11).
     and unmarked blocks must build cleanly. Per-block context and known failures are in
     `tests/testdata/specexamples/examples.txt`; a known failure that starts passing fails the test. Of 334
     blocks, 308 are checked in 349 builds and 26 are skipped by rule (elided code, non-source fragments).
-    Known failures: 12 spec examples are wrong, 8 wait on items 146, 147, 148, 149, 168, 199, 201 and 208, and 2 have no
-    item (a duplicate method from an embedded interface is reported on the embed line, section 7.9; and
-    `send(buf.Len(), buf)` is accepted although item 75 makes a use and a move in one call an error,
-    section 11.14).
+    Known failures: 9, waiting on items 146, 147, 148, 149, 168, 199, 201, 208 and 211. The 12 wrong
+    spec examples were fixed with audit H (D95), and the section 7.9 example now marks both lines of the
+    clash, since the rule names no single line.
 186. **CI gaps** (planned): CI installs only `binutils` and `qemu-system-x86`, so the gdb tests in
     `tests/dwarf_test.go` skip; the heavy compiler unit tests need `PLUTO_UNIT_HEAVY=1`, which CI does not
     set; nothing runs difftest (item 32), which needs a Go toolchain. Coverage measurement of

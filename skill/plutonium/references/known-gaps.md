@@ -8,6 +8,8 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 ## 1. Programs the compiler accepts that the specification rejects
 
 - A consuming method used as a method value (`done := c.Close`) compiles; it should be an error (11.9). Item 178.
+- A use of a variable in an argument before the argument that moves it (`send(buf.Len(), buf)`) compiles; it should
+  be an error, as the other order is (11.14, E3301). Item 211.
 - Four view-tracking cases of 18.3: a view stored into memory a local owner's method returned, a pointer to caller
   memory that loses its tie when the owner moves, a view kept in a moved local owner then stored in a package
   variable, a view of a table a map walk retired. Item 179.
@@ -31,7 +33,7 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   variable (E3313, 18.3, 7.9). Item 199.
 - A deferred call that drops or writes what a scoped task uses, and that can run before the task is joined, is not
   E3404 or E3402 yet (19.4). Item 201.
-- A conversion of a value of a type parameter to an interface in generic code is not yet a frame copy for every
+- A conversion to an interface of a value whose type contains a type parameter, in generic code, is not yet a frame copy for every
   instantiation, nor, for every type parameter (`[T any]` too), a view that the D3 events end (E3313, 18.3). A `T`
   local is not yet treated as having drop glue whenever a type of its type set has it. Items 204 and 208.
 - A pointer from `&T{...}`, a slice literal or a variadic array made in a loop and kept past the iteration may not be
@@ -39,7 +41,7 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - A `//pu:stack` size outside 64K to 64G, and a program over an implementation limit, have no code yet (20.3, 21.4).
   Item 207.
 - A moving assertion or bound type switch on a field, element or `*p` is not E3303 yet (11.13, 12.9). Item 172.
-- A closure passed through a func value or an interface may not yet count as kept for the region errors (11.5).
+- A closure passed through a func value or an interface may not yet count as kept for the closure region errors (11.5).
   Item 176.
 - A `%w` wrapper of an error in a field of a local owner is not yet tested to be bounded by the owner (16.5).
   Item 177.
@@ -54,8 +56,13 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   the owners and counted values stored in plain views (18.9, Drop entries). Item 202.
 - E2584, the race check and E3313 do not yet follow a `Reset`, `Release` or `Drop` of a Fixed or Chunked arena into
   the drops its entries would run (18.9, 19.3, 20.10). Item 209.
-- Waiting (a channel operation, `Lock`, `Wait`, `rt.Park`) inside a preemption-disabled region compiles; it should be
-  a compile error, and today it panics with "blocking with preemption disabled" at run time (19.3). Item 210.
+- The race check and E3313 do not yet treat a `Reset`, `Release` or `Drop` of an arena as a free of every object it
+  takes back, of every type (19.3, 18.3, memory-model.md 3.8). Item 212.
+- Waiting (a channel operation, `Lock`, `Wait`, `rt.Park`) on an exact path inside a non-migrating region compiles;
+  it should be a compile error, and today it panics with "blocking with preemption disabled" at run time (19.3).
+  Item 210.
+- In kernel mode, `rt.Park` does not yet panic when interrupts are disabled, so a wait with interrupts disabled and
+  no lock held is not caught at run time (19.3, abi.md 12.4). Item 213.
 - A deadlock report does not name a panic in progress (19.1, 19.4). Item 205.
 - A Fixed arena still asks its parent for bookkeeping (18.9, F.2). Item 153.
 - `Free` through an arena still reclaims the latest allocation and can panic with "arena allocation freed" (18.9).

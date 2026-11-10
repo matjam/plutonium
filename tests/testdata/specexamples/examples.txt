@@ -213,7 +213,7 @@ with: 10-declarations-and-scope.md 10.8 | type (
 with: 10-declarations-and-scope.md 10.14 | func (p *Point) Length() float64 {
 
 == 11-expressions.md 11.14 | send(buf, buf.Len()) // error: buf is moved by this call and used in another argument
-known: no item: line 2 is not an error, though section 11.14 makes a move and a use in one expression an error in either order; item 75 says this is done
+known: 211: line 2 is not an error, though section 11.14 makes a move and a use in one expression an error in either order
 pre:
 	type Buf owner struct{ n int }
 	func (b *Buf) Len() int { return b.n }
