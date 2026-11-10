@@ -709,6 +709,21 @@ compiler (2026-10-11).
     `vec`, `hash`, `strings` and `bytes` so each type restores its invariants before every check that can
     panic.
 
+168. **Frees count as writes in the race check** (planned; sections 19.3, 19.4, D59, finding D1): dropping,
+    freeing or moving an object, or writing an owner that holds it, is a write of the whole object for E3501
+    and E3404.
+169. **Closure regions own captured variables** (planned; sections 11.5, 18.8, abi.md 4.1, D60, finding D2):
+    the region's drop function runs owner drop glue for every captured variable with cleanup, and copies
+    parameters into the region on entry.
+170. **E3313 at calls that may free** (planned; sections 18.3, 18.10, 18.11, 7.17, 11.24, D61, finding D3 and
+    candidates 7.17 to 7.19): summaries record through which pointer parameters a function may free memory
+    or move an owner out; E3313 at such calls, at owner field assignments on a view's path, and through
+    other copies of a counted reference; owner-to-pointer conversions are bounded views.
+173. **Range loops hold a count** (planned; section 12.10, D64, finding D7): the range temporary over a counted
+    value holds its own count until the loop ends.
+174. **Owners in for clauses** (planned; sections 12.10, 18.6, D65, finding D8): an owner declared in a for
+    clause moves between iterations and is dropped once.
+
 ## Gaps the integrated specification defines (complete-spec section 6.5)
 
 73. **Order of evaluation** (done, gap 1, `f74c4a4`; section 11.26): calls, method calls, receives and
@@ -1048,6 +1063,16 @@ compiler (2026-10-11).
     type parameter with a string in its type set; packed types to and from byte arrays; `string(c)` only for
     untyped integer or rune constants and `rune` constants; owner conversions need a valid conversion of
     the underlying types.
+
+171. **Lending a large owner to an ordinary interface** (planned; sections 7.9, abi.md 5, D61, finding D3): the
+    data word points at the variable, and the interface value is a view bounded by it.
+172. **E3303 for assertions and switches on places** (planned; sections 11.13, 12.9, 7.13, D63, finding D5): a
+    moving assertion or bound type switch on a field, element or `*p` is E3303.
+175. **`defer x.Drop()` in the move checker** (planned; section 18.5, D62, finding D4): the deferred drop does not
+    copy `x`, and a later move cancels it.
+176. **Region rules for closures** (planned; section 11.5, D68, findings D6 and D14): check that a closure passed
+    through a func value or an interface counts as kept, and that storing it in the same frame or passing it
+    to `s.Task` is allowed.
 
 ## Tooling
 

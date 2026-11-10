@@ -4,7 +4,8 @@
 [completion plan](../plans/2026-11-09-completion-plan.md).
 
 **Inputs:** the audits [A](2026-11-09-spec-audit-a.md) (A1 to A8), [B](2026-11-09-spec-audit-b.md) (B1 to B22)
-and [C](2026-11-09-spec-audit-c.md) (C1 to C14). The user decided A1, C1, C2, B1 (option a) and B3. The
+and [C](2026-11-09-spec-audit-c.md) (C1 to C14), and later [D](2026-11-09-spec-audit-d.md) (D1 to D14 and three
+unverified candidates). The user decided A1, C1, C2, B1 (option a), B3, D1, D2 (option a) and D3 (option a). The
 coordinator decided the others within the project goals. Decisions D42 onward in
 [decisions.md](../decisions.md) record the rulings that add a rule a program can observe. Roadmap items 146
 onward in [roadmap.md](../roadmap.md) hold the compiler work.
@@ -65,8 +66,31 @@ Section numbers are those of the language specification unless another document 
 | C13 | Resolved. `Operand` has no `[ TypeArgs ]`; `PrimaryExpr TypeArgs` is the one form. | | 11.1, E.4 | No (the parser already has one form). |
 | C14 | Resolved. 12.12 names the array that holds the variadic arguments. | | 12.12 | No. |
 
+## Rulings on audit D
+
+| Finding | Ruling | Goal | Sections changed (or deciding) | Compiler change |
+|---|---|---|---|---|
+| D1 | Resolved (user). Dropping, freeing or moving an object, or assigning to or dropping an owner that holds it, is a write of the whole object for the race rules. A view of a struct's owned object that another task can reach while the owner is replaced is E3501 (unscoped) or E3404 (scoped). Such objects are shared through `synced[T]` or by moving the owner. | Safe | 19.3, 19.4, 12.12, 8.8, A.3; memory-model.md 3.7, 4.1 | Yes: the race check counts frees and owner writes. Item 168. |
+| D2 | Resolved (user, option a). The closure region owns every captured variable that has cleanup and drops it on refill or when the caller's frame returns; parameters are copied into the region on entry. The region's drop function runs owner drop glue. | Safe | 11.4, 11.5, 18.6, 18.8, A.3; abi.md 4.1 | Yes: region drop glue for owners. Item 169. |
+| D3 | Resolved (user, option a). E3313 also ends a view of a local owner's memory at a call that may free or move an owner out of that memory through a pointer (by the callee's summary) and at an assignment to an owner field on the view's path. A large owner lent to an ordinary interface is a view of the variable, not a copy. 18.10 and 18.11 now agree with 18.3. | Safe, Plain | 18.3, 18.10, 18.11, 7.9, A.3; abi.md 5 | Yes: summaries record freeing parameters, E3313 widened, interface data word. Items 170, 171. |
+| D4 | Resolved. 12.19 and 18.6 stay. 18.5 names the exception: `defer x.Drop()` does not copy `x`; a later move cancels the deferred drop. | Plain | 18.5 | Yes: the move checker follows the deferred drop. Item 175. |
+| D5 | Resolved, with an existing code. A moving assertion or bound type switch on a field, element or `*p` is E3303 (moving out of a place); `take(&d.state)` is the fix. No new code is needed. | Safe, Plain | 11.13, 12.9, 7.13 | Yes: E3303 cases. Item 172. |
+| D6 | Resolved. One rule: for the region errors only, a closure passed through a func value or an interface counts as kept, without summaries. | Plain | 11.5 | Check only. Item 176. |
+| D7 | Resolved. A range loop over a counted value ranges over a hidden temporary that holds its own count until the loop ends. | Safe | 12.10 | Yes: the range temporary is counted. Item 173. |
+| D8 | Resolved. An owner variable declared in a for clause moves to the next iteration and is dropped once, when the loop ends. | Safe | 12.10, 18.6 | Yes: header owner drop. Item 174. |
+| D9 | Resolved. Every `error` value that is not a view of a frame may be sent; a frame view is E3005 or E2011. | Plain | 16.7 | No. |
+| D10 | Resolved. A race gives torn or stale values, not undefined behavior in the compiler's sense; a torn pointer or length can break memory safety. The same wording is in every place. | FF | 19.3, 19.7, 18.12, A.3; memory-model.md 4.2 | No. |
+| D11 | Resolved. The 18.13 comment says the value moves with the struct. | | 18.13 | No. |
+| D12 | Resolved. Chapter 9 says variables with cleanup are dropped or released, citing 18.8 and 18.3. | | 9 | No. |
+| D13 | Resolved. 7.14 says "typed value". | | 7.14 | No. |
+| D14 | Resolved. A closure may be stored in other memory of the same frame and written as the argument of `s.Task` on a local Scope. | Plain | 11.5 | Check only. Item 176. |
+| 7.17 | Resolved under D3. For a ring in a local variable, a view from `Peek`, `All` or `Values` ends at a call of `Pop` or `Reset` (E3313). The summary rule now covers calls that move an owner out. | Safe | 7.17, 18.3 | Part of item 170. |
+| 7.18 | Resolved. Converting an owner to a non-owner pointer or view (`(*T)(h)` for `type H owner *T`) gives a view bounded by the owner (E3313). | Safe | 11.24, 18.3 | Part of item 170. |
+| 7.19 | Resolved under D3. A call that may free memory through another copy of the same counted reference ends a view obtained through the local reference, unless the compiler knows the two point to different objects. | Safe | 18.3 | Part of item 170. |
+
 ## Diagnostics that need a code in phase 1
 
 None of these rulings invents a code. They extend E3313 (A1), E3212 (C1), E3302 (C3), E2313 (C4) and E2511
 (B7), whose catalog texts must widen. The new run-time panic "arena has live counted objects" (B1) needs no
-code.
+code. Audit D adds no code either: it widens E3313 (D3 and the candidates), E3303 (D5), E3501 and E3404
+(D1).

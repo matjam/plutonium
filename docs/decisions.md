@@ -24,7 +24,8 @@ review decisions of the same day, and D36 to D40 the owner's final decisions on 
 questions about operating-system names, per-CPU access, interrupt gates, waiting for tasks and
 `time.AfterFunc`. D41 records the kernel lifetime protection decisions of 2026-10-28. D42 to D58
 record the specification rulings of 2026-11-09 (`verification/2026-11-09-spec-rulings.md`); D42 to D46 are the
-user's decisions on audit findings A1, C1, C2, B1 and B3.
+user's decisions on audit findings A1, C1, C2, B1 and B3. D59 to D68 record the rulings on audit D; D59 to D61 are
+the user's decisions on findings D1, D2 and D3.
 
 ## D1. `errors.As` matches a counted error against a `*T` target (16.6, 16.7)
 
@@ -986,6 +987,119 @@ output. A panic message is cut after 1024 bytes with no marker, possibly inside 
 Why: suitable for the kernel. A handler must not deadlock on output. The limit matches the runtime.
 
 Lands with: the sections named above; roadmap item 163.
+
+## D59. Frees are writes (19.3, 19.4, 12.12, 8.8, memory-model.md 3.7 and 4.1)
+
+Question: audit D1. Whether a task may keep a view of an object that another task frees by replacing or
+dropping the owner that holds it.
+
+Decision: dropping, freeing or moving an object, or assigning to or dropping an owner that holds it, is a write
+of the whole object for the race rules. A view another task can reach while that happens is E3501 for an
+unscoped task and E3404 for a scoped one. Such objects are shared through `synced[T]` or by moving the owner.
+
+Why: a free is the strongest change to memory. Treating it as anything less lets a task read freed memory.
+
+Lands with: the sections named above; roadmap item 168.
+
+## D60. A closure region owns its captured variables (11.4, 11.5, 18.6, 18.8, abi.md 4.1)
+
+Question: audit D2. Who drops a captured owner of a closure that a function returns into a region.
+
+Decision: the region owns every captured variable that has cleanup. It drops them when the region is refilled
+or when the caller's frame returns. Parameters a returned closure captures are copied into the region on entry.
+
+Why: the closure outlives the function's frame, so its captured owners cannot be dropped at scope end.
+
+Lands with: the sections named above; roadmap item 169.
+
+## D61. Views end at calls that may free (18.3, 18.10, 18.11, 7.9, 7.17, 11.24, abi.md 5)
+
+Question: audit D3 and candidates 7.17 to 7.19. Whether a view of a local owner's memory survives a call such as
+`v.Push(1)` that may free the memory it looks at.
+
+Decision: each function summary records through which pointer parameters the function may free memory or move
+an owner out. A view of a local owner's memory ends (E3313) at such a call, at an assignment to an owner field
+on its path, and, for a counted reference, at such a call through another copy that may point to the same
+object. A conversion of an owner to a non-owner pointer gives a view bounded by the owner. A large owner lent
+to an ordinary interface is a view of the variable, not a copy.
+
+Why: this closes the use-after-free without annotations, using the summaries the compiler already builds.
+
+Lands with: the sections named above; roadmap items 170 and 171.
+
+## D62. `defer x.Drop()` does not copy `x` (18.5)
+
+Question: audit D4. Sections 12.19 and 18.6 say a deferred call's arguments are evaluated at the defer, which
+would make `defer f.Drop()` then `send(take(&f))` a double drop.
+
+Decision: `defer x.Drop()` on a variable does not copy it. A later move of `x` cancels the deferred drop.
+
+Why: the common cleanup pattern must stay correct without new syntax.
+
+Lands with: section 18.5; roadmap item 175.
+
+## D63. A moving assertion on a place is E3303 (11.13, 12.9, 7.13)
+
+Question: audit D5. What a moving type assertion or bound type switch on a field, element or `*p` does.
+
+Decision: it is E3303, moving out of a place. The fix is to take the value first: `take(&d.state).(T)`.
+
+Why: a place cannot be left moved. The existing code already names this error.
+
+Lands with: the sections named above; roadmap item 172.
+
+## D64. A range loop holds its own count (12.10)
+
+Question: audit D7. Whether the body of a range loop over a counted value can release the value it ranges over.
+
+Decision: the loop ranges over a hidden temporary that holds its own count until the loop ends.
+
+Why: the loop must not read released memory, and one count per loop is cheap.
+
+Lands with: section 12.10; roadmap item 173.
+
+## D65. An owner in a for clause is dropped once (12.10, 18.6)
+
+Question: audit D8. When an owner variable declared in a for clause is dropped.
+
+Decision: it moves to the next iteration and is dropped once, when the loop ends.
+
+Why: per-iteration copies of an owner would drop it many times.
+
+Lands with: sections 12.10 and 18.6; roadmap item 174.
+
+## D66. A race gives torn or stale values (19.3, 19.7, 18.12, memory-model.md 4.2)
+
+Question: audit D10. The documents disagreed on whether a race is undefined behavior.
+
+Decision: a race gives torn or stale values, never undefined behavior in the compiler's sense. A torn pointer
+or length can break memory safety.
+
+Why: one statement in every place. The compiler does not assume race freedom for optimization.
+
+Lands with: the sections named above.
+
+## D67. Any non-frame error may be sent (16.7)
+
+Question: audit D9. Section 16.7 limited sending to some error kinds.
+
+Decision: every `error` value that is not a view of a frame may be sent. A frame view is E3005 or E2011.
+
+Why: the sendable rule of 8.8 already decides this; 16.7 now matches it.
+
+Lands with: section 16.7.
+
+## D68. Where a region closure may go (11.5)
+
+Question: audits D6 and D14. Which uses of a closure that captures frame variables are allowed.
+
+Decision: a closure passed through a func value or an interface counts as kept for the region errors, without
+summaries. A closure may be stored in other memory of the same frame and written as the argument of `s.Task`
+on a local Scope.
+
+Why: one simple rule, and the two uses ordinary code needs.
+
+Lands with: section 11.5; roadmap item 176.
 
 ## Deferred
 
