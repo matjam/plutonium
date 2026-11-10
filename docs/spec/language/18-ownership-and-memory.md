@@ -278,7 +278,10 @@ the result does hold `p` (E3007), and the directive is an error outside the stan
 
 These limits are part of the language: a program that needs more precision is rejected with the path
 that could not be proved, and the fix is to allocate, to make a field heap-only, or to restructure the
-code. The limits may be raised; they are never lowered.
+code. An implementation uses these limits exactly: it may not raise them, since a program it then
+accepted would be rejected by another implementation, and acceptance may not depend on the implementation
+or its optimizer (section 21.3, Acceptance does not depend on optimization). A later edition of the
+language may raise them.
 
 ### 18.4 Loop iterations reuse their storage
 

@@ -87,9 +87,10 @@ a loop that makes no calls, and another runs in its place. Every instruction is 
 be suspended, since there is no garbage collector to find pointers; the full register state is saved,
 and preemption cannot be observed by the program (section 19.7). Code that must not be interrupted
 (runtime and allocator locks, `rt.DisablePreemption`) disables preemption for its own duration, and a
-preemption that arrives meanwhile happens when it is enabled again. Such code may not wait: a wait on an exact
-path inside a non-migrating region is a compile error (section 19.3, Waiting in a non-migrating region), and any other
-wait there panics with "blocking with preemption disabled" (section 17.1), in kernel mode also inside an interrupt-disabled region. Blocking on a channel, a lock or I/O,
+preemption that arrives meanwhile happens when it is enabled again. Such code may not wait: a wait that a non-migrating region reaches through calls with a single known
+target is a compile error (section 19.3, Waiting in a non-migrating region), and any other wait there
+panics with "blocking with preemption disabled" (section 17.1) when it would park or when a function
+marked `//pu:blocking` is called, in kernel mode also inside an interrupt-disabled region. Blocking on a channel, a lock or I/O,
 or calling `rt.Yield()`, gives up the processor early.
 
 **Deadlock.** In hosted builds, when every task waits for another task and none waits for I/O, a system
@@ -115,7 +116,14 @@ A value **crosses** to another task when it is
   that starts a task with it;
 - sent on a channel, or received from one;
 - held inside an interface, struct or array that crosses;
-- a variable that a scoped task uses, whether it takes it or captures it (section 19.4).
+- a variable that a scoped task uses, whether it takes it or captures it (section 19.4);
+- loaded by a task from memory that other tasks may reach, when it is a pointer or any value that holds a
+  view: a load from a package variable (a per-CPU variable included), from the object of a `synced[T]`,
+  or from the contents of a map, or from memory reached through one of those, crosses to the task that
+  loads it. The load counts in the task's own code and in every function it calls, an atomic load
+  included, once a task other than the main task may run. A value that holds a view is a pointer, a slice,
+  an interface, a func value, a method value, or a struct, array or union that holds one of them. An interrupt handler that loads such a value is a party in the same way
+  (section 19.3, Interrupt handlers).
 
 Every value that crosses must be **sendable** (section 8.8, Sendable types), and may not hold a view that
 the other task could use while it changes:
@@ -209,39 +217,104 @@ of the same per-CPU variable: that is a read-modify-write and needs a non-migrat
 access invalid, and the analysis follows them (section 18.12). A wrong pairing can stop a processor, which
 is a liveness failure, not a safety one.
 
-**Waiting in a non-migrating region.** An operation that may park the task is a compile error where it is reachable
-inside a non-migrating region: between `rt.DisablePreemption` and `rt.EnablePreemption`, while an
-`rt.Lock` is held, or while maskable interrupts are disabled. The operations are the waiting operations
-of section 20.10 (Interrupts): a channel operation that may block, `Lock` of a `sync.Mutex` or a
-`sync.RWMutex`, `Wait` of a `sync.WaitGroup`, a `sync.Cond` or a `sync.Scope` (and the `Drop` of a Scope), `time.Sleep`, `rt.Park`, a
-function marked `//pu:blocking`, and an allocation from an allocator that may wait. A task that parks
-there would hold its processor, or a lock that other processors spin on, while it waits for something
-that may need that processor or that lock.
+**Waiting in a non-migrating region.** An operation that may park the task is a compile error where the
+check below reaches it inside a non-migrating region: between `rt.DisablePreemption` and
+`rt.EnablePreemption`, while an `rt.Lock` is held, or while maskable interrupts are disabled. The
+operations are the waiting operations of section 20.10 (Interrupts): a channel operation that may block,
+`Lock` of a `sync.Mutex` or a `sync.RWMutex`, `Wait` of a `sync.WaitGroup`, a `sync.Cond` or a
+`sync.Scope` (and the `Drop` of a Scope), `time.Sleep`, `rt.Park`, a function marked `//pu:blocking`, and
+an allocation from an allocator that may wait. A task that parks there would hold its processor, or a
+lock that other processors spin on, while it waits for something that may need that processor or that
+lock.
 
-The compiler follows calls from each non-migrating region as section 20.10 (What is followed) describes, the drops it
-inserts and the drop entries of arenas included, and reports the first path it finds, naming each call
-on the way. It reports only exact paths: the wait is written in the region, or every call on the way
-must reach a wait whichever function runs there. A direct call, a call of a method of a known type, a
-deferred call, a hook and a function literal called where it is written are exact. These compile, and
-the run-time check below catches them when they wait:
+The check follows from each non-migrating region the calls that have a single known target, through any
+number of them:
 
-- a call through an interface or a func value where only some of the functions it may reach may wait;
-- an allocation, or a drop that frees, where only some of the allocators the program installs may wait.
+- a direct call of a named function;
+- a call of a method on a concrete type, not through an interface;
+- a deferred call of one of those;
+- a function literal called where it is written (`func() { ... }()`, also deferred), whose one target is
+  that literal;
+- a drop the compiler inserts for a value of a known type, into its `Drop` method and drop glue (section
+  18.6), and a `Reset`, `Release` or `Drop` of an arena the compiler can name, into the drop entries of
+  that arena (section 18.9, Drop entries).
 
-The check needs a non-migrating region on every path, as above, and it starts only from such regions in code outside
-`pluto/rt`: the runtime's own locked code is unsafe code (section 18.12), and a path from a program's non-migrating region into the runtime still ends at its `park` (section 20.10). A wait that the check does not report,
-such as one reached on only some paths through a non-migrating region, through one of the calls above, or from code
-outside Plutonium, fails at run time. `rt.Park` panics with "blocking with preemption disabled" when the
-task's preemption is disabled, and in kernel mode also when maskable interrupts are disabled, so an interrupt-disabled region opened with `x86.Cli` is covered too (section 17.1; abi.md section 12.4). In hosted builds, where
-`x86.Cli` faults, and in kernel mode, every wait in a non-migrating region therefore fails to compile or
-panics when it is reached; none hangs the processor in silence. Other freestanding builds do not test
-the interrupt flag (abi.md section 12.4).
+It reports a wait reached this way when every path to the wait lies inside the non-migrating region, and
+names each call on the way. A wait on only some paths of a followed callee is still reported: the callee
+is entered inside the non-migrating region, and the check does not ask which of the callee's paths runs.
 
-The check for interrupt handlers (E2584, section 20.10) stays conservative through interfaces, func
-values and allocators, and this one does not, for a reason. A wait in a handler has no safe outcome at
-run time: the handler runs on top of the code it interrupted, which cannot resume, so the processor
-stops. A wait in a non-migrating region of a task fails loudly at the panic above. Calls through operations tables and
-allocation while a lock is held are ordinary in a kernel, and a conservative rule would reject them.
+The check does not follow a call with more than one possible target: a call through an interface, a func
+value, a method value or a hook (section 20.10, Calls through interfaces and func values), or a call on
+an arena the compiler cannot name. Nor does it follow an allocation, or a drop that frees, into the
+allocators the program installs, which `new`, `make` and the drops reach through the `alloc.Allocator`
+interface. A wait reached only through such a call compiles, and the run-time test below catches it.
+
+Here `tick` calls `record` directly, and `record` sends on `events` on one of its paths, so the check
+reports the call:
+
+```go
+var events = make(chan int, 16)
+
+func record(n int) {
+	if n > 0 {
+		events <- n // blocks while the buffer is full
+	}
+}
+
+func tick(n int) {
+	rt.DisablePreemption()
+	record(n) // error: a direct call reaches a send that may block, inside the non-migrating region
+	rt.EnablePreemption()
+}
+```
+
+Here the call goes through an interface, so the check does not follow it. If `s` holds a `chanSink` and
+the send blocks, `rt.Park` panics:
+
+```go
+type Sink interface{ Put(n int) }
+
+type chanSink struct{ ch chan int }
+
+func (s chanSink) Put(n int) { s.ch <- n }
+
+func flush(s Sink, n int) {
+	rt.DisablePreemption()
+	s.Put(n) // compiles: a call through an interface is not followed
+	rt.EnablePreemption()
+}
+```
+
+The check needs a non-migrating region on every path, as above, and it starts only from such regions in
+code outside `pluto/rt`: the runtime's own locked code is unsafe code (section 18.12), and a path from a
+program's non-migrating region into the runtime still ends at its `park` (section 20.10). A wait that the
+check does not report, such as one reached on only some paths through a non-migrating region or through
+one of the calls above, fails at run time by one test made in two places. `rt.Park` makes it before it
+parks, and the compiler inserts the same test at the entry of every function marked `//pu:blocking`; for
+such a function without a body, it inserts the test before each call of it instead (section 20.3,
+Directives). The test panics with "blocking with preemption disabled" when the task's preemption is
+disabled, and in kernel mode also when maskable interrupts are disabled, so an interrupt-disabled region
+opened with `x86.Cli` is covered too (section 17.1; abi.md section 12.4). Every waiting operation above
+ends in `rt.Park` or is marked `//pu:blocking`. So in hosted builds, where `x86.Cli` faults, and in kernel
+mode, a waiting operation in a non-migrating region fails to compile, or panics when it would park or
+when a `//pu:blocking` function is called; none hangs the processor in silence. Other freestanding builds
+do not test the interrupt flag (abi.md section 12.4).
+
+That promise covers waiting operations, not every loop. A loop that spins until other code acts, written
+without `//pu:blocking`, such as `for {}` or a poll of a flag while an `rt.Lock` is held, is not an
+operation the language can see as a wait; if it never ends, the program has a bug of its own and the
+processor hangs. Marking the function that spins `//pu:blocking` brings it under the check and the test.
+An interrupt-safe spin lock, which waits only for another processor's progress, is not a wait (section
+20.10). Code outside Plutonium that waits without being marked `//pu:blocking` breaks the contract of a
+function without a body (section 18.12), and is not covered either.
+
+The check for interrupt handlers (E2584, section 20.10) is conservative through interfaces, func values,
+hooks and allocators, and this one does not follow them, for a reason. A wait in a handler has no safe
+outcome at run time: the handler runs on top of the code it interrupted, which cannot resume, so the
+processor stops. A wait in a non-migrating region of a task fails loudly at the panic above, and is not a
+memory or data race error. Calls through operations tables and allocation while a lock is held are
+ordinary in a kernel, and a conservative rule would reject them. This is the one check in the language
+that accepts a program on doubt (section 1.2, Design rules).
 
 **Guards.** For data that several tasks may use, the compiler infers its **guard**: a lock that every
 write of the data holds for writing (`Lock`, not `RLock`). The data is safe when every access, read or
@@ -263,7 +336,10 @@ An allocation made through the arena's `Alloc` and still live makes the call pan
 (section 18.9, Live allocations), so it is not freed. The compiler names an arena as it names a lock: by
 the variable or field it is reached through, and for a pointer by where the pointer came from. A call on
 an arena it cannot name, such as `workers[i].arena` with a variable index, counts as that call on every
-arena it may be, within the limits of section 18.3 (How precise the frame check is). This holds for rules
+arena it may be, within the limits of section 18.3 (How precise the frame check is); beyond those
+limits, such as an arena reached through more loads than they allow, it counts as that call on every
+arena of the program. The name follows a move of the arena: after `b := take(a)` or another move, the
+arena is named by `b`, and a call on `b` frees the objects allocated through `a` before the move. This holds for rules
 1 to 3 below, for the type rule, and for scoped tasks (section 19.4). So
 an object reached through an owner can change while some code may replace, drop or move that owner, and in
 safe code no task frees memory that another task may still use (memory-model.md section 4.1).
@@ -273,6 +349,13 @@ assigning a whole new value to one is an ordinary write.
 **Rule 1: package variables.** A package variable, or a field or element of one, that two tasks may use,
 or that the tasks of one task statement may use while several run, with at least one of them writing it
 after tasks have started, must be atomic or guarded. Per-CPU variables follow section 20.9 instead.
+A package variable here includes the memory it owns: the object of an `owned[T]` it holds and the memory
+of the owners it holds, through owners that hold one another. A pointer or other view loaded from a
+package variable is a value of the variable for this rule, and a value that crosses to the task that loads
+it (section 19.2), so what it points to follows rule 2. A package variable whose type is not sendable (one
+that holds a `shared[T]`) may be used by one task only, since copying a reference out of it changes a
+count with plain arithmetic: a use by a second task, or by the tasks of one task statement while several
+run, is error E2010.
 
 - E3502: it is written with no lock that every write holds. The error names the write, the task that
   makes it (by the statement that starts it), and an access of another task it may meet.
@@ -304,14 +387,20 @@ func main() {
 ```
 
 A package variable written only during package initialization, or only by `main` before it starts its
-first task, may be read by every task without a lock.
+first task, may be read by every task without a lock. That covers the variable and the memory it owns. A
+pointer read from it still crosses, so memory the variable does not own, such as an object that a handler
+table registered during initialization points to, is safe only by rule 2.
 
 **Rule 2: views that cross.** A pointer or slice that crosses to another task (section 19.2) must point
-to memory that is safe for both:
+to memory that is safe for both. That includes a pointer the task loads from a package variable, from the
+object of a `synced[T]` or from a map, and a view held in an interface, func value or method value that it
+loads from one, wherever the view was stored. The memory must be:
 
 - memory of a `pluto/sync` or `pluto/sync/atomic` type, a runtime record (`rt.Task`, `rt.Timer`), a
   channel, or a struct of only those (`task worker(&wg)` with a package-level `wg`);
-- a package variable, or part of one, that no task writes once tasks have started;
+- a package variable, or part of one, including the memory it owns (rule 1), that no task writes once
+  tasks have started. Replacing, dropping or moving an owner the variable holds writes the memory it
+  owns (Frees are writes, above);
 - the object of a `synced[T]` (rule 3);
 - an object of a struct type that satisfies the **type rule**: no code overwrites a whole object of the
   type through a pointer, or frees, drops or moves one (or replaces or drops an owner that holds one) once
@@ -343,6 +432,29 @@ func start() {
 	srv.cfg = new(Config)
 	task watch(&*srv.cfg) // error: E3501, the next line frees the Config that watch reads
 	srv.cfg = new(Config) // assigning to the owner drops the old Config: a write of it
+}
+```
+
+A pointer that reaches a task through a package variable instead of an argument crosses in the same way.
+Here `reader` loads `p`, so the `Node` it points to must be safe for `reader` and `main`. The next
+assignment to `b` drops that `Node`, which is a write of it once tasks have started, so the `Node` is
+neither unchanged memory nor of a type that satisfies the type rule:
+
+```go
+type Node struct{ n int }
+
+var (
+	b owned[Node]
+	p *Node
+)
+
+func reader() { println(p.n) } // error: E3501, p is loaded here and main frees the Node it points to
+
+func main() {
+	b = new(Node)
+	p = &*b
+	task reader()
+	b = new(Node) // drops the Node that p points to
 }
 ```
 
@@ -389,7 +501,9 @@ apply with handlers as parties, and the errors name the handler as the party (E3
 a handler accesses while other code may write it, or that a handler writes while other code may access it,
 must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable (section 20.9). Data that is
 not written while a handler may run, such as a table filled before the first handler is installed, needs
-neither. The guard inference recognizes an `rt.Lock` as it recognizes a `sync.Mutex`. A `volatile[T]` access, and an
+neither. A pointer that a handler loads from such a table crosses to the handler (section 19.2), so the
+device record it points to is safe by rule 2: a package variable no party writes, or an object whose type
+satisfies the type rule. The guard inference recognizes an `rt.Lock` as it recognizes a `sync.Mutex`. A `volatile[T]` access, and an
 interrupt-disabled region, exclude only code on the same processor, so alone they satisfy the rules only for
 per-CPU variables. An allocator has no exemption: its state is data like any other, and when a handler can
 reach its `Alloc` or `Free`, the state they share with other code meets these rules (for example per-CPU

@@ -531,7 +531,7 @@ f := i.M; f(7) // like i.M(7)
 
 **Where the record lives.** A method value is a closure record (section 11.4, Function literals). It holds a copy of the receiver, or the address of the receiver variable for a pointer method of an addressable value. The record is built in the frame of the function that evaluates the method value, and it is a view of that frame (section 18.3, Views). The rules of section 11.5 apply to it. A copy of the receiver retains every counted component it holds, including strings, maps, channels,
 counted boxes, weak references and counted errors. The record releases those components when its storage
-is cleaned up, recursively through aggregates. This uses the existing frame or caller-region storage,
+is cleaned up, recursively through aggregates. This uses the existing frame or the caller's closure region,
 with no hidden heap allocation; a saved pointer receiver remains a borrow. A method value cannot be started with a `task` statement (section 12.12, Task statements). Default parameter values are not applied to a call of a method value (section 10.13, Default parameter values). A method value of a method with its own type parameters must be instantiated (section 10.15, Methods with type parameters).
 
 **Consuming methods.** A method with a value receiver on an owner type consumes its receiver (section 8.6, Method sets). Such a method has no method value. `c.Close`, where `Close` consumes `c`, is an error. A record that held `c` would own it, and every call of the record would consume it again. Call the method directly, `c.Close()`, or use the method expression, `Conn.Close(c)` (section 11.8, Method expressions).

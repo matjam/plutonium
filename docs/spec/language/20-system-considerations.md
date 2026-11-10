@@ -287,15 +287,20 @@ kernels.
 | `//pu:scheduler` | package variable | the program's scheduler backend, of a type that implements `rt.Scheduler`; at most one in a program, replacing the hosted one (section 19.5, The scheduler contract) |
 | `//pu:percpu` | package variable | one copy per processor, addressed through `GS`; kernel mode only (section 20.9) |
 | `//pu:fpu` | function | may use floats in kernel mode; the caller has saved the FPU state (section 20.7) |
-| `//pu:blocking` | function, with or without a body | calling it may park or wait in a way the compiler cannot see (for example, halting until an interrupt, or on a function with a body, spinning until an interrupt handler or another processor sets a flag); interrupt handlers and the panic handler must not reach it (section 20.10). It only adds this restriction and never makes a program accepted |
+| `//pu:blocking` | function, with or without a body | calling it may park or wait in a way the compiler cannot see (for example, halting until an interrupt, or on a function with a body, spinning until an interrupt handler or another processor sets a flag); interrupt handlers and the panic handler must not reach it (section 20.10), and calling it with preemption disabled, or in kernel mode with interrupts disabled, panics (section 19.3). It only adds these restrictions and never makes a program accepted |
 | `//pu:nosimd` | function | the compiler adds no vector instructions to it |
 
 `trap` is the only argument `//pu:interrupt` takes; any other argument is E2603. `//pu:nosimd` is implied by `//pu:interrupt` (either form) and, in kernel mode, by every function that is not
 `//pu:fpu`. `//pu:blocking` is for what the compiler cannot see; waits it can see, which all end in the
 runtime's `park`, need no directive. On a function with a body it states a wait on progress that only
 another execution context makes, such as a spin until an interrupt handler or another processor sets a
-flag. It only adds the restriction of section 20.10. It never makes a program accepted, so it is neither
-unsafe code nor a promise taken on trust.
+flag. It adds the restriction of section 20.10, and a test: the compiler inserts, at the entry of every
+function marked `//pu:blocking`, the test that `rt.Park` makes, which panics with "blocking with
+preemption disabled" when the task's preemption is disabled, and in kernel mode also when maskable
+interrupts are disabled (section 19.3, Waiting in a non-migrating region; abi.md section 12.4). A function
+without a body cannot take an inserted test, so the compiler inserts the test before each call of it. The
+test runs whether or not the function would wait on that call. The directive never makes a program
+accepted, so it is neither unsafe code nor a promise taken on trust.
 
 **Standard library only.**
 
@@ -640,6 +645,10 @@ These rules apply:
 - Two lone accesses in separate statements may reach the copies of two different processors, because the
   task can migrate between them. That is defined behavior, not a data race. Where the second depends on the
   first, it is the dependent store above and not a lone access.
+- A pointer or other view stored in a per-CPU variable and loaded from it crosses to the task or handler
+  that loads it (section 19.2), as a load from any package variable does: the rules above make the access
+  of the variable itself safe, and rule 2 of section 19.3 decides whether the memory it points to is.
+  A task can migrate after the load and use the pointer on another processor.
 - The kernel gives each processor its block and points `GS` at it before that processor touches a per-CPU
   variable. How it does this is in the ABI document (abi.md section 10.6). The runtime has two per-CPU
   variables of its own, the processor's number recorded by `rt.SetCPU` and the current-task slot, so every
@@ -763,8 +772,11 @@ way (E2585).
   functions assigned to it. A function whose value is taken only to be assigned to hooks is not among
   the functions a call through any other func value may reach. The error says when a path goes
   through such a call. To make a handler's call exact, call the function directly. The check of waits in
-  a non-migrating region of a task (section 19.3, Waiting in a non-migrating region) follows the same calls but reports
-  only exact paths, since a wait there panics at run time instead of stopping the processor.
+  a non-migrating region of a task (section 19.3, Waiting in a non-migrating region) does not follow any
+  call with more than one possible target, hooks included, nor allocation and frees into the installed
+  allocators, since a wait there panics at run time instead of stopping the processor. It follows only
+  direct calls, method calls on a concrete type, deferred calls of those, function literals called where
+  they are written, and the drops of values of a known type with the drop entries of an arena it can name.
 - **Allocation.** An allocator is not marked as a whole. `new`, `make` and every operation that makes a
   string call the allocator's `Alloc` through the `alloc.Allocator` interface, and the check follows
   that call into every allocator the program installs. An allocator whose `Alloc` or `Free` may wait,
@@ -779,7 +791,8 @@ way (E2585).
   the compiler noticing.
 - **Assembly and C** are not looked into: a function without a body counts as not waiting unless its
   declaration is marked `//pu:blocking`. This is a contract taken on trust, because a function without a
-  body is unsafe code (section 18.12). The check of this section guards against deadlock, not against
+  body is unsafe code (section 18.12). A call of one that is marked gets the run-time test of section
+  20.3 in the caller, before the call. The check of this section guards against deadlock, not against
   memory or data race errors, and it follows all Plutonium source and takes the declaration of a function
   without a body as that function's contract.
 - **Non-blocking channel operations** never reach `park`, so a `select` with `default`, `close`, `len` and

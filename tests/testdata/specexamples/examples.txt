@@ -766,6 +766,12 @@ pre:
 == 19-concurrency.md 19.3 | type Config struct{ n int }
 known: 168: dropping the old Config is not yet a write in the race check, so the task statement is not an error
 
+== 19-concurrency.md 19.3 | var events = make(chan int, 16)
+known: 215: the wait check of non-migrating regions is not implemented, so the call of record is not an error
+
+== 19-concurrency.md 19.3 | type Node struct{ n int }
+known: 214: a load of a pointer from a package variable is not yet a crossing in the race check, so reader is not an error
+
 == 19-concurrency.md 19.3 | type Counter struct {
 pre:
 	func work(c *Counter, done chan bool) { c.Add() }

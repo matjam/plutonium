@@ -87,10 +87,11 @@ dependent value and neither panics nor faults (section 11.24).
   20.10, Interrupts).
 - An operation that would park the task while its preemption is disabled, by `rt.DisablePreemption` or a
   held `rt.Lock`, or, in kernel mode, while maskable interrupts are disabled, by `x86.Cli` or
-  `x86.SaveFlagsCli` ("blocking with preemption disabled"; section 19.1). The compiler rejects such a
-  wait on an exact path (section 19.3, Waiting in a non-migrating region); this panic catches the rest, such as a wait
-  reached through an interface, a func value or an allocator where only some of the possible callees
-  wait.
+  `x86.SaveFlagsCli` ("blocking with preemption disabled"; section 19.1), and a call of a function marked
+  `//pu:blocking` in the same state, whose entry, or for a function without a body each call, makes the
+  same test (section 20.3). The compiler rejects a wait that the non-migrating region reaches through calls with a
+  single known target (section 19.3, Waiting in a non-migrating region); this panic catches the rest, such
+  as a wait reached through an interface, a func value, a hook or an allocator.
 - `rt.ExitTask` called in a function that C code called (section 17.3).
 
 *Memory.*

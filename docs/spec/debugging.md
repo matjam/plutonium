@@ -228,7 +228,7 @@ panic: negative width
   `<enclosing function>-range<N>`. A closure a function returns (an iterator such as `v.All()`,
   language spec section 11.5) is named after that function:
   `pluto/vec.(*Vec).All[int].func1`, not `main.main.func1`, whichever function called it and provided
-  the region it is built in, and also when the function was inlined into its caller.
+  the closure region it is built in, and also when the function was inlined into its caller.
 - The panic's own frames in package `pluto/rt` are left out, and so is generated code with no source
   position, such as the wrapper that calls a method through an interface.
 - The walk stops at `pluto.main` (which runs initialization and `main.main`; where `main.main` is

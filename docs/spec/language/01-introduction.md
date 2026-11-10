@@ -96,8 +96,14 @@ Four standing principles decide the cases the rules leave open. They serve the t
 where a run-time check may be unavailable or unaffordable, and application code, which should get strong
 guarantees without writing lifetime or borrow annotations.
 
-1. **Doubt resolves to a compile error.** Every static analysis (escape, moves, sendable types, lock
-   guarding, closure regions) rejects what it cannot prove safe and never accepts on doubt. A false
+1. **Doubt resolves to a compile error.** Every static safety analysis (escape, moves, sendable types,
+   lock guarding, closure regions, the waits of interrupt context) rejects what it cannot prove safe and
+   never accepts on doubt. One check is not a safety analysis and accepts on doubt: the check that a
+   non-migrating region of a task does not wait (section 19.3, Waiting in a non-migrating region). It
+   reports only waits it reaches through calls with a single known target, and lets a wait behind an
+   interface, a func value or an allocator compile. Such a wait fails as a loud panic at run time, never
+   as a memory error or a data race, and a conservative rule would reject the operations tables and
+   locked allocation that kernels need. A false
    positive is fixed by improving the analysis, not by weakening the rule. Ordinary application and
    kernel code have the same memory and data-race safety contract: use static proof where possible,
    automatic runtime protection where needed, or reject the operation if neither is available. Ordinary
@@ -232,7 +238,8 @@ These terms are used throughout. Each is defined in full in the section cited.
   itself, or makes a request it cannot supply for itself (section 20.3, Directives).
 - **Safe and unsafe code.** Code that the compiler checks against data races and the misuse of memory is
   safe. Code that uses package `unsafe`, the unchecked layer of the allocator interface, or functions
-  written outside Plutonium is unsafe (section 18.12, Safe and unsafe code).
+  written outside Plutonium is unsafe, and so is the code of package `pluto/rt`, which implements tasks
+  and their locks (section 18.12, Safe and unsafe code).
 - **Checked and unchecked mode.** A checked build prevents stale uses of heap and arena memory through
   static lifetime checks or run-time checks. Fixed and Chunked arenas have the same lifetime guarantee.
   A build that explicitly disables otherwise required run-time generation and epoch checks selects

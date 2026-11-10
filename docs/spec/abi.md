@@ -1363,7 +1363,10 @@ A task is preempted after a time slice wherever it is (language spec section 19.
 preemption-disable count, raised by `rt.DisablePreemption`, by runtime locks, by
 `pluto/alloc`'s per-processor caches (`rt.ProcPin`) and while the task is switched out. A preemption
 that arrives while it is non-zero sets a pending flag, and the task yields when the count returns to
-zero. `rt.Park` with a non-zero count panics with "blocking with preemption disabled".
+zero. `rt.Park` with a non-zero count panics with "blocking with preemption disabled". The compiler
+inserts the same test, and the kernel-mode test below, at the entry of every function marked
+`//pu:blocking`, after its prologue and before its body. For a function marked `//pu:blocking` without a
+body, the test goes before each call of it, in the caller (language spec section 20.3).
 
 In kernel mode `rt.Park` also panics, with the same message, when RFLAGS.IF is clear on entry: the task
 called it with maskable interrupts disabled, by `x86.Cli` or `x86.SaveFlagsCli`, which raise no count.

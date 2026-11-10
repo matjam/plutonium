@@ -7,11 +7,13 @@ other chapters define. A conforming implementation:
   and gives it the meaning those chapters define;
 - reports a compile error for every program that breaks a rule of those chapters, as section 21.1
   requires, and does not run it;
-- never accepts a program because it could not decide whether the program is safe. Every analysis the
-  language defines (escapes, moves, closure regions, races, waits in interrupt context, which takes the declarations of functions without a body on trust,
-  section 20.10) rejects what it
-  cannot prove, and a false rejection is fixed by improving the analysis, never by weakening the rule
-  (section 1.2, Design rules).
+- never accepts a program because it could not decide whether the program is safe. Every safety
+  analysis the language defines (escapes, moves, closure regions, races, waits in interrupt context, which
+  takes the declarations of functions without a body on trust, section 20.10) rejects what it cannot
+  prove, and a false rejection is fixed by improving the analysis, never by weakening the rule (section
+  1.2, Design rules). The one check that accepts on doubt is the check of waits in a non-migrating region
+  of a task (section 19.3), which follows only calls with a single known target: a wait it does not
+  report panics at run time, which is a loud failure and not a memory or data race error.
 
 ### 21.1 Diagnostics
 

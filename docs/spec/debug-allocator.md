@@ -59,7 +59,7 @@ o.Underflow = true
 alloc.SetDefault(debug.New(o))
 ```
 
-or scope it to a region with `alloc.Use`, or hand it to a container (`vec.New[T](d)`). Build with
+or scope it to a stretch of code with `alloc.Use`, or hand it to a container (`vec.New[T](d)`). Build with
 `--tags allocsites` to get allocation sites in that case.
 
 `--alloc=debug` is for hosted builds. A freestanding program creates the allocator over its own page

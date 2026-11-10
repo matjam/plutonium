@@ -797,7 +797,7 @@ The rules in full:
 - **Variadic functions** cannot have defaults (E2202): a function with a variadic parameter and any defaulted parameter is E2202, and E2203 is not reported for it. The variadic parameter is last, so a defaulted
   parameter before it would have to be given whenever any variadic argument is, and an argument after the
   variadic ones could not be told apart from them. The variadic constructors of the standard library
-  therefore allocate from the current default allocator, which `alloc.Use` replaces for a region of code
+  therefore allocate from the current default allocator, which `alloc.Use` replaces for a stretch of code
   (section 18.9, Allocators).
 
 ```go
