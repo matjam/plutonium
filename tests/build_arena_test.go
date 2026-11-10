@@ -12,9 +12,9 @@ import (
 func TestChunkedMisuse(t *testing.T) {
 	t.Parallel()
 	cases := []struct{ name, body, want string }{
-		{"stale mark after reset", "a := arena.NewChunked(256)\n\t_ = a.Alloc(100, 8)\n\tm := a.Mark()\n\ta.Reset()\n\ta.Release(m)",
+		{"stale mark after reset", "a := arena.NewChunked(256)\n\t_ = a.Slice[byte](100)\n\tm := a.Mark()\n\ta.Reset()\n\ta.Release(m)",
 			"panic: arena: Release of a stale mark\n"},
-		{"stale mark in same chunk", "a := arena.NewChunked(256)\n\t_ = a.Alloc(10, 8)\n\tm0 := a.Mark()\n\t_ = a.Alloc(10, 8)\n\tm1 := a.Mark()\n\ta.Release(m0)\n\ta.Release(m1)",
+		{"stale mark in same chunk", "a := arena.NewChunked(256)\n\t_ = a.Slice[byte](10)\n\tm0 := a.Mark()\n\t_ = a.Slice[byte](10)\n\tm1 := a.Mark()\n\ta.Release(m0)\n\ta.Release(m1)",
 			"panic: arena: Release of a stale mark\n"},
 		{"nil parent", "a := arena.NewChunked(256, nil)\n\t_ = a.Alloc(1, 1)", "panic: arena: NewChunked with a nil parent allocator\n"},
 		{"zero value", "var a arena.Chunked\n\t_ = a.Alloc(1, 1)", "panic: arena: Chunked used before NewChunked\n"},

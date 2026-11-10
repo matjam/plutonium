@@ -267,6 +267,9 @@ func manualArenaOperation(fn *types2.Func) string {
 		if fn.Name() == "NewUnsafe" && fn.Pkg().Scope().Lookup("NewUnsafe") == fn {
 			return "pluto/arena.NewUnsafe"
 		}
+		if fn.Name() == "NewChunkedUnsafe" && fn.Pkg().Scope().Lookup("NewChunkedUnsafe") == fn {
+			return "pluto/arena.NewChunkedUnsafe"
+		}
 		return ""
 	}
 	switch fn.Name() {

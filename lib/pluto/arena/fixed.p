@@ -3,6 +3,7 @@ package arena
 import (
 	"pluto/alloc"
 	"pluto/rt"
+	"pluto/sync/atomic"
 	"unsafe"
 )
 
@@ -14,6 +15,7 @@ type Fixed owner struct {
 	size   uintptr
 	off    uintptr
 	life   lifetime
+	live   int64 // allocations made through Alloc and not freed yet
 }
 
 var _ alloc.Allocator = (*Fixed)(nil)
@@ -38,7 +40,19 @@ func NewFixed(capacity uintptr, parent alloc.Allocator = alloc.Default()) Fixed 
 	return Fixed{parent: parent, base: p, size: capacity, life: newLifetime(parent)}
 }
 
+// Alloc returns size zeroed bytes aligned to align, or nil when the arena
+// has no room. The allocation counts as live until it is freed (language
+// spec section 18.9, Live allocations).
 func (a *Fixed) Alloc(size, align uintptr) unsafe.Pointer {
+	p := a.alloc(size, align)
+	if p != nil {
+		atomic.AddInt64(&a.live, 1)
+	}
+	return p
+}
+
+// alloc is Alloc without the count, for the plain views of New and Slice.
+func (a *Fixed) alloc(size, align uintptr) unsafe.Pointer {
 	if align == 0 {
 		align = 1
 	}
@@ -64,7 +78,7 @@ func (a *Fixed) Alloc(size, align uintptr) unsafe.Pointer {
 			// allocate after them. A Fixed has no other storage, so once
 			// every granule is retired its allocations fail.
 			a.off = min(r-uintptr(a.base), a.size)
-			return a.Alloc(size, align)
+			return a.alloc(size, align)
 		}
 		return nil
 	}
@@ -76,6 +90,9 @@ func (a *Fixed) Alloc(size, align uintptr) unsafe.Pointer {
 // Free reclaims only the latest allocation, invalidating it before reuse.
 func (a *Fixed) Free(p unsafe.Pointer, size, align uintptr) {
 	rt.GenCheckArenaFree(p, max(size, uintptr(1)))
+	if p != nil {
+		atomic.AddInt64(&a.live, -1)
+	}
 	r := a.life.head
 	if r == nil || p == nil || uintptr(p) < uintptr(r.p) || uintptr(p) >= uintptr(r.p)+r.size || max(size, uintptr(1)) != uintptr(r.p)+r.size-uintptr(p) {
 		return
@@ -88,6 +105,7 @@ func (a *Fixed) Free(p unsafe.Pointer, size, align uintptr) {
 }
 
 func (a *Fixed) Reset() {
+	a.checkLive()
 	a.life.resetMarks()
 	a.off = 0
 	if a.life.reclaim(0, rt.CallerPC(), false) {
@@ -112,6 +130,7 @@ func (a *Fixed) Release(m FixedMark) {
 	if !a.life.valid(m.identity, m.reset, m.sequence, m.end) || m.off > a.off {
 		panic("arena: Release of a stale mark")
 	}
+	a.checkLive()
 	a.off = m.off
 	if a.life.reclaim(m.sequence, rt.CallerPC(), false) {
 		rt.ResumeAllocFreeExit()
@@ -119,6 +138,7 @@ func (a *Fixed) Release(m FixedMark) {
 }
 
 func (a *Fixed) Drop() {
+	a.checkLive()
 	a.life.resetMarks()
 	base, size, parent := a.base, a.size, a.parent
 	a.base, a.size, a.off = nil, 0, 0
@@ -130,6 +150,14 @@ func (a *Fixed) Drop() {
 	}
 	if exiting {
 		rt.ResumeAllocFreeExit()
+	}
+}
+
+// checkLive panics while an allocation made through Alloc is not freed
+// (language spec section 18.9, Live allocations).
+func (a *Fixed) checkLive() {
+	if atomic.LoadInt64(&a.live) != 0 {
+		panic("arena has live allocations")
 	}
 }
 

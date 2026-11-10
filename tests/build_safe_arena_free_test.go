@@ -16,7 +16,7 @@ func TestSafeArenaFree(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/stale%t/O%d", constructor, stale, opt), func(t *testing.T) {
 					t.Parallel()
 					body := `p:=a.New[int](); *p=7
- q:=a.New[int](); *q=8
+ q:=(*int)(a.Alloc(8,8)); *q=8
  a.Free(unsafe.Pointer(q),8,8)
  r:=a.New[int](); *r=9
  println(*p,*r)`

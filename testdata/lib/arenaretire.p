@@ -82,8 +82,10 @@ func main() {
 	g := arena.NewFixed(16)
 	failed := -1
 	for i := 0; i < rounds && failed < 0; i++ {
-		if g.Alloc(8, 8) == nil {
+		if p := g.Alloc(8, 8); p == nil {
 			failed = i
+		} else {
+			g.Free(p, 8, 8) // counted until freed: Reset checks the count
 		}
 		g.Reset()
 	}

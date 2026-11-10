@@ -150,12 +150,12 @@ func main() {
 	s += n.val + n.more
 	println("ok", s)`, "ok 14", "", 0},
 		{"arena reset between two field reads", withArena, `
-	a := arena.NewChunked()
+	a := arena.NewChunkedUnsafe()
 	n := alloc.New[Node](&a)
 	n.val, n.more = 1, 2
 	println("after", fieldsAroundReset(n, &a))`, wasReset, "after", 2},
 		{"arena reset between two fields of a new allocation", withArena, `
-	a := arena.NewChunked()
+	a := arena.NewChunkedUnsafe()
 	n := alloc.New[Node](&a)
 	n.val = 1
 	x := n.val

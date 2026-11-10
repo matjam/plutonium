@@ -416,7 +416,7 @@ func heapNames() vec.Vec[string] {
 }
 
 func main() {
-	a := arena.NewChunked()
+	a := arena.NewChunkedUnsafe()
 `
 	const reset = "use of memory from an arena that was reset at main.main (./main.p:"
 	cases := []struct {
@@ -547,7 +547,7 @@ type node struct {
 }
 
 func main() {
-	a := arena.NewChunked()
+	a := arena.NewChunkedUnsafe()
 `
 	cases := []struct{ name, body, use, reclaim string }{
 		{"view after reset", `

@@ -68,9 +68,9 @@ func main() {
 	// ar is a package variable: a local arena's allocations are views of it
 	// (spec 18.3), and the probe of x after Drop would not compile.
 	ar = arena.NewChunked(4096)
-	x := ar.Alloc(40, 8)
+	x := view(5)
 	m := ar.Mark()
-	y := ar.Alloc(24, 8)
+	y := view(3)
 	z := ar.Alloc(200, 8)
 	probe("arena", x, 300)
 	ar.Free(z, 200, 8) // the latest allocation gives its space back
@@ -79,7 +79,7 @@ func main() {
 	ar.Release(m)
 	probe("arena release", x, 300)
 	probe("arena release stale", y, 100)
-	w := ar.Alloc(64, 8)
+	w := view(8)
 	probe("arena reused", x, 300)
 	probe("arena reused stale", y, 100)
 	_ = w
@@ -98,6 +98,12 @@ func main() {
 var checked bool
 
 var ar arena.Chunked
+
+// view allocates n words in ar as a plain view, which the arena does not
+// count, so a Release or Drop may take it back while the program still
+// holds its address (language spec section 18.9, Live allocations).
+func view(n int) unsafe.Pointer { return unsafe.Pointer(unsafe.SliceData(ar.Slice[uint64](n))) }
+
 var wrong int
 
 // expect checks, in a checked build, that the n bytes at p are live or
@@ -133,11 +139,11 @@ func oracle() {
 	ar = arena.NewChunked() // the package variable, as in main
 	var first, second [n]unsafe.Pointer
 	for i := range first[:n/2] {
-		first[i] = ar.Alloc(16, 8)
+		first[i] = view(2)
 	}
 	m := ar.Mark()
 	for i := n / 2; i < n; i++ {
-		first[i] = ar.Alloc(16, 8)
+		first[i] = view(2)
 	}
 	for i := range first {
 		expect("allocated", i, first[i], 16, true)
@@ -147,7 +153,7 @@ func oracle() {
 		expect("released", i, first[i], 16, i < n/2)
 	}
 	for i := n / 2; i < n; i++ {
-		second[i] = ar.Alloc(16, 8)
+		second[i] = view(2)
 	}
 	for i := n / 2; i < n; i++ {
 		expect("stale", i, first[i], 16, false)

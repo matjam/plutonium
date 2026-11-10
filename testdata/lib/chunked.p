@@ -89,6 +89,7 @@ func main() {
 		if uintptr(p)%al != 0 {
 			println("misaligned", al)
 		}
+		a.Free(p, 24, al) // counted until freed: Release below checks the count
 	}
 
 	// Scratch work between a mark and its release.
@@ -171,7 +172,7 @@ func main() {
 	// Poisoning overwrites released memory.
 	a.SetPoison(true)
 	m2 := a.Mark()
-	b := (*[16]byte)(a.Alloc(16, 1))
+	b := (*[16]byte)(unsafe.Pointer(unsafe.SliceData(a.Slice[byte](16))))
 	b[0] = 1
 	// Released memory is read through its address: with -gencheck, a
 	// read through b itself panics (the allocation was reclaimed).
@@ -179,7 +180,7 @@ func main() {
 	a.Release(m2)
 	b = (*[16]byte)(unsafe.Pointer(addr))
 	println("poisoned", b[0] == 0xDD, b[15] == 0xDD)
-	c := (*[16]byte)(a.Alloc(16, 1))
+	c := (*[16]byte)(unsafe.Pointer(unsafe.SliceData(a.Slice[byte](16))))
 	println("zeroed again", c[0], c[15])
 
 	// Typed allocation: views of the arena's memory.

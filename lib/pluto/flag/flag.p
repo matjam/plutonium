@@ -334,7 +334,7 @@ func (f *FlagSet) define(value Value, name, usage, kind, zero string) {
 	if f.Lookup(name) != nil {
 		panic("flag: flag redefined")
 	}
-	fl := alloc.New[Flag](&f.mem)
+	fl := f.mem.New[Flag]()
 	fl.Name = name
 	fl.Usage = usage
 	fl.Value = value
@@ -347,14 +347,14 @@ func (f *FlagSet) define(value Value, name, usage, kind, zero string) {
 // BoolVar defines a bool flag stored in *p, with default value.
 func (f *FlagSet) BoolVar(p *bool, name string, value bool, usage string) {
 	*p = value
-	v := alloc.New[boolValue](&f.mem)
+	v := f.mem.New[boolValue]()
 	v.p = p
 	f.define(v, name, usage, "", "false")
 }
 
 // Bool defines a bool flag and returns its variable, which f owns.
 func (f *FlagSet) Bool(name string, value bool, usage string) *bool {
-	p := alloc.New[bool](&f.mem)
+	p := f.mem.New[bool]()
 	f.BoolVar(p, name, value, usage)
 	return p
 }
@@ -362,14 +362,14 @@ func (f *FlagSet) Bool(name string, value bool, usage string) *bool {
 // IntVar defines an int flag stored in *p, with default value.
 func (f *FlagSet) IntVar(p *int, name string, value int, usage string) {
 	*p = value
-	v := alloc.New[intValue](&f.mem)
+	v := f.mem.New[intValue]()
 	v.n = p
 	f.define(v, name, usage, "int", "0")
 }
 
 // Int defines an int flag and returns its variable, which f owns.
 func (f *FlagSet) Int(name string, value int, usage string) *int {
-	p := alloc.New[int](&f.mem)
+	p := f.mem.New[int]()
 	f.IntVar(p, name, value, usage)
 	return p
 }
@@ -377,14 +377,14 @@ func (f *FlagSet) Int(name string, value int, usage string) *int {
 // Int64Var defines an int64 flag stored in *p, with default value.
 func (f *FlagSet) Int64Var(p *int64, name string, value int64, usage string) {
 	*p = value
-	v := alloc.New[intValue](&f.mem)
+	v := f.mem.New[intValue]()
 	v.p = p
 	f.define(v, name, usage, "int", "0")
 }
 
 // Int64 defines an int64 flag and returns its variable, which f owns.
 func (f *FlagSet) Int64(name string, value int64, usage string) *int64 {
-	p := alloc.New[int64](&f.mem)
+	p := f.mem.New[int64]()
 	f.Int64Var(p, name, value, usage)
 	return p
 }
@@ -392,14 +392,14 @@ func (f *FlagSet) Int64(name string, value int64, usage string) *int64 {
 // UintVar defines a uint flag stored in *p, with default value.
 func (f *FlagSet) UintVar(p *uint, name string, value uint, usage string) {
 	*p = value
-	v := alloc.New[uintValue](&f.mem)
+	v := f.mem.New[uintValue]()
 	v.n = p
 	f.define(v, name, usage, "uint", "0")
 }
 
 // Uint defines a uint flag and returns its variable, which f owns.
 func (f *FlagSet) Uint(name string, value uint, usage string) *uint {
-	p := alloc.New[uint](&f.mem)
+	p := f.mem.New[uint]()
 	f.UintVar(p, name, value, usage)
 	return p
 }
@@ -407,14 +407,14 @@ func (f *FlagSet) Uint(name string, value uint, usage string) *uint {
 // Uint64Var defines a uint64 flag stored in *p, with default value.
 func (f *FlagSet) Uint64Var(p *uint64, name string, value uint64, usage string) {
 	*p = value
-	v := alloc.New[uintValue](&f.mem)
+	v := f.mem.New[uintValue]()
 	v.p = p
 	f.define(v, name, usage, "uint", "0")
 }
 
 // Uint64 defines a uint64 flag and returns its variable, which f owns.
 func (f *FlagSet) Uint64(name string, value uint64, usage string) *uint64 {
-	p := alloc.New[uint64](&f.mem)
+	p := f.mem.New[uint64]()
 	f.Uint64Var(p, name, value, usage)
 	return p
 }
@@ -423,14 +423,14 @@ func (f *FlagSet) Uint64(name string, value uint64, usage string) *uint64 {
 // value a command line gives it is a view of Parse's argument.
 func (f *FlagSet) StringVar(p *string, name string, value string, usage string) {
 	*p = value
-	v := alloc.New[stringValue](&f.mem)
+	v := f.mem.New[stringValue]()
 	v.p = p
 	f.define(v, name, usage, "string", "")
 }
 
 // String defines a string flag and returns its variable, which f owns.
 func (f *FlagSet) String(name string, value string, usage string) *string {
-	p := alloc.New[string](&f.mem)
+	p := f.mem.New[string]()
 	f.strs.Push(p)
 	f.StringVar(p, name, value, usage)
 	return p
@@ -440,7 +440,7 @@ func (f *FlagSet) String(name string, value string, usage string) *string {
 // value; it accepts what time.ParseDuration does.
 func (f *FlagSet) DurationVar(p *time.Duration, name string, value time.Duration, usage string) {
 	*p = value
-	v := alloc.New[durationValue](&f.mem)
+	v := f.mem.New[durationValue]()
 	v.p = p
 	f.define(v, name, usage, "duration", "0s")
 }
@@ -448,7 +448,7 @@ func (f *FlagSet) DurationVar(p *time.Duration, name string, value time.Duration
 // Duration defines a time.Duration flag and returns its variable, which f
 // owns.
 func (f *FlagSet) Duration(name string, value time.Duration, usage string) *time.Duration {
-	p := alloc.New[time.Duration](&f.mem)
+	p := f.mem.New[time.Duration]()
 	f.DurationVar(p, name, value, usage)
 	return p
 }

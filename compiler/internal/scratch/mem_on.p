@@ -14,11 +14,14 @@ import (
 // on its own and never unregistered, as Release frees no allocation one by
 // one, so the registrations of a chunk piled up and every lookup in it
 // walked them. A Region and a home are Chunked too, for the same reason.
+// They come from NewChunkedUnsafe, which keeps no count of live
+// allocations: the code that allocates in scratch memory never frees, and
+// its memory is taken back in bulk.
 type mem = arena.Chunked
 
 type memMark = arena.ChunkMark
 
-func newMem(parent alloc.Allocator) mem { return arena.NewChunked(chunkSize, parent) }
+func newMem(parent alloc.Allocator) mem { return arena.NewChunkedUnsafe(chunkSize, parent) }
 
 // The data sizes of the chunks of a Region and of a home. With generation
 // checks a chunk also holds 8K of metadata before its data, and is asked
@@ -41,7 +44,7 @@ type regionMem owner struct {
 
 func (m *regionMem) init() {
 	m.src = chunkSource{region: uintptr(unsafe.Pointer(m))}
-	m.Chunked = arena.NewChunked(regionChunk, &m.src)
+	m.Chunked = arena.NewChunkedUnsafe(regionChunk, &m.src)
 }
 
 func (m *regionMem) bytes() uintptr { return m.src.used }
@@ -60,7 +63,7 @@ type home owner struct {
 
 var homeSource chunkSource
 
-func (h *home) init() { h.Chunked = arena.NewChunked(homeChunk, &homeSource) }
+func (h *home) init() { h.Chunked = arena.NewChunkedUnsafe(homeChunk, &homeSource) }
 
 // empty reports whether nothing was allocated from h.
 func (h *home) empty() bool { return h.Chunked.Held() == 0 }

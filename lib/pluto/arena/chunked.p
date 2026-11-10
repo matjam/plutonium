@@ -3,6 +3,7 @@ package arena
 import (
 	"pluto/alloc"
 	"pluto/rt"
+	"pluto/sync/atomic"
 	"unsafe"
 )
 
@@ -20,8 +21,10 @@ import (
 //   - Drop returns every chunk to the parent; Trim returns only the spare
 //     ones Reset and Release kept.
 //
-// Memory a Reset, Release, Drop or latest Free takes back must not be used
-// afterwards. Checked builds validate persistent allocation incarnations;
+// Every allocation made through Alloc must be freed before Reset, Release
+// or Drop, which panic with "arena has live allocations" otherwise; the
+// views of New and Slice are not counted. Memory a Reset, Release, Drop or
+// latest Free takes back must not be used afterwards. Checked builds validate persistent allocation incarnations;
 // unchecked builds omit that validation (language spec section 18.11).
 //
 // A compiler uses one per phase:
@@ -49,7 +52,9 @@ type Chunked owner struct {
 	spare     *chunk  // standard chunks kept for reuse, linked by prev
 	held      uintptr // bytes taken from the parent, headers included
 	poison    bool
+	uncounted bool // made by NewChunkedUnsafe: no count of live allocations
 	life      lifetime
+	live      int64 // allocations made through Alloc and not freed yet
 }
 
 // A chunk is a block from the parent allocator: this header, then size
@@ -85,6 +90,19 @@ func NewChunked(chunkSize uintptr = DefaultChunkSize, parent alloc.Allocator = a
 	return Chunked{parent: parent, chunkSize: (chunkSize + 15) &^ 15, life: newLifetime(parent)}
 }
 
+// NewChunkedUnsafe is NewChunked for a Chunked that keeps no count of live
+// allocations, so its Reset, Release and Drop take back memory that is
+// still in use. As with NewUnsafe, the caller is responsible for every
+// allocation it makes in the arena: nothing may use one, and no count
+// obligation may stay in one, after the arena takes it back (language spec
+// section 18.12). The compiler's own scratch memory, whose allocations are
+// discarded in bulk, is the one user.
+func NewChunkedUnsafe(chunkSize uintptr = DefaultChunkSize, parent alloc.Allocator = alloc.Default()) Chunked {
+	a := NewChunked(chunkSize, parent)
+	a.uncounted = true
+	return a
+}
+
 func (c *chunk) data() unsafe.Pointer {
 	if isEpoch(c) {
 		return unsafe.Add(unsafe.Pointer(c), c.meta().dataOff)
@@ -93,8 +111,18 @@ func (c *chunk) data() unsafe.Pointer {
 }
 
 // Alloc returns size zeroed bytes aligned to align (a power of two), or nil
-// if the parent allocator is out of memory.
+// if the parent allocator is out of memory. The allocation counts as live
+// until it is freed (language spec section 18.9, Live allocations).
 func (a *Chunked) Alloc(size, align uintptr) unsafe.Pointer {
+	p := a.alloc(size, align)
+	if p != nil && !a.uncounted {
+		atomic.AddInt64(&a.live, 1)
+	}
+	return p
+}
+
+// alloc is Alloc without the count, for the plain views of New and Slice.
+func (a *Chunked) alloc(size, align uintptr) unsafe.Pointer {
 	if align == 0 {
 		align = 1
 	}
@@ -191,6 +219,9 @@ func (a *Chunked) grow(need uintptr) bool {
 // vec.Vec on an arena cheaper).
 func (a *Chunked) Free(p unsafe.Pointer, size, align uintptr) {
 	rt.GenCheckArenaFree(p, max(size, uintptr(1)))
+	if p != nil && !a.uncounted {
+		atomic.AddInt64(&a.live, -1)
+	}
 	r := a.life.head
 	if c := a.cur; c != nil && r != nil && p != nil && uintptr(p) >= uintptr(r.p) && uintptr(p) < uintptr(r.p)+r.size && uintptr(p)+max(size, uintptr(1)) == uintptr(r.p)+r.size && uintptr(p)+max(size, uintptr(1)) == uintptr(c.data())+a.off {
 		a.off = uintptr(p) - uintptr(c.data())
@@ -233,6 +264,7 @@ func (a *Chunked) release(m ChunkMark, pc uintptr) bool {
 	if !a.life.valid(m.identity, m.reset, m.sequence, m.end) || genCheck && m.cur != nil && !rt.GenRegisteredLive(unsafe.Pointer(m.cur)) {
 		panic("arena: Release of a stale mark")
 	}
+	a.checkLive()
 	exiting := a.life.reclaim(m.sequence, pc, false)
 	for a.cur != m.cur {
 		c := a.cur
@@ -289,9 +321,18 @@ func (a *Chunked) Reset() {
 	if a.life.identity == 0 {
 		return
 	}
+	a.checkLive()
 	a.life.resetMarks()
 	if a.release(ChunkMark{identity: a.life.identity, reset: a.life.reset}, rt.CallerPC()) {
 		rt.ResumeAllocFreeExit()
+	}
+}
+
+// checkLive panics while an allocation made through Alloc is not freed
+// (language spec section 18.9, Live allocations).
+func (a *Chunked) checkLive() {
+	if atomic.LoadInt64(&a.live) != 0 {
+		panic("arena has live allocations")
 	}
 }
 
@@ -320,6 +361,7 @@ func (a *Chunked) Drop() {
 	if a.life.identity == 0 {
 		return
 	}
+	a.checkLive()
 	a.life.resetMarks()
 	exiting := a.release(ChunkMark{identity: a.life.identity, reset: a.life.reset}, rt.CallerPC())
 	if a.trim() {

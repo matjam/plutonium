@@ -133,13 +133,13 @@ func main() {
 	q.val = 2
 	println("after", p.val)`, freed, "after", 2},
 		{"new allocation in an arena reset by a call", `
-	a := arena.NewChunked()
+	a := arena.NewChunkedUnsafe()
 	n := alloc.New[Node](&a)
 	n.val = 1
 	reset(&a)
 	println("after", n.val)`, wasReset, "after", 2},
 		{"owner parameter in an arena reset by a call", `
-	a := arena.NewChunked()
+	a := arena.NewChunkedUnsafe()
 	o := alloc.Owned[Node](&a)
 	o.val = 3
 	use(o, &a)`, wasReset, "b ", 2},

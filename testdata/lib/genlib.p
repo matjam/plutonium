@@ -42,7 +42,7 @@ func Collect[T any](xs []T, keep func(T) bool) vec.Vec[T] {
 }
 
 func NewIn[T any](v T, a alloc.Allocator) *T {
-	p := alloc.New[T](a) // a view of memory the arena owns
+	p := alloc.New[T](a) // the caller frees it
 	*p = v
 	return p
 }
@@ -81,4 +81,5 @@ func main() {
 	p := NewIn(key{7, 8}, &ar)
 	s := MakeIn(3, "s", &ar)
 	println(p.x, p.y, s.Len(), s[2], ar.Used() > 0)
+	alloc.Free(p, &ar) // counted until freed: dropping ar checks the count
 }

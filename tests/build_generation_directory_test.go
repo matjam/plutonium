@@ -19,7 +19,7 @@ func TestGenerationDirectoryLarge(t *testing.T) {
 					t.Parallel()
 					setup, reclaim := "a := alloc.Default()", "a.Free(p, 200000, 16)"
 					if allocator == "arena" {
-						setup, reclaim = "a := arena.NewChunked(); defer a.Drop()", "a.Reset()"
+						setup, reclaim = "a := arena.NewChunkedUnsafe(); defer a.Drop()", "a.Reset()"
 					}
 					if !stale {
 						reclaim = ""
@@ -122,7 +122,7 @@ println(uintptr(p)%65536)
 a.Free(p, 200000, 65536)
 a.Free(p, 200000, 65536)`, "0\npanic: alloc: Free of memory that was already freed", 2},
 		{"large arena release", "", `
-a := arena.NewChunked(200000)
+a := arena.NewChunkedUnsafe(200000)
 ra := &a; _ = ra
 m := a.Mark()
 p := (*byte)(a.Alloc(150000, 65536))
@@ -131,7 +131,7 @@ println(uintptr(unsafe.Pointer(p))%65536)
 ra.Release(m)
 println(*p)`, "0\npanic: runtime error: use of memory from an arena", 2},
 		{"partial tail indexed access", "", `
-a := arena.NewChunked()
+a := arena.NewChunkedUnsafe()
 p := a.Alloc(200000, 16)
 b := unsafe.Slice((*byte)(p), 200000)
 b[0] = 41
@@ -139,12 +139,12 @@ a.Free(unsafe.Add(p, 100000), 100000, 16)
 println(b[0])
 println(b[150001])`, "41\npanic: runtime error: use of freed memory", 2},
 		{"partial tail crossing load", "", `
-a := arena.NewChunked()
+a := arena.NewChunkedUnsafe()
 p := a.Alloc(200000, 16)
 a.Free(unsafe.Add(p, 100000), 100000, 16)
 println(*(*uint16)(unsafe.Add(p, 99999)))`, "use of freed memory", 2},
 		{"partial tail bulk copy", "", `
-a := arena.NewChunked()
+a := arena.NewChunkedUnsafe()
 p := a.Alloc(200000, 16)
 b := unsafe.Slice((*uint64)(p), 25000)
 a.Free(unsafe.Add(p, 100000), 100000, 16)
@@ -155,7 +155,7 @@ var outer arena.Chunked
 type Retirer owner struct{}
 func (r *Retirer) Drop() { outer.Reset() }
 `, `
-outer = arena.NewChunked()
+outer = arena.NewChunkedUnsafe()
 dst := alloc.New[[1]shared[Retirer]](&outer)[:]
 dst[0] = alloc.Shared[Retirer]()
 var src [1]shared[Retirer]
@@ -165,14 +165,14 @@ copy(dst, src[:])`, "use of memory from an arena", 2},
 // views of it (spec 18.3), and their use after Drop does not compile.
 var a arena.Chunked
 `, `
-a = arena.NewChunked(200000)
+a = arena.NewChunkedUnsafe(200000)
 p := (*byte)(a.Alloc(150000, 16))
 *p = 34
 dead := take(&a)
 dead.Drop()
 println(*p)`, "use of memory from an arena", 2},
 		{"large counted string", "", `
-a := arena.NewChunked()
+a := arena.NewChunkedUnsafe()
 defer alloc.Use(&a).Restore()
 s := strings.Repeat("x", 200000)
 println(len(s), s[150001])
@@ -180,7 +180,7 @@ a.Reset()
 c := s
 println(c[150001])`, "200000 120\npanic: runtime error: use of memory from an arena", 2},
 		{"large counted box", `type Huge struct { bytes [200000]byte }`, `
-a := arena.NewChunked()
+a := arena.NewChunkedUnsafe()
 defer alloc.Use(&a).Restore()
 b := alloc.Shared[Huge]()
 b.bytes[150001] = 36
@@ -200,7 +200,7 @@ println(c != nil, p != nil, ok)`, "true true true\n", 0},
 type HugeError struct { bytes [200000]byte }
 func (e *HugeError) Error() string { return "huge" }
 `, `
-a := arena.NewChunked()
+a := arena.NewChunkedUnsafe()
 defer alloc.Use(&a).Restore()
 var e error = alloc.Synced[HugeError]()
 println(e.Error())
@@ -208,14 +208,14 @@ a.Reset()
 c := e
 println(c.Error())`, "huge\npanic: runtime error: use of memory from an arena", 2},
 		{"stale runtime map", "", `
-a := arena.NewChunked()
+a := arena.NewChunkedUnsafe()
 defer alloc.Use(&a).Restore()
 m := make(map[int][200000]byte)
 m[1] = [200000]byte{}
 a.Reset()
 println(len(m))`, "use of memory from an arena", 2},
 		{"stale runtime channel", "", `
-a := arena.NewChunked()
+a := arena.NewChunkedUnsafe()
 defer alloc.Use(&a).Restore()
 c := make(chan [200000]byte, 1)
 c <- [200000]byte{}
@@ -230,7 +230,7 @@ w := weak[synced[struct{}]](b)
 p, ok := w.Upgrade()
 println(c != nil, p != nil, ok)
 }`, `
-a := arena.NewChunked()
+a := arena.NewChunkedUnsafe()
 defer a.Drop()
 zeroSynced(&a)`, "true true true\n", 0},
 		{"custom constructor", customGenerationAllocator, `
@@ -258,9 +258,9 @@ println(*(*byte)(p), *(*byte)(q))
 a.Free(q, 1, 1)
 println(*(*byte)(p))`, "17 18\n17\n", 0},
 		{"parent reset", "", `
-outer := arena.NewChunked()
+outer := arena.NewChunkedUnsafe()
 ro := &outer; _ = ro
-inner := arena.NewChunked(256, &outer)
+inner := arena.NewChunkedUnsafe(256, &outer)
 p := (*byte)(inner.Alloc(200000, 16))
 *p = 19
 ro.Reset()
@@ -279,13 +279,13 @@ a.Free(q, 1, 1)
 println(*(*byte)(p))
 println(*(*byte)(q))`, "31\npanic: runtime error: use of freed memory", 2},
 		{"partial parent release", "", `
-outer := arena.NewChunked()
+outer := arena.NewChunkedUnsafe()
 ro := &outer; _ = ro
-left := arena.NewChunked(256, &outer)
+left := arena.NewChunkedUnsafe(256, &outer)
 p := (*byte)(left.Alloc(1, 16))
 *p = 21
 m := outer.Mark()
-right := arena.NewChunked(256, &outer)
+right := arena.NewChunkedUnsafe(256, &outer)
 q := (*byte)(right.Alloc(1, 16))
 *q = 22
 ro.Release(m)
@@ -389,7 +389,7 @@ type PageArena struct { a *arena.Chunked }
 func (p PageArena) AllocPages(n uintptr) unsafe.Pointer { return p.a.Alloc(n*4096, 4096) }
 func (p PageArena) FreePages(b unsafe.Pointer, n uintptr) { p.a.Free(b, n*4096, 4096) }
 `, `
-outer = arena.NewChunked()
+outer = arena.NewChunkedUnsafe()
 a := alloc.NewSlab(PageArena{&outer})
 p := a.Alloc(200000, 16)
 *(*byte)(p) = 28
@@ -402,7 +402,7 @@ type PageArena struct { a *arena.Chunked }
 func (p PageArena) AllocPages(n uintptr) unsafe.Pointer { return p.a.Alloc(n*4096, 4096) }
 func (p PageArena) FreePages(b unsafe.Pointer, n uintptr) { p.a.Free(b, n*4096, 4096) }
 `, `
-outer = arena.NewChunked()
+outer = arena.NewChunkedUnsafe()
 a := alloc.NewSlab(PageArena{&outer})
 p := a.Alloc(64, 16)
 *(*byte)(p) = 29
@@ -410,14 +410,14 @@ println(*(*byte)(p))
 outer.Reset()
 println(*(*byte)(p))`, "29\npanic: runtime error: use of freed memory", 2},
 		{"stale slab free list", generationPageProvider, `
-outer = arena.NewChunked()
+outer = arena.NewChunkedUnsafe()
 a := *alloc.NewSlab(PageArena{&outer})
 p := a.Alloc(64, 16)
 a.Free(p, 64, 16)
 outer.Reset()
 a.Alloc(64, 16)`, "slab backing memory was reclaimed", 2},
 		{"stale sync slab cache", generationPageProvider, `
-outer = arena.NewChunked()
+outer = arena.NewChunkedUnsafe()
 a := *alloc.NewSyncSlab(PageArena{&outer})
 p := a.Alloc(64, 16)
 a.Free(p, 64, 16)
@@ -431,11 +431,11 @@ func round() {
  if *p != 38 { panic("bad live slab") }
 }
 `, `
-outer = arena.NewChunked()
+outer = arena.NewChunkedUnsafe()
 for i := 0; i < 100; i++ { round(); outer.Reset() }
 println("live")`, "live\n", 0},
 		{"partial slab backing release", generationPageProvider, `
-outer = arena.NewChunked()
+outer = arena.NewChunkedUnsafe()
 a := *alloc.NewSlab(PageArena{&outer})
 p := (*byte)(a.Alloc(64, 16))
 *p = 39
