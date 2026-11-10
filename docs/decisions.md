@@ -1850,7 +1850,8 @@ closes a hole the Cond attacks found: a view loaded under a lock, kept across a 
 passed the old wording ("used only where a guard of that memory is held"), though another task could free
 its memory in between. Goal: Go, Safe, Plain.
 
-Lands with: item 219, with item 197.
+Lands with: item 219, with item 197. (D108 replaced the fallback for a lock the compiler cannot name:
+such a `Wait` is now a compile error.)
 
 ## D107. Placement of the audit items and the record fixes (roadmap, decisions)
 
@@ -1869,6 +1870,47 @@ Why: every planned item needs a place in the order, and every older decision mus
 it. Goal: Plain.
 
 Lands with: roadmap.md, decisions.md and the completion plan; no compiler change.
+
+## D108. A task releases only a lock it holds (19.3, 19.7, 18.12, 17.1, 20.10, F.5, A, memory-model.md 4.1, skill)
+
+Question: the open finding of the "Once and Cond" section of the rulings. An `Unlock`, `RUnlock` or
+`c.Wait(l)` of a lock the task does not hold releases another task's lock with no error. `Mutex.Unlock`
+checks only that the mutex is locked, not by whom, and the guard inference counts locks per task, so it
+does not see the release. A third task then enters the critical section while the first is still in it:
+a data race in safe code. The old text also said that unlocking a lock the compiler cannot name counts as
+unlocking every lock, which makes the guard inference stricter but does not stop the release.
+
+Decision (2026-11-09, coordinator ruling):
+
+- Every `Unlock`, `RUnlock` and `c.Wait(l)` must release a lock that the guard inference shows the calling
+  task holds, on every path to the call, for writing (`Unlock`, `Wait`) or for reading (`RUnlock`).
+  Otherwise it is a compile error, with no code yet. This covers `sync.Mutex`, `sync.RWMutex` and
+  `rt.Lock`, in tasks and in interrupt handlers.
+- A lock the compiler cannot name cannot be shown held, so releasing it is a compile error. This replaces
+  "unlocking a lock the compiler cannot name counts as unlocking every lock", and D106's fallback for a
+  `Wait` whose lock it cannot name.
+- Names for this rule are stable: a package variable that is not a pointer, or a local or parameter whose
+  address is not taken and that no function literal assigns, then fields and constant indexes. Copies
+  carry names; assignments and moves end them. Tasks and handlers start with nothing held, and calls
+  through interfaces, func values and method values carry nothing held. Generic code is checked per
+  instantiation. The full list is in 19.3, Releasing a lock.
+- Assigning a new value to a lock that another task may also use is E3502, naming the assignment. A
+  guard held at each method call would not do: the other task's critical section lasts from its `Lock`
+  to its release, past the calls.
+- The bodies of the methods of `sync.Mutex`, `sync.RWMutex` and the `RLocker` result, and of
+  `sync.Cond.Wait`, are trusted code (18.12); the rule is checked at their calls. `Cond.Wait` makes its
+  checks that may panic before it unlocks.
+- The run-time panic for unlocking an unlocked mutex stays, listed in 17.1; only unsafe code reaches it.
+
+Why: a static rule costs nothing at run time, needs no annotation, and works for a read lock, which has no
+single owner to record. It is what Rust's lock guards enforce, with the inference standing in for the guard
+value. An owner check in `Unlock` would cost a store on every `Lock` and a compare on every `Unlock`, would
+not cover read locks, and would turn a race into a run-time stop instead of a compile error. Handing a
+locked mutex to another task to unlock is rejected; a channel, a buffered channel used as a semaphore, or a
+`sync.Scope` does that job. The idiom list in the rulings shows that the usual Go forms compile, and the
+ones that do not have a short form that does. Goal: Safe, Go.
+
+Lands with: item 220.
 
 ## Deferred
 
@@ -1925,3 +1967,9 @@ was a buffered channel, or a `vec.Vec` under a mutex with a buffered `chan struc
 proposal to treat `c.Wait()` as `Unlock` then `Lock` of the lock `c.L` was made from (`sync.NewCond(&mu)`
 with a named lock, and `c.L` never assigned again), and deferred it with item 197. The 2026-11-09 ruling
 adopted the rule with the lock passed to `Wait` instead of stored in `c.L`.
+
+### D106: a `Wait` whose lock the compiler cannot name
+
+The 2026-11-09 D106 counted such a `Wait` as unlocking every lock, leaving none held, with E3503 for a later
+read naming the `Wait`. D108 made it a compile error, since a lock the compiler cannot name cannot be shown
+held by the task that releases it.

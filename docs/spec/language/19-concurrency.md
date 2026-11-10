@@ -182,29 +182,132 @@ in every function it calls (a call through an interface or func value reaches ev
 be called there), and which locks are held at each access:
 
 - A lock is a `sync.Mutex`, a `sync.RWMutex` or an `rt.Lock` (a `sync.Mutex` cannot be taken in an interrupt
-  handler, E2584, so a handler uses `rt.Lock`). It is held from `Lock` (or `RLock`, or a `TryLock` that
-  succeeded, in the branch where it did) to `Unlock`, or to the end of the function after
-  `defer mu.Unlock()`.
+  handler, E2584, so a handler uses `rt.Lock`). It is held from `Lock` (or `RLock`, or a `TryLock` or
+  `TryRLock` that succeeded, in the branch where it did) to `Unlock` (or `RUnlock`), or to the end of the
+  function after `defer mu.Unlock()`.
 - A lock counts as held at a statement only if it is held on every path to that statement.
 - A function that returns with a lock held holds it for its caller, and a lock held around a call counts
   as held inside the callee.
 - A lock reached through a pointer is named by where the pointer came from, so `s.mu` and `s.items` in
   one method are the lock and the data of the same object.
-- Unlocking a lock the compiler cannot name counts as unlocking every lock.
-- `c.Wait(l)` of a `sync.Cond` counts as `l.Unlock()` followed by `l.Lock()` when the compiler can name
-  the lock: the argument is the address of a lock it names (`&mu`, `&s.mu`), or a pointer to a lock that
-  it names by where the pointer came from. So a lock held before the `Wait` is held again after it, and
-  a view loaded before the `Wait` has crossed a release of that lock (rule 2). When the compiler cannot
-  name the lock, as for a `sync.Locker` held in a variable, the result of `rw.RLocker()`, or a `Wait`
-  called through an interface or a func value, the `Wait` counts as unlocking every lock and leaves none
-  held, and the error for a read after it (E3503) names that `Wait`. `Signal` and `Broadcast` need no
-  lock, and they neither take nor release one.
+- A task, an interrupt handler, and a function that `s.Task`, `wg.Task` or a task statement starts, begin
+  with no lock held, whatever the code that starts them holds.
+- Every `Unlock`, `RUnlock` and `c.Wait(l)` must release a lock that the task holds (Releasing a lock,
+  below). A release of a lock the compiler cannot name is a compile error.
+- `c.Wait(l)` of a `sync.Cond` counts as `l.Unlock()` followed by `l.Lock()`. The argument must name a
+  lock the task holds for writing: the address of a lock (`&mu`, `&s.mu`), or a pointer to one. So a lock
+  held before the `Wait` is held again after it, and a view loaded before the `Wait` has crossed a release
+  of that lock (rule 2). A `sync.Locker` held in a variable, the result of `rw.RLocker()`, and a `Wait`
+  called through an interface or a func value do not name a lock, so such a `Wait` is a compile error.
+  `Signal` and `Broadcast` need no lock, and they neither take nor release one.
 - A method value may be called later, anywhere, so what its method does counts as done with no lock
   held.
 - The order that channel operations, `sync.WaitGroup.Wait` and the end of a task impose is not used:
   reading shared data after `wg.Wait()` still holds the data's lock. The join of a `sync.Scope` is used,
   for the frame data it covers (section 19.4), and so is the return of `sync.Once.Do`, for the data that
   Once initializes (rule 1, Lazy initialization).
+
+**Releasing a lock.** Every call of `Unlock` or `RUnlock` of a `sync.Mutex`, a `sync.RWMutex` or an
+`rt.Lock`, and every `c.Wait(l)` of a `sync.Cond`, must release a lock that the calling task holds at that
+call by the inference above: held on every path to the call, for writing (`Lock`, `TryLock`) for `Unlock`
+and `Wait`, and for reading (`RLock`, `TryRLock`) for `RUnlock`. Otherwise the call is a compile error,
+which names the call and a path on which the lock is not held. Interrupt handlers follow the same rule. The
+rule needs no annotation and costs nothing at run time. It covers a read lock, which has no single owner:
+each task releases only the read lock it took. So no task can release a lock that another task holds. A
+locked lock cannot be handed to another task to unlock. To let another task end the work, send it a
+message on a channel, or start it in a `sync.Scope` and wait for it. Where one task must take a permit
+and another give it back, use a buffered channel as the semaphore: any task may receive from it or send
+to it.
+
+How "held at the release" is decided:
+
+- **Names.** The compiler must name the lock the same way at the `Lock` and at the release, so that both
+  reach the same lock on every path. A name is a package variable that is not a pointer, or a local
+  variable or parameter (the receiver included), followed by field selections and constant indexes of
+  arrays. Only the variable itself may hold a pointer on the way. So `mu`, `s.mu`, `s.inner.mu` (with
+  `inner` a struct field) and `table[0]` are names, but `s.next.mu` is not: it loads a pointer from memory
+  at each use, and another task may change that pointer in between. Copy the pointer into a local:
+  `n := s.next; n.mu.Lock(); ...; n.mu.Unlock()`. A local that holds a pointer names nothing if its
+  address is taken or a function literal assigns it. A parameter names, at each call, the lock its argument
+  names there.
+- **Assignments and moves.** Assigning to a variable ends every name through it. A copy carries the
+  names: after `cur = next`, the lock held as `next.mu` is held as `cur.mu` too, and a release through
+  either name ends both. Assigning a new value to a lock, or moving or assigning the memory that holds it,
+  in the function or in a function it calls, ends its name, so a later release is an error. A copy of a
+  struct that holds a lock holds a different lock, which is not held. Assigning a new value to a lock
+  that another task may also use is error E3502, which names the assignment: no guard can order it with
+  the other task's critical section, which lasts from its `Lock` to its release. Moving or freeing the
+  memory that holds such a lock is a write of that memory, which the rules above already reject while
+  another task may use it.
+- **Variable indexes.** `locks[i]` with a variable index is not a name. Take a pointer once and use it for
+  both calls: `l := &locks[i]; l.Lock(); ...; l.Unlock()`.
+- **`TryLock`.** The lock is held in the branch where the call returned true: the `if` branch of
+  `if mu.TryLock() {`, and the code after `if !mu.TryLock() { return }`.
+- **`defer`.** `defer mu.Unlock()` releases at the end of the function, also when it ends by a panic. So
+  the lock must be held at the `defer` statement and at every point after it. A `c.Wait(&mu)` there keeps
+  it held, since `Wait` takes the lock again before it returns. Deferred calls run in reverse order, and
+  each must find its lock held after the ones that run before it.
+- **Loops.** A lock taken and released in one iteration is held between the two on every path. A lock
+  released after a loop must be held on every path out of the loop, including the one that skips it.
+- **Calls.** A function that returns with a lock held, such as `func (s *S) lock() { s.mu.Lock() }`, holds
+  it for its caller under the caller's name for the argument: after `x.lock()`, `x.mu` is held. A release
+  in a callee, such as `func (s *S) unlock() { s.mu.Unlock() }`, is allowed when every call of the callee
+  holds the lock its argument names, and the caller then no longer holds it. A function reached through an
+  interface, a func value or a method value counts as called with no lock held for this rule, so it may
+  release only locks it takes itself. A helper that locks and unlocks its own parameter around a call of a
+  func value, `withLock(&mu, f)`, compiles.
+- **Recursion.** A recursive function may release a lock only if every call of it, the recursive calls
+  included, holds that lock, for chains of calls of any depth.
+- **Function literals.** A literal called where it is written, or deferred, such as
+  `defer func() { mu.Unlock() }()`, is part of the function that contains it, at the point where it runs.
+  So is the body of a range-over-func loop (section 12.11), with the iterator as a call around it: a lock
+  taken in the body and released by a `defer` there is held where the function returns. A literal used in
+  any other way is a func value.
+- **Generics.** The rule is checked for each instantiation, and a method of a type parameter is that
+  method of the type argument. So `func withLocked[L sync.Locker](l L, f func())` that locks and unlocks
+  `l` compiles when `L` is `*sync.Mutex`.
+- **Interfaces.** `l.Unlock()` on a `sync.Locker`, or on any interface value, does not name a lock, so it
+  is an error. Pass the lock's own type (`*sync.Mutex`) or use a type parameter.
+
+The methods of `sync.Mutex` and `sync.RWMutex`, of the `Locker` that `RWMutex.RLocker` returns, and
+`sync.Cond.Wait` release locks that their callers hold, through a lock inside the type or the `Locker` they
+are given. They are trusted for this (section 18.12), and the rule is checked at each call of them instead.
+The runtime (`pluto/rt`), which implements `rt.Lock`, channels and the scheduler, is outside the race rules
+(What is not checked, below). No other code needs an exemption.
+
+```go
+type Stats struct {
+	mu    sync.Mutex
+	count int
+}
+
+func (s *Stats) lock()   { s.mu.Lock() }   // returns with s.mu held
+func (s *Stats) unlock() { s.mu.Unlock() } // every call holds s.mu
+
+func (s *Stats) Add(n int) {
+	s.lock()         // s.mu is held from here
+	defer s.unlock() // released at the end, where it is still held
+	s.count += n
+}
+```
+
+```go
+// finish releases a lock that another task took.
+var (
+	mu    sync.Mutex
+	ready bool
+)
+
+func producer() {
+	mu.Lock()
+	ready = true
+	task finish() // the new task starts with no lock held
+}
+
+func finish() {
+	mu.Unlock() // error: finish does not hold mu
+}
+```
 
 **Non-migrating and interrupt-disabled regions.** These two kinds of region are found the way held locks are: on every path, across calls, with a
 deferred release counting as a release at the end of the function.
@@ -822,7 +925,10 @@ Thus `task c.bump()` hands over an `owned[Counter]` only under that exclusivity 
 **What is not checked.** Unsafe code (section 18.12, Safe and unsafe code) is the programmer's
 responsibility: memory reached through `unsafe.Pointer` or `rt.Pinned`, functions without a body, and the
 variables, records and non-migrating regions of the runtime (`pluto/rt`), which implements tasks with its own locks and with
-preemption disabled. The runtime's non-migrating regions are not checked for waits (Waiting in a non-migrating region, above). A data race in unsafe code gives torn or stale values (memory-model.md section 4),
+preemption disabled. The runtime's non-migrating regions are not checked for waits (Waiting in a non-migrating region, above), and
+its releases of its own locks are not checked by the rule for releasing a lock (above). Nor are the
+bodies of the lock methods and of `sync.Cond.Wait` that section 18.12 lists, whose callers the rule
+checks instead. A data race in unsafe code gives torn or stale values (memory-model.md section 4),
 and it is never undefined behavior in the compiler's sense: the compiler may not assume races are absent. A
 torn pointer or length can then break memory safety, which is why unsafe code must not race.
 
@@ -1250,7 +1356,10 @@ in another. In brief:
   `pluto/sync/atomic` operations are sequentially consistent.
 - **Safe code has no data races** (section 19.3). The race rules use locks, atomics, moves, scoped
   joins and the return of `Once.Do` to prove it, not the order that channels and `WaitGroup` give to
-  plain data.
+  plain data. A lock orders the critical sections of the tasks that take it only because each `Unlock`,
+  `RUnlock` and `Cond.Wait` releases a lock its own task holds, which the compiler checks (section 19.3,
+  Releasing a lock). So the `n`-th `Unlock` above ends the critical section of the task whose `Lock` began
+  it.
 - **Unsafe code** can race. A race is a bug that gives torn or stale values, never undefined behavior in
   the compiler's sense: a racy read of a naturally aligned value of at most a word observes some value
   written to it, and larger values (strings, slices, interfaces, structs) may tear. The compiler may not

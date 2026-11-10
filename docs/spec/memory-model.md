@@ -351,12 +351,17 @@ task and an interrupt handler, could make conflicting accesses that are not orde
   a `synced[T]` or from a map (a crossing too, language spec section 19.2), whose changing fields are guarded by a lock of the same object or a package-level lock
   (rule 2), and the object of a `synced[T]` or the contents of a map that several tasks use (rule 3).
   For data that an interrupt handler accesses, the lock is an `rt.Lock` (language spec section 19.3,
-  Interrupt handlers);
+  Interrupt handlers). A held lock excludes the other tasks only because every `Unlock`, `RUnlock` and
+  `Cond.Wait` in safe code releases a lock that the calling task holds, on every path, in the matching
+  mode, which the compiler checks (language spec section 19.3, Releasing a lock). No task can end
+  another task's critical section;
 - a variable of a function whose `sync.Scope` joins the tasks that use it, synchronized by its type,
   guarded by a lock, or partitioned among the tasks (language spec section 19.4).
 
 The proof uses locks, atomic operations, moves, the absence of writes, scoped joins, and the return of
-`Once.Do`. It does not use
+`Once.Do`. For locks it rests on two checks: the guard inference, which finds the lock held at each
+access, and the release rule, which makes the `n`-th `Unlock` of section 3.4 the one made by the task
+whose `Lock` began that critical section. It does not use
 the order that channel operations, `sync.WaitGroup.Wait` and other ends of tasks impose on plain shared
 data, although that order holds as section 3 states (it is what makes a moved owner visible to the task
 that receives it). A program that relies on such an order to share a variable without a lock is rejected,

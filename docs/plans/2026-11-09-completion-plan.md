@@ -89,6 +89,7 @@ and the phase each goes in:
 - Phase 1, from the audit J walk-through, decided in D105 and D106: items 218 (lazy initialization
   through `sync.Once`) and 219 (`sync.Cond.Wait` in the guard inference), with item 197 (`sync.Cond` as a
   value).
+- Phase 1, race-check soundness, decided in D108: item 220 (a task releases only a lock it holds).
 
 ## Phase 1: soundness in the compiler
 

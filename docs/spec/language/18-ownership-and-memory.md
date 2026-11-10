@@ -1162,7 +1162,11 @@ not imply freedom from deadlock or resource exhaustion.
 - `rt.Pinned`, which hides a pointer from the frame rules;
 - the code of package `pluto/rt`, which implements tasks, locks and waiting with its own locks and with
   preemption disabled: its variables and records are outside the race rules, and its non-migrating
-  regions are outside the check for waits (section 19.3, What is not checked; Waiting in a non-migrating region).
+  regions are outside the check for waits (section 19.3, What is not checked; Waiting in a non-migrating region);
+- the bodies of the methods of `sync.Mutex` and `sync.RWMutex`, of the `Locker` that `RWMutex.RLocker`
+  returns, and of `sync.Cond.Wait`, which release locks their callers hold: they are trusted to release
+  only the lock their caller names, and the rule for releasing a lock is checked at each call of them
+  (section 19.3, Releasing a lock).
 
 Unsafe code is marked by what it imports and by its directives, with no keyword. A function that wraps
 unsafe code behind a safe interface, as `vec.Vec` and `hash.Map` do, is responsible for keeping the

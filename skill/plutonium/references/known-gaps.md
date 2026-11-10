@@ -113,6 +113,8 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   as its guard instead of following lazy initialization (19.3, rule 1). Item 218.
 - `c.Wait()` of a `sync.Cond` is not treated as `Unlock` then `Lock` of a named lock, so data read after it in a
   wait loop is E3503, and a view kept across it is not yet E3501 (19.3). Item 219.
+- An `Unlock`, `RUnlock` or `c.Wait(l)` of a lock the task does not hold is not rejected, so one task can release
+  another task's lock (19.3, Releasing a lock). Item 220.
 
 ## 4. Smaller notes
 

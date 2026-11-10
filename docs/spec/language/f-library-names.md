@@ -202,10 +202,16 @@ The compiler recognizes these types in `pluto/sync`:
   waits for every task started so far, and `Drop` waits as `Wait` does (section 19.4, Scoped tasks). The
   zero `Scope` is ready to use.
 - `sync.Mutex` and `sync.RWMutex`, the locks whose `Lock`, `Unlock`, `RLock`, `RUnlock` and `TryLock`
-  the race analysis follows to infer which lock guards which data (section 19.3, Data race freedom). `Lock`
-  and `RLock` may park the caller, so they may not be reached from interrupt context (section 20.10).
-- `rt.Lock`, the runtime's own lock, which the race analysis follows like `sync.Mutex`. It may be taken in
-  interrupt context (section 19.3, Data race freedom; section 20.10), which `sync.Mutex` may not.
+  the race analysis follows to infer which lock guards which data (section 19.3, Data race freedom), with
+  `TryRLock`. `Lock` and `RLock` may park the caller, so they may not be reached from interrupt context
+  (section 20.10). Every `Unlock` and `RUnlock` must release a lock the calling task holds in that mode,
+  which the compiler checks (section 19.3, Releasing a lock). At run time the library still stops the
+  program on an `Unlock` of a mutex that is not locked, or an `RUnlock` of one that is not read-locked
+  (section 17.1); only unsafe code can reach that check. The library does not record which task holds a
+  lock.
+- `rt.Lock`, the runtime's own lock, which the race analysis follows like `sync.Mutex`, the rule for
+  releasing it included. It may be taken in interrupt context (section 19.3, Data race freedom; section
+  20.10), which `sync.Mutex` may not.
 - `sync.WaitGroup`, `sync.Once` and `sync.Cond`, which synchronize as in section 19.7 (Memory model). A
   local `sync.WaitGroup` shared with a task by address is an error, because the view of the frame may
   outlive the frame: `sync.Scope` is the type for that.
@@ -227,8 +233,11 @@ The compiler recognizes these types in `pluto/sync`:
   func (c *Cond) Broadcast()    // wakes every waiting task; needs no lock
   ```
 
-  The race analysis treats `c.Wait(&mu)` as `mu.Unlock()` then `mu.Lock()` when it can name the lock
-  (section 19.3, Accesses and locks). A `Cond` in a package variable or in a struct beside its mutex
+  The race analysis treats `c.Wait(&mu)` as `mu.Unlock()` then `mu.Lock()`. The task must hold `mu` for
+  writing, and the compiler must name it: a `Wait` whose lock it cannot name, such as `rw.RLocker()` or a
+  `Locker` in a variable, is a compile error (section 19.3, Accesses and locks; Releasing a lock). `Wait`
+  makes every check that may panic before it unlocks `l`, so it returns, or ends by a panic, only with `l`
+  locked, and a deferred `Unlock` of `l` stays correct. A `Cond` in a package variable or in a struct beside its mutex
   holds no view of the mutex, so it has nothing to free and no drop of its own.
 
 Every type declared in `pluto/sync` or `pluto/sync/atomic`, and the runtime's own lock `rt.Lock`, is

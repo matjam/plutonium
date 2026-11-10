@@ -297,6 +297,17 @@ func main() {
   `defer mu.Unlock()`, locks held around calls, and `s.mu` named through the pointer it came from. A lock counts
   as held only if held on every path. `wg.Wait()` and channel operations do **not** order plain data for the
   checker: reading shared data after `wg.Wait()` still needs its lock. The join of a `sync.Scope` does.
+- **Release only a lock you hold** (19.3, Releasing a lock; D108). Every `Unlock`, `RUnlock` and `c.Wait(&mu)`
+  must release a lock the calling task holds on every path, in the same mode (`RUnlock` after `RLock`).
+  Otherwise it is a compile error. This covers `rt.Lock` too. A task, a handler, and a function given to
+  `s.Task` or `wg.Task` start with nothing held, so handing a locked mutex to another task to unlock is an
+  error: send on a channel, use a buffered channel as a semaphore, or use `sync.Scope`. The lock must have a
+  name: a package variable, or a local or parameter whose address is not taken, then fields and constant
+  indexes. `locks[i].Unlock()` and `g.p.mu.Unlock()` (a pointer loaded from memory) are errors; copy the
+  pointer into a local first (`l := &locks[i]; l.Lock(); ...; l.Unlock()`). A `sync.Locker` interface, a
+  stored method value (`u := mu.Unlock`) and a func value cannot release a lock. A helper that locks or
+  unlocks its parameter or receiver works when every call matches (`s.lock(); defer s.unlock()`).
+  `defer mu.Unlock()` needs `mu` held at every point after the `defer`. Not checked yet: item 220.
 - **Rule 1, package variables.** One written by code that several tasks may run must be atomic or have a lock held at
   every write (E3502 names the write); every read must hold that lock too (E3503). A package variable written only
   during initialization, or by `main` before the first task starts, needs nothing. The variable includes the memory
@@ -329,10 +340,10 @@ func main() {
 - **`sync.Cond`.** `var c sync.Cond` (zero value ready, no `NewCond`, nothing to free). Wait with the lock:
   `mu.Lock(); for q.Len() == 0 { c.Wait(&mu) }; j, _ := q.Pop(); mu.Unlock()`. The compiler counts
   `c.Wait(&mu)` as `mu.Unlock()` then `mu.Lock()`, so the loop keeps its guard. A pointer loaded before the
-  `Wait` and used after it is E3501. Pass the lock as `&mu` or `&s.mu`: a `Locker` in a variable,
-  `rw.RLocker()`, or a `Wait` through an interface counts as unlocking every lock, and reads after it are
-  E3503. `Signal` and `Broadcast` need no lock. (Today's library still has `NewCond` and `c.Wait()`; see
-  known-gaps, items 197 and 219.)
+  `Wait` and used after it is E3501. `mu` must be held for writing at the `Wait`. Pass the lock as `&mu` or
+  `&s.mu`: a `Locker` in a variable, `rw.RLocker()`, or a `Wait` through an interface is a compile error,
+  since the compiler cannot name the lock (D108). `Signal` and `Broadcast` need no lock. (Today's library
+  still has `NewCond` and `c.Wait()`; see known-gaps, items 197, 219 and 220.)
 - `shared[T]` is for one task and never crosses; `synced[T]` counts atomically. A `string`, map or channel count
   becomes atomic as soon as the first task starts.
 

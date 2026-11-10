@@ -721,7 +721,9 @@ must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable, whet
 task, a handler on another processor or the same handler running on several processors at once. Data
 that is not written while a handler may run, such as a table filled before the first handler is
 installed, needs neither. A `sync.Mutex`
-cannot be taken in a handler (E2584). `volatile[T]` alone, and an interrupt-disabled region alone, exclude
+cannot be taken in a handler (E2584). A handler starts with no lock held, even when the code it
+interrupted holds one, so it may release only an `rt.Lock` it took itself (section 19.3, Releasing a
+lock). `volatile[T]` alone, and an interrupt-disabled region alone, exclude
 only the same processor, so they satisfy the rules only for a per-CPU variable, accessed as section 20.9
 describes (memory-model.md section 6.1). Volatile supplies neither mutual exclusion nor compound-operation
 atomicity. The race errors (E3502, E3503) name the handler as the party. A pointer or other view that a

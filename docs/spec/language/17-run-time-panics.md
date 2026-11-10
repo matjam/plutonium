@@ -83,6 +83,9 @@ dependent value and neither panics nor faults (section 11.24).
   the same element (section 19.4, Scoped tasks).
 - A `Wait` or `Drop` of a `sync.Scope` while another task already waits on it ("sync: two tasks wait on
   one Scope"; section 19.4).
+- `Unlock` of a `sync.Mutex` or `sync.RWMutex` that is not locked, and `RUnlock` of a `sync.RWMutex` that
+  is not read-locked ("sync: unlock of unlocked mutex"). Safe code cannot reach this, since every release
+  must be of a lock the task holds (section 19.3, Releasing a lock); unsafe code can.
 - An operation that would park the task, in interrupt context, when the scheduler can tell (section
   20.10, Interrupts).
 - An operation that would park the task while its preemption is disabled, by `rt.DisablePreemption` or a

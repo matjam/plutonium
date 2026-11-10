@@ -33,7 +33,8 @@ one covers:
   each with the audit finding it settles, in [decisions.md](decisions.md)), audits E to J and their
   rulings, a test that compiles the spec's examples (item 185), this roadmap cleanup and the known-gaps
   list, then spec version 0.4. Lazy initialization through `sync.Once` (item 218) and `sync.Cond.Wait`
-  in the guard inference (item 219) are decided (D105, D106); their compiler work is in phase 1.
+  in the guard inference (item 219) are decided (D105, D106), and so is the rule for releasing a lock
+  (D108, item 220); their compiler work is in phase 1.
 - **Phase 1, soundness in the compiler.** The rulings' compiler work (items 146 to 176, first A1, C1, C2,
   B1 and B10: items 146, 147, 148, 152, 159; and item 177); a consuming method value (item 178); the
   view-tracking cases left by item 138 (item 179); the escape contract of `rt.ReleaseValues` (item 180);
@@ -46,7 +47,8 @@ one covers:
   (item 211); loads of views from shared memory, guarded owned memory, static objects and handler loads
   (item 214). From D105 and D106: lazy initialization through `sync.Once` in the race check and the
   `Once.Do` release on `rt.ExitTask` (item 218); `sync.Cond.Wait(l)` in the guard inference (item 219),
-  with the library's value `Cond` (item 197).
+  with the library's value `Cond` (item 197). From D108: race-check soundness, the rule that a task
+  releases only a lock it holds (item 220).
 - **Phase 2, test closure.** Tests for untested diagnostic codes and rules (item 184); codes for a
   `//pu:stack` size out of range and for implementation limits (item 207); the deadlock report names a
   panic in progress (item 205); CI gaps (item 186); close item 20 when nothing is left open under it.
@@ -1140,10 +1142,26 @@ compiler (2026-10-11).
 219. **`sync.Cond.Wait` in the guard inference** (planned, phase 1; sections 19.3, 19.7, F.5,
     memory-model.md 3.4, D106, the "Once and Cond" section of the rulings; with item 197): `c.Wait(l)`
     counts as `l.Unlock()` then `l.Lock()` when the compiler names the lock (`&mu`, `&s.mu`, or a pointer
-    named by where it came from); otherwise it counts as unlocking every lock and leaves none held, and
-    E3503 for a later read names the `Wait`. Rule 2 case 4 now needs the guard held with no release from a
+    named by where it came from); a `Wait` whose lock it cannot name is the compile error of item 220
+    (D108 replaced the earlier fallback, which counted it as unlocking every lock). Rule 2 case 4 now needs the guard held with no release from a
     view's load to its use, so a view kept across `Wait`, or across `Unlock` and `Lock`, is E3501. Spec
     examples: the `type Job struct{ id int }` and "second keeps a pointer" blocks of 19.3.
+220. **A release of a lock the task does not hold** (planned, phase 1, race-check soundness; sections
+    19.3, 19.7, 18.12, 17.1, 20.10, F.5, A, memory-model.md 4.1, D108, the "Releasing a lock" section of
+    the [rulings](verification/2026-11-09-spec-rulings.md)): every `Unlock`, `RUnlock` and `c.Wait(l)`
+    must release a lock the calling task holds on every path, for writing (`Unlock`, `Wait`) or reading
+    (`RUnlock`), for `sync.Mutex`, `sync.RWMutex` and `rt.Lock`, in tasks and interrupt handlers;
+    otherwise a compile error, which needs a code. The guard inference must track held locks by stable
+    names (a non-pointer package variable, or a local or parameter whose address is not taken and that no
+    function literal assigns, then fields and constant indexes), carry names through copies, end them at
+    assignments and moves (in callees too), map them through parameters at each call and back on return,
+    solve recursion over every chain of calls, treat a range-over-func body and literals called where
+    written as part of their function, start tasks and handlers with nothing held, give calls through
+    interfaces, func values and method values nothing held, check generic code per instantiation, and
+    check a deferred release at its `defer` and every point after it. Assigning a new value to a lock
+    that another task may also use is E3502 naming the assignment. The bodies of the lock methods and `Cond.Wait` are exempt (18.12). Library, with item 197:
+    `Cond.Wait(l)` makes its checks that may panic before it unlocks `l`. Spec example: the "finish
+    releases a lock that another task took" block of 19.3.
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and

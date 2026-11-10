@@ -583,7 +583,9 @@ only for `Wait`. No rule here can close it without one of these:
   annotation or a false positive for a lock taken in one function and released in another. It needs a code,
   so the spec would say "a compile error" until one is assigned, as for G5.
 
-The coordinator decides; no roadmap item was added for it.
+The coordinator decides; no roadmap item was added for it. (Decided later the same day: D108, a compile
+rule across functions with no annotation, in the section "Releasing a lock" below; item 220. It also
+makes the `RLocker` and unnamed-`Wait` cases above compile errors, and `c.Wait(&mu2)` with `mu2` not held.)
 
 ### Known-gaps lines for Once and Cond
 
@@ -591,6 +593,169 @@ Added to `skill/plutonium/references/known-gaps.md`: in section 3, a read after 
 (item 218), and `Cond.Wait` does not count as Unlock then Lock and a view across it is not yet E3501 (item
 219); in section 2, `NewCond` still returns a raw pointer with an `L` field and `Wait` takes no lock (item
 197), and `Once.doSlow` does not release its lock or leave the Once not done on `ExitTask` (item 218).
+
+## Releasing a lock
+
+D108 closes the open Unlock finding above. The rule is in 19.3 (Releasing a lock, and the Accesses-and-locks
+bullets), with notes in 17.1, 18.12, 19.7, 20.10, F.5, A and memory-model.md 4.1. Item 220 makes the compiler
+change.
+
+The rule: every `Unlock`, `RUnlock` and `c.Wait(l)` must release a lock that the guard inference shows the
+calling task holds, on every path to the call, for writing (`Unlock`, `Wait`) or for reading (`RUnlock`).
+Otherwise it is a compile error. It covers `sync.Mutex`, `sync.RWMutex` and `rt.Lock`, in tasks and in
+interrupt handlers. A lock the compiler cannot name cannot be shown held, so its release is an error; this
+replaces "unlocking a lock the compiler cannot name counts as unlocking every lock".
+
+The details settled:
+
+- Names. A package variable that is not a pointer, or a local or parameter, then field selections and
+  constant array indexes; only the variable itself may hold a pointer. A local that holds a pointer names
+  nothing if its address is taken or a function literal assigns it. A pointer loaded from memory is not a
+  name, since another task may change it between the `Lock` and the release (attack 3 below). At a call, a
+  parameter names what its argument names. So the old "named by where the pointer came from" is enough at
+  the release only when "where it came from" is a name in this sense at every call.
+- Copies carry names (`cur = next`); a release through one name ends all names of that lock. Assigning a
+  variable ends the names through it. Assigning a new value to a lock, or moving or assigning the memory
+  that holds it, ends its name, in the function or a callee. A copy of a struct holds a different lock.
+- `defer mu.Unlock()`: held at the `defer` and at every point after it, since a panic may run the
+  deferred call anywhere after it. A `c.Wait(&mu)` there keeps it held: F.5 now requires `Wait` to make
+  its checks that may panic before it unlocks. Deferred calls run in reverse order.
+- `TryLock` and `TryRLock`: held in the branch where the call returned true, which includes the code after
+  `if !mu.TryLock() { return }`. A result stored in a variable first is not followed.
+- Loops: a lock taken and released in one iteration compiles. A lock released after a loop must be held
+  on every exit, the one that skips the loop included.
+- Lock in a callee, unlock in the caller: a function that returns with the lock held holds it for its
+  caller, mapped back through the argument (`x.lock()` then `x.mu.Unlock()`). Lock in the caller, unlock in
+  a callee: allowed when every call of the callee holds the lock its argument names; the caller then no
+  longer holds it.
+- `func (s *S) lock()`: the receiver is a parameter, so the above applies.
+- Recursion: a release in a recursive function needs the lock held at every call, the recursive calls
+  included, for chains of any depth (the largest consistent answer over every chain of calls).
+- A pointer parameter: named at the release in the callee by the argument at each call. That is enough
+  when the argument is itself a name; `rel(g.p)` passes a fresh load and is not.
+- `locks[i].Unlock()`: a variable index is not a name. The form is `l := &locks[i]; l.Lock(); ...;
+  l.Unlock()`. See the extension below.
+- `sync.Locker` through an interface: not a name, so an error. Pass `*sync.Mutex`, or use a type
+  parameter.
+- A stored method value `u := mu.Unlock`: a method value counts as called with no lock held, so `u()` is
+  an error.
+- `Unlock` in a deferred function literal: a literal called where it is written, or deferred, is part of
+  its function at the point it runs, so `defer func() { mu.Unlock() }()` compiles. The body of a
+  range-over-func loop is part of its function too (12.11's `find`, with `defer it.mu.Unlock()` in the
+  body, compiles).
+- `withLock(&mu, func() {...})`: the helper locks and unlocks its own parameter, so it compiles. The func
+  value runs with the lock held for the guard inference, but counts as called with nothing held for
+  releases, so a literal that unlocks `mu` itself is an error.
+- Generic code over `[L sync.Locker]`: checked per instantiation; a method of `L` is the type argument's
+  method. It compiles for `*sync.Mutex` and is an error when `L` is the interface `sync.Locker`.
+- Tasks, interrupt handlers, and functions that `s.Task`, `wg.Task` or a task statement start begin with no
+  lock held.
+- Library and runtime. `pluto/rt` (the scheduler, channels, `rt.Lock` itself) is already outside the race
+  rules. In `pluto/sync`, `RWMutex.Unlock` releases its inner mutex, taken in `RWMutex.Lock`; the `RLocker`
+  result and `Cond.Wait` release through a `Locker`. These bodies are added to 18.12's list as trusted, and
+  the rule is checked at their calls. `Once.doSlow` and `WaitGroup.Wait` lock and unlock their own fields
+  in one function and pass the rule. User code needs no exemption.
+- The run-time check stays: `Mutex.Unlock` of an unlocked mutex calls `fail("sync: unlock of unlocked
+  mutex")`, and `RWMutex` has the same for `Unlock` and `RUnlock`; 17.1 now lists it, reachable only from
+  unsafe code. `rt.Lock.Unlock` has no such check. No owner is recorded.
+- Interrupt handlers and `rt.Lock` (20.10): the same rule. A handler starts with nothing held, so it may
+  release only an `rt.Lock` it took, after `Lock` or in the branch of a successful `TryLock`.
+
+### Go idioms under the release rule
+
+None was compiled (the compiler has no check yet); the results follow from 19.3 as written.
+
+1. `mu.Lock(); defer mu.Unlock()`: compiles. The `defer` bullet: held at the `defer` and at every point
+   after it.
+2. Lock, then early-return branches that each unlock: compiles. Each `Unlock` is on a path where `mu` is
+   held since the `Lock`, and the path returns after it. A branch that unlocks twice is an error.
+3. `RLock`/`RUnlock` around a read: compiles; `RUnlock` needs the read hold. `rw.RLock(); rw.Unlock()` is
+   an error (wrong mode).
+4. Upgrade by `RUnlock` then `Lock`: compiles; each release matches its mode. The condition must be read
+   again after `Lock`; a view kept across the gap is E3501 (rule 2 case 4).
+5. A struct with an embedded `sync.Mutex`: compiles. `c.Lock()` is `c.Mutex.Lock()`, a field of the
+   receiver.
+6. Hand-over-hand locking in a linked list: compiles with locals, `prev := l.head; prev.mu.Lock(); for {
+   cur := prev.next; ...; cur.mu.Lock(); prev.mu.Unlock(); prev = cur }`. The copy carries the name, so at
+   the loop head `prev.mu` is held on both paths (Assignments and moves). `l.head.mu.Unlock()` written
+   through the field is an error (a pointer loaded from memory); copy it into a local.
+7. `stripes[h%n].Lock()` ... `stripes[h%n].Unlock()`: does not compile; a variable index is not a name. The
+   form is `s := &stripes[h%n]; s.Lock(); ...; s.Unlock()` (Variable indexes). Locking every stripe in one
+   loop and unlocking them in another does not compile in any form; use a table-wide `RWMutex` that the
+   stripe users read-lock and the whole-table operation write-locks.
+8. A `sync.Cond` wait loop: compiles, with or without `defer`: `mu.Lock(); for !ready { c.Wait(&mu) };
+   ...; mu.Unlock()`. `Wait` needs `mu` held for writing and keeps it held.
+9. `func (s *S) withLock(f func()) { s.mu.Lock(); defer s.mu.Unlock(); f() }`: compiles (Calls; the
+   receiver is a name).
+
+Also: a `Locker` parameter (error; pass the concrete type or use a type parameter), `u := mu.Unlock`
+(error; call `mu.Unlock()`), `ok := mu.TryLock(); if ok {` (error; test the call in the `if`), and handing a
+locked mutex to another task to unlock (error; a channel, a buffered channel as a semaphore, or a
+`sync.Scope`).
+
+### Extension considered for index expressions
+
+The case is idiom 7. The smallest extension: two index expressions name the same element when the
+array is a name, or the slice is a local that is a name, and the index expressions are written the same,
+made of constants, operators, conversions, `len`, `cap`, and locals that are names. That is sound by the
+same argument as for locals. Not adopted: the pointer form is one line longer, it names the lock and the
+data of the same element for the guard inference, which the index form would not do without more rules,
+and the extension would add a second notion of equal expressions to the inference. Recorded here for a
+later decision if real programs need it.
+
+### Attacks on the release rule
+
+None was compiled; the results follow from the rules as written.
+
+1. Aliasing: `p` and `q` point to one mutex, `p.Lock(); q.Unlock()`. `q` was never locked under its name,
+   so it is not held. Error. With `q := p`, the copy names the same lock, and after `q.Unlock()` a
+   `p.Unlock()` is an error since the release ended both names. Closed.
+2. An alias the compiler cannot see, held twice: two `Lock`s of one mutex under different names wait for
+   good, and a `TryLock` under the second name fails, so its branch does not run. Two `RLock`s succeed and
+   each name is released once, which matches the read count. Closed.
+3. A pointer loaded again: `g.p.mu.Lock(); ...; g.p.mu.Unlock()`, with another task replacing `g.p` under
+   its guard in between and locking the new object's mutex. The release would unlock that task's lock.
+   Closed by the definition of a name: a pointer loaded from memory is not one. Found while writing the
+   rule.
+4. A local pointer changed behind the rule's back: by a literal (`f := func() { p = &b }; p.Lock(); f();
+   p.Unlock()`), through its address, or by a scoped task that captured it. Such a local is not a name.
+   Error. Closed.
+5. A lock inside a moved or copied struct: a move ends the names (`q := take(o); q.mu.Unlock()` is an
+   error), and a copy holds a different lock that is not held. Closed.
+6. A lock reset by assignment: in the holding task, `mu.Lock(); reset(); mu.Unlock()` with `reset` doing
+   `mu = sync.Mutex{}` ends the name in the callee, so the release is an error. In another task, the reset
+   would let a third task lock the new value while the first still runs its critical section. A guard
+   held at each method call does not stop this, since a critical section lasts past the calls. Closed by
+   making such an assignment E3502 when another task may use the lock. Found while writing the rule.
+7. `Cond.Wait` with an aliasing name: `p.Lock(); c.Wait(q)` with `q` an alias the compiler cannot see is an
+   error, `q` not being held; `c.Wait(q)` with `q := p` is the same lock. Closed.
+8. `sync.Locker` values: a call through the interface is not a name, `c.Wait(rw.RLocker())` included, and
+   a generic function instantiated with the interface type is checked as an interface call. Error. Closed.
+9. A re-lock by another task between this task's `Lock` and `Unlock`: another task can take the lock only
+   after a release. The first wrong release in any run would need a release that the rule accepted of a
+   lock its task did not hold. A held name means the task took that hold and has not released it under
+   any name known to be the same lock; unknown aliases cannot both hold for writing (attack 2); a reset is
+   attack 6. Only unsafe code is left. Closed.
+10. Closures run by another task: a function given to `s.Task`, `wg.Task` or a task statement starts with
+    nothing held, so `mu.Lock(); s.Task(func() { mu.Unlock() })` is an error. A function given to
+    `once.Do` is a func value and counts as called with nothing held, so it cannot release its caller's
+    lock either. Closed.
+11. A panic between a release and a retake after `defer mu.Unlock()`: the lock must be held at every point
+    after the `defer`, so `mu.Unlock(); work(); mu.Lock()` there is an error. A panic inside `Cond.Wait` is
+    covered by F.5's requirement. Closed.
+12. An interrupt handler that releases an `rt.Lock` of the code it interrupted: the handler starts with
+    nothing held. Error. Closed.
+13. A method value: `u := mu.Unlock; mu.Lock(); u()` is an error. Closed.
+14. Recursion with mismatched depth: `func f(n int) { if n > 0 { f(n - 1); mu.Unlock() } }` after one
+    `mu.Lock()`: after the recursive call the lock is not held on every path, so the release is an error.
+    Closed.
+15. A callee that releases, called from a site that does not hold the lock: the release in the callee is
+    an error, naming that call. Closed.
+16. A parameter reassigned in the callee before the release: the assignment ends the name. Error. Closed.
+17. A task that ends with a lock held: other tasks wait for good. A deadlock, not a race; the rule does not
+    cover liveness. Recorded.
+18. A stored `TryLock` result, and locking every element of a slice in a loop: rejected though safe. False
+    positives with the forms above. Recorded.
 
 ## Diagnostics that need a code in phase 1
 
@@ -624,3 +789,10 @@ The Once and Cond rulings (D105, D106) add no code. They narrow E3502 and E3503 
 initializes and for a wait loop with a named lock, give E3503 a note naming the Once or the `Wait` whose
 lock could not be named, and widen E3501 to a view kept across a release of its guard, a `Cond.Wait`
 included. The open Unlock finding would need a code if it becomes a compile rule.
+
+The release rule (D108) adds one error that needs a code: an `Unlock`, `RUnlock` or `c.Wait(l)` of a lock
+that the calling task is not shown to hold, in the matching mode, on every path. E3503 is a read without a
+guard and E3502 a write without a common lock; neither covers a release. The spec calls it "a compile error"
+until a code is assigned (item 220). It widens E3502 to the assignment of a new value to a lock that another
+task may use. The E3503 that D106 gave reads after a `Wait` whose lock could not be named no longer arises,
+since that `Wait` is now the new error.

@@ -763,6 +763,9 @@ pre:
 	func parseFields(b []byte, f *vec.Vec[Field]) {}
 	func send(req *Request, b []byte) error        { return nil }
 
+== 19-concurrency.md 19.3 | // finish releases a lock that another task took.
+known: 220: the rule for releasing a lock is not implemented, so the Unlock in finish is not an error
+
 == 19-concurrency.md 19.3 | type Config struct{ n int }
 known: 168: dropping the old Config is not yet a write in the race check, so the task statement is not an error
 
