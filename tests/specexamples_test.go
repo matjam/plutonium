@@ -37,6 +37,16 @@ import (
 // must build cleanly. The builds stop
 // after the object file (-c), so every static check runs: types, moves,
 // escapes and races. No program runs.
+//
+// The race check finds the parties of a program from package
+// initialization and main (section 19.3), so a task that nothing starts is
+// not checked. A wrapped block with no main that starts a task (a task
+// statement, a Task call, time.AfterFunc) or declares an interrupt handler
+// gets a main that starts them: it installs each handler that the block
+// does not install, and calls each entry function, a function nothing in
+// the block or its entry uses. An entry function with parameters needs a
+// main: line in the block's entry. Such a block builds as a program of
+// its own.
 func TestSpecExamples(t *testing.T) {
 	blocks := specBlocks(t)
 	data := readExampleData(t, filepath.Join("testdata", "specexamples", "examples.txt"))
@@ -389,6 +399,8 @@ type exampleUnit struct {
 	lineOf   map[int]int      // a line of src to a line of the block, from 1
 	want     map[int][]string // block lines that must have an error, to the codes they must report
 	at       map[int]int      // a block line to the marked line whose error it may report
+	tasks    bool             // its main starts the block's tasks, so it builds as a program of its own
+	setup    []string         // problems of the wrapping, found before the build
 	problems []string
 }
 
@@ -519,6 +531,7 @@ func (b *specBlock) unit(drop []int, m *mark) *exampleUnit {
 	}
 	w.wrap(lines, gone, e)
 	u.src, u.lineOf = w.file(e, false)
+	u.tasks, u.setup = w.tasks, w.problems
 	return u
 }
 
@@ -591,7 +604,9 @@ func bracketDepth(line string) int {
 // lines of the function body, each with the block line it comes from.
 type wrapper struct {
 	top, body []srcLine
-	marked    bool // the block has error lines
+	marked    bool     // the block has error lines
+	tasks     bool     // the added main starts the block's tasks
+	problems  []string // why the wrapper cannot build the unit as it should
 }
 
 type srcLine struct {
@@ -951,6 +966,15 @@ func (w *wrapper) file(e *exampleEntry, complete bool) (string, map[int]int) {
 			hasMain = true
 		}
 	}
+	var mainLines []srcLine
+	if !hasMain {
+		// The main function goes in before the imports are worked out,
+		// since it may use a package the block does not.
+		mainLines = w.mainFunc(e, all)
+		for _, l := range mainLines {
+			all += "\n" + l.text
+		}
+	}
 	out = append(out, srcLine{"package main", 0}, srcLine{"", 0})
 	var imports []string
 	for _, m := range qualified.FindAllStringSubmatch(stringsOut(all), -1) {
@@ -1005,10 +1029,118 @@ func (w *wrapper) file(e *exampleEntry, complete bool) (string, map[int]int) {
 		out = append(out, srcLine{"}", 0})
 	}
 	if !hasMain {
-		out = append(out, srcLine{"", 0}, srcLine{"func main() {}", 0})
+		out = append(out, srcLine{"", 0})
+		out = append(out, mainLines...)
 	}
 	return render(out)
 }
+
+// startsTask matches a line that starts a task or installs an interrupt
+// handler: a party of the race rules (section 19.3).
+var startsTask = regexp.MustCompile(`^\s*task\s|\.Task\(|\b(InterruptGate|TrapGate|AfterFunc)\(`)
+
+// entryFunc matches a package-level function declaration and captures its
+// name, its type parameters and its parameters.
+var entryFunc = regexp.MustCompile(`^func\s+(\w+)\s*(\[[^\]]*\])?\(([^)]*)\)`)
+
+// mainFunc returns the main function the wrapper adds to a block that
+// declares none. The race check finds the parties of a program from
+// package initialization and main (section 19.3), so a block whose static
+// checks depend on its tasks must be part of a program that starts them:
+// main calls the block's entry functions, the functions nothing in the
+// block or its entry calls, or runs the main: lines of its entry. all is
+// the code of the unit, for finding the calls.
+func (w *wrapper) mainFunc(e *exampleEntry, all string) []srcLine {
+	if e.main != "" {
+		w.tasks = true
+		out := []srcLine{{"func main() {", 0}}
+		for _, l := range strings.Split(e.main, "\n") {
+			if l != "" {
+				out = append(out, srcLine{l, 0})
+			}
+		}
+		return append(out, srcLine{"}", 0})
+	}
+	code := stringsOut(all)
+	uses := func(name string) int {
+		return len(regexp.MustCompile(`\b`+name+`\b`).FindAllString(code, -1))
+	}
+	// An interrupt handler the block declares and does not install is
+	// installed, so that it is a party (section 20.10).
+	var calls []string
+	handlers := map[string]bool{}
+	directive := ""
+	for _, l := range w.top {
+		s := strings.TrimSpace(l.text)
+		if m := interruptDirective.FindStringSubmatch(s); m != nil {
+			directive = "InterruptGate"
+			if m[1] == "trap" {
+				directive = "TrapGate"
+			}
+			continue
+		}
+		if m := entryFunc.FindStringSubmatch(codeOf(l.text)); m != nil && directive != "" {
+			handlers[m[1]] = true
+			if uses(m[1]) == 1 {
+				calls = append(calls, fmt.Sprintf("\t_ = x86.%s(%s, 8, 0)", directive, m[1]))
+			}
+		}
+		if !strings.HasPrefix(s, "//") {
+			directive = ""
+		}
+	}
+	starts := len(calls) > 0
+	for _, l := range strings.Split(code, "\n") {
+		if startsTask.MatchString(l) {
+			starts = true
+			break
+		}
+	}
+	if !starts {
+		return []srcLine{{"func main() {}", 0}}
+	}
+	installs := len(calls)
+	entry := func(name, tparams, params string) {
+		if handlers[name] || uses(name) > 1 {
+			return // a handler, or called or used by the block: not an entry
+		}
+		if tparams != "" || strings.TrimSpace(params) != "" {
+			w.problems = append(w.problems, fmt.Sprintf("the block starts tasks and its entry function %s takes parameters: give its entry a main: that calls it", name))
+			return
+		}
+		calls = append(calls, "\t"+name+"()")
+	}
+	for _, l := range w.top {
+		if l.from == 0 {
+			continue
+		}
+		if m := entryFunc.FindStringSubmatch(codeOf(l.text)); m != nil {
+			entry(m[1], m[2], m[3])
+		}
+	}
+	if len(w.body) > 0 || e.body != "" || e.tail != "" {
+		sig := e.sig
+		if sig == "" {
+			sig = "func specExample()"
+		}
+		if m := entryFunc.FindStringSubmatch(sig); m != nil {
+			entry(m[1], m[2], m[3])
+		}
+	}
+	if len(calls) == installs && installs == 0 && len(w.problems) == 0 {
+		w.problems = append(w.problems, "the block starts tasks and has no entry function that main can call: give its entry a main:")
+	}
+	w.tasks = len(calls) > 0
+	out := []srcLine{{"func main() {", 0}}
+	for _, c := range calls {
+		out = append(out, srcLine{c, 0})
+	}
+	return append(out, srcLine{"}", 0})
+}
+
+// interruptDirective matches the directive of an interrupt handler and
+// captures its argument.
+var interruptDirective = regexp.MustCompile(`^//pu:interrupt\b\s*(\w*)`)
 
 // stringsOut blanks the string literals of src, so that a qualified name
 // in a string adds no import.
@@ -1118,7 +1250,7 @@ func runExampleUnits(t *testing.T, c string, units []*exampleUnit) {
 	var clean []*exampleUnit
 	for _, u := range units {
 		e := u.block.entry
-		if len(u.want) > 0 || e != nil && e.known != "" || u.block.mode() != "" || u.block.isComplete() {
+		if len(u.want) > 0 || e != nil && e.known != "" || u.block.mode() != "" || u.block.isComplete() || u.tasks || len(u.setup) > 0 {
 			single = append(single, u)
 			continue
 		}
@@ -1266,7 +1398,7 @@ func buildUnit(t *testing.T, c string, u *exampleUnit) {
 		}
 	}
 	out, code := runPluto(t, build, nil, buildArgs(build, u.block.mode())...)
-	u.problems = checkUnitOutput(u, out, code, file)
+	u.problems = append(append([]string(nil), u.setup...), checkUnitOutput(u, out, code, file)...)
 }
 
 // packageClause matches the package clause of a file.
@@ -1347,6 +1479,7 @@ type exampleEntry struct {
 	body      string   // statements that start the function body
 	tail      string   // statements that end the function body
 	sig       string   // the signature of the function the statements go in
+	main      string   // the body of the main function the wrapper adds
 	valuesTop bool     // var and const declarations go to package level
 	with      []string // the blocks whose declarations the block assumes
 }
@@ -1429,6 +1562,8 @@ func readExampleData(t *testing.T, path string) map[string]*exampleEntry {
 			multi = &e.body
 		case "tail":
 			multi = &e.tail
+		case "main":
+			multi = &e.main
 		default:
 			t.Errorf("%s:%d: unknown key %q", path, n, key)
 		}

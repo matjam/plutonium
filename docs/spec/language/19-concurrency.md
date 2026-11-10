@@ -859,7 +859,7 @@ The same holds for memory owned by a static object. `std` is static, `mu` guards
 `Push` uses the backing storage of `buf` only while `l.mu` is held:
 
 ```go
-type Logger struct {
+type Logger owner struct {
 	mu  sync.Mutex
 	buf vec.Vec[string]
 }
@@ -1050,7 +1050,7 @@ func (c *Counter) Peek() int { return c.n } // makes the task statement below er
 var counter Counter
 
 func run(done chan bool) {
-	task work(&counter, done) // work calls Add, and run calls Peek
+	task work(&counter, done) // error: E3501, work calls Add, and run calls Peek
 	println(counter.Peek())
 }
 ```

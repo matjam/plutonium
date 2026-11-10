@@ -1280,20 +1280,45 @@ rejected; each is a deliberate cost of having no annotations.
 
 The coordinator compiled every block with the real compiler. The Config and Limits blocks passed, but not
 because the checker knows `sync.Once`. The race check finds parties from package initialization and
-`main`, and the test wrapper adds an empty `main` to a block that has none. The old blocks started their
+`main`, and the test wrapper added an empty `main` to a block that had none. The old blocks started their
 tasks in a `start` function that nothing called, so the check saw no party and accepted them.
 
-Both blocks now start their tasks from `main`:
+Both blocks now start their tasks from `main`, and so do the new blocks (Logger, peekWait, par). The test
+now closes the same gap for every other block: a block with no `main` that starts a task or declares an
+interrupt handler gets a `main` that installs each handler and calls each function nothing else in the
+block uses. An entry's `main:` lines call one that takes parameters. Each such block builds as a program
+of its own. 19 blocks are built this way (in 8.8, 12.12, 17.4, 19.3, 19.4, 20.10 and abi.md 10.4).
 
-- Config: two `serve` tasks call `port()`. The checker has no rule for `sync.Once`. It sees the write of
-  `cfg` inside `f`, which holds the Once's own mutex, and a read after `Do` with no lock, so it should
-  report E3503 at `return cfg.port`. The entry stays `known: 218`, with that reason. If the checker
-  instead accepts the block, the entry should be removed.
-- Limits: `reload` runs as a task and `main` calls `maxConns()`. The write in `reload` holds no lock, the
-  write in `f` holds the Once's mutex, so no lock is common: E3502 at the `reload` line. The checker
-  reports one E3502 per place and prefers the write with no lock, so the marker should match. No entry.
+The results of the real compiler, built from `a75afd90`:
 
-The new blocks (Logger, peekWait, par) also start their tasks from `main`.
+- Config: still fails, so the entry stays `known: 218`.
+- Limits: E3502, but the error names the write inside `limOnce.Do`, not the write in `reload`. With no
+  rule for `sync.Once`, every write of `lim` is a write under rule 1, and the checker names the first.
+  The marker stays on `reload`, where 19.3 says the write breaks lazy initialization, and the block is
+  `known: 218`.
+- Logger: did not compile. `Logger` holds a `vec.Vec`, so it must be declared `owner` (E3202, 7.18). The
+  example now says `type Logger owner struct {`. It then gets E3502 in `vec`'s `realloc`: memory owned by
+  a static object is not yet part of its field, so the writes of `buf`'s storage have no guard though
+  `l.mu` is held. `known: 214`.
+- peekWait: still fails. `known: 197` stays.
+- par: still fails. `known: 223` stays.
+
+The blocks that had been unchecked:
+
+- Clean as written: the 8.8 `Job` block, the 12.12 `task worker(jobs)` block, the 17.4 handler, the 19.3
+  `items` block and the `work` block, the 19.4 `process`, `for i := range in`, `crawl` and `sortPar`
+  blocks and the second `fill` block, and the handlers of 20.10 and abi.md 10.4.
+- Still failing, under their existing known entries: the 19.3 `Config struct{ n int }` block (168), "first lets a
+  pointer" (214), `Job` (197), "second keeps a pointer" (197) and "finish releases a lock" (220), and the
+  first 19.4 `fill` block (201).
+- Counter: the task statement is E3501, as the text says, and its line is now marked. But the checker also
+  reports E3503 at `return c.n` in `Peek`, and the rules agree with it. `counter` is a package variable,
+  so rule 1 covers its fields, and `Peek` reads `n` with no lock while `work` writes it under `c.mu`. The
+  block cannot show the type rule alone. A non-static object would avoid rule 1, but an unscoped task can
+  only share an object that some party reaches by name: a frame or local owner may not cross (it may be
+  dropped first), and memory from `alloc.New` is unsafe code. So in safe code the field conditions of rule 2
+  case 3 always come with a rule 1 error for the same read. The block is `known: spec example wrong` until
+  the rule or the example is settled.
 
 ### Where the model differs from the checker
 

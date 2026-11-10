@@ -794,7 +794,7 @@ compiler (2026-10-11).
     condition, so `fmt.Println` from any task compiles while other `File`s are dropped; an atomic field
     makes it case 3, not case 2 (finding K11). A handler's load crosses from the start of sharing (19.3,
     The start of sharing). Spec examples: the `type Node struct{ n int }`, "first lets a pointer" and
-    `type Logger struct {` blocks of 19.3.
+    `type Logger owner struct {` blocks of 19.3.
 217. **Arena names beyond the precision limits and through a move** (planned, phase 1; section 19.3 (Frees are writes; How precise the race check is), D100,
     finding I7 of audit I; extends item 212): a call on an arena that the 18.3 limits cannot name counts as
     that call on every arena of the program, and an arena's name follows a move (`b := take(a)`).
@@ -1494,12 +1494,19 @@ compiler (2026-10-11).
     `docs/spec/language/`, `abi.md`, `memory-model.md`, `debugging.md` and `debug-allocator.md`. A line
     marked `error`, `illegal` or `invalid` must fail on that line with the stated code, and other lines
     and unmarked blocks must build cleanly. Per-block context and known failures are in
-    `tests/testdata/specexamples/examples.txt`; a known failure that starts passing fails the test. Of 334
-    blocks, 307 are checked in 353 builds, 26 are skipped by rule (elided code, non-source fragments) and
+    `tests/testdata/specexamples/examples.txt`; a known failure that starts passing fails the test. Of 350
+    blocks, 322 are checked in 368 builds, 27 are skipped by rule (elided code, non-source fragments) and
     1 by its entry (the section 11.24 parse examples, which no one set of declarations fits).
-    Known failures: 9, waiting on items 146, 147, 148, 149, 168, 199, 201, 208 and 211. The 12 wrong
-    spec examples were fixed with audit H (D95), and the section 7.9 example now marks both lines of the
-    clash, since the rule names no single line.
+    The race check finds parties only from package initialization and `main`, so a block with no `main`
+    that starts a task or declares an interrupt handler gets a `main` that starts them: it installs each
+    handler and calls each function nothing else in the block uses, and an entry's `main:` lines call one
+    that takes parameters. Such a block builds as a program of its own; 19 blocks are built this way.
+    Known failures: 21, waiting on items 146, 147, 148, 149, 168, 197 (3), 199, 201, 208, 211, 214 (3),
+    215, 218 (2), 220 and 223, and one spec example that cannot be fixed under the rules as written (the
+    19.3 `type Counter struct {` block; see the race rules rewrite in
+    `docs/verification/2026-11-09-spec-rulings.md`). The 12 wrong spec examples were fixed with audit H
+    (D95), and the section 7.9 example now marks both lines of the clash, since the rule names no single
+    line.
 186. **CI gaps** (planned): CI installs only `binutils` and `qemu-system-x86`, so the gdb tests in
     `tests/dwarf_test.go` skip; the heavy compiler unit tests need `PLUTO_UNIT_HEAVY=1`, which CI does not
     set; nothing runs difftest (item 32), which needs a Go toolchain. Coverage measurement of

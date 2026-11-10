@@ -14,8 +14,10 @@
 #   pre:               package-level declarations the block assumes
 #   body:              statements before the block's statements
 #   tail:              statements after the block's statements
+#   main:              the body of the main function the test adds to a
+#                      block with none, which starts the block's tasks
 #
-# pre:, body: and tail: take the tab-indented lines that follow.
+# pre:, body:, tail: and main: take the tab-indented lines that follow.
 
 == 07-types.md 7.9 | type ReadCloser interface {
 with: 07-types.md 7.9 | type Reader interface {
@@ -763,6 +765,14 @@ pre:
 	func parseFields(b []byte, f *vec.Vec[Field]) {}
 	func send(req *Request, b []byte) error        { return nil }
 
+== 19-concurrency.md 19.3 | // items and the storage it owns are guarded by mu.
+main:
+	start(make(chan bool, 4))
+
+== 19-concurrency.md 19.3 | func work(name string, done chan bool) {
+main:
+	start(make(chan bool, 2))
+
 == 19-concurrency.md 19.3 | // finish releases a lock that another task took.
 known: 220: the rule for releasing a lock is not implemented, so the Unlock in finish is not an error
 
@@ -781,6 +791,12 @@ known: 214: a view of guarded owned memory used after its guard is released is n
 == 19-concurrency.md 19.3 | type Config struct{ port int }
 known: 218: the race check has no rule for sync.Once: the writes inside f hold cfgOnce's own mutex, so the read of cfg after cfgOnce.Do is still E3503
 
+== 19-concurrency.md 19.3 | type Limits struct{ max int }
+known: 218: the race check has no rule for sync.Once, so its E3502 names the write inside limOnce.Do and not the write in reload
+
+== 19-concurrency.md 19.3 | type Logger owner struct {
+known: 214: memory owned by a static object is not yet part of its field, so Push's writes of buf's storage in vec's realloc are E3502 though l.mu is held
+
 == 19-concurrency.md 19.3 | // peekWait keeps a view across a call that may release q.mu.
 known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so q.nonEmpty.Wait(&q.mu) does not compile
 
@@ -794,14 +810,21 @@ known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so non
 known: 197: sync.Cond.Wait takes no lock today (NewCond and the L field), so ready.Wait(&mu) does not compile
 
 == 19-concurrency.md 19.3 | type Counter struct {
+known: spec example wrong: counter is a package variable, so rule 1 also makes the read of c.n in Peek E3503; safe code has no object outside rule 1 that an unscoped task can share
 pre:
 	func work(c *Counter, done chan bool) { c.Add() }
+main:
+	run(make(chan bool, 1))
 
 == 19-concurrency.md 19.4 | func process(items []Item, results []Result) {
 pre:
 	type Item int
 	type Result int
 	func work(it Item) Result { return Result(it) }
+main:
+	var items [4]Item
+	var results [4]Result
+	process(items[:], results[:])
 
 == 19-concurrency.md 19.4 | func fill() {
 known: 201: E3404 does not yet count a deferred call that can run before the join, so the deferred w.Drop() is not reported
@@ -816,10 +839,16 @@ body:
 == 19-concurrency.md 19.4 | func crawl(urls []string) (int, error) {
 pre:
 	func fetch(u string) (int, error) { return 0, nil }
+main:
+	urls := [2]string{"a", "b"}
+	crawl(urls[:])
 
 == 19-concurrency.md 19.4 | func sortPar(v []int) {
 pre:
 	func partition(v []int) int { return 0 }
+main:
+	var v [4]int
+	sortPar(v[:])
 
 == 19-concurrency.md 19.5 | //pu:scheduler
 pre:
