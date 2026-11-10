@@ -1,5 +1,7 @@
 # The debug allocator
 
+**Version:** 0.4 (draft)
+
 The language specification ([language.md](language.md)) is the source of truth. This document describes the
 library `pluto/alloc/debug` and how it relates to the rules of the language: allocators (section 18.9),
 generation checks (section 18.11), safe and unsafe code (section 18.12), faults (section 17.5) and the use of

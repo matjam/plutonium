@@ -410,7 +410,9 @@ composite type is the strongest kind of its components. A struct with a counted 
 view, and copying it still adds a count for the counted field. A type that contains a counted value anywhere,
 or an owner, has **drop glue**: the code that the compiler generates to release the counts and run the `Drop`
 methods when a value of the type is dropped. When a value of such a type is dropped is defined in section
-18.6 (Drops) and section 18.8 (Strings).
+18.6 (Drops) and section 18.8 (Strings). In the compile-time rules of chapter 18, a type parameter counts as
+having drop glue unless no type in its type set has it, since a generic body is checked once for every type
+argument (section 18.3).
 
 Three rules keep the table honest:
 

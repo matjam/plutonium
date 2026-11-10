@@ -1,7 +1,7 @@
 # Plutonium x86-64 ABI
 
-**Version:** 0.2 (draft)
-**Date:** 2026-10-10
+**Version:** 0.4 (draft)
+**Date:** 2026-11-09
 
 This document describes how Plutonium code is laid out and called on x86-64. The language
 specification ([language.md](language.md) and its chapters) is the source of truth: this document refines
@@ -351,11 +351,15 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   rather than silently using caller payload or a different payload allocator. A `Fixed` sizes its
   bookkeeping table from its own backing when it is constructed, as part of the one backing request to
   its parent, with room for the largest number of allocations its payload capacity can hold. It takes
-  no record from the parent per allocation, so allocation, `Reset` and `Release` never call the parent,
-  and an allocation fails, without advancing the cursor, when the table is full.
+  no record from the parent per allocation, so allocation, `Reset` and `Release` never call the parent
+  for bookkeeping, and an allocation fails, without advancing the cursor, when the table is full. The
+  drops that their drop entries run (below) are ordinary drops: they may free to the parent or to any
+  other allocator, and the compiler's checks follow them like any drop (language spec sections 18.9,
+  19.3 and 20.10). A `Fixed` whose `New` and `Slice` are given only types without drop glue calls no
+  parent and no other allocator in any of these calls.
 - **Drop entries.** `New[T]()` and `Slice[T](n)` of a `Fixed` or `Chunked` record a drop entry when
   `T` has drop glue: three words, the address, the number of elements and the drop-glue function of
-  `T`. A type without drop glue records nothing. A `Fixed` keeps its entries in the
+  `T`. A type without drop glue records nothing, and neither does a `Slice` of length zero. A `Fixed` keeps its entries in the
   bookkeeping it sizes from its own backing: they share the table with the allocation records, entries
   at its end growing down toward the records, and a `New` or `Slice` that finds no room for its entry
   fails, without advancing the cursor, and panics with "arena: out of memory". A `Chunked` keeps its
@@ -367,8 +371,9 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
      first, which drops the value in place and leaves it zero, and repeat until no entry is left.
      A drop function that panics leaves the call: the entries not yet run stay recorded, and nothing
      below happens.
-  2. They load the count of live allocations (below) and panic when it is not zero, or when an entry
-     was recorded while step 1 ran.
+  2. They load the count of live allocations (below) and panic with "arena has live allocations" when
+     an allocation is still live after step 1, or when an entry was recorded while step 1 ran. An
+     allocation made and freed again within step 1 leaves nothing behind and does not panic.
   3. They zero the granules they take back and end the epoch (Arena epochs, above), then move the
      cursor back.
 
@@ -384,8 +389,8 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   and panic with "arena has live allocations" when it is not zero, before taking anything back (language
   spec section 18.9). The cost
   is the word and one atomic add at each end of each counted allocation's life, which the language accepts
-  (language spec section 21.5). Where the compiler proves that no other task can reach the arena or
-  anything allocated from it, an implementation may use plain adds instead.
+  (language spec section 21.5). Where the compiler proves that no other task or interrupt handler can
+  reach the arena or anything allocated from it, an implementation may use plain adds instead.
 - **Disjoint ranges.** A stale arena pointer into memory a slab now uses, or a stale slab pointer into
   an arena chunk, never matches.
 - **Counted strings and boxes.** A string's control word (section 1.1) keeps the tag of its buffer, and
@@ -420,9 +425,10 @@ program, through a function it exports as `pluto_gen_metadata` (section 8): `fun
 returns the address of `n` bytes of page-aligned, writable memory that is never returned, or 0 when
 it has none. The runtime calls it with its directory lock held, so it must not allocate. A checked
 build with no such function, or with another signature, is rejected (E2588). Such a build runs only
-with 4-level paging: under 5-level paging (CR4.LA57) it panics at startup, before `main`. If this
-pointer encoding cannot represent a target's addresses (5-level paging, for one), the implementation must supply another
-suitable protection or statically prove safety; otherwise the operation is a compile error. Required
+with 4-level paging: under 5-level paging (CR4.LA57) it panics at startup, before `main`, with
+"generation checks need 4-level paging" (language spec sections 17.1 and 21.5). The paging mode is a
+property of the machine that only run time can see, so it is never a compile error (language spec
+section 21.2). Required
 early-boot/interrupt protection cannot allocate, wait or fail contrary to those contexts' contracts.
 This ABI does not prescribe a new kernel encoding or directive.
 

@@ -67,6 +67,8 @@ dependent value and neither panics nor faults (section 11.24).
   `alloc.SetDefault`; an allocation with a nil allocator argument; an allocator that returns no memory
   ("out of memory"). These are `new`, `make`, the operations that make strings, and the allocating
   functions of the standard library (sections 13.7, 13.9 and 18.9).
+- A `New` or `Slice` of an arena that has no room left for the allocation or for its drop entry ("arena:
+  out of memory"; section 18.9, Allocators). The arena is left as it was.
 - `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked` while an allocation made through its
   `Alloc` is not freed yet: an owner made in it (a box, a vector's array, a map, a channel) that is not
   dropped, or a counted object made in it (a string, a `shared` or `synced` box, an allocated error) that
@@ -79,8 +81,13 @@ dependent value and neither panics nor faults (section 11.24).
   Range over functions).
 - Two slices that the tasks of a `sync.Scope` use in the same partition form overlap without starting at
   the same element (section 19.4, Scoped tasks).
+- A `Wait` or `Drop` of a `sync.Scope` while another task already waits on it ("sync: two tasks wait on
+  one Scope"; section 19.4).
 - An operation that would park the task, in interrupt context, when the scheduler can tell (section
   20.10, Interrupts).
+- An operation that would park the task while its preemption is disabled, by `rt.DisablePreemption` or a
+  held `rt.Lock` ("blocking with preemption disabled"; section 19.1). The compiler rejects such a wait
+  where it can see it (section 19.3, Waiting in a region); this panic catches the rest.
 - `rt.ExitTask` called in a function that C code called (section 17.3).
 
 *Memory.*
@@ -88,6 +95,11 @@ dependent value and neither panics nor faults (section 11.24).
 - The use of freed heap memory, and a stale use of fixed or Chunked arena memory that was not
   rejected by the static lifetime rules (sections 17.6 and 18.11).
 - A stack overflow (section 17.5).
+
+*Startup.*
+
+- A checked freestanding or kernel build started on an x86-64 processor that runs with 5-level paging,
+  before `main` ("generation checks need 4-level paging"; section 21.5).
 
 A deadlock is not a panic. When every task waits for another and nothing can wake them, the program ends
 with a fatal error and status 2 (section 19.1, Tasks). A stop by `rt.Abort` or `rt.PanicFault` ends the

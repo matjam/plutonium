@@ -121,8 +121,9 @@ func release[T owner any](p *T, a alloc.Allocator) {
 
 **What counts as unsafe code.** Everything in package `unsafe` is unsafe code. Section 18.12 (Safe and
 unsafe code) lists the rest (the unchecked allocation layer, functions without a body, the directives that
-make promises, `rt.Pinned`, `pluto/arch/x86` and memory made from an integer) and states what safe code is
-guaranteed. Unsafe code needs no keyword: every use is an import of `unsafe` or `pluto/arch/x86`, a call
+make promises, `rt.Pinned`, `pluto/arch/x86` other than the few functions it names as safe, and memory
+made from an integer) and states what safe code is guaranteed. Unsafe code needs no keyword: every use is
+an import of `unsafe`, a call of an unsafe function of `pluto/arch/x86`, a call
 into the unchecked layer of `pluto/alloc`, an explicit manual arena operation listed in section 18.12,
 a function declaration without a body, a use of `rt.Pinned`, or a `//pu:` directive, so it is found by
 searching the imports, the calls, the bodiless declarations and the directives, and the implementation
@@ -408,7 +409,10 @@ before then panics (section 20.11). A program that starts tasks, performs a chan
 `pluto/sync` must bind a scheduler with `//pu:scheduler` (section 19.5), and fails to build otherwise. Scheduler-dependent
 timers, callbacks and poller operations also require the backend through their API contracts. A program
 requiring none of these capabilities contains no scheduler. Required safety protection remains enabled
-by default: unavailable runtime protection requires static proof or rejection (section 21.5).
+by default: unavailable runtime protection requires static proof or rejection (section 21.5). A checked
+build must export `pluto_gen_metadata`, which supplies the memory for the generation checks, and fails to
+build otherwise (E2588); on x86-64 it needs 4-level paging and panics before `main` without it (section
+21.5).
 
 **Kernel.** A kernel build is a freestanding build with the additions of section 20.6.
 
@@ -564,7 +568,9 @@ var current *Thread
 
 The variable lives in the `.percpu` section, which the kernel links at address 0 so that each variable's
 address is its offset in a per-CPU block, and it is accessed relative to the `GS` base, which the kernel
-points at the current processor's block. A word-sized access is a single instruction, so an interrupt on
+points at the current processor's block. The build places the runtime's own first word of the section,
+which holds the block's address, at offset 0, and an ELF kernel linked so that it is elsewhere fails to
+build (E5007; abi.md section 10.6). A word-sized access is a single instruction, so an interrupt on
 the same processor cannot split it. `&v` is a pointer into the current processor's copy at the time it is
 taken, and keeps pointing there if `GS` changes later.
 
@@ -706,9 +712,12 @@ Nested exceptions and nonmaskable interrupts require a separate exclusion/progre
 interrupt disabling does not exclude them. These permitted spins do not park and are not the forbidden
 waiting operations above.
 
-An interrupt handler is a party to the data race rules (section 19.3). Data that a handler accesses, other
-than a per-CPU variable, must be atomic or guarded by an `rt.Lock`, whether the other party is a task, a
-handler on another processor or the same handler running on several processors at once. A `sync.Mutex`
+An interrupt handler is a party to the data race rules (section 19.3, Interrupt handlers). Data that a
+handler accesses while other code may write it, or that a handler writes while other code may access it,
+must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable, whether the other party is a
+task, a handler on another processor or the same handler running on several processors at once. Data
+that is not written while a handler may run, such as a table filled before the first handler is
+installed, needs neither. A `sync.Mutex`
 cannot be taken in a handler (E2584). `volatile[T]` alone, and an interrupt-disabled region alone, exclude
 only the same processor, so they satisfy the rules only for a per-CPU variable, accessed as section 20.9
 describes (memory-model.md section 6.1). Volatile supplies neither mutual exclusion nor compound-operation
@@ -732,8 +741,11 @@ way (E2585).
   code. The check also follows the drops the compiler inserts (section 18.6), like any call: at the end of
   a scope, on assignment over an owner, for temporaries, and the release of a counted value whose count
   reaches zero, into the type's `Drop` and drop glue and into the `Free` of every allocator the program
-  installs. It is an error (E2584) only where one of these may wait, so the result does not depend on
-  whether the cleanup is written or inserted. A path ends at the runtime's `park`, in which every wait in the library ends, at the runtime's
+  installs. A `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked` runs the arena's drop
+  entries (section 18.9, Drop entries), so the check follows it into the drop glue of every type passed
+  to `New` or `Slice` of that arena, and of every arena where the compiler cannot tell which arena it is.
+  An arena given only types without drop glue adds nothing to the path. It is an error (E2584) only where
+  one of these may wait, so the result does not depend on whether the cleanup is written or inserted. A path ends at the runtime's `park`, in which every wait in the library ends, at the runtime's
   `spawn`, in which every task start ends, and at a function marked `//pu:blocking`. A path from an
   interrupt handler stops at the panic handler, which is checked on its own.
 - **`//pu:blocking`** is for an opaque primitive that may park, halt pending an event or wait for

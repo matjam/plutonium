@@ -86,7 +86,9 @@ a loop that makes no calls, and another runs in its place. Every instruction is 
 be suspended, since there is no garbage collector to find pointers; the full register state is saved,
 and preemption cannot be observed by the program (section 19.7). Code that must not be interrupted
 (runtime and allocator locks, `rt.DisablePreemption`) disables preemption for its own duration, and a
-preemption that arrives meanwhile happens when it is enabled again. Blocking on a channel, a lock or I/O,
+preemption that arrives meanwhile happens when it is enabled again. Such code may not wait: a wait reachable
+inside a region with preemption disabled is a compile error (section 19.3, Waiting in a region), and one
+the compiler cannot see panics with "blocking with preemption disabled" (section 17.1). Blocking on a channel, a lock or I/O,
 or calling `rt.Yield()`, gives up the processor early.
 
 **Deadlock.** In hosted builds, when every task waits for another task and none waits for I/O, a system
@@ -206,6 +208,21 @@ of the same per-CPU variable: that is a read-modify-write and needs a non-migrat
 access invalid, and the analysis follows them (section 18.12). A wrong pairing can stop a processor, which
 is a liveness failure, not a safety one.
 
+**Waiting in a region.** An operation that may park the task is a compile error where it is reachable
+inside a non-migrating region: between `rt.DisablePreemption` and `rt.EnablePreemption`, while an
+`rt.Lock` is held, or while maskable interrupts are disabled. The operations are the waiting operations
+of section 20.10 (Interrupts): a channel operation that may block, `Lock` of a `sync.Mutex` or a
+`sync.RWMutex`, `Wait` of a `sync.WaitGroup`, a `sync.Cond` or a `sync.Scope` (and the `Drop` of a Scope), `time.Sleep`, `rt.Park`, a
+function marked `//pu:blocking`, and an allocation from an allocator that may wait. A task that parks
+there would hold its processor, or a lock that other processors spin on, while it waits for something
+that may need that processor or that lock. The compiler finds these paths as it finds the waits of an
+interrupt handler: from each region it follows every call by the rules of section 20.10 (What is
+followed), the drops it inserts and the drop entries of arenas included, and reports the first path it
+finds, naming each call on the way. The check needs a region on every path, as above. A wait that it
+cannot see, such as one reached on only some paths through a region or from code outside Plutonium,
+still fails at run time: `rt.Park` with preemption disabled panics with "blocking with preemption
+disabled" (section 17.1; abi.md section 12.4).
+
 **Guards.** For data that several tasks may use, the compiler infers its **guard**: a lock that every
 write of the data holds for writing (`Lock`, not `RLock`). The data is safe when every access, read or
 write, holds its guard; a read may hold it with `RLock`. Data that every access reads or changes with
@@ -217,7 +234,10 @@ every element. Writing a whole struct writes all its fields.
 
 **Frees are writes.** Dropping, freeing or moving an object counts as a write of the whole object, and so
 does assigning a new value to, or dropping, any owner that holds it (directly, or through owners that hold
-one another). This holds for rules 1 to 3 below, for the type rule, and for scoped tasks (section 19.4). So
+one another). A `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked` runs the arena's drop
+entries (section 18.9, Drop entries), so it counts as dropping every value that `New` or `Slice` allocated
+in that arena with a type that has drop glue, or in any arena where the compiler cannot tell which. This
+holds for rules 1 to 3 below, for the type rule, and for scoped tasks (section 19.4). So
 an object reached through an owner can change while some code may replace, drop or move that owner, and in
 safe code no task frees memory that another task may still use (memory-model.md section 4.1).
 Values of `pluto/sync` and `pluto/sync/atomic` types synchronize themselves through their methods, and
@@ -382,7 +402,9 @@ func (s *Scope) Drop()         // waits as Wait does; runs when s is dropped
 The zero `Scope` is ready to use. A Scope has no `Add` or `Done`: its count is changed only by the
 runtime, which counts a task before it starts and uncounts it after `f` returns. `s.Wait()` returning
 therefore proves that every task started by `s` has returned. Since a Scope is an owner, assigning it
-moves it, and a struct that holds one must be declared `owner`.
+moves it, and a struct that holds one must be declared `owner`. One task waits on a Scope at a time: a
+`Wait` or `Drop` while another task already waits on the same Scope panics with "sync: two tasks wait on
+one Scope" (section 17.1).
 
 ```go
 func process(items []Item, results []Result) {

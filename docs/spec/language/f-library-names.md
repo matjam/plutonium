@@ -51,7 +51,9 @@ variable marked `//pu:scheduler` directly.
 
 The runtime's other names that a scheduler uses are `rt.Task`, `rt.Context`, `rt.StackRequest`,
 `rt.MakeContext`, `rt.Switch`, `rt.Park`, `rt.Ready`, `rt.Preempt`, `rt.Yield`, `rt.DisablePreemption`,
-`rt.EnablePreemption`, `rt.BootTask`, `rt.Go(f, size, a)` with `rt.MinStackSize` (8 KiB), `rt.Timer`,
+`rt.EnablePreemption`, `rt.BootTask`, `rt.Go(f, size, a)` with `rt.MinStackSize` (8 KiB), `rt.DefaultStackSize`
+(64 KiB, the stack of a freestanding or kernel task whose size was neither computed nor asked for,
+section 19.1), `rt.Timer`,
 `rt.Now`, `rt.ParkUntil`, `rt.RunTimers` and `rt.NoDeadline`. `rt.Go` starts a task with a stack of an
 explicit size, as kernels and scheduler binders need; its third argument is optional, and names the
 allocator that supplies the stack (the program-wide default if omitted), for a scheduler that takes stack
@@ -62,6 +64,11 @@ running the deferred calls and drops of every frame; `rt.CatchExitTask` lets a r
 includes the check of the func values that start tasks (section 12.12), and is unsafe code (section 20.1, Package `unsafe`). The compiler gives `rt.Sleep`,
 which is declared without a body, its body by name: a direct wait if the program never starts the scheduler,
 a parked one otherwise.
+
+**Generation metadata.** A checked freestanding or kernel build calls a function that the program exports
+under the symbol `pluto_gen_metadata`, `func(n uintptr) uintptr`, for page-aligned memory that it never
+returns; the function must not allocate, and a checked build without it, or with another signature, is
+error E2588 (section 21.5). It is the program's name, not the library's, but the language relies on it.
 
 **Hooks the compiler calls.** The compiler generates calls to these functions by name. Their names and
 meanings are fixed by this appendix; their signatures are the runtime's business.

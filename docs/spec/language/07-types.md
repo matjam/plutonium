@@ -1729,7 +1729,8 @@ which own what they hold. `weak[P]` takes a `shared[T]` or a `synced[T]` and not
 **Representation.** Each is one word, the address of the object. The allocation begins with a hidden header in
 front of the object: for `owned[T]`, the allocator the object came from; for `shared[T]` and `synced[T]`, the
 strong count, the weak count and the allocator (abi.md section 1.2). Freeing goes to the recorded allocator
-even if the default has changed since; freeing into an arena does nothing (section 18.9, Allocators). The zero
+even if the default has changed since; freeing into an `arena.Fixed` or `arena.Chunked` takes no memory back
+and lowers the arena's count of live allocations (section 18.9, Allocators, Live allocations). The zero
 value of each is `nil`; dropping a `nil` reference does nothing, and dereferencing one faults like a nil
 pointer. A `weak[P]` is the same address as its `P`.
 

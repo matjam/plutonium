@@ -76,6 +76,9 @@ implementation never generates code that does something else.
   is a `//go:` comment. A misspelled or misplaced directive never silently does nothing.
 - A feature that a target cannot provide is a compile error that names the target and the feature, for
   example floating point in kernel mode (section 20.7).
+- A requirement on the machine that only run time can see, such as the paging mode that the generation
+  checks of a kernel need (section 21.5), is checked when the program starts. A machine that does not meet
+  it makes the program panic before `main` (section 17.1). The program never runs without the requirement.
 - A required safety condition is proved or checked, or the operation is rejected. Omitting runtime
   lifetime protection requires the explicit unchecked choice of section 21.5; kernel mode alone does
   not select it. An implementation never performs a check wrongly, or half of it.
@@ -159,6 +162,25 @@ insert a forbidden operation or accept an unprotected access because its hosted 
 cannot represent kernel addresses (abi.md section 1.3). The representation and optimization of such
 protection are implementation choices; this rule defines no new directive or hardware API.
 
+A checked freestanding or kernel build gets the memory for the runtime's generation metadata from the
+program. The program exports a function under the symbol `pluto_gen_metadata` (section 20.4):
+
+```go
+//pu:export pluto_gen_metadata
+func genMetadata(n uintptr) uintptr
+```
+
+It returns the address of `n` bytes of page-aligned, writable memory that the program never takes back or
+uses for anything else, or 0 when it has none. The runtime calls it with its own lock held, so it must not
+allocate. A checked freestanding or kernel build with no such function, or with one of another
+signature, is a compile error (E2588). A hosted build maps this memory from the system and needs no such
+function, and so does an unchecked build.
+
+On x86-64 the generation checks of a checked freestanding or kernel build need 4-level paging (abi.md
+section 1.3). The paging mode is chosen by the code that boots the machine, so only run time can see it:
+such a build starts on a processor that runs with 5-level paging only to panic, before `main` and
+before anything is allocated (section 17.1). It never runs unchecked instead.
+
 Every check with a finite range fails loudly, never silently:
 when the range ends, the implementation retires the memory or widens the field. Heap generations never
 wrap. Arena epochs must not collide with stale views, including after reset, destruction or reuse by
@@ -180,8 +202,8 @@ allocations). Before they check it, they run the arena's drop entries, which dro
 a type without drop glue records no entry and costs nothing. The cost of the count is one atomic counter
 per arena and one increment and one decrement per allocation made through `Alloc`. That cost is accepted:
 an owner can be dropped, and the last reference to a string released, in another task, and the counter
-must see it. An implementation may use a plain counter instead where it proves that no other task can
-reach the arena or anything allocated from it. The unchecked mode keeps this check and the drop entries
+must see it. An implementation may use a plain counter instead where it proves that no other task or
+interrupt handler can reach the arena or anything allocated from it. The unchecked mode keeps this check and the drop entries
 too: without them a reset could free the bytes of a string, or the memory of an owner, that another task
 still uses, which no epoch check can catch.
 

@@ -1,6 +1,6 @@
 # Debugging Plutonium programs
 
-**Version:** 0.1 (draft)
+**Version:** 0.4 (draft)
 
 This document describes what the compiler and runtime provide for debugging: DWARF debugging information
 for debuggers and profilers, call frame information, and the stack traces a program prints when it panics.

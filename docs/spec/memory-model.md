@@ -1,7 +1,7 @@
 # The Plutonium Memory Model
 
-**Version:** 0.2 (draft)
-**Date:** 2026-10-10
+**Version:** 0.4 (draft)
+**Date:** 2026-11-09
 
 This document defines when a read of memory in one task, or on one processor, is guaranteed to observe
 a write made by another, what safe code is promised about data races, what a race in unsafe code may and

@@ -230,13 +230,43 @@ the result does hold `p` (E3007), and the directive is an error outside the stan
   variable (`err` above all) for a view of the frame and later for heap memory is accepted. Other
   storage is followed field by field, two levels deep, without regard to the order of statements.
 - A generic function is checked once for all its instantiations, and the result is the same for every
-  instantiation. A conversion of a value of a type parameter to an interface counts as a frame copy,
-  whatever the size of the type argument (section 7.9). For a `[T owner any]` parameter it counts as
-  both kinds of view at once: a frame copy, and a view obtained from the variable that each event of
-  the list in A local owner's memory (above) ends (E3313, E3314). The checker applies the stricter rule
-  of each kind, so the interface may not leave the frame, and it may not be used after the variable is
-  moved, dropped or given a new value, after a call that may free or move an owner out of the variable's
-  memory, or after an owner field on the path is assigned.
+  instantiation. Where a rule of this chapter depends on the type argument (whether it is one word,
+  counted, an owner, or has drop glue), the checker applies the strictest form that any type argument
+  the constraint admits needs:
+  - A conversion of a value of a type parameter to an interface counts as both kinds of view at once,
+    for every type parameter (`[T any]` as well as `[T owner any]`) and whatever the type argument: a
+    frame copy (section 7.9), and, for an ordinary interface, a view obtained from the converted
+    variable that each event of the list in A local owner's memory (above) ends (E3313, E3314). So the
+    interface may not leave the frame, and it may not be used after the variable is moved, dropped or
+    given a new value, after a call that may free or move an owner out of the variable's memory, or
+    after an owner field on the path is assigned. A type argument such as a map, a channel or a box is
+    lent in one word without a count of its own (section 7.9), which is why a plain `[T any]` needs the
+    second half.
+  - A type parameter counts as having drop glue unless no type in its type set has drop glue. This
+    decides A local's scope (below), the declaration order of a variable whose drop releases a view
+    of another local (below), and leaving a loop (section 18.4): `p := &x` of a `T` local may not be
+    used after `x`'s scope ends.
+  - A view obtained from a value of a type parameter (the result of a method of its constraint, or an
+    element or slice of it) is bounded by the variable or temporary that holds the value, as a view
+    obtained from a local or temporary owner is (E3313, E3314, E3009), unless every type in the type
+    set is a value or a view.
+  - A call of a method of a type parameter is checked against that method of every type the program
+    instantiates the parameter with, as a call through an interface is checked against every method of
+    its name.
+
+  Assignment, copying, comparison, capture by a function literal, sending and composite literals of
+  type parameter values need nothing more: an `owner` type parameter has the kind owner and every rule
+  for owners applies to it (section 8.7), any other type parameter is never an owner and its values are
+  copied, counted where the type argument is counted, as the instance's code does, and the sendable
+  types of section 19.2 are checked for each instantiation.
+  ```go
+  func show[T any](x T) {
+  	var z T
+  	i := any(x)    // a frame copy, and a view obtained from x
+  	x = z          // for a map or box type argument, drops what i holds
+  	fmt.Println(i) // error E3313: i was ended by the assignment to x
+  }
+  ```
 - A struct field is **heap-only** when, in the whole program, its address (or that of anything inside
   it) is never taken and everything stored in it is heap memory, or a parameter for which every call
   passes heap memory. Loading a heap-only field yields heap memory, so following a list's `next` or an
@@ -823,8 +853,11 @@ invalid capacity rather than returning unchecked storage. Zero capacity gives an
 Payload capacity excludes allocation bookkeeping. The constructor sizes a bookkeeping table from the
 arena's own backing, in the same request to the parent, in checked and unchecked modes. An allocation
 takes a record from that table and nothing from the parent, so allocating, `Reset` and `Release` never
-call the parent, cost no more than for an arena without bookkeeping, and may run where the parent may not
-(section 20.10, Interrupts). An allocation that finds the table full fails without advancing the cursor,
+call the parent for bookkeeping, cost no more than for an arena without bookkeeping, and may run where the
+parent may not (section 20.10, Interrupts). The drops their drop entries run (below) are drops like any
+other: they may free to the parent or to another allocator, and the checks that follow drops follow them
+(section 20.10, What is followed; section 19.3; section 18.3). An arena whose `New` and `Slice` are given
+only types without drop glue keeps this promise in full. An allocation that finds the table full fails without advancing the cursor,
 as one that finds the payload full does. Dropping the arena returns its backing, table included. Ordinary reads and writes allocate nothing. Stable
 check-reader and address-history metadata uses the runtime directory storage described in abi.md
 section 1.3; it is not payload or a hidden change of the arena's chosen parent.
@@ -835,7 +868,8 @@ entries (below).
 
 **Drop entries.** When `New` or `Slice` of an `arena.Fixed` or `arena.Chunked` allocates a type with
 drop glue (section 18.6, What dropping does), the arena records a **drop entry** in its bookkeeping: the
-address, the number of elements and the type's drop function. `Reset` and `Drop` run every entry, and
+address, the number of elements and the type's drop function. A `Slice` of length zero records no entry.
+`Reset` and `Drop` run every entry, and
 `Release(m)` runs the entries recorded after the mark, in reverse order of allocation. Each entry drops
 its values in place, as drop glue does, and leaves the zero value in each place. Then the call checks the
 count of live allocations (below). A type without drop glue records nothing and costs nothing.
@@ -846,7 +880,11 @@ count of live allocations (below). A type without drop glue records nothing and 
   place, must leave the zero value there, or the entry drops the value a second time (section 18.12).
 - The program's views of the memory being taken back are dead from the start of the call, under the
   rules that already apply: for an arena in a local variable the compiler rejects a use after the
-  `Reset` or `Release` (E3313, below), and the epoch check catches the rest (section 18.11). The arena
+  `Reset` or `Release` (E3313, below), and the epoch check catches the rest (section 18.11). The view
+  rules of section 18.3 treat the call as one that may free through every pointer into the arena, since
+  its entries drop what the arena's values own: after `p := &*n.child`, where `n` came from `New`, a use
+  of `p` after the `Reset` is E3313 like a use of `n`, though `n.child` may live in other memory. The
+  arena
   ends its epoch only after the entries have run, so a drop function that reaches an earlier value
   through a view stored in a later one finds valid memory, holding the zero value once its entry has run.
 - The arena takes an entry off its table before running it. A drop function that panics leaves the call
@@ -854,12 +892,14 @@ count of live allocations (below). A type without drop glue records nothing and 
   is not checked, the epoch does not end and the arena takes nothing back. A deferred `Reset` that runs
   for that panic starts again from the entries that are left.
 - An allocation from the arena made while its entries run is counted as usual, and an entry it records
-  is not run by this call. Either one makes the call panic with "arena has live allocations".
+  is not run by this call. An allocation still live when the entries finish, or an entry recorded while
+  they run, makes the call panic with "arena has live allocations". An allocation made and freed again
+  within the entries leaves nothing behind and does not.
 - A `Fixed` keeps its drop entries in the bookkeeping it sizes from its own backing (above), and a `New`
   or `Slice` that finds no room there for its entry fails, without advancing the cursor, as an allocation
   that finds the table full does. So the payload capacity holds in full only for allocations that record
   no entry. A `Chunked` keeps its entries in blocks taken from its chunks, and a `New` or `Slice` fails
-  when the parent has no memory for a new block. A failed `New` or `Slice` panics (section 17.1). The
+  when the parent has no memory for a new block. A failed `New` or `Slice` panics with "arena: out of memory" (section 17.1). The
   manual `Arena` of `arena.NewUnsafe` records no entries: its caller drops what it stored (below).
 
 **Live allocations.** Everything allocated in an arena, except its plain views, must be freed before the
@@ -1029,7 +1069,7 @@ println(*first)               // panic: use of freed memory
 **The rule.** A use of heap memory through a view after the memory has been freed (a load, a store, or
 the release of a count it holds) is a run-time panic, "use of freed memory" (section 17.1, Panics). The
 same holds for fixed or Chunked arena memory after the arena has taken it back with `Reset`,
-`Release` or `Drop`, or freed it: the panic names the call that
+`Release` or `Drop`: the panic names the call that
 took it back. Freeing memory a second time through the
 unchecked layer is a use too.
 
