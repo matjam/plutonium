@@ -75,7 +75,7 @@ var genRuntimeMetadata = map[string]bool{
 	"GenAfterCustomFree": true, "GenSlabOwner": true, "GenSlabBackingLive": true,
 	"checkLive": true, "panicStale": true, "panicStaleRange": true, "NewEpoch": true,
 	"EpochEnded": true, "epochSite": true,
-	"GenTagArena": true, "GenEndArena": true, "GenTrimArena": true, "ArenaIdentity": true,
+	"GenTagArena": true, "GenEndArena": true, "ArenaIdentity": true,
 	"arenaEndedSite": true, "arenaRecordEnded": true,
 	"GenCheckArenaFree": true,
 }

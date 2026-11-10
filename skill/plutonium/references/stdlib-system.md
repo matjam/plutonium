@@ -167,7 +167,7 @@ func DispatchTimerFunc(f func(), handedOff *bool) bool
 func EnablePreemption()
 func EnterSyscall()
 func Environ() unsafe.Pointer
-func EpochEnded(e uint16, pc uintptr, freed bool)
+func EpochEnded(e uint16, pc uintptr)
 func Exit(code int)
 func ExitSyscall()
 func ExitTask()
@@ -179,7 +179,7 @@ func GenArenaExhausted(p unsafe.Pointer, size uintptr) uintptr
 func GenCheckArenaFree(p unsafe.Pointer, size uintptr)
 func GenCustomAlloc(p unsafe.Pointer, size, key uintptr) unsafe.Pointer
 func GenCustomFree(p unsafe.Pointer, size, key uintptr) unsafe.Pointer
-func GenEndArena(token uintptr, pc uintptr, freed bool)
+func GenEndArena(token uintptr, pc uintptr)
 func GenFreeHeap(token uintptr, p unsafe.Pointer, size uintptr) bool
 func GenInvalidate(token uintptr, from, to uintptr)
 func GenNewSlabOwner() uintptr
@@ -191,7 +191,6 @@ func GenSlabBackingLive(p unsafe.Pointer, owner uintptr) bool
 func GenSlabOwner(token, owner uintptr)
 func GenTagArena(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer
 func GenTagHeap(token uintptr, p unsafe.Pointer, size uintptr) unsafe.Pointer
-func GenTrimArena(token uintptr, from, pc uintptr)
 func GenUnregister(token uintptr)
 func Go(f func(), size uintptr, a Allocator = defaultAllocator)
 func GoService(f func())

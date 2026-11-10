@@ -7,12 +7,11 @@ package arena
 // Drop end.
 const genCheck = true
 
-// A fixedRecord is the record of one allocation of a Fixed: its identity,
-// its offset in the payload and its epoch registration.
+// A fixedRecord is the record of one allocation of a Fixed: its identity
+// and its epoch registration.
 type fixedRecord struct {
-	id    uint64
-	start uintptr
-	tok   uintptr
+	id  uint64
+	tok uintptr
 }
 
 func (r *fixedRecord) token() uintptr     { return r.tok }

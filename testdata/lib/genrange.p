@@ -4,7 +4,7 @@
 // start at every offset of a granule and end anywhere up to several
 // granules on, so they cross from live allocations into neighbours, freed
 // slots, the end of a large allocation and arena allocations that a
-// Release or Free took back. Without generation checks both answers are
+// Release took back. Without generation checks both answers are
 // always true, so the output is the same in either mode.
 package main
 
@@ -73,7 +73,7 @@ func main() {
 	y := view(3)
 	z := ar.Alloc(200, 8)
 	probe("arena", x, 300)
-	ar.Free(z, 200, 8) // the latest allocation gives its space back
+	ar.Free(z, 200, 8) // takes nothing back (language spec section 18.9)
 	probe("arena free", x, 300)
 	probe("arena free stale", z, 100)
 	ar.Release(m)
@@ -128,7 +128,7 @@ func expect(name string, i int, p unsafe.Pointer, n uintptr, live bool) {
 // oracle checks liveness the program knows: many allocations in one arena
 // chunk, so that their interval of the directory keeps a registration for
 // each, across a Release, reuse, a partial Free of the latest allocation
-// and Drop; and a freed heap slot.
+// (which takes nothing back) and Drop; and a freed heap slot.
 func oracle() {
 	heap := alloc.Default()
 	s := alloc.Raw(32, 16)
@@ -160,18 +160,17 @@ func oracle() {
 		expect("reused", i, second[i], 16, true)
 	}
 	t := ar.Alloc(40, 8)
-	ar.Free(unsafe.Add(t, 24), 16, 8) // keeps 24 bytes of the latest allocation
-	expect("kept", 0, t, 24, true)
-	expect("trimmed", 0, unsafe.Add(t, 24), 16, false)
-	if checked && rt.GenRegisteredRangeLive(unsafe.Add(t, 16), 16) {
+	ar.Free(unsafe.Add(t, 24), 16, 8) // takes nothing back
+	expect("kept", 0, t, 40, true)
+	if checked && !rt.GenRegisteredRangeLive(unsafe.Add(t, 16), 16) {
 		wrong++
-		println("wrong: an extent across the trimmed end is live")
+		println("wrong: an extent across the freed tail is not live")
 	}
 	dead := take(&ar)
 	dead.Drop()
 	for i := range first {
 		expect("dropped", i, first[i], 16, false)
 	}
-	expect("dropped", 0, t, 24, false)
+	expect("dropped", 0, t, 40, false)
 	println("wrong", wrong)
 }

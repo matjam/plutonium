@@ -23,11 +23,8 @@ var arenaEndedHead uint64
 // that carry this tag from this incarnation, so the lookup stays exact.
 // Without this a long-running program keeps one record per ended
 // allocation forever.
-func arenaRecordEnded(lo, hi uintptr, tag uint16, pc uintptr, freed bool) {
+func arenaRecordEnded(lo, hi uintptr, tag uint16, pc uintptr) {
 	site := pc
-	if freed {
-		site |= uintptr(1) << 63
-	}
 	if h := (*arenaEnded)(unsafe.Pointer(uintptr(vload64(&arenaEndedHead)))); h != nil &&
 		h.tag == tag && h.site == site && lo < h.lo && hi <= h.lo && (hi+15)&^15 >= h.lo&^15 {
 		store64((*uint64)(unsafe.Pointer(&h.lo)), uint64(lo))
@@ -110,7 +107,7 @@ func GenArenaExhausted(p unsafe.Pointer, size uintptr) uintptr {
 }
 
 // GenEndArena ends exactly one allocation before reuse or backing free.
-func GenEndArena(token uintptr, pc uintptr, freed bool) {
+func GenEndArena(token uintptr, pc uintptr) {
 	if token == 0 {
 		return
 	}
@@ -119,33 +116,9 @@ func GenEndArena(token uintptr, pc uintptr, freed bool) {
 	if r.active {
 		tag := vload16(genEntry(r, r.lo))
 		if tag >= 0x8000 {
-			arenaRecordEnded(r.lo, r.hi, tag, pc, freed)
+			arenaRecordEnded(r.lo, r.hi, tag, pc)
 		}
 		genUnregisterLocked(r)
-	}
-	genWriter.Unlock()
-}
-
-// GenTrimArena reclaims a suffix without changing the prefix's saved tag.
-// Versioned bounds also reject accesses crossing within the final granule.
-func GenTrimArena(token uintptr, from, pc uintptr) {
-	genWriter.Lock()
-	r := (*genRecord)(unsafe.Pointer(token))
-	if !r.active || from <= r.lo || from >= r.hi {
-		panic("invalid generation trim extent")
-	}
-	oldHi := r.hi
-	arenaRecordEnded(from, oldHi, vload16(genEntry(r, r.lo)), pc, true)
-	v := vload64(&r.version)
-	store64(&r.version, v+1)
-	store64((*uint64)(unsafe.Pointer(&r.hi)), uint64(from))
-	store64(&r.version, v+2)
-	// Unlink pages wholly in the suffix. The retained boundary page is
-	// removed by the ordinary unregister of the remaining prefix.
-	for i := (from + 65535) >> 16; i <= (oldHi-1)>>16; i++ {
-		if page := genPage(i, false); page != nil {
-			genUnlink(page, r)
-		}
 	}
 	genWriter.Unlock()
 }

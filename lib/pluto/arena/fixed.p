@@ -135,7 +135,7 @@ func (a *Fixed) allocate(p unsafe.Pointer, size uintptr) unsafe.Pointer {
 	}
 	a.next++
 	r := a.record(a.nrec)
-	*r = fixedRecord{id: a.next, start: uintptr(p) - uintptr(a.base)}
+	*r = fixedRecord{id: a.next}
 	r.setToken(token)
 	a.nrec++
 	return result
@@ -147,37 +147,22 @@ func (a *Fixed) record(i uintptr) *fixedRecord {
 }
 
 // reclaim ends the allocations after the first n, latest first.
-func (a *Fixed) reclaim(n uintptr, pc uintptr, freed bool) {
+func (a *Fixed) reclaim(n uintptr, pc uintptr) {
 	for ; a.nrec > n; a.nrec-- {
 		if genCheck {
-			rt.GenEndArena(a.record(a.nrec-1).token(), pc, freed)
+			rt.GenEndArena(a.record(a.nrec-1).token(), pc)
 		}
 	}
 }
 
-// Free reclaims only the latest allocation, invalidating it before reuse.
+// Free takes back nothing, not even the latest allocation: an arena frees in
+// bulk only, by Reset, Release and Drop (language spec section 18.9, D46).
+// It ends the allocation's count, so Reset, Release and Drop no longer
+// find it live.
 func (a *Fixed) Free(p unsafe.Pointer, size, align uintptr) {
 	rt.GenCheckArenaFree(p, max(size, uintptr(1)))
-	if p == nil {
-		return
-	}
-	atomic.AddInt64(&a.live, -1)
-	if a.nrec == 0 {
-		return
-	}
-	r := a.record(a.nrec - 1)
-	start := uintptr(a.base) + r.start
-	position := uintptr(p) - uintptr(a.base)
-	if uintptr(p) < start || uintptr(p) >= uintptr(a.base)+a.off || max(size, uintptr(1)) != a.off-position {
-		return
-	}
-	a.off = position
-	if uintptr(p) == start {
-		a.reclaim(a.nrec-1, rt.CallerPC(), true)
-		return
-	}
-	if genCheck {
-		rt.GenTrimArena(r.token(), uintptr(p), rt.CallerPC())
+	if p != nil {
+		atomic.AddInt64(&a.live, -1)
 	}
 }
 
@@ -218,7 +203,7 @@ func (a *Fixed) Reset() {
 	a.resetMarks()
 	a.off = 0
 	a.nent = 0
-	a.reclaim(0, rt.CallerPC(), false)
+	a.reclaim(0, rt.CallerPC())
 }
 
 // FixedMark belongs to one Fixed and a still-live allocation position.
@@ -262,14 +247,14 @@ func (a *Fixed) Release(m FixedMark) {
 	a.checkLive()
 	a.off = m.off
 	a.nent = m.nent
-	a.reclaim(m.nrec, rt.CallerPC(), false)
+	a.reclaim(m.nrec, rt.CallerPC())
 }
 
 func (a *Fixed) Drop() {
 	a.runEntries(0)
 	a.checkLive()
 	a.resetMarks()
-	a.reclaim(0, rt.CallerPC(), false)
+	a.reclaim(0, rt.CallerPC())
 	base, held, parent := a.base, a.held, a.parent
 	a.base, a.size, a.held, a.table, a.off, a.nent = nil, 0, 0, 0, 0, 0
 	if base != nil {

@@ -81,6 +81,8 @@ func main() {
 		t += p.a + p.b + p.c + int64(len(p.s))
 	}
 	fmt.Printf("big len=%d total=%d used=%d\n", bv.Len(), t, ar.Used())
+	// bv lives in ar: free it before ar.Reset gives its memory to others.
+	bv.Free()
 
 	// Arena basics.
 	ar.Reset()
@@ -95,12 +97,15 @@ func main() {
 	fmt.Printf("after release used=%d avail=%d cap=%d\n", ar.Used(), ar.Available(), ar.Cap())
 	fmt.Printf("too big nil=%t\n", ar.Alloc(1<<20, 1) == nil)
 	// Default allocator scoped to the arena: new and make use it.
-	r2 := alloc.Use(&ar)
-	q := new(big)
-	buf := vec.Make[byte](10)
-	r2.Restore()
-	inArena := uintptr(unsafe.Pointer(q)) >= uintptr(unsafe.Pointer(&mem[0])) && uintptr(unsafe.Pointer(q)) < uintptr(unsafe.Pointer(&mem[0]))+uintptr(len(mem))
-	fmt.Printf("new in arena=%t len=%d\n", inArena, len(buf))
+	// q and buf live in ar, so they are dropped before ar.Reset below.
+	{
+		r2 := alloc.Use(&ar)
+		q := new(big)
+		buf := vec.Make[byte](10)
+		r2.Restore()
+		inArena := uintptr(unsafe.Pointer(q)) >= uintptr(unsafe.Pointer(&mem[0])) && uintptr(unsafe.Pointer(q)) < uintptr(unsafe.Pointer(&mem[0]))+uintptr(len(mem))
+		fmt.Printf("new in arena=%t len=%d\n", inArena, len(buf))
+	}
 	// Dirty memory is zeroed again after Reset.
 	ar.Reset()
 	z := (*[16]byte)(ar.Alloc(16, 1))

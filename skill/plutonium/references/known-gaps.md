@@ -78,8 +78,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - In kernel mode, `rt.Park` does not yet panic when interrupts are disabled, so a wait with interrupts disabled and
   no lock held is not caught at run time (19.3, abi.md 12.4). Item 213.
 - A deadlock report does not name a panic in progress (19.1, 19.4). Item 205.
-- `Free` through an arena still reclaims the latest allocation and can panic with "arena allocation freed" (18.9).
-  Item 154.
 - The write check for cleaned places is not gated on package cleanup having started (15.4, 21.5). Item 155.
 - `rt.ExitTask` mid-statement or inside a `Drop` method may not drop what 17.3 says. Item 158.
 - `copy` and a first assignment to a borrowed string parameter: count-before-release is not yet checked (13.2,

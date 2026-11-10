@@ -35,13 +35,9 @@ func NewEpoch() uint16 {
 	}
 }
 
-// EpochEnded records that memory of epoch e was given back by the call
-// that returns to pc: by Free if freed, by a Reset, Release or Drop
-// otherwise.
-func EpochEnded(e uint16, pc uintptr, freed bool) {
-	if freed {
-		pc |= 1 << 63
-	}
+// EpochEnded records that memory of epoch e was given back by the Reset,
+// Release or Drop that returns to pc.
+func EpochEnded(e uint16, pc uintptr) {
 	epochSites[uintptr(e)&(epochCount-1)] = pc
 }
 

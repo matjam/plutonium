@@ -346,8 +346,8 @@ func panicStaleRange(p unsafe.Pointer, n uintptr) {
 // panicStale reports an access through a heap pointer whose allocation has
 // been freed (the generational-reference prototype, built with -gencheck).
 // A tag of 0x8000 or more is an arena epoch (epoch_on.p): the arena was
-// reset, released or dropped, or the allocation was freed, since p was
-// handed out.
+// reset, released or dropped since p was handed out. Free through an arena
+// takes nothing back (language spec section 18.9), so it ends no epoch.
 func panicStale(p unsafe.Pointer) {
 	startPanic()
 	if tag := genTagOf(*(*uintptr)(unsafe.Pointer(&p))); tag >= 0x8000 {
@@ -355,12 +355,8 @@ func panicStale(p unsafe.Pointer) {
 		if site == 0 {
 			site = epochSite(uintptr(tag))
 		}
-		if site>>63 != 0 {
-			printString("runtime error: use of freed memory: an arena allocation freed")
-		} else {
-			printString("runtime error: use of memory from an arena that was reset")
-		}
-		if pc := site << 1 >> 1; pc != 0 {
+		printString("runtime error: use of memory from an arena that was reset")
+		if pc := site; pc != 0 {
 			printString(" at ")
 			PrintPC(pc - 1)
 		}

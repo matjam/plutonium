@@ -9,8 +9,8 @@ freed live=0 len=0 cap=0
 reuse 5 live=32
 big len=100 total=29800 used=12192
 align ok=true gap=8 used=16
-after free last used=8
-after release used=8 avail=65528 cap=65536
+after free last used=16
+after release used=16 avail=65520 cap=65536
 too big nil=true
 new in arena=true len=10
 zeroed=0

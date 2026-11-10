@@ -10,8 +10,7 @@ import (
 // A Chunked is a bump allocator that grows: when its current chunk is full
 // it takes another from its parent allocator and carries on there. Like an
 // Arena it implements alloc.Allocator (through its pointer), freeing into it
-// does nothing (except for the most recent allocation), and memory is
-// reclaimed all at once:
+// takes nothing back, and memory is reclaimed all at once:
 //
 //   - Reset frees every allocation. The arena keeps its chunks of the
 //     standard size for reuse and returns larger ones to the parent.
@@ -25,8 +24,9 @@ import (
 // or Drop, which panic with "arena has live allocations" otherwise; the
 // views of New and Slice are not counted. For a type with drop glue, New
 // and Slice record a drop entry, and Reset, Release and Drop first drop
-// those values in place, newest first. Memory a Reset, Release, Drop or
-// latest Free takes back must not be used afterwards. Checked builds validate persistent allocation incarnations;
+// those values in place, newest first. Free takes no memory back; memory a
+// Reset, Release or Drop takes back must not be used afterwards. Checked
+// builds validate persistent allocation incarnations;
 // unchecked builds omit that validation (language spec section 18.11).
 //
 // A compiler uses one per phase:
@@ -266,21 +266,14 @@ func (a *Chunked) grow(need uintptr) bool {
 	return true
 }
 
-// Free releases memory returned by Alloc. Memory is released all at once by
-// Reset, Release and Drop, so Free does nothing, except that freeing the
-// most recent allocation gives its space back (which makes a growing
-// vec.Vec on an arena cheaper).
+// Free ends an allocation made through Alloc: it no longer counts as live.
+// It takes no memory back, not even the most recent allocation's; Reset,
+// Release and Drop take memory back in bulk (language spec section 18.9,
+// D46).
 func (a *Chunked) Free(p unsafe.Pointer, size, align uintptr) {
 	rt.GenCheckArenaFree(p, max(size, uintptr(1)))
 	if p != nil && !a.uncounted {
 		atomic.AddInt64(&a.live, -1)
-	}
-	r := a.life.head
-	if c := a.cur; c != nil && r != nil && p != nil && uintptr(p) >= uintptr(r.p) && uintptr(p) < uintptr(r.p)+r.size && uintptr(p)+max(size, uintptr(1)) == uintptr(r.p)+r.size && uintptr(p)+max(size, uintptr(1)) == uintptr(c.data())+a.off {
-		a.off = uintptr(p) - uintptr(c.data())
-		if a.life.freeTail(p, max(size, uintptr(1)), rt.CallerPC()) {
-			rt.ResumeAllocFreeExit()
-		}
 	}
 }
 
@@ -329,7 +322,7 @@ func (a *Chunked) release(m ChunkMark, pc uintptr) bool {
 	if m.entries != nil {
 		m.entries.used = m.used
 	}
-	exiting := a.life.reclaim(m.sequence, pc, false)
+	exiting := a.life.reclaim(m.sequence, pc)
 	for a.cur != m.cur {
 		c := a.cur
 		if c == nil {

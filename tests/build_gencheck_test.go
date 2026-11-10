@@ -371,9 +371,10 @@ func main() {
 
 // TestArenaEpochs checks the arena epochs of a -gencheck build (memory-safety
 // design D4): a view, box, string or error in an arena.Chunked that was
-// reset, released past it or freed panics with where that happened, also
-// when a longer-lived heap container holds it, and correct code runs as
-// before.
+// reset or released past it panics with where that happened, also when a
+// longer-lived heap container holds it, and correct code runs as before.
+// Free takes nothing back (section 18.9, D46), so memory stays usable after
+// it until a Reset.
 func TestArenaEpochs(t *testing.T) {
 	t.Parallel()
 	const prelude = `package main
@@ -474,9 +475,13 @@ func main() {
 	a.Reset() // here
 	println(errs.At(0).Error())`, reset, 2},
 		{"free of the latest allocation", `
+	pa := &a
 	p := (*node)(a.Alloc(16, 8))
-	a.Free(unsafe.Pointer(p), 16, 8) // here
-	p.val = 1`, "use of freed memory: an arena allocation freed at main.main (./main.p:", 2},
+	a.Free(unsafe.Pointer(p), 16, 8)
+	p.val = 1
+	println("after free", p.val)
+	pa.Reset() // here
+	println(p.val)`, "after free 1\npanic: runtime error: " + reset, 2},
 		{"string dropped after release", `
 	for i := 0; i < 2; i++ {
 		m := a.Mark()

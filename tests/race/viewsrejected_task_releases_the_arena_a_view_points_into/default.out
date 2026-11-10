@@ -1,6 +1,6 @@
 $DIR/main.p:22:2: the memory allocated from a is written here while the task started at main.p:16 may use it
     The task started at main.p:16 writes the memory allocated from a at
-    pluto/arena/fixed.p:111, in (*Fixed).Release called at main.p:19, and s
+    pluto/arena/fixed.p:242, in (*Fixed).Release called at main.p:19, and s
     waits for it at main.p:23. Meanwhile the memory allocated from a is written
     at main.p:22 in main, so the two may run at the same time, one of them
     writing: a data race.

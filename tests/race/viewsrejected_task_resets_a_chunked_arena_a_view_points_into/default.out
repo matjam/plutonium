@@ -1,6 +1,6 @@
 $DIR/main.p:21:10: the memory allocated from a is read here while the task started at main.p:16 may write it
     The task started at main.p:16 writes the memory allocated from a at
-    pluto/arena/chunked.p:288, in (*Chunked).Reset called at main.p:18, and s
+    pluto/arena/chunked.p:377, in (*Chunked).Reset called at main.p:18, and s
     waits for it at main.p:22. Meanwhile the memory allocated from a is read at
     main.p:21 in main, so the two may run at the same time, one of them writing:
     a data race.

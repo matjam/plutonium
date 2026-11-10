@@ -11,7 +11,7 @@ import "unsafe"
 func NewEpoch() uint16 { return 0 }
 
 // EpochEnded does nothing.
-func EpochEnded(e uint16, pc uintptr, freed bool) {}
+func EpochEnded(e uint16, pc uintptr) {}
 
 func epochSite(tag uintptr) uintptr { return 0 }
 

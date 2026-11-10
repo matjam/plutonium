@@ -50,15 +50,10 @@ func (a *Arena) Alloc(size, align uintptr) unsafe.Pointer {
 	return p
 }
 
-// Free releases memory returned by Alloc. Arena memory is released all at
-// once by Reset, so Free does nothing, except that freeing the most recent
-// allocation gives its space back (which makes a growing vec.Vec or
-// strings.Builder on an arena cheaper).
-func (a *Arena) Free(p unsafe.Pointer, size, align uintptr) {
-	if p != nil && uintptr(p)+size == uintptr(a.base)+a.off {
-		a.off = uintptr(p) - uintptr(a.base)
-	}
-}
+// Free takes nothing back, not even the most recent allocation: an arena
+// takes memory back in bulk only, through Reset and Release (language spec
+// section 18.9, D46).
+func (a *Arena) Free(p unsafe.Pointer, size, align uintptr) {}
 
 // Reset frees every allocation, making the whole buffer available again.
 func (a *Arena) Reset() { a.off = 0 }

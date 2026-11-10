@@ -130,26 +130,56 @@ p := (*byte)(a.Alloc(150000, 65536))
 println(uintptr(unsafe.Pointer(p))%65536)
 ra.Release(m)
 println(*p)`, "0\npanic: runtime error: use of memory from an arena", 2},
-		{"partial tail indexed access", "", `
+		// An arena frees in bulk only (section 18.9, D46): a Free of the
+		// tail of an allocation takes nothing back, so all of it stays
+		// usable; a Release over it makes all of it stale, for an indexed
+		// access, a load that crosses a granule and a bulk copy alike.
+		{"partial tail free keeps indexed access", "", `
 a := arena.NewChunkedUnsafe()
 p := a.Alloc(200000, 16)
 b := unsafe.Slice((*byte)(p), 200000)
 b[0] = 41
 a.Free(unsafe.Add(p, 100000), 100000, 16)
 println(b[0])
-println(b[150001])`, "41\npanic: runtime error: use of freed memory", 2},
-		{"partial tail crossing load", "", `
+println(b[150001])`, "41\n0\n", 0},
+		{"partial tail free keeps crossing load", "", `
 a := arena.NewChunkedUnsafe()
 p := a.Alloc(200000, 16)
 a.Free(unsafe.Add(p, 100000), 100000, 16)
-println(*(*uint16)(unsafe.Add(p, 99999)))`, "use of freed memory", 2},
-		{"partial tail bulk copy", "", `
+println(*(*uint16)(unsafe.Add(p, 99999)))`, "0\n", 0},
+		{"partial tail free keeps bulk copy", "", `
 a := arena.NewChunkedUnsafe()
 p := a.Alloc(200000, 16)
 b := unsafe.Slice((*uint64)(p), 25000)
+b[24999] = 7
 a.Free(unsafe.Add(p, 100000), 100000, 16)
 var dst [25000]uint64
-copy(dst[:], b)`, "use of freed memory", 2},
+copy(dst[:], b)
+println(dst[24999])`, "7\n", 0},
+		{"released indexed access", "", `
+a := arena.NewChunkedUnsafe()
+m := a.Mark()
+p := a.Alloc(200000, 16)
+b := unsafe.Slice((*byte)(p), 200000)
+b[0] = 41
+println(b[0])
+a.Release(m)
+println(b[150001])`, "41\npanic: runtime error: use of memory from an arena", 2},
+		{"released crossing load", "", `
+a := arena.NewChunkedUnsafe()
+ra := &a; _ = ra
+m := a.Mark()
+p := (*[200000]byte)(a.Alloc(200000, 16))
+ra.Release(m)
+println(*(*uint16)(unsafe.Add(unsafe.Pointer(p), 99999)))`, "use of memory from an arena", 2},
+		{"released bulk copy", "", `
+a := arena.NewChunkedUnsafe()
+m := a.Mark()
+p := a.Alloc(200000, 16)
+b := unsafe.Slice((*uint64)(p), 25000)
+a.Release(m)
+var dst [25000]uint64
+copy(dst[:], b)`, "use of memory from an arena", 2},
 		{"copy drop reclaims destination", `
 var outer arena.Chunked
 type Retirer owner struct{}

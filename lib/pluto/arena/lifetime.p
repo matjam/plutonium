@@ -94,28 +94,13 @@ func (l *lifetime) end() uintptr {
 	return 0
 }
 
-func (l *lifetime) freeTail(p unsafe.Pointer, size, pc uintptr) bool {
-	r := l.head
-	if r == nil || p == nil || uintptr(p) < uintptr(r.p) || uintptr(p) > uintptr(r.p)+r.size || size != uintptr(r.p)+r.size-uintptr(p) {
-		return false
-	}
-	if uintptr(p) == uintptr(r.p) {
-		return l.reclaim(r.sequence-1, pc, true)
-	}
-	if genCheck {
-		rt.GenTrimArena(r.token, uintptr(p), pc)
-	}
-	r.size = uintptr(p) - uintptr(r.p)
-	return false
-}
-
-func (l *lifetime) reclaim(sequence uint64, pc uintptr, freed bool) bool {
+func (l *lifetime) reclaim(sequence uint64, pc uintptr) bool {
 	pending := l.head
 	for l.head != nil && l.head.sequence > sequence {
 		r := l.head
 		l.head = r.prev
 		if genCheck {
-			rt.GenEndArena(r.token, pc, freed)
+			rt.GenEndArena(r.token, pc)
 		}
 	}
 	// Complete invalidation before invoking a parent callback. A callback
