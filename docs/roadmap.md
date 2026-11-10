@@ -40,7 +40,7 @@ one covers:
 - **Phase 1, soundness in the compiler.** The rulings' compiler work (items 146 to 176, first A1, C1, C2,
   B1 and B10: items 146, 147, 148, 152, 159; and item 177); a consuming method value (item 178); the
   view-tracking cases left by item 138 (item 179); the escape contract of `rt.ReleaseValues` (item 180);
-  the false escape errors in `types2` unit-test builds (item 181); the lowering backstops (item 182); the
+  the false escape errors in `types2` unit-test builds (item 181, done); the lowering backstops (item 182); the
   order of evaluation in the rest of lowering (item 183); the allocators the race check does not follow
   (item 196). From audits E to J: arena counts, drop entries and frees (items 198, 202, 209, 212 and
   217); one-word owners lent to an interface (item 199); owner conversions through a defined type (item
@@ -1428,10 +1428,14 @@ compiler (2026-10-11).
 176. **Region rules for closures** (planned; section 11.5, D68, findings D6 and D14): check that a closure passed
     through a func value or an interface counts as kept, and that storing it in the same frame or passing it
     to `s.Task` is allowed.
-181. **False escape errors in heavy unit-test builds of `types2`** (planned; section 18.3): the checked test
-    builds of `sched`, `summary`, `solve`, `escape2` and `eir` are rejected
-    at `compiler/internal/types2/conversions.p:89` and `:97` and `unify.p:735`. An agent on this stopped on
-    2026-10-31 with nothing landed; add the cheap gate check it planned.
+181. **False escape errors in heavy unit-test builds of `types2`** (done, `de6b2994`, `9cd50379`, `6b4acfd4`;
+    section 18.3): the checked test builds of `sched`, `summary`, `solve`, `escape2` and `eir` were rejected
+    at `compiler/internal/types2/conversions.p:89` and `:97` and `unify.p:735`. The conversions errors came
+    from a cut of a deep path that stood for the pointer loaded from it; `pluto/testing`'s `sprintln` errors
+    from a join of virtual calls that lost one of a key's two type filters; the `unify.p` error from a solve
+    over `MaxFuncArena` whose E3010 a later pass overwrote. `TestCompilerUnits` builds
+    `compiler/internal/escape2/typesprobe` up to the end of the checks, which catches the first two in
+    about 7 minutes.
 182. **Audit the lowering backstops** (planned; section 21.2): each `unsupportedf` (E2500) site and packed
     field backstop in `compiler/internal/lower` is either unreachable after the type checker (say so in a
     comment or remove it) or a missing feature (add an item): `builtin.p:149`, `:219`; `expr.p:117`,
