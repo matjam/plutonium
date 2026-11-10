@@ -1912,6 +1912,145 @@ ones that do not have a short form that does. Goal: Safe, Go.
 
 Lands with: item 220.
 
+## D109. The race rules as one model (19.2, 19.3, 19.4, 8.8, 12.11, 20.9, 20.10, F.5, A, memory-model.md 3 and 4, skill)
+
+Question: audit K (docs/verification/2026-11-09-spec-audit-k.md). Sections 19.2 and 19.3 had grown by
+amendment: D96 and D100 to D108 each added a paragraph, and the terms (party, crossing, guard, the point
+where sharing starts, part of a function) were defined in several places with different words. Audit K
+found fourteen places where two of those definitions disagree or leave a case open.
+
+Decision (2026-11-10, coordinator ruling on audit K):
+
+- 19.3 is written in three parts: the model, each term defined once (parties, the start of sharing, part
+  of the enclosing function, memory and data with the memory an object owns, crossings, accesses, frees
+  as writes, locks and names, held sets with summaries, the guard set, views loaded under a lock,
+  initialization and lazy initialization, the orders used); the rules, each with its error (rule 1,
+  shared data; rule 2, what may cross, with four cases; rule 3, the type rule; releasing a lock; waiting
+  in a non-migrating region; interrupt handlers; owner transfer; copying a lock); and a conformance table
+  of 72 programs with their results. 19.2 keeps the sendable rule and points to 19.3 for crossings.
+- K4: the start of sharing is the first statement that may start a task, install a handler, or enable
+  interrupts, and the text says "before the first other party (task or interrupt handler) may run".
+- K10: 8.8 says a view is used only while its lock stays held with no release between the load and use.
+- K11: a static object with an atomic field meets rule 2 case 3, not case 2; memory-model.md 4.1 lists
+  static objects with the other shared objects instead of with unchanged memory.
+- K12: `c.Wait(l)` needs `l` held in write mode; F.5 lists `WaitGroup` alone in the bullet that named
+  `Once` and `Cond` twice.
+- The race check's precision limits are stated as 18.3 states the frame check's: two loads and eight
+  steps per place, sixteen origins per value, func values followed four calls deep, recursion to a fixed
+  point. They are part of the language, and an implementation uses them exactly (21.3). Today's
+  `widenPass` and the silent drop past `maxGroups` break that, so they are compiler work (item 226).
+- Where audit K and the checker disagree, the spec takes the coherent model and the roadmap lists the
+  difference as compiler work (items 221 to 228). Each difference is listed in the "Race rules rewrite"
+  section of the rulings.
+
+Why: an implementer must get one answer for every program, and that needs each term defined once. The
+table makes the answers testable. Goal: Plain, Safe.
+
+Lands with: items 221 to 228; the spec text needs no compiler change.
+
+## D110. The memory an object owns (19.3, 20.9, memory-model.md 4.1)
+
+Question: audit K2 and K7. Rule 1 counted the memory a package variable owns as part of it, and D102 let
+views of memory a `synced[T]` object owns cross under its guard. A static object or an object whose type
+satisfies the type rule could own a `vec.Vec` too, and nothing said whether a view of that storage was
+guarded. A per-CPU variable that holds a `vec.Vec` had the same gap.
+
+Decision: the memory an object owns is the object of each `owned[T]` it holds and the memory managed by
+each owner value it holds, through owners that hold one another, to any depth; not what pointers, counted
+references, maps or channels refer to. A read or write of that memory is a read or write of the datum that
+owns it. This holds for package variables, fields of static, `synced[T]` and type-rule objects, and map
+contents. For a per-CPU variable, the owned memory is part of each processor's copy and follows 20.9.
+
+Why: one definition covers every kind of object, so the guarded case of rule 2 covers storage owned by
+anything that may be shared. Goal: Safe, Plain.
+
+Lands with: items 214 and 228.
+
+## D111. The guard set and valid views (19.3, 19.4, 8.8, memory-model.md 4.1)
+
+Question: audit K5 and K6. The old text inferred "the lock held at every write" per pair of conflicting
+accesses. One party that writes `x` under `L` at one write and under `M` at another, with a reader that
+holds `L`, passed: each write met only the read, and the read pass found no lock common to both writes and
+skipped it. The scoped Sharing form 2 had no rule for a view kept across an `Unlock` and a new `Lock`.
+
+Decision: the guard set G(D) is the set of write-mode locks held at every shared write of D, with "atomic"
+as a lock of its own. A shared write with an empty G(D) is E3502. A read needs a lock of G(D) when another
+party, or another instance of its own party, may write D. A view loaded under locks of G(D) is valid while
+one of them stays held on every path to the use with no ending event: an `Unlock`, `RUnlock` or `Wait` of
+it under any name, a call that may release it, or the end of its name. Scoped form 2 uses the same
+validity, with E3402.
+
+Why: a per-datum guard set is what "every access holds one lock" means; the pairwise form misses
+programs with one writer. Goal: Safe.
+
+Lands with: items 221 and 227.
+
+## D112. Lazy initialization at any depth and in code that is part of the function (19.3, F.5, skill)
+
+Question: audit K9 and K13. D105 counted a `Do` only in the reading function. A helper `cfg()` that calls
+`once.Do` on every path was not enough, and a range body or a deferred literal after the `Do` had no
+stated answer.
+
+Decision: a `Do` counts for a read when it is made on the reading party, in the reading function or in
+code that is part of it (a literal called in place, a deferred literal, a range body whose iterator calls
+`yield` on the caller's task), or in a callee whose summary shows a `Do` on every path to its return, at
+any depth through calls with a known target. A `Do` through an interface, a func value or a method value
+does not count.
+
+Why: summaries already carry facts at any depth; a helper that calls `Do` is the usual Go shape. Goal: Go,
+Plain.
+
+Lands with: item 218.
+
+## D113. Summaries record "may release" (19.3)
+
+Question: audit K3. A view kept across a call of a helper that waits on a `Cond` and returns with the lock
+held was not ended: the summary showed the lock held before and after.
+
+Decision: a summary records each lock the function may release on some path, to any depth, `c.Wait(l)`
+included, even if it takes it again. A view live across such a call is ended, and a use after it is E3501.
+A view a call returns counts as loaded at the call under the locks its summary records for it.
+
+Why: another party may run while the lock is released, so the view may point to freed memory. Goal: Safe.
+
+Lands with: item 222.
+
+## D114. A range body is part of its function only on the caller's task (19.3, 12.11)
+
+Question: audit K1. D108 counted every range-over-func body as part of the enclosing function. An
+iterator that calls `yield` in a scoped task runs the body on that task, so the body could release the
+starter's lock, which D108 forbids for scoped tasks.
+
+Decision: a range body is part of the enclosing function only when the iterator's summary shows that it
+calls `yield` on the caller's task. The summary records each func-valued parameter called on another
+party (inside a function given to a task starter, or through a callee that does); a copy that cannot be
+followed, and an unknown candidate of a func-value or interface iterator, count as such a call. Otherwise
+the body is code of that party: it starts with nothing held, a `Do` before the loop does not count in it,
+and a `defer` in it is a compile error.
+
+Why: the summary already follows func parameters; one bit more keeps the release rule sound with no
+annotation. Ordinary iterators such as `vec.Vec.All` call `yield` in their own loop and keep today's
+meaning. Goal: Safe, Go.
+
+Lands with: item 223.
+
+## D115. Locks may not be copied (19.3, F.5, A)
+
+Question: audit K14. Go forbids copying a `sync.Mutex`, `RWMutex`, `Once`, `WaitGroup` or `Cond` after
+first use, and `go vet` warns. A copy of a locked mutex is a second lock that is born locked, and a copy of
+a done Once initializes nothing. The spec said nothing.
+
+Decision: a copy from a place of a value whose type holds one of these types (and `rt.Lock` outside
+`pluto/rt`), directly or through fields and array elements, is a compile error: assignments, arguments,
+results, sends, range values, value receivers and conversions. Composite literals, zero values, call
+results and owner moves are not copies. A `sync.Scope` is an owner, so the type system already makes a
+copy a move, and E3405 forbids moving one that has started tasks.
+
+Why: the compiler cannot tell the first use, so it forbids every copy, as Rust does by not making the
+types `Copy`. A false friend becomes a compile error. Goal: Go, Safe.
+
+Lands with: item 225.
+
 ## Deferred
 
 None open. D105 (lazy initialization through `sync.Once`) and D106 (`sync.Cond.Wait`) were deferred for
@@ -1973,3 +2112,19 @@ adopted the rule with the lock passed to `Wait` instead of stored in `c.L`.
 The 2026-11-09 D106 counted such a `Wait` as unlocking every lock, leaving none held, with E3503 for a later
 read naming the `Wait`. D108 made it a compile error, since a lock the compiler cannot name cannot be shown
 held by the task that releases it.
+
+### D102: a view used only where a guard is held
+
+D102 let a view of guarded owned memory cross when it is used only where a guard is held. D111 (audit K6)
+requires a lock of the guard set held at the load to stay held to the use with no ending event, so a view
+kept across an `Unlock` and a new `Lock` is ended. D113 adds a call that may release the lock.
+
+### D105: a `Do` in the reading function
+
+The 2026-11-09 D105 counted a call of `o.Do` only in the reading function. D112 (audit K9 and K13) counts
+a `Do` in code that is part of that function and in callees that call it on every path, at any depth.
+
+### D108: every range body is part of its function
+
+D108 treated every range-over-func body as part of the enclosing function. D114 (audit K1) does so only
+when the iterator calls `yield` on the caller's task.

@@ -1051,3 +1051,267 @@ mapping below gives each one its new place, or says why it was dropped.
 - Z4. Form 2: every access holds one lock, inferred as in 19.3.
 - Z5. Form 3: partitioned.
 - Z6. A place nobody writes is readable by all; anything else is E3402.
+
+### Where each sentence went
+
+New labels are the bold labels of 19.3 after the rewrite. "Kept" means the sentence keeps its meaning in
+the new place; "changed" gives what changed and the audit K finding behind it.
+
+19.2:
+
+- C1 to C4: Crossings, cases 1 to 4. Kept.
+- C5: Crossings, case 5 (static objects added). The "once a task other than the main task, or a handler,
+  may run" condition is now The start of sharing, which enabling interrupts also starts (K4).
+- C6: Crossings, "holds a view". Kept; unions added.
+- C7: Crossings, case 5, which says "by a party", and handlers are parties. Kept.
+- C8 to C11: 19.2, first list. Kept.
+- C12: 19.2, third bullet, and rule 2. Kept.
+- C13, C14: 19.2, second paragraph. Kept.
+- C15: 19.2. Changed wording only: counts are atomic "once a program has started a task".
+- C16 to C20: 19.2. Kept.
+
+19.3 introduction and tasks:
+
+- R1 to R4: 19.3, first paragraph. Kept. "Three inferred rules" became "the rules"; the count is now
+  rules 1 to 3 plus the release, wait, copy and owner-transfer rules.
+- T1, T2, T3: Parties. Kept; `wg.Task` added to the list.
+- T4: Parties, "repeated". Kept; handlers are now repeated by definition.
+- T5, T6, T7: The start of sharing (K4). Changed: one point for tasks, handler installs and enabling
+  interrupts, instead of two. Data written after `x86.Sti` but before the first install now counts.
+
+Accesses and locks:
+
+- A1: Accesses. Kept.
+- A2: Locks and names. Kept.
+- A3, A4, A5: Held sets. Kept.
+- A6: Locks and names. Kept.
+- A7: Parties, last paragraph. Kept.
+- A8: Releasing a lock. Kept.
+- A9: Held sets. Kept. The mode requirement (write mode for `Wait`) is in Releasing a lock (K12).
+- A10: Views loaded under a lock, ending events. Changed: any release ends the view, even one taken again
+  after (K10), and a call that may release ends it too (K3).
+- A11: Releasing a lock. Kept.
+- A12: Held sets. Kept.
+- A13: Accesses. Kept, and "outside every `Do`" added.
+- A14: Ordering used. Changed: `WaitGroup` named alone where it was paired with `Scope` in F.5 (K12).
+
+Releasing a lock:
+
+- L1 to L5: Releasing a lock. Kept.
+- L6 to L12: Locks and names. Kept. L8 adds "or if a scoped task captures it".
+- L13: Copying a lock (K14). Changed: a copy is now a compile error, not "a different lock, not held".
+- L14, L15: Rule 1, fourth error bullet. Kept.
+- L16: Locks and names. Kept.
+- L17: Held sets, first bullet. Kept.
+- L18 to L22, L24 to L27: Releasing a lock, and Held sets for L21 and L24. Kept.
+- L23: Part of the enclosing function (K1). Changed: a range-over-func body is part of its function only
+  when the iterator calls `yield` on the loop's own party. Otherwise it is a func value that starts with
+  nothing held, and a `defer` in it is a compile error.
+
+Regions and waits:
+
+- G1 to G6: Non-migrating and interrupt-disabled regions. Kept.
+- W1 to W10: Waiting in a non-migrating region. Kept.
+
+Guards and frees:
+
+- U1: The guard set (K6). Changed: the guard set is over shared writes only, and only locks that guard
+  the datum in place count. One writer that uses `L` at one write and `M` at another has no guard.
+- U2: The guard set, read bullet. Changed: a read needs a lock of the guard set only when another party,
+  or another instance of its own party, may write. A sole writer that is not repeated reads freely.
+- U3: The guard set, "atomic". Kept as a pseudo-lock, which makes mixed atomic and plain writes E3502.
+- U4: Memory and data, and Accesses for the whole-struct write. Kept.
+- F1 to F8: Frees are writes. Kept.
+
+Rule 1 (old):
+
+- P1: Rule 1 (new). Changed: covers package variables, static object fields, `synced[T]` fields and map
+  contents in one rule.
+- P2: Rule 1, last sentence of the paragraph after the errors. Kept.
+- P3: Memory and data, "The memory an object owns". Changed: defined once, to any depth (K2).
+- P4: Crossings case 5 and rule 2. Kept.
+- P5, P6, P7: Rule 1, errors. Kept.
+- P8: Initialization and rule 2 case 2. Kept.
+
+Lazy initialization:
+
+- O1 to O3: Lazy initialization. Kept.
+- O4: Lazy initialization, "During a call of `f`". Kept. "Initialization writes do not count" is now
+  The start of sharing.
+- O5: Lazy initialization, "After a returned `Do`" (K13). Changed: a callee whose summary shows `Do` on
+  every path counts at any depth, not only a direct callee. Code that is part of the reading function
+  counts too (K9).
+- O6: Lazy initialization, "Otherwise". Kept, and it now says the Once's own lock is in the guard set.
+- O7, O8: Kept.
+- O9: Lazy initialization, "Resetting". Changed: "a copy is another Once" dropped, since a copy is a
+  compile error (K14).
+- O10: Lazy initialization, "Views". Kept.
+
+Rule 2 (old):
+
+- V1: Rule 2, first paragraph. Kept.
+- V2: Rule 2, case 3, first sentence. Renumbered.
+- V3: Rule 2, case 2. Renumbered. Unchanged memory that is atomic in part is no longer case 2: it is case
+  3 (K11).
+- V4: Memory and data (the static object definition, `take(p)`, `*p = v`), rule 2 case 3 (the field
+  conditions) and the paragraph after the cases (reassigning the variable). Split, not dropped.
+- V5: Rule 2, case 3 (`synced[T]`). Renumbered.
+- V6: Rule 2, case 4, and Views loaded under a lock. Changed: valid views replace "held with no release"
+  (K3, K10). It now covers memory owned by a static object or a case 3 object (K2).
+- V7: Rule 3, the type rule, used by case 3. Renumbered.
+- V8: Rule 2, paragraph after the cases. Kept.
+- V9: Rule 2, the E3501 paragraph. Kept.
+
+Rule 3 (old):
+
+- S1: Rule 1, the paragraph after the errors (guards in place), and rule 2 case 3. Kept.
+- S2: Same paragraph. Kept.
+- S3: Memory and data, `synced[T]`. Kept.
+- S4: Memory and data (map contents), and Locks and names, which says which lock guards map contents in
+  place. Kept.
+- S5, S7: Rule 1, the paragraph after the errors. Kept.
+- S6: Dropped as a separate sentence. Scoped tasks are parties, and rule 1 already covers map contents
+  that two parties write; the frame of the starter follows 19.4.
+
+Interrupt handlers:
+
+- H1 to H3, H5 to H9: Interrupt handlers. Kept.
+- H4: Interrupt handlers, now worded through the start of sharing (K4).
+
+The rest:
+
+- X1 to X3: Owner transfer requires exclusivity. Kept.
+- N1 to N4: What is not checked. Kept.
+- Z1 to Z3, Z5, Z6: 19.4, Sharing. Kept.
+- Z4: 19.4, Sharing, form 2 (K5). Changed: a view loaded under the frame lock must be valid at each use,
+  so a use after `Unlock` and a new `Lock` is E3402.
+
+New sentences with no old one: the guard set, valid views and their ending events, returned views in
+summaries, the may-release summary, Copying a lock, the precision limits, Ordering used, and the
+conformance table.
+
+### Attacks on the new rules
+
+Each attack tries to make the rules accept a race, or reject a program that cannot race.
+
+1. One writer, two locks (K6). Task A writes `x` under `L` here and under `M` there; task B reads under
+   `L`. Every write's lock set misses the other, so G(x) is empty and the write is E3502. Holds (row 60).
+   The checker accepts this today (item 221).
+2. Sole writer reading without a lock. Task A is the only writer of `x` and writes under `L`; it also
+   reads `x` with nothing held, and task B reads under `L`. A's reads cannot race with A's writes, and B
+   holds `L`. Accepted, and sound. If A's start is in a loop, A is repeated, the read needs `L`, and it is
+   E3503. Holds.
+3. A lock of another object. `a.mu.Lock(); b.items.Push(1)`. `a.mu` does not guard `b.items` in place, so
+   it is not in the guard set, and G is empty: E3502. Holds.
+4. A package-level lock for heap objects. Every write of `n.count`, for any `n`, holds a package `mu`.
+   One lock orders all of them, so accepting is sound. Holds.
+5. Write under `RLock`. Two tasks write `x` while holding `rw.RLock`. A write under `RLock` does not
+   count as holding the lock, so G is empty: E3502. Holds.
+6. Mixed atomic and plain writes. One task stores with `atomic.StoreInt64(&x, 1)`, another writes
+   `x = 2`. The plain write does not hold "atomic", so G is empty: E3502. A plain read of data written
+   only atomically needs "atomic" and is E3503. Holds.
+7. Re-taking the lock (K10). `mu.Lock(); p := items.Ptr(0); mu.Unlock(); mu.Lock(); _ = *p`. The
+   `Unlock` is an ending event even though `mu` is held again at the use. E3501. Holds (row 63, and
+   8.8 says the same).
+8. A hidden release (K3). The view is used after a call to a helper that runs `c.Wait(&q.mu)`. The
+   helper's summary says it may release `q.mu`, so the call ends the view: E3501. Holds (peekWait).
+9. A returned view. A callee loads `p` under `mu` and returns it; the caller holds `mu` before the call
+   only, and the callee unlocks. The caller does not hold `mu` across the whole call, so the view is not
+   valid at the caller: E3501. Holds.
+10. A view smuggled out. A view loaded under `mu` is stored in a package variable, sent on a channel,
+    captured by a task literal or held in a method value. Each counts as used with no lock held: E3501.
+    Holds (row 38).
+11. Writes between `x86.Sti` and the first install (K4). Enabling interrupts starts sharing, so the write
+    counts and the handler's read meets it: E3502. Holds (row 57). The call hidden in a callee counts
+    too, since the start of sharing includes calls the statement makes.
+12. A function called before and after the start of sharing. Its accesses count as after it. Holds; this
+    can only reject more.
+13. A range body run elsewhere (K1). `par` calls `yield` in a scoped task. The body is a func value that
+    starts with nothing held, so its `mu.Unlock()` is a compile error, and a `defer` in it is a compile
+    error. An iterator that stores `yield` where the compiler cannot follow it counts as calling it on
+    another party. Holds (rows 52, 54). An iterator called through an interface with an unknown candidate
+    counts the same, which can reject some programs that are safe.
+14. A range body at home (K1, K9). `vec.Vec.All` calls `yield` in its own loop, so the body is part of
+    the function, holds the loop's locks, and a `Do` before the loop counts for reads in the body. Holds
+    (rows 53, 62).
+15. Once deeper than one call (K13). `cfg()` calls `load()`, which calls `once.Do(f)` on every path.
+    The summary of `load` records the Do, so the read in `cfg()` counts as after a returned Do.
+    Accepted, and sound, since the return of `Do` is ordered after `f`. If `load` calls `Do` on some
+    paths only, the read is E3503 (row 47). Holds.
+16. A Once through a func value. `rt.CatchExitTask(func() { o.Do(f) })`, then a read. The Do is behind
+    a func value, so it does not count: E3503. Holds; this rejects a safe program, and the text says so.
+17. Copying a lock (K14). `c2 := c` for a `sync.Cond`, a value receiver on a struct holding a
+    `sync.Mutex`, and a conversion to an interface. Each is a compile error. Holds (row 67). Cost: Go
+    code that prints a struct holding a mutex no longer compiles; A.2 records the difference.
+18. Moving an owner that holds a locked mutex. A move is not a copy, the name ends, and the receiver
+    starts with nothing held. Accepted, and sound: the lock is still one lock in one place. Holds (row
+    68).
+19. Owned memory of a static object (K2). `std.buf.Push(s)` under `std.mu` in two tasks. `std.mu`
+    guards `std.buf` in place, and the storage `buf` owns is part of that datum. Accepted. A `take(std)`
+    would end its static status, and an unnamed `take` counts as a move of every static object of the
+    type. Holds (row 55).
+20. Owned memory of a per-CPU variable (K7). `runq.Push(t)` inside an interrupt-disabled region. The
+    storage is per processor, and the view of it is bounded like `&v` (20.9, E2022), so it cannot be
+    used after a migration. Holds (row 61).
+21. Map contents. Two maps of one type: one crosses; the other is filled by a task after it hands the
+    map to a function. All maps of the type are one datum, so the fill needs the guard. This rejects
+    some safe programs; it never accepts a race. Holds.
+22. A scoped view across a release (K5). Form 2 now uses valid views, so the use after `Unlock` and a
+    new `Lock` is E3402. Holds (row 58).
+23. Raising the precision limits. An implementation that follows three pointer loads accepts a program
+    that another rejects, which 21.3 forbids. The text says the limits are exact. The checker's
+    `widenPass` lowers a limit for slow groups, and `maxGroups` drops tasks, so the checker differs here
+    (item 226).
+24. A task in an uncalled function. Parties are found from package initialization and `main`, so a task
+    statement nothing calls starts no party and the program is accepted. This is sound: that code never
+    runs. Holds (row 72). It is also why the spec examples need a `main` that starts their tasks.
+
+No attack found a race that the rules accept. Attacks 13, 16 and 21 show programs that are safe and are
+rejected; each is a deliberate cost of having no annotations.
+
+### Diagnostics that need a code
+
+- The release error: a release of a lock not held on every path, in the right mode (item 220).
+- A `defer` in a range-over-func body that the iterator may run on another party (item 223).
+- Copying a lock (item 225).
+- The implementation-limit error for a func value followed through too many calls (item 226, 21.4).
+
+### The CI run and the examples
+
+The coordinator compiled every block with the real compiler. The Config and Limits blocks passed, but not
+because the checker knows `sync.Once`. The race check finds parties from package initialization and
+`main`, and the test wrapper adds an empty `main` to a block that has none. The old blocks started their
+tasks in a `start` function that nothing called, so the check saw no party and accepted them.
+
+Both blocks now start their tasks from `main`:
+
+- Config: two `serve` tasks call `port()`. The checker has no rule for `sync.Once`. It sees the write of
+  `cfg` inside `f`, which holds the Once's own mutex, and a read after `Do` with no lock, so it should
+  report E3503 at `return cfg.port`. The entry stays `known: 218`, with that reason. If the checker
+  instead accepts the block, the entry should be removed.
+- Limits: `reload` runs as a task and `main` calls `maxConns()`. The write in `reload` holds no lock, the
+  write in `f` holds the Once's mutex, so no lock is common: E3502 at the `reload` line. The checker
+  reports one E3502 per place and prefers the write with no lock, so the marker should match. No entry.
+
+The new blocks (Logger, peekWait, par) also start their tasks from `main`.
+
+### Where the model differs from the checker
+
+These are the compiler's work list. Each is a roadmap item.
+
+- The guard set is not yet computed from shared writes and in-place locks. The checker intersects each
+  write's locks with the locks of the writes it conflicts with, so one writer under `L` and `M` with a
+  reader under `L` is accepted (K6, item 221).
+- Summaries do not record locks a callee may release, nor the locks a returned view was loaded under
+  (K3, item 222).
+- Summaries do not record a `yield` called on another party, so a range body that runs elsewhere is
+  treated as part of its function (K1, item 223).
+- Enabling interrupts does not start sharing (K4, item 224).
+- Copying a lock is not rejected (K14, item 225).
+- `widenPass` lowers the load limit, and groups past `maxGroups` are dropped instead of rejected
+  (item 226).
+- Views in scoped sharing do not end at a release (K5, item 227).
+- The owned memory of a per-CPU variable is not bounded (K7, item 228).
+- Crossing loads from shared memory, with static and type-rule objects and their owned memory (item
+  214), `sync.Once` (item 218, which has no rule at all today), `sync.Cond` and `Wait` as a release
+  (items 197 and 219) and the release rule (item 220).

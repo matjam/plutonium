@@ -34,7 +34,9 @@ one covers:
   rulings, a test that compiles the spec's examples (item 185), this roadmap cleanup and the known-gaps
   list, then spec version 0.4. Lazy initialization through `sync.Once` (item 218) and `sync.Cond.Wait`
   in the guard inference (item 219) are decided (D105, D106), and so is the rule for releasing a lock
-  (D108, item 220); their compiler work is in phase 1.
+  (D108, item 220); their compiler work is in phase 1. The race rules of 19.2 to 19.4 were rewritten as
+  one model (D109 to D115, the "Race rules rewrite" section of the
+  [rulings](verification/2026-11-09-spec-rulings.md)).
 - **Phase 1, soundness in the compiler.** The rulings' compiler work (items 146 to 176, first A1, C1, C2,
   B1 and B10: items 146, 147, 148, 152, 159; and item 177); a consuming method value (item 178); the
   view-tracking cases left by item 138 (item 179); the escape contract of `rt.ReleaseValues` (item 180);
@@ -48,7 +50,11 @@ one covers:
   (item 214). From D105 and D106: lazy initialization through `sync.Once` in the race check and the
   `Once.Do` release on `rt.ExitTask` (item 218); `sync.Cond.Wait(l)` in the guard inference (item 219),
   with the library's value `Cond` (item 197). From D108: race-check soundness, the rule that a task
-  releases only a lock it holds (item 220).
+  releases only a lock it holds (item 220). From D109 to D115, the race rules rewrite: the guard set
+  of every shared write (item 221), the may-release and returned-view summaries (item 222), range bodies
+  on another party (item 223), interrupts enabling as the start of sharing (item 224), copying a lock
+  (item 225), exact precision limits (item 226), views in scoped sharing (item 227) and the owned memory
+  of a per-CPU variable (item 228).
 - **Phase 2, test closure.** Tests for untested diagnostic codes and rules (item 184); codes for a
   `//pu:stack` size out of range and for implementation limits (item 207); the deadlock report names a
   panic in progress (item 205); CI gaps (item 186); close item 20 when nothing is left open under it.
@@ -760,7 +766,7 @@ compiler (2026-10-11).
     where the compiler cannot tell which. A `Slice` of length zero records no entry. The count check after
     the entries panics only for an allocation still live then, or an entry recorded while they ran.
     Item 212 widens the race check and E3313 to every object the arena takes back, of every type.
-212. **Arena frees of every type** (planned; sections 19.3, 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
+212. **Arena frees of every type** (planned; sections 19.3 (Frees are writes), 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
     and 4.1, D86 and D93, findings H1 and H8 of audit H; extends items 168 and 209): a `Reset`, `Release`
     or `Drop` of an arena is a free, and so a write, of every object it takes back, of every type, for
     E3501, E3404 and the E3313 events, not only of objects whose type has drop glue. `Release` counts
@@ -773,8 +779,10 @@ compiler (2026-10-11).
     task's or interrupt handler's load of a pointer, slice, interface, func value or method value (or an
     aggregate that holds one) from a package variable, a per-CPU variable, the object of a `synced[T]` or a
     map, or from memory reached through them, crosses to that party, in its own code or a callee, atomic
-    loads included; rule 2 then checks the memory (E3501). Rules 1 and 2 count the memory a package variable
-    owns as part of it. A package variable that holds a `shared[T]` used by two tasks is E2010. So
+    loads included (19.3, Crossings); rule 2 (what may cross) then checks the memory (E3501). Rule 1
+    (shared data) and rule 2 count the memory a datum owns as part of it (19.3, Memory and data): of a
+    package variable, and of a field of a static object, a `synced[T]` object or an object whose type
+    satisfies rule 3 (the type rule), to any depth (D110, finding K2 of audit K). A package variable that holds a `shared[T]` used by two tasks is E2010. So
     `p = &*b; task reader(); b = new(Node)` is E3501. Audit J adds three parts (D102 to D104, findings J1
     to J3). A view of memory that a package variable or a `synced[T]` object owns crosses when every access
     to that memory holds its inferred guard and the view is used only where a guard is held; a use past
@@ -782,10 +790,12 @@ compiler (2026-10-11).
     to a task, captured, held in a method value, or deferred past the release) is E3501, so a package-level
     `vec.Vec` under a mutex compiles. A static object (a composite literal whose address a package-level
     initializer takes, never moved, dropped or overwritten after tasks start, with `take(p)` and `*p = v`
-    named by where `p` came from) meets case 2 with the type rule's field conditions and without its free
-    condition, so `fmt.Println` from any task compiles while other `File`s are dropped. A handler's load
-    crosses from the first statement that may install a handler or enable interrupts.
-217. **Arena names beyond the precision limits and through a move** (planned, phase 1; section 19.3, D100,
+    named by where `p` came from) meets rule 2 case 3 with the field conditions and without the free
+    condition, so `fmt.Println` from any task compiles while other `File`s are dropped; an atomic field
+    makes it case 3, not case 2 (finding K11). A handler's load crosses from the start of sharing (19.3,
+    The start of sharing). Spec examples: the `type Node struct{ n int }`, "first lets a pointer" and
+    `type Logger struct {` blocks of 19.3.
+217. **Arena names beyond the precision limits and through a move** (planned, phase 1; section 19.3 (Frees are writes; How precise the race check is), D100,
     finding I7 of audit I; extends item 212): a call on an arena that the 18.3 limits cannot name counts as
     that call on every arena of the program, and an arena's name follows a move (`b := take(a)`).
 158. **Task exit mid-statement and inside `Drop`** (planned; section 17.3, abi.md 12.10, D51, finding B8):
@@ -810,7 +820,7 @@ compiler (2026-10-11).
     `vec`, `hash`, `strings` and `bytes` so each type restores its invariants before every check that can
     panic.
 
-168. **Frees count as writes in the race check** (planned; sections 19.3, 19.4, D59, finding D1): dropping,
+168. **Frees count as writes in the race check** (planned; sections 19.3 (Frees are writes), 19.4, D59, finding D1): dropping,
     freeing or moving an object, or writing an owner that holds it, is a write of the whole object for E3501
     and E3404.
 201. **Deferred calls in a scoped interval** (planned; section 19.4, A.3, D73, finding E4 of audit E; extends
@@ -1116,38 +1126,49 @@ compiler (2026-10-11).
     clear. The switch inside the scheduler's `Park`, and `Yield`, `Preempt` and `preemptPark`, do not
     call `park` and are not tested. Hosted builds have no such regions; other freestanding builds do not
     test the flag.
-215. **The wait check follows calls with a single known target** (planned; sections 19.3, 19.1, 17.1,
+215. **The wait check follows calls with a single known target** (planned; sections 19.3 (Waiting in a non-migrating region), 19.1, 17.1,
     20.10, D97, finding I2 of audit I; extends items 210 and 213): from a non-migrating region, follow
     direct calls, method calls on a concrete type, deferred calls of those, function literals called where
     written, and inserted drops of known types with the drop entries of a named arena, through any depth.
     Report a wait every path to which lies inside the region, including one on only some paths of a
     followed callee. Do not follow interface, func-value, method-value or hook calls, an arena that cannot
     be named, or allocation and frees into installed allocators.
-216. **`//pu:blocking` functions test at entry** (planned; sections 19.3, 19.1, 17.1, 20.3, 20.10, abi.md
+216. **`//pu:blocking` functions test at entry** (planned; sections 19.3 (Waiting in a non-migrating region), 19.1, 17.1, 20.3, 20.10, abi.md
     12.4, D98, finding I3 of audit I; extends items 210 and 213): insert the test `park` makes
     (preemption count; in kernel mode RFLAGS.IF) after the prologue of every function marked
     `//pu:blocking`, and before each call of one without a body, panicking with "blocking with preemption
     disabled".
-218. **Lazy initialization through `sync.Once`** (planned, phase 1; sections 19.3, 19.7, F.5,
+218. **Lazy initialization through `sync.Once`** (planned, phase 1; sections 19.3 (Lazy initialization), 19.7, F.5,
     memory-model.md 3.4 and 4.1, D105, the "Once and Cond" section of the
     [rulings](verification/2026-11-09-spec-rulings.md)): data written only during a call of a function
     passed to `Do` of one Once (a package-level Once for package variables, a Once field for the fields of
     the same object), and read only where a `Do` on that Once has returned on every path, needs no lock.
     The race check must follow the call of `f` that `Do` makes, count writes in `f` and its callees on that
     path as inside, find a returned `Do` on every path to each read, and fall back to rule 1 (E3502,
-    E3503) otherwise. Rule 2 case 2, rule 3 and the type rule accept Once-initialized memory. Library:
+    E3503) otherwise. A `Do` counts in code that is part of the enclosing function (a literal called in
+    place, a deferred literal, a range body on the caller's task) and through a helper whose summary
+    shows a `Do` on every path, at any depth (D112, findings K9 and K13 of audit K). Rule 2 cases 2 and 3
+    and rule 3 (the type rule) accept Once-initialized memory. Today the race check has no rule for
+    `sync.Once`: it follows `Once.Do` as ordinary code, so the writes inside `f` hold the Once's own
+    mutex, a read after `Do` is E3503, and a write outside `f` is an error only when it holds no lock
+    that the writes inside hold. It does not yet reject writes outside the Once's function as such.
+    Note for spec examples: the race check follows tasks only from package initialization and `main`,
+    and the test adds an empty `main` to a block that has none, so a block whose tasks start in an
+    uncalled function is never race-checked. Library:
     `Once.doSlow` releases its lock in a deferred call and sets `done` only after `f` returns, so an
     `f` that ends its task with `rt.ExitTask` leaves the Once not done instead of locked for good. Spec
-    example: the `type Config struct{ port int }` and `type Limits struct{ max int }` blocks of 19.3.
-219. **`sync.Cond.Wait` in the guard inference** (planned, phase 1; sections 19.3, 19.7, F.5,
+    example: the `type Config struct{ port int }` and `type Limits struct{ max int }` blocks of 19.3,
+    which now start their tasks from `main`.
+219. **`sync.Cond.Wait` in the guard inference** (planned, phase 1; sections 19.3 (Held sets; Views loaded under a lock), 19.7, F.5,
     memory-model.md 3.4, D106, the "Once and Cond" section of the rulings; with item 197): `c.Wait(l)`
     counts as `l.Unlock()` then `l.Lock()` when the compiler names the lock (`&mu`, `&s.mu`, or a pointer
     named by where it came from); a `Wait` whose lock it cannot name is the compile error of item 220
-    (D108 replaced the earlier fallback, which counted it as unlocking every lock). Rule 2 case 4 now needs the guard held with no release from a
-    view's load to its use, so a view kept across `Wait`, or across `Unlock` and `Lock`, is E3501. Spec
+    (D108 replaced the earlier fallback, which counted it as unlocking every lock). Rule 2 case 4 now needs a
+    view to be valid (19.3, Views loaded under a lock): a lock of the guard set held at the load stays held
+    with no ending event to the use, so a view kept across `Wait`, or across `Unlock` and `Lock`, is E3501. Spec
     examples: the `type Job struct{ id int }` and "second keeps a pointer" blocks of 19.3.
 220. **A release of a lock the task does not hold** (planned, phase 1, race-check soundness; sections
-    19.3, 19.7, 18.12, 17.1, 20.10, F.5, A, memory-model.md 4.1, D108, the "Releasing a lock" section of
+    19.3 (Locks and names; Held sets; Releasing a lock), 19.7, 18.12, 17.1, 20.10, F.5, A, memory-model.md 4.1, D108, the "Releasing a lock" section of
     the [rulings](verification/2026-11-09-spec-rulings.md)): every `Unlock`, `RUnlock` and `c.Wait(l)`
     must release a lock the calling task holds on every path, for writing (`Unlock`, `Wait`) or reading
     (`RUnlock`), for `sync.Mutex`, `sync.RWMutex` and `rt.Lock`, in tasks and interrupt handlers;
@@ -1162,6 +1183,52 @@ compiler (2026-10-11).
     that another task may also use is E3502 naming the assignment. The bodies of the lock methods and `Cond.Wait` are exempt (18.12). Library, with item 197:
     `Cond.Wait(l)` makes its checks that may panic before it unlocks `l`. Spec example: the "finish
     releases a lock that another task took" block of 19.3.
+221. **The guard set of every shared write** (planned, phase 1, wrong acceptance; section 19.3 (The guard
+    set; Rule 1), D111, finding K6 of audit K): the guard set of a datum is the intersection of the
+    write-mode locks over all its shared writes, with "atomic" as a lock of its own, not the intersection
+    over the writes that conflict with each other. A shared write with an empty guard set is E3502. Today
+    `checkPlaces` intersects only over conflicting writes, so a single writer that writes under `L` at one
+    write and `M` at another, with a reader that holds `L`, compiles; and the read pass skips a read whose
+    conflicting writes share no lock. Only a lock that guards the datum in place (same base, no pointer
+    load between, or package-level) counts, and a `Lock` of a lock with no name holds nothing. Conformance
+    rows 59, 60 and 69 of 19.3.
+222. **May-release and returned-view summaries** (planned, phase 1, wrong acceptance; section 19.3 (Held
+    sets; Views loaded under a lock), D113, finding K3 of audit K; with items 219 and 220): a summary
+    records the locks a function may release on some path, to any depth, `c.Wait(l)` included, even if it
+    takes them again; a view live across a call that may release its lock is ended (E3501 at the use). A
+    summary also records, for each view it returns, the locks it was loaded under that stay held to the
+    return. Spec example: the "peekWait keeps a view" block of 19.3.
+223. **Range bodies on another party** (planned, phase 1, wrong acceptance; sections 19.3 (Part of the
+    enclosing function), 12.11, D114, findings K1 and K9 of audit K): a summary records each func-valued
+    parameter that the function calls on another party (inside a function given to `s.Task`, `wg.Task`, a
+    task statement or a task starter, or through a callee that does); a copy that cannot be followed, and
+    an unknown iterator candidate, count as such a call. A range-over-func body whose iterator may call
+    `yield` on another party starts with nothing held, is not part of the enclosing function for `Do`,
+    and a `defer` in it is a compile error, which needs a code. A body on the caller's task starts with the
+    loop's held set less the iterator's may-release set. Spec example: the "par runs the loop body" block
+    of 19.3.
+224. **Enabling interrupts starts sharing** (planned, phase 1; section 19.3 (The start of sharing), 20.10,
+    finding K4 of audit K; with items 156 and 214): the start of sharing is the first statement that may
+    start a task, install a handler, or enable interrupts (`x86.Sti`, `x86.StiHlt`, `x86.RestoreFlags`),
+    itself or through calls. Accesses before it do not count.
+225. **Copying a lock** (planned, phase 1; sections 19.3 (Copying a lock), F.5, A, D115, finding K14 of
+    audit K): a copy from a place of a value whose type holds a `sync.Mutex`, `sync.RWMutex`, `sync.Once`,
+    `sync.WaitGroup` or `sync.Cond` (and `rt.Lock` outside `pluto/rt`), directly or through fields and
+    array elements, is a compile error, which needs a code: assignments, arguments, results, sends, range
+    values, value receivers and conversions. Composite literals, zero values, call results and owner
+    moves are not copies.
+226. **The race check's precision limits are exact** (planned, phase 1; section 19.3 (How precise the race
+    check is), 21.3, 21.4, D109): remove `widenPass`, which lowers the load limit for groups slow to
+    settle and so makes acceptance depend on the order of the fixed point; make a program past
+    `maxGroups` an implementation-limit error instead of dropping its tasks, and likewise a func value
+    followed past `maxDepth`.
+227. **Views in scoped sharing** (planned; section 19.4 (Sharing, form 2), D111, finding K5 of audit K): a
+    view loaded from a place guarded by a lock in the scoped form is valid only while the lock stays held
+    from the load to the use, with no ending event; a use after `Unlock` and a new `Lock` is E3402.
+228. **The owned memory of a per-CPU variable** (planned; section 20.9, D110, finding K7 of audit K): the
+    memory a per-CPU variable owns is part of each processor's copy, reached only through pointer methods
+    or `&v`, so its accesses need the variable's region (E2022), and views of it are bounded by that
+    region (E2023).
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and

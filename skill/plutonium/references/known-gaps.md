@@ -49,9 +49,26 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   calls outside scoped tasks (19.4). Item 196.
 - The race check does not yet treat a task's or handler's load of a pointer or other view from a package variable, a
   per-CPU variable, a `synced` object or a map as a crossing, so `p = &*b; task reader(); b = new(Node)` compiles
-  (19.2, 19.3 rules 1 and 2). A package variable holding a `shared[T]` used by two tasks is not yet E2010. A
+  (19.3, Crossings; rules 1 and 2). A package variable holding a `shared[T]` used by two tasks is not yet E2010. A
   pointer into a guarded package-level `vec.Vec` used after the `Unlock`, a static object that code moves with
-  `take` while tasks read it, and a handler's load before the first task are not yet E3501 either. Item 214.
+  `take` while tasks read it, and a handler's load before the first task are not yet E3501 either, and memory
+  owned by a static or type-rule object is not yet counted as part of its field. Item 214.
+- The guard set is not yet the locks held at every shared write: a single writer that writes under `L` at one
+  write and `M` at another, read under `L`, compiles (19.3, The guard set). Item 221.
+- Summaries do not yet record which locks a call may release, so a view kept across a helper that waits on a
+  `Cond` is not E3501 (19.3, Views loaded under a lock). Item 222.
+- A range-over-func body whose iterator calls `yield` from a scoped task still counts as part of the enclosing
+  function, so it may release that function's locks, and a `defer` in it is not an error (19.3, Part of the
+  enclosing function). Item 223.
+- Enabling interrupts (`x86.Sti`) does not yet start sharing; only installing a handler or starting a task does
+  (19.3, The start of sharing). Item 224.
+- Copying a `sync.Mutex`, `RWMutex`, `Once`, `WaitGroup` or `Cond` after first use is not yet a compile error
+  (19.3, Copying a lock). Item 225.
+- The race check lowers its load limit for groups slow to settle, and drops tasks past 2000 groups instead of
+  reporting an implementation limit (19.3, How precise the race check is). Item 226.
+- A view of a lock-guarded variable in a scoped task is not yet ended by `Unlock` and a new `Lock` (19.4,
+  Sharing). Item 227.
+- The memory a per-CPU variable owns is not yet checked as part of the variable (20.9). Item 228.
 - The race check does not yet name an arena beyond the precision limits as every arena, or follow an arena's name
   through a move (19.3, Frees are writes). Item 217.
 
@@ -109,8 +126,9 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - Conformance checks for `alloc.Default()`, the arena window, the panic buffer, F.3 and F.6 names and debug
   allocator tags are not all tested. Item 167.
 - `defer x.Drop()` may be treated as a copy of `x`, and a later move may not cancel it (18.5). Item 175.
-- Data written only inside `once.Do` and read after `Do` is still E3503: the race check infers the Once's own lock
-  as its guard instead of following lazy initialization (19.3, rule 1). Item 218.
+- Data written only inside `once.Do` and read after `Do` is still E3503: the race check has no rule for
+  `sync.Once`, so it infers the Once's own lock as the guard instead of following lazy initialization, and it
+  does not reject a write outside the Once's function as such (19.3, Lazy initialization). Item 218.
 - `c.Wait()` of a `sync.Cond` is not treated as `Unlock` then `Lock` of a named lock, so data read after it in a
   wait loop is E3503, and a view kept across it is not yet E3501 (19.3). Item 219.
 - An `Unlock`, `RUnlock` or `c.Wait(l)` of a lock the task does not hold is not rejected, so one task can release
