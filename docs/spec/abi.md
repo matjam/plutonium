@@ -353,14 +353,39 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   its parent, with room for the largest number of allocations its payload capacity can hold. It takes
   no record from the parent per allocation, so allocation, `Reset` and `Release` never call the parent,
   and an allocation fails, without advancing the cursor, when the table is full.
+- **Drop entries.** `New[T]()` and `Slice[T](n)` of a `Fixed` or `Chunked` record a drop entry when
+  `T` has drop glue: three words, the address, the number of elements and the drop-glue function of
+  `T`. A type without drop glue records nothing. A `Fixed` keeps its entries in the
+  bookkeeping it sizes from its own backing: they share the table with the allocation records, entries
+  at its end growing down toward the records, and a `New` or `Slice` that finds no room for its entry
+  fails, without advancing the cursor, and panics with "arena: out of memory". A `Chunked` keeps its
+  entries in blocks taken from its chunks like any allocation, linked from the arena; a new
+  block that the parent cannot supply fails the `New` or `Slice` the same way. A mark records the entry
+  position with the allocation position. `Reset`, `Drop`, and `Release(m)` for the entries recorded
+  after `m`, then work in this order:
+  1. They take the latest entry off the table and run its drop function on each element, last element
+     first, which drops the value in place and leaves it zero, and repeat until no entry is left.
+     A drop function that panics leaves the call: the entries not yet run stay recorded, and nothing
+     below happens.
+  2. They load the count of live allocations (below) and panic when it is not zero, or when an entry
+     was recorded while step 1 ran.
+  3. They zero the granules they take back and end the epoch (Arena epochs, above), then move the
+     cursor back.
+
+  The entries run while the epoch is still current, so a drop function reads valid memory through the
+  arena's own pointers. Views the program held of that memory are already dead by the language rules
+  (language spec section 18.9).
 - **Live allocations.** A `Fixed` and a `Chunked` each hold one atomic word, the number of live
   allocations in their memory: every allocation made through the arena's `Alloc` (owners, string
   buffers, boxes, map tables, channels, allocated errors) and not freed yet. `Alloc` adds one with
-  relaxed ordering; `Free` subtracts one with release ordering, from whichever task dropped the owner or
+  relaxed ordering, only when it succeeds: an `Alloc` that returns nil leaves the count as it was; `Free` subtracts one with release ordering, from whichever task dropped the owner or
   released the last reference. The plain views of `New[T]()` and `Slice[T](n)` do not go through this
-  count. `Reset`, `Release` and `Drop` load the word with acquire ordering and panic with "arena has live
-  allocations" when it is not zero, before taking anything back (language spec section 18.9). The cost
-  is the word and one atomic add at each end of each counted allocation's life.
+  count. `Reset`, `Release` and `Drop` run their drop entries (above), then load the word with acquire ordering
+  and panic with "arena has live allocations" when it is not zero, before taking anything back (language
+  spec section 18.9). The cost
+  is the word and one atomic add at each end of each counted allocation's life, which the language accepts
+  (language spec section 21.5). Where the compiler proves that no other task can reach the arena or
+  anything allocated from it, an implementation may use plain adds instead.
 - **Disjoint ranges.** A stale arena pointer into memory a slab now uses, or a stale slab pointer into
   an arena chunk, never matches.
 - **Counted strings and boxes.** A string's control word (section 1.1) keeps the tag of its buffer, and

@@ -229,8 +229,14 @@ the result does hold `p` (E3007), and the directive is an error outside the stan
 - A local variable whose address is never taken is followed along the control flow, so reusing a
   variable (`err` above all) for a view of the frame and later for heap memory is accepted. Other
   storage is followed field by field, two levels deep, without regard to the order of statements.
-- A generic function is checked once for all its instantiations. A conversion of a value of a type
-  parameter to an interface counts as a frame copy if any instantiation is larger than a word.
+- A generic function is checked once for all its instantiations, and the result is the same for every
+  instantiation. A conversion of a value of a type parameter to an interface counts as a frame copy,
+  whatever the size of the type argument (section 7.9). For a `[T owner any]` parameter it counts as
+  both kinds of view at once: a frame copy, and a view obtained from the variable that each event of
+  the list in A local owner's memory (above) ends (E3313, E3314). The checker applies the stricter rule
+  of each kind, so the interface may not leave the frame, and it may not be used after the variable is
+  moved, dropped or given a new value, after a call that may free or move an owner out of the variable's
+  memory, or after an owner field on the path is assigned.
 - A struct field is **heap-only** when, in the whole program, its address (or that of anything inside
   it) is never taken and everything stored in it is heap memory, or a parameter for which every call
   passes heap memory. Loading a heap-only field yields heap memory, so following a list's `next` or an
@@ -247,9 +253,12 @@ code. The limits may be raised; they are never lowered.
 
 Every iteration of a loop reuses the same frame memory for the variables declared in the loop's header
 (`for i := ...`, `for k, v := range ...`) and body, for the temporaries and interface copies the body
-makes, and for the records of the closures and method values the body builds. A view of that memory (a
-closure that uses one of those variables, `&x`, a slice of a local array declared in the body, an
-interface holding a copy made in the body) is therefore valid for one iteration.
+makes, for the records of the closures and method values the body builds, and for the other frame
+storage the body makes (section 11, Expressions): the object of `&T{...}`, the array of a slice literal,
+the array of a call's variadic arguments, a method value's receiver and a deferred call's saved
+arguments. A view of that memory (a closure that uses one of those variables, `&x`, `&T{...}`, a slice
+literal, a slice of a local array declared in the body, an interface holding a copy made in the body) is
+therefore valid for one iteration.
 
 - Using such a view within the iteration (calling the closure, passing the pointer down, storing it in a
   variable declared in the body) is allowed and behaves as if each iteration had variables of its own.
@@ -265,6 +274,10 @@ interface holding a copy made in the body) is therefore valid for one iteration.
 - Copying the variable into one declared in the body (`i := i`) does not help, since that copy is reused
   too. Call the closure within the iteration, store values instead of closures or pointers, or pass the
   value to the closure as a parameter when it is called.
+- An object made by `&T{...}`, or the array of a slice literal, is refilled when the next iteration
+  evaluates the same expression, so keeping a view of it past the iteration is E3006 too. The fix is to
+  allocate a new object each iteration with `new(T{...})`, which returns an owner, or to keep the values
+  in an owner such as a `vec.Vec`.
 
 ```go
 var first func() int
@@ -274,6 +287,18 @@ for i := 0; i < 3; i++ {
 	if i == 0 {
 		first = f // error E3006: the next iteration reuses i
 	}
+}
+```
+
+```go
+var ps [3]*T
+for i := 0; i < 3; i++ {
+	ps[i] = &T{n: i} // error E3006: the next iteration refills the same object
+}
+
+var bs [3]owned[T]
+for i := 0; i < 3; i++ {
+	bs[i] = new(T{n: i}) // allowed: a new object each iteration, owned by bs[i]
 }
 ```
 
@@ -503,7 +528,9 @@ care, after which `Drop` has nothing left to do.
 
 **Memory the compiler does not drop.** Values in memory from `alloc.New` or from an arena's `New` and
 `Slice` are not dropped by the compiler: that memory has no owner until the code that allocated it gives
-it one. `alloc.Free(p)` drops `*p` before freeing it, and code that manages memory itself (an allocator,
+it one. An `arena.Fixed` or `arena.Chunked` drops the values of its `New` and `Slice` allocations itself,
+in reverse order of allocation, when it takes their memory back (section 18.9, Drop entries).
+`alloc.Free(p)` drops `*p` before freeing it, and code that manages memory itself (an allocator,
 a container dropping its elements) drops a value through a pointer with `unsafe.Drop(p)` (section 20.1).
 
 **Which task drops.** An owner is dropped by the task that holds it when its scope ends. The last
@@ -661,7 +688,9 @@ dropped. For an arena in a local variable the compiler checks this: such a strin
 (section 18.9). A string must be declared after the arena it views, and is dropped before it (section 18.3, A
 local owner's memory). For every other arena the arena checks it at run time: it counts its live
 allocations, and `Reset`, `Release` and `Drop` panic while a string made in it is still referenced anywhere,
-in this task or another (section 18.9, Live allocations).
+in this task or another (section 18.9, Live allocations). They first run the arena's drop entries, so a
+string stored in a plain view of the arena (`a.Slice[string](n)`) is released before the count is checked
+(section 18.9, Drop entries).
 
 **Races.** A string's bytes never change, so reading a shared string needs no lock. Writing a string
 variable that another task may read at the same time is a data race on a value of three words; safe code
@@ -801,7 +830,37 @@ check-reader and address-history metadata uses the runtime directory storage des
 section 1.3; it is not payload or a hidden change of the arena's chosen parent.
 An arena also hands out memory as
 plain views (`a.New[T]()` returns a `*T`, `a.Slice[T](n)` a `[]T`) that are valid until the arena is
-reset or dropped; the compiler does not drop the values in them.
+reset or dropped. The compiler does not drop the values in them; the arena does, through its drop
+entries (below).
+
+**Drop entries.** When `New` or `Slice` of an `arena.Fixed` or `arena.Chunked` allocates a type with
+drop glue (section 18.6, What dropping does), the arena records a **drop entry** in its bookkeeping: the
+address, the number of elements and the type's drop function. `Reset` and `Drop` run every entry, and
+`Release(m)` runs the entries recorded after the mark, in reverse order of allocation. Each entry drops
+its values in place, as drop glue does, and leaves the zero value in each place. Then the call checks the
+count of live allocations (below). A type without drop glue records nothing and costs nothing.
+
+- A place the program already emptied holds the zero value, and its entry's drop does nothing there: an
+  owner moved out with `take`, or a place assigned the zero value, which dropped the old value (section
+  18.6). Unsafe code that drops a value in arena memory with `unsafe.Drop`, which does not clear the
+  place, must leave the zero value there, or the entry drops the value a second time (section 18.12).
+- The program's views of the memory being taken back are dead from the start of the call, under the
+  rules that already apply: for an arena in a local variable the compiler rejects a use after the
+  `Reset` or `Release` (E3313, below), and the epoch check catches the rest (section 18.11). The arena
+  ends its epoch only after the entries have run, so a drop function that reaches an earlier value
+  through a view stored in a later one finds valid memory, holding the zero value once its entry has run.
+- The arena takes an entry off its table before running it. A drop function that panics leaves the call
+  at once, since a panic drops nothing (section 18.6): the entries not yet run stay recorded, the count
+  is not checked, the epoch does not end and the arena takes nothing back. A deferred `Reset` that runs
+  for that panic starts again from the entries that are left.
+- An allocation from the arena made while its entries run is counted as usual, and an entry it records
+  is not run by this call. Either one makes the call panic with "arena has live allocations".
+- A `Fixed` keeps its drop entries in the bookkeeping it sizes from its own backing (above), and a `New`
+  or `Slice` that finds no room there for its entry fails, without advancing the cursor, as an allocation
+  that finds the table full does. So the payload capacity holds in full only for allocations that record
+  no entry. A `Chunked` keeps its entries in blocks taken from its chunks, and a `New` or `Slice` fails
+  when the parent has no memory for a new block. A failed `New` or `Slice` panics (section 17.1). The
+  manual `Arena` of `arena.NewUnsafe` records no entries: its caller drops what it stored (below).
 
 **Live allocations.** Everything allocated in an arena, except its plain views, must be freed before the
 arena takes its memory back. An owner made in the arena (a box from `new(T, &a)`, the array of a `vec.Vec` that grows while the
@@ -812,18 +871,22 @@ allocations**: every allocation made through the arena's `Alloc` that is not fre
 objects alike. The count rises when `Alloc` hands out memory, and falls when that memory is freed to the
 arena: when an owner is dropped, or a counted object's last reference is released. Only the plain views
 `a.New[T]()` and `a.Slice[T](n)` (above) are not counted; they are bounded views of the arena, which the
-frame and arena rules keep from outliving it. `Reset`, `Release` and `Drop` panic with "arena has live
-allocations" while the count is not zero (section 17.1, Panics), and take nothing back. `Release` checks the
+frame and arena rules keep from outliving it. `Reset`, `Release` and `Drop` run their drop entries, then
+panic with "arena has live allocations" while the count is not zero (section 17.1, Panics), and take
+nothing back. `Release` checks the
 whole count, so an allocation made before the mark and not yet freed also stops it: an owner that must
 outlive a `Release` is allocated from the parent or from another arena. The cost is one counter per arena
 and one increment and one decrement per allocation made through `Alloc`; the counter is atomic, since the
-last reference to a string can be released, and an owner dropped, in another task. An owner or counted
-value stored in memory the arena handed out as a plain view is never dropped by the compiler, so it keeps
-the count up until the program drops it or clears that place. For an arena in a local variable the
-compiler also checks, at compile time, that nothing allocated in it while it is installed outlives it
-(Allocations from a local arena, above; section 18.3), so a program that compiles drops those owners and
-releases those counted values before the arena is dropped, and the count stays a run-time check only for
-a `Reset` or `Release` that comes earlier. The manual `Arena` of `arena.NewUnsafe` keeps no count; its
+last reference to a string can be released, and an owner dropped, in another task. That cost is accepted
+(section 21.5). An owner or counted value stored in a plain view of the arena is not dropped by the
+compiler; the arena's drop entry drops it at the start of the call that takes that memory back, so it does
+not stop that call. One stored in memory the program manages itself (a plain view of another arena,
+memory from `alloc.New`) keeps the count up until that memory is dropped. For an arena in a local
+variable the compiler also checks, at compile time, that nothing allocated in it while it is installed
+outlives it (Allocations from a local arena, above; section 18.3). The count catches what those rules do
+not see: a `Reset` or `Release` that comes before the program has dropped what it allocated, an arena that
+is not a local variable, and an allocation the program leaked, as a cycle of `shared` boxes does (section
+18.7). The manual `Arena` of `arena.NewUnsafe` keeps no count; its
 caller frees every allocation and ends every count obligation before taking memory back (below).
 
 ```go
@@ -838,6 +901,45 @@ func (s *Server) handoff(ch chan owned[Job]) {
 	j := new(Job, &s.arena) // an owner in s.arena: counted
 	ch <- j                 // moved to another task
 	s.arena.Reset()         // panics while the other task has not dropped j
+}
+
+func (s *Server) batch(names []string) {
+	defer alloc.Use(&s.arena).Restore()
+	ns := s.arena.Slice[string](len(names)) // a plain view; the arena records a drop entry
+	for i, n := range names {
+		ns[i] = strings.ToUpper(n) // counted strings in s.arena, kept in arena memory
+	}
+	s.report(ns)
+} // the caller's s.arena.Reset() drops the strings in ns first, so it does not panic
+```
+
+A deferred `Reset` runs before the function's variables are dropped (section 18.6), so it panics when one
+of them still holds memory of the arena. The drop entries do not help, since `msg` is a variable of the
+frame and not a value in a plain view:
+
+```go
+func (s *Server) handle() {
+	defer s.arena.Reset()                    // panics: msg still references a string in the arena
+	defer alloc.Use(&s.arena).Restore()
+	msg := fmt.Sprintf("request %d", s.n)    // a counted string in s.arena
+	s.send(msg)
+}
+```
+
+The fix is to drop such variables before the `Reset` runs: do the work in a helper function, or in a
+nested block, whose variables are dropped when it ends. A `Reset` written as the last statement of
+`handle` panics too, since `msg` is still in scope there.
+
+```go
+func (s *Server) handle() {
+	defer s.arena.Reset() // runs after work has returned and dropped msg
+	s.work()
+}
+
+func (s *Server) work() {
+	defer alloc.Use(&s.arena).Restore()
+	msg := fmt.Sprintf("request %d", s.n)
+	s.send(msg)
 }
 ```
 
@@ -887,7 +989,8 @@ eventual reclamation: the program must avoid or break strong-reference cycles (s
 - Library types that hold memory (`vec.Vec`, `hash.Map`, `strings.Builder`, `bytes.Buffer`, `os.File`)
   are owners and record their allocator.
 - Arenas own what is allocated in them, and hand out views that are valid until the arena is reset or
-  dropped.
+  dropped. The arena drops the values in those views when it takes their memory back (section 18.9, Drop
+  entries).
 - Memory a kernel or driver makes from an address (device registers, memory a boot loader mapped) is
   owned by nothing in the program and never freed; views of it may be kept anywhere (section 18.3).
 
@@ -910,9 +1013,11 @@ them gives it one. They are what owner types are written with, and they are unsa
 
 ### 18.11 Generation checks
 
-The rules of section 18.3 prove at compile time that no view of a frame, or of a local owner, outlives
-its memory: a move, drop, new value, call that may free, or owner field assignment ends such a view (E3313,
-E3314). A view of heap memory reached through other heap memory has no such proof: the object may be
+The rules of section 18.3 make sure that no view of a frame, or of a local owner, outlives its memory: a
+move, drop, new value, call that may free, or owner field assignment ends such a view (E3313, E3314).
+Either they prove it at compile time, or the generation check below catches the case at run time: a view
+lent to an interface and freed through a pointer passed in the same call, as in `f(any(b), &b)` where `f`
+frees through the pointer, is caught by the tag check when `f` uses the interface. A view of heap memory reached through other heap memory has no such proof: the object may be
 freed while the view exists, for example when the vector it points into grows.
 
 ```go
@@ -1248,7 +1353,8 @@ func handle(req *Request) error {
 		fmt.Fprintf(&reply, "%s=%s\n", f.key, f.val)
 	}
 	return send(req, reply.Bytes())
-} // reply, then fields, are dropped: their frees go to the arena and do nothing.
+} // reply, then fields, are dropped: their frees go to the arena, which lowers its count and keeps
+  // the bytes. Then a is dropped, with a count of zero, and returns its backing.
   // Returning fields would be error E3001: it holds a view of a.
 ```
 

@@ -279,7 +279,8 @@ that refers to it goes, and no code releases it by hand.
    and is bounded by it (section 16.5).
 5. There is no `errors.Free`. Errors made under an arena (`defer alloc.Use(&a).Restore()`) are freed
    into the arena when their last reference goes, and `a.Reset()` then reclaims them. A `Reset` while one
-   is still referenced panics (section 18.9, Arenas).
+   is still referenced panics (section 18.9, Arenas). An error stored in a plain view of the arena
+   (`a.Slice[error](n)`) is released by the arena's drop entries first (section 18.9, Drop entries).
 6. A program's own error type that needs heap storage is allocated with `alloc.Synced[MyErr]()` and
    returned as an `error`. An owner converted to `error` directly is only lent (section 7.9), so returning
    it is the compile error of section 18.3 (E3001). A value whose type is not sendable (section 8.8,

@@ -296,7 +296,9 @@ freed to its allocator when the last reference goes (section 18.7, Shared owners
 recorded in the object, so freeing goes to the allocator the object came from, whichever is the default
 at the time. A map or channel made in an arena is released like any other, and the
 arena counts it as a live allocation until then: `Reset`, `Release` and `Drop` of the arena panic
-while it is referenced (section 18.9, Allocators, Live allocations).
+while it is referenced (section 18.9, Allocators, Live allocations). A map or channel stored in a plain
+view of the arena (`a.New[T]()`, `a.Slice[T](n)`) is released by the arena's drop entries, which run
+before the count is checked (section 18.9, Drop entries).
 
 A map literal allocates a map from the current allocator. A map in a package-level initializer is subject
 to the rule of section 15.2 (Package initialization).
@@ -439,7 +441,8 @@ A box made with an arena as its allocator (`new(T, &a)`) is an owner like any ot
 it as a live allocation until the box is dropped: `Reset`, `Release` and `Drop` of the arena panic while
 it lives (section 18.9, Allocators, Live allocations). Memory that only an arena should own is allocated
 through the arena, which returns views: `a.New[T]()` gives a `*T`, valid until the arena is reset or
-dropped, and not counted.
+dropped, and not counted. When `T` has drop glue, the arena records a drop entry and drops the value in
+place when it takes the memory back, before it checks its count (section 18.9, Drop entries).
 
 ### 13.10 Moving out of a place
 

@@ -125,12 +125,15 @@ nothing back, and `Reset`, `Release(m)` and `Drop` reclaim. Both count their liv
 allocation made through their `Alloc` and not freed yet, and `Reset`, `Release` and `Drop` panic with
 "arena has live allocations" while the count is not zero (section 18.9, Allocators, Live allocations).
 An arena's `New[T]()` and `Slice[T](n)` methods return views that live until the arena takes their
-memory back; they are not counted. Fixed and Chunked ordinary APIs enforce that lifetime statically or, in a checked build,
+memory back; they are not counted. For a type with drop glue, `New` and `Slice` of a `Fixed` or
+`Chunked` record a drop entry, and `Reset`, `Release` (the entries made after the mark) and `Drop` run
+the entries in reverse order of allocation before they check the count (section 18.9, Drop entries). A
+`Fixed` keeps its entries in its bookkeeping, so a `New` or `Slice` also fails when that is full. Fixed and Chunked ordinary APIs enforce that lifetime statically or, in a checked build,
 at runtime (sections 18.9 and 18.11). Direct raw allocation and unsafe pointer access retain their
 manual lifetime obligations (section 18.12). `arena.NewUnsafe(buf []byte) Arena` is a borrowed-buffer
 manual allocator. Its constructor and typed allocation/reclamation methods are explicit unsafe
 operations; it preserves the caller's buffer and owns no private payload, and it keeps no count of live
-allocations. No arena is safe for unsynchronized simultaneous use by several tasks, except that the
+allocations and records no drop entries. No arena is safe for unsynchronized simultaneous use by several tasks, except that the
 free of an allocation made in a `Fixed` or `Chunked` arena (the release of a counted object, or the drop
 of an owner moved to another task) may happen in any task.
 

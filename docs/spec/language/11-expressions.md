@@ -141,9 +141,9 @@ tmp := [n]T{x1, x2, … xn}
 tmp[0:n]
 ```
 
-The array of a slice literal is a temporary variable of the frame of the function that evaluates the literal, and the slice is a view of it (section 18.3, Views). The slice may be used within the function and passed down to calls. Returning it, or keeping it where it can outlive the frame, is an error (E3001, E3002). In the initializer of a package-level variable the array is static storage, so the slice may be kept. To keep a slice of values beyond the frame, store the values in an owner such as `vec.Vec[T]` (section 13.1, Built-ins Plutonium does not have). A slice literal whose elements are owners is an error (E3312), because a slice is a view and owns nothing; write an array literal instead.
+The array of a slice literal is a temporary variable of the frame of the function that evaluates the literal, and the slice is a view of it (section 18.3, Views). The slice may be used within the function and passed down to calls. Returning it, or keeping it where it can outlive the frame, is an error (E3001, E3002). A slice literal in a loop refills the same array on every iteration, so keeping the slice where the next iteration can see it is an error too (E3006; section 18.4). In the initializer of a package-level variable the array is static storage, so the slice may be kept. To keep a slice of values beyond the frame, store the values in an owner such as `vec.Vec[T]` (section 13.1, Built-ins Plutonium does not have). A slice literal whose elements are owners is an error (E3312), because a slice is a view and owns nothing; write an array literal instead.
 
-**Taking the address of a literal.** Taking the address of a composite literal generates a pointer to a unique variable initialized with the literal's value. The variable lives where the literal is evaluated: in the frame, or in static storage in a package-level initializer. The pointer is a view (section 18.3, Views) and is subject to its rules; `return &T{}` is an error (E3001). To make a variable that outlives the frame, write `new(T{...})`, which returns an `owned[T]` (section 13.9, Allocation).
+**Taking the address of a literal.** Taking the address of a composite literal generates a pointer to a unique variable initialized with the literal's value. The variable lives where the literal is evaluated: in the frame, or in static storage in a package-level initializer. The pointer is a view (section 18.3, Views) and is subject to its rules; `return &T{}` is an error (E3001). A literal in a loop gives the same variable on every iteration, refilled each time, so the pointer is valid for one iteration (E3006; section 18.4, Loop iterations reuse their storage). To make a variable that outlives the frame, write `new(T{...})`, which returns an `owned[T]` (section 13.9, Allocation).
 
 ```go
 var pointer *Point3D = &Point3D{y: 1000}   // a view of a variable in this frame
@@ -931,7 +931,7 @@ Greeting("goodbye:", s...)
 
 within `Greeting`, `who` has the same value as `s` with the same underlying array.
 
-The array that holds the actual arguments is a temporary in the frame of the caller (static storage in a package-level initializer), and the slice is a view of it (section 18.3, Views). The callee may use it and pass it down. It may not keep it. Owners cannot be passed as variadic arguments, since the slice would be a view that owns nothing (E3310). A function with a `...` parameter cannot have parameters with default values (section 10.13, Default parameter values).
+The array that holds the actual arguments is a temporary in the frame of the caller (static storage in a package-level initializer), and the slice is a view of it (section 18.3, Views). The callee may use it and pass it down. It may not keep it. A call in a loop refills the same array on every iteration (section 18.4). Owners cannot be passed as variadic arguments, since the slice would be a view that owns nothing (E3310). A function with a `...` parameter cannot have parameters with default values (section 10.13, Default parameter values).
 
 ### 11.16 Instantiations
 

@@ -253,7 +253,10 @@ it (a string, a `shared` or `synced` box, an allocated error) is released, since
 count, and an owner made in it (a box, a vector's array, a map, a channel) is dropped, since it may have
 moved to another task. `arena.Fixed` and `arena.Chunked` make this hold: each keeps an atomic count of its
 live allocations, and `Reset`, `Release` and `Drop` panic while the count is not zero (language spec section
-18.9). The plain views of `New` and `Slice` are not counted. An allocation may be freed in another task than
+18.9). The plain views of `New` and `Slice` are not counted. For a type with drop glue the arena records
+a drop entry instead, and `Reset`, `Release` and `Drop` run the entries, in reverse order of allocation,
+in the task that calls them and before they read the count; a free that an entry's drop makes is a free
+in that task (language spec section 18.9, Drop entries). An allocation may be freed in another task than
 the one that uses the arena. That free changes only the arena's count, with an atomic decrement, and the
 decrement that brings the count to zero is synchronized before the `Reset`, `Release` or `Drop` that reads
 it. So a task that still holds a string, or an owner, made in another task's arena keeps the arena from

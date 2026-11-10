@@ -70,8 +70,8 @@ dependent value and neither panics nor faults (section 11.24).
 - `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked` while an allocation made through its
   `Alloc` is not freed yet: an owner made in it (a box, a vector's array, a map, a channel) that is not
   dropped, or a counted object made in it (a string, a `shared` or `synced` box, an allocated error) that
-  is still referenced, in any task ("arena has live allocations"; section 18.9, Allocators, Live
-  allocations). The arena takes nothing back.
+  is still referenced, in any task, once the arena's drop entries have run ("arena has live allocations";
+  section 18.9, Allocators, Live allocations). The arena takes nothing back.
 
 *Control.*
 
