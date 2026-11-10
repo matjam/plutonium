@@ -789,7 +789,7 @@ current iteration and returns `true` to request the next. A transfer leaving thi
   the body is code of that task: it starts with no lock held, and a `defer` in it is a compile error. The
   compiler reads which case holds from the iterator's summary, and an iterator it cannot know counts as
   calling `yield` on another task (section 19.3, Part of the enclosing function).
-- **Iterators that return closures.** An iterator method such as `items.All()` builds its closure in a closure region of the caller's frame (section 11.5, Closures and their regions), so a loop over one does not allocate. The loop over `v.All()` has the meaning of the loop that `All` runs.
+- **Iterators that return closures.** An iterator method such as `items.All()` builds its closure in a closure region of the caller's frame (section 11.5, Closures and their regions), so a loop over one does not allocate. The loop over `v.All()` has the meaning of the loop that `All` runs. A receiver or parameter of `All` that its closure captures and nothing assigns stands, in the body, for what the call's receiver or argument names, so a lock the closure holds at `yield` is held in the body under the caller's name (section 19.3, Locks and names).
 - **Owners.** An iterator yields values. An iterator over owners yields views of them (section 12.10, For statements).
 
 ```go

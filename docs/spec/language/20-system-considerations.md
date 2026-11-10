@@ -635,7 +635,9 @@ These rules apply:
   a store that depends on an earlier load of the same variable, a read and a write in one expression, any access to a variable larger than a machine word or to part of
   one, a call of a method with a pointer receiver, and `&v`. If an interrupt handler may also access the
   variable, the access must be inside an interrupt-disabled region (section 19.3). An access outside the non-migrating or interrupt-disabled region it needs is a compile error (E2022). The error names the access and says whether a handler makes
-  disabled interrupts necessary.
+  disabled interrupts necessary. The body of a `//pu:interrupt` handler is both kinds of region up to
+  `x86.Sti` or a call that may switch tasks (section 19.3, Non-migrating and interrupt-disabled regions),
+  so `ticks++`, `&v` and `runq.Push(t)` are allowed there before such a call, and E2022 after it.
 - When an interrupt handler also uses the variable, every load or store through a pointer from `&v` must
   be inside an interrupt-disabled region as well, whatever its size and even though the pointer is bounded by a non-migrating region (the next bullet): preemption disabled is not enough. The one exception is a store through
   the pointer that is the whole statement and writes the whole variable, when the variable is at most a
@@ -669,9 +671,11 @@ than called. The contract is that a handler is entered through an interrupt gate
 interrupts on entry, so the handler is not interrupted by another maskable interrupt on its processor until
 it returns or enables them with `x86.Sti`. The compiler checks this through types: a handler's address is
 installed only through `x86.InterruptGate` (section 20.8), which returns a `Gate`, and a raw word written
-into the table is unsafe code. The body of such a handler is an interrupt-disabled region (section 19.3)
-up to a call of `x86.Sti`, which ends it, or a call that may switch tasks (section 19.3, Non-migrating
-and interrupt-disabled regions).
+into the table is unsafe code. The body of such a handler is an interrupt-disabled region, and a
+non-migrating region (section 19.3), up to a call of `x86.Sti`, which ends it, or a call that may switch
+tasks, which ends it too and is not an error there (section 19.3, Non-migrating and interrupt-disabled
+regions). A call through an interface, a func value, a method value or a hook ends it when any candidate
+may switch. Waits in a handler are E2584 alone; the wait check of section 19.3 does not report them again.
 
 A handler that can be re-entered says so with the directive form `//pu:interrupt trap`. It is installed
 only through `x86.TrapGate`, which makes a trap gate that leaves interrupts as they were, and its body is
