@@ -107,6 +107,7 @@ func AnalyzeWith(prog *load.Program, mv *moves.Info) (scoped.Overlaps, error) {
 	// A release of a lock that is not held is an error in any program
 	// (section 19.3, Releasing a lock).
 	a.checkReleases()
+	a.checkCopies()
 	if !starts {
 		// One task alone cannot race.
 		return nil, a.errs.Err()

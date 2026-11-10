@@ -596,6 +596,6 @@ lists every unsafe function and the safe code that calls it. `unsafe.Drop(p)` dr
 | E3313, E3314 | a view of an owner used after the owner moved or changed (E3314: the view was stored where the compiler cannot follow it) | order the statements, copy, or keep the view in a local variable |
 | E3315 | method value of a consuming method (`done := c.Close`) | call `c.Close()`, or use `Conn.Close` |
 | E3401-E3407 | scoped task rules | see `concurrency.md` |
-| E3501-E3503 | data races | see `concurrency.md` |
+| E3501-E3505 | data races, releasing and copying locks | see `concurrency.md` |
 
 `pluto explain E3301` prints the long explanation with an example. `diagnostics.md` lists every code.

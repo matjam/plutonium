@@ -175,6 +175,7 @@ const (
 	RaceNoLock         Code = "E3502" // shared data written by several tasks with no one lock held at every write
 	RaceUnguarded      Code = "E3503" // shared data read without the lock that guards it
 	RaceReleaseNotHeld Code = "E3504" // a lock released where the party does not hold it
+	RaceLockCopied     Code = "E3505" // a value holding a lock copied from a place
 )
 
 // Closures and their records (E3100-E3199).

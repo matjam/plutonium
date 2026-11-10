@@ -1,0 +1,25 @@
+$DIR/main.p:17:10: the value receiver of Get copies total, which holds a sync.Mutex: a lock may not be copied, so pass a pointer or keep the value in one place
+    A value that holds a lock is copied out of a variable, field, element or
+    dereference. A sync.Mutex, sync.RWMutex, sync.Once, sync.WaitGroup or
+    sync.Cond, and outside pluto/rt an rt.Lock, may not be copied once it is in
+    use: the copy starts with the state the lock had at that moment, such as
+    locked or with waiters, and the two copies then guard nothing together. The
+    compiler cannot tell the first use, so every copy from a place of a value
+    whose type holds one, directly or through fields and array elements, is an
+    error: an assignment or initialization, an argument, a result, a value sent
+    on a channel, a range value, a value receiver and a conversion, including to
+    an interface.
+    A composite literal, a zero value and the result of a call are new values,
+    and moving an owner is a move, so none of them is a copy. Pass a pointer to
+    the value, give the method a pointer receiver, or range over the indexes and
+    take each element's address.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3505" for a longer explanation)
+
+$DIR/main.p:17:23: the value receiver of Get copies p, which holds a sync.Mutex: a lock may not be copied, so pass a pointer or keep the value in one place
+    (explained above; run "pluto explain E3505" for more)

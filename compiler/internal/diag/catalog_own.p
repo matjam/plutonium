@@ -175,6 +175,14 @@ func init() {
 			Fixed:   "func finish() {\n\tmu.Lock()\n\tready = true\n\tmu.Unlock()\n}",
 		}),
 		pu.New(Entry{
+			Code: RaceLockCopied, Name: "RaceLockCopied",
+			Text:    "A value that holds a lock is copied out of a variable, field, element or dereference. A sync.Mutex, sync.RWMutex, sync.Once, sync.WaitGroup or sync.Cond, and outside pluto/rt an rt.Lock, may not be copied once it is in use: the copy starts with the state the lock had at that moment, such as locked or with waiters, and the two copies then guard nothing together. The compiler cannot tell the first use, so every copy from a place of a value whose type holds one, directly or through fields and array elements, is an error: an assignment or initialization, an argument, a result, a value sent on a channel, a range value, a value receiver and a conversion, including to an interface.\nA composite literal, a zero value and the result of a call are new values, and moving an owner is a move, so none of them is a copy. Pass a pointer to the value, give the method a pointer receiver, or range over the indexes and take each element's address.",
+			Why:     whyRace,
+			Spec:    pspec("19.3", "Data race freedom"),
+			Example: "type Counter struct {\n\tmu sync.Mutex\n\tn  int\n}\n\nfunc show(c Counter) { println(c.n) }\n\nshow(total)",
+			Fixed:   "func show(c *Counter) {\n\tc.mu.Lock()\n\tprintln(c.n)\n\tc.mu.Unlock()\n}\n\nshow(&total)",
+		}),
+		pu.New(Entry{
 			Code: CheckerCode(typerr.DropNotOwner), Name: "DropNotOwner",
 			Text:    "A method named Drop runs automatically when a value is destroyed. That only makes sense for a type whose values have exactly one owner: if the values were copied as ordinary values are, every copy would run Drop and release the same resource. A type with a Drop method must be declared owner, so that its values move instead of being copied.\nDrop also takes a pointer receiver, never a value receiver: a value receiver would move the owner into the method, which would drop it again when it returns. Write func (f *File) Drop().",
 			Why:     whyOwners,

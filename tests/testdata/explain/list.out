@@ -331,6 +331,7 @@ E3501  RaceSendView
 E3502  RaceNoLock
 E3503  RaceUnguarded
 E3504  RaceReleaseNotHeld
+E3505  RaceLockCopied
 E4001  NotMainPackage
 E4002  NotPackageDir
 E4003  TestDirName

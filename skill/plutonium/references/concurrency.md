@@ -367,7 +367,7 @@ func main() {
 - Moving, freeing or overwriting memory that holds a `sync` value or channel another task may use is an error,
   whatever lock the write holds (E3502 by name, E3501 through a pointer).
 - **Do not copy locks.** Copying a `sync.Mutex`, `RWMutex`, `Once`, `WaitGroup` or `Cond`, or a struct that
-  holds one, is a compile error (Go only has `go vet` warn); that includes a value receiver. Use pointers.
+  holds one, is a compile error, E3505 (Go only has `go vet` warn); that includes a value receiver. Use pointers.
 - **Lazy initialization with `sync.Once`.** Data written only inside functions passed to `once.Do`, and read only
   where `once.Do` has returned on every path in the reading function (directly, or in a helper that calls it on
   every path, at any depth), needs no lock: `once.Do(func() { cfg =

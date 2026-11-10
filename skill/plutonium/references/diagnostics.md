@@ -377,6 +377,7 @@ Views of frames (E30xx), closures (E31xx), owner types (E32xx), moves and drops 
 | E3502 | RaceNoLock | Data that several tasks use is written without a lock that guards it: a package variable written by code more than one task runs, or a field of a synced[T] object. | `pluto explain E3502` |
 | E3503 | RaceUnguarded | Data that several tasks use is read without the lock that guards it. | Hold the lock (a sync.RWMutex's RLock is enough, or an rt.Lock for data a handler uses) around the read. |
 | E3504 | RaceReleaseNotHeld | A lock is released where the code that releases it does not hold it. | `pluto explain E3504` |
+| E3505 | RaceLockCopied | A value that holds a lock is copied out of a variable, field, element or dereference. | `pluto explain E3505` |
 
 ## E4000 to E4999: packages and modules
 

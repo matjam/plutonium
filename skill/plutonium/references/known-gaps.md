@@ -51,8 +51,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   enclosing function). Item 223.
 - Enabling interrupts (`x86.Sti`) does not yet start sharing; only installing a handler or starting a task does
   (19.3, The start of sharing). Item 224.
-- Copying a `sync.Mutex`, `RWMutex`, `Once`, `WaitGroup` or `Cond` after first use is not yet a compile error
-  (19.3, Copying a lock). Item 225.
 - The race check lowers its load limit for groups slow to settle, and drops tasks past 2000 groups instead of
   reporting an implementation limit (19.3, How precise the race check is). Item 226.
 - A view of a lock-guarded variable in a scoped task is not yet ended by `Unlock` and a new `Lock` (19.4,

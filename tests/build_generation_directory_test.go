@@ -448,7 +448,7 @@ outer.Reset()
 a.Alloc(64, 16)`, "slab backing memory was reclaimed", 2},
 		{"stale sync slab cache", generationPageProvider, `
 outer = arena.NewChunkedUnsafe()
-a := *alloc.NewSyncSlab(PageArena{&outer})
+a := *(*alloc.SyncSlab)(unsafe.Pointer(alloc.NewSyncSlab(PageArena{&outer}))) // a lock may be copied only through unsafe.Pointer (section 19.3)
 p := a.Alloc(64, 16)
 a.Free(p, 64, 16)
 outer.Reset()
