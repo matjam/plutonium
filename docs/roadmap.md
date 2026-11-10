@@ -45,8 +45,7 @@ one covers:
   (item 196). From audits E to J: arena counts, drop entries and frees (items 198, 202, 209, 212 and
   217); one-word owners lent to an interface (item 199); owner conversions through a defined type (item
   200); deferred calls in a scoped interval (item 201); generic conversions and the strictest rule for
-  type arguments (items 204 and 208); frame storage in loops (item 206); a use before a move in one call
-  (item 211); loads of views from shared memory, guarded owned memory, static objects and handler loads
+  type arguments (items 204 and 208); frame storage in loops (item 206); loads of views from shared memory, guarded owned memory, static objects and handler loads
   (item 214). From D105 and D106: lazy initialization through `sync.Once` in the race check and the
   `Once.Do` release on `rt.ExitTask` (item 218); `sync.Cond.Wait(l)` in the guard inference (item 219),
   with the library's value `Cond` (item 197). From D108: race-check soundness, the rule that a task
@@ -869,11 +868,11 @@ compiler (2026-10-11).
     Add tests for a wrapper of a field error of a local owner: used after the owner is moved or dropped is
     E3313, returned past the owner is E3001, and stored in the heap is E3002. Fix the analysis if one is
     accepted.
-178. **A consuming method used as a method value is an error** (planned; sections 11.9, 18.5, G26 decision
-    (a); moved from items 20 and 75): `done := c.Close` for a method with an owner value receiver is
-    accepted today, because `compiler/internal/moves/expr.p` moves the receiver into the method value and
-    reports nothing. The method expression and the direct call still work. Needs an error code, its
-    catalog entry and tests.
+178. **A consuming method used as a method value is an error** (done, `4fd02203`; sections 11.9, 18.5, G26
+    decision (a); moved from items 20 and 75): `done := c.Close` for a method with an owner value
+    receiver is error E3315 (ConsumingMethodValue), promoted methods included. The method expression
+    `Conn.Close` and the call `c.Close()` still work. Tests: `tests/moves/rejected_method_value_of_a_consuming_method`
+    and `accepted_consuming_method_called_or_named_by_type`.
 179. **The view-tracking cases item 138 left** (planned; section 18.3; moved from item 138): heap or caller
     memory a method of a local owner returns is taken to be the owner's, so a view of the owner stored
     into unrelated memory reached that way is not caught, and a pointer to caller memory so treated loses
@@ -888,11 +887,13 @@ compiler (2026-10-11).
     allocator reached other than through the variable itself or a field holding its address (one behind
     a parameter or a heap pointer, `alloc.Use` windows), and bulk calls seen by the race checks outside
     scoped tasks.
-211. **A use before a move in one call** (planned, phase 1, wrong acceptance; sections 11.14, 11.26, 18.5,
-    E3301; extends item 75): `send(buf.Len(), buf)`, a use of a variable in an argument before the
-    argument that moves it, compiles. Sections 11.14, 11.26 and 18.5 make a move and a use in one
-    expression an error in either order, and item 75 records the check as done. The other order
-    (`send(buf, buf.Len())`) is reported. Report both, and add the case to the E3301 tests.
+211. **A use before a move in one call** (done, `584c7ed5`; sections 11.14, 11.26, 18.5, E3301; extends item
+    75): a use of a variable in the same expression or simple statement as its move is E3301 in either
+    order: call arguments, receiver and argument, operands, composite literal fields, index and slice
+    expressions, a select send case and the two sides of an assignment, and a use inside a function
+    literal. `v = grow(v)` and `a, b = b, a` stay allowed (`compiler/internal/moves/oneexpr.p`). Tests:
+    `tests/moves/rejected_move_and_use_in_one_expression` and
+    `accepted_move_and_assign_back_in_one_statement`.
 
 ## Gaps the integrated specification defines (complete-spec section 6.5)
 
@@ -1421,10 +1422,14 @@ compiler (2026-10-11).
 
 171. **Lending a large owner to an ordinary interface** (planned; sections 7.9, abi.md 5, D61, finding D3): the
     data word points at the variable, and the interface value is a view bounded by it.
-172. **E3303 for assertions and switches on places** (planned; sections 11.13, 12.9, 7.13, D63, finding D5): a
-    moving assertion or bound type switch on a field, element or `*p` is E3303.
-175. **`defer x.Drop()` in the move checker** (planned; section 18.5, D62, finding D4): the deferred drop does not
-    copy `x`, and a later move cancels it.
+172. **E3303 for assertions and switches on places** (done, `1c3dd4f4`; sections 11.13, 12.9, 7.13, D63, finding
+    D5): a moving assertion or bound type switch on a field, element or `*p` is E3303, and the fix shows
+    `take(&x.f)`. Tests: `tests/moves/rejected_moving_assertion_out_of_a_place` and
+    `accepted_assertion_on_a_place_after_take`.
+175. **`defer x.Drop()` in the move checker** (done, `4bcd8118`; section 18.5, D62, finding D4): the deferred
+    drop does not copy `x` and is not a use at the exit, so a later move is allowed and the drop then
+    finds nothing to drop. Tests: `tests/moves/accepted_deferred_drop_then_moved` and the run test in
+    `testdata/lib/drops.p`.
 176. **Region rules for closures** (planned; section 11.5, D68, findings D6 and D14): check that a closure passed
     through a func value or an interface counts as kept, and that storing it in the same frame or passing it
     to `s.Task` is allowed.
@@ -1505,7 +1510,7 @@ compiler (2026-10-11).
     that starts a task or declares an interrupt handler gets a `main` that starts them: it installs each
     handler and calls each function nothing else in the block uses, and an entry's `main:` lines call one
     that takes parameters. Such a block builds as a program of its own; 19 blocks are built this way.
-    Known failures: 20, waiting on items 146, 147, 148, 149, 168, 197 (3), 199, 201, 208, 211, 214 (3),
+    Known failures: 19, waiting on items 146, 147, 148, 149, 168, 197 (3), 199, 201, 208, 214 (3),
     215, 218 (2), 220 and 223. A block whose marked lines are errors of one program, not alternatives,
     has `together` in its entry and builds once, whole: every marked line must report its code and no
     other line any error (section 1.3; the 19.3 `type Counter struct {` block, D129). The 12 wrong spec examples were fixed with audit H

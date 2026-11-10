@@ -587,13 +587,14 @@ lists every unsafe function and the safe code that calls it. `unsafe.Drop(p)` dr
 | E3207 | owner passed for a type parameter that copies | declare `[T owner any]` |
 | E3212 | converting a value to a foreign owner type | call the package's constructor |
 | E3213 | owner in a map key or value | `synced[T]` values |
-| E3301, E3302 | use after a move | borrow with `&x`, `Clone()`, or reorder |
+| E3301, E3302 | use after a move, or a move and a use in one expression | borrow with `&x`, `Clone()`, or reorder |
 | E3303 | moving out of a field, element or pointer | `take(&place)` |
 | E3304, E3306, E3310, E3312 | copying owners (range, `copy`, variadic, slice literal) | indexes and `&xs[i]`; move one by one |
 | E3305 | moving a captured owner in a closure | pass it as an argument |
 | E3307 | `Drop` through a pointer or interface | drop the owner variable itself |
 | E3308, E3309 | owner taken from an interface or a container's `Index` | assert to an interface; use `Ptr`, `Pop`, `Remove` |
 | E3313, E3314 | a view of an owner used after the owner moved or changed (E3314: the view was stored where the compiler cannot follow it) | order the statements, copy, or keep the view in a local variable |
+| E3315 | method value of a consuming method (`done := c.Close`) | call `c.Close()`, or use `Conn.Close` |
 | E3401-E3407 | scoped task rules | see `concurrency.md` |
 | E3501-E3503 | data races | see `concurrency.md` |
 

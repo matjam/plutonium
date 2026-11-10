@@ -7,9 +7,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 
 ## 1. Programs the compiler accepts that the specification rejects
 
-- A consuming method used as a method value (`done := c.Close`) compiles; it should be an error (11.9). Item 178.
-- A use of a variable in an argument before the argument that moves it (`send(buf.Len(), buf)`) compiles; it should
-  be an error, as the other order is (11.14, E3301). Item 211.
 - Four view-tracking cases of 18.3: a view stored into memory a local owner's method returned, a pointer to caller
   memory that loses its tie when the owner moves, a view kept in a moved local owner then stored in a package
   variable, a view of a table a map walk retired. Item 179.
@@ -40,7 +37,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   E3006 yet (18.4). Item 206.
 - A `//pu:stack` size outside 64K to 64G, and a program over an implementation limit, have no code yet (20.3, 21.4).
   Item 207.
-- A moving assertion or bound type switch on a field, element or `*p` is not E3303 yet (11.13, 12.9). Item 172.
 - A closure passed through a func value or an interface may not yet count as kept for the closure region errors (11.5).
   Item 176.
 - A `%w` wrapper of an error in a field of a local owner is not yet tested to be bounded by the owner (16.5).
@@ -125,7 +121,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - `[owner any]` may not parse as a type parameter named `owner` (4.6). Item 164.
 - Conformance checks for `alloc.Default()`, the arena window, the panic buffer, F.3 and F.6 names and debug
   allocator tags are not all tested. Item 167.
-- `defer x.Drop()` may be treated as a copy of `x`, and a later move may not cancel it (18.5). Item 175.
 - Data written only inside `once.Do` and read after `Do` is still E3503: the race check has no rule for
   `sync.Once`, so it infers the Once's own lock as the guard instead of following lazy initialization, and it
   does not reject a write outside the Once's function as such (19.3, Lazy initialization). Item 218.
