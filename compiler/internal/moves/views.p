@@ -415,6 +415,9 @@ func (f *fn) viewsOf(e ast.Expr) []view {
 		}
 		return f.viewsOf(x.X)
 	case *ast.TypeAssertExpr:
+		if from, to := f.c.typeOf(x.X), f.c.typeOf(x); types2.IsInterface(from) && isOwner(from) && to != nil && types2.IsInterface(to) && !isOwner(to) {
+			return compat.Append(f.viewsOf(x.X), f.lentViews(x.X)...)
+		}
 		return f.viewsOf(x.X)
 	case *ast.CompositeLit:
 		return f.litViews(x)
@@ -633,9 +636,53 @@ func (f *fn) viewsTo(e ast.Expr, T types2.Type) []view {
 		}
 	}
 	if T != nil && types2.IsInterface(T) && !isOwner(T) && isOwner(f.c.typeOf(e)) {
-		out = compat.Append(out, f.selfView(e, e)...)
+		if from := f.c.typeOf(e); lentWord(from) || types2.IsInterface(from) {
+			out = compat.Append(out, f.lentViews(e)...)
+		} else {
+			out = compat.Append(out, f.selfView(e, e)...)
+		}
 	}
 	return out
+}
+
+// lentWord reports whether an ordinary interface that an owner of type T is
+// lent to holds a copy of its one word rather than the variable's address
+// (section 7.9): a box, a map, a channel, a weak reference, an owner
+// defined from a pointer type, or a struct with one field or an array of
+// length 1 that holds one of these.
+func lentWord(T types2.Type) bool {
+	if types2.PointerShaped(T) {
+		return true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Map, *types2.Chan:
+		return true
+	case *types2.Struct:
+		return u.NumFields() == 1 && lentWord(u.Field(0).Type())
+	case *types2.Array:
+		return u.Len() == 1 && lentWord(u.Elem())
+	}
+	return false
+}
+
+// lentViews is selfView for an ordinary interface that holds the word of
+// the owner x (lentWord), or that an assertion or type switch clause from
+// the owning interface x makes (section 11.13): the view it makes is
+// obtained from the variable, not the variable itself, so a call that may
+// free what x holds ends it (section 18.3). The word of a box or of an
+// owner defined from a pointer looks at what the owner holds on the heap,
+// so a variable that a function literal uses follows it (storeViews).
+func (f *fn) lentViews(x ast.Expr) []view {
+	vs := f.selfView(x, x)
+	T := f.c.typeOf(x)
+	heap := T != nil && !types2.IsInterface(T) && lentWord(T)
+	for i := range vs {
+		if vs[i].itself && vs[i].pos == x.Pos() {
+			vs[i].itself = false
+			vs[i].inHeap = vs[i].inHeap || heap
+		}
+	}
+	return vs
 }
 
 // callViews returns the views a call's results may hold: the views of the

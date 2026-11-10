@@ -922,7 +922,6 @@ pre:
 	type Timer struct{}
 
 == 18-ownership-and-memory.md 18.3 | func reset(p *owned[T]) { *p = new(T) } // drops the old box
-known: 199: E3313 does not yet end an interface that holds a copied one-word owner, so the use of x after reset(&b) is not an error
 pre:
 	type T struct{ n int }
 

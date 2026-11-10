@@ -159,7 +159,11 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 				f.scopeIn[v] = cc
 				if mayView(v.Type()) && f.env != nil {
 					s := f.env[v]
-					s.views = sortViews(whole(f.viewsOf(x)))
+					vs := f.viewsOf(x)
+					if from := f.c.typeOf(x); types2.IsInterface(from) && isOwner(from) && types2.IsInterface(v.Type()) && !isOwner(v.Type()) {
+						vs = compat.Append(vs, f.lentViews(x)...)
+					}
+					s.views = sortViews(whole(vs))
 					f.setState(v, s)
 				}
 			}

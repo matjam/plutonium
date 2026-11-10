@@ -1,0 +1,5 @@
+$DIR/main.p:44:10: x holds a view of b (b, line 42), which was passed to reset(&b), which may free what it looks at or move it out (*p = ..., line 31) at line 43, so x can no longer be used here
+$DIR/main.p:50:10: y holds a view of h (h, line 48), which was passed to renew(&h), which may free what it looks at or move it out (*p = ..., line 33) at line 49, so y can no longer be used here
+$DIR/main.p:56:10: z holds a view of w (w, line 54), which was passed to rewrap(&w), which may free what it looks at or move it out (w.b = ..., line 35) at line 55, so z can no longer be used here
+$DIR/main.p:62:10: l holds a view of r (r, line 60), which was passed to refill(&r), which may free what it looks at or move it out (*r = ..., line 37) at line 61, so l can no longer be used here
+$DIR/main.p:69:2: show holds a view of b2 (b2, line 66), which was passed to reset(&b2), which may free what it looks at or move it out (*p = ..., line 31) at line 68, so show can no longer be used here
