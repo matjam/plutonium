@@ -5466,7 +5466,9 @@ The same limit holds for every other way to make an owner from something its
 package did not make: converting another owner type into it (allowed also in the
 package of a type defined from it), a pointer conversion from or to a pointer to
 it (which needs the conversion both ways), a conversion that makes an owner
-union, and a composite literal of an owner struct with an unexported field.
+union, and a composite literal of an owner struct with an unexported field. A
+type defined from an owner type (type B owner A) holds a new A, so converting
+into B needs a conversion into A to be allowed too.
 
 Converting an owner into a plain value only reads it and is allowed anywhere. A
 pointer view cannot become a box at all: make one with new or the alloc package.

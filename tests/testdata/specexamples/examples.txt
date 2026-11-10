@@ -314,7 +314,7 @@ pre:
 	func nextFree() uintptr   { return 0 }
 
 == 11-expressions.md 11.24 | package q
-known: 147: a conversion to an owner type of another package is not yet an error (E3212)
+together
 with: 11-expressions.md 11.24 | package p
 
 == 11-expressions.md 11.27 | cfg := load(path) or return                                  // pass the error up unchanged

@@ -44,7 +44,7 @@ one covers:
   order of evaluation in the rest of lowering (item 183); the allocators the race check does not follow
   (item 196). From audits E to J: arena counts, drop entries and frees (items 198, 202, 209, 212 and
   217); one-word owners lent to an interface (item 199); owner conversions through a defined type (item
-  200); deferred calls in a scoped interval (item 201); generic conversions and the strictest rule for
+  200, done); deferred calls in a scoped interval (item 201); generic conversions and the strictest rule for
   type arguments (items 204 and 208); frame storage in loops (item 206); loads of views from shared memory, guarded owned memory, static objects and handler loads
   (item 214). From D105 and D106: lazy initialization through `sync.Once` in the race check and the
   `Once.Do` release on `rt.ExitTask` (item 218); `sync.Cond.Wait(l)` in the guard inference (item 219),
@@ -736,10 +736,11 @@ compiler (2026-10-11).
     an empty literal `T{}` stays allowed, as it is the zero value. Converting a value to an owning
     interface is not a conversion to an owner type and stays allowed. Tests: `tests/types2/ownerconversion`
     (accepted forms), `ownerconversion_forms` and `ownerconversion_literal`.
-200. **Owner conversions through a type defined from another owner** (planned; sections 11.24, 18.5, 8.11,
+200. **Owner conversions through a type defined from another owner** (done; sections 11.24, 18.5, 8.11,
     7.18, D72, finding E2 of audit E; extends item 147): for `type T owner A`, `T(x)` and the pointer and
     union forms are E3212 unless converting `x` to `A` is allowed too; `T(a)` with `a` of type `A` stays
-    allowed.
+    allowed. Tests: `tests/types2/ownerconversion_defined` and `ownerconversion_defined_ok`; the 11.24
+    `package q` spec example builds, with `together`.
 152. **Arenas count their live counted objects** (planned; sections 18.8, 18.9, 17.1, F.2, abi.md 1.3,
     D45, finding B1): one atomic counter per Fixed and Chunked arena, raised at each counted allocation
     and lowered at its last release; `Reset`, `Release` and `Drop` panic with "arena has live counted
@@ -1515,7 +1516,7 @@ compiler (2026-10-11).
     that starts a task or declares an interrupt handler gets a `main` that starts them: it installs each
     handler and calls each function nothing else in the block uses, and an entry's `main:` lines call one
     that takes parameters. Such a block builds as a program of its own; 19 blocks are built this way.
-    Known failures: 19, waiting on items 146, 147, 148, 149, 168, 197 (3), 199, 201, 208, 214 (3),
+    Known failures: 18, waiting on items 146, 148, 149, 168, 197 (3), 199, 201, 208, 214 (3),
     215, 218 (2), 220 and 223. A block whose marked lines are errors of one program, not alternatives,
     has `together` in its entry and builds once, whole: every marked line must report its code and no
     other line any error (section 1.3; the 19.3 `type Counter struct {` block, D129). The 12 wrong spec examples were fixed with audit H

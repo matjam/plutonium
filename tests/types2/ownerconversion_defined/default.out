@@ -1,0 +1,86 @@
+$DIR/main.p:18:37: cannot convert 3 (untyped int constant) to owner type MyFd: it holds a new sys.Fd, which only package sys can make
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. MyFd is defined from the owner type
+    sys.Fd, so a new MyFd holds a new sys.Fd. Converting an untyped int into a
+    MyFd is allowed only where converting it into a sys.Fd is allowed too, and
+    only the package that declares sys.Fd may make one, where its invariants are
+    kept.
+    Convert a value that is already a sys.Fd, made by the package that declares
+    it:
+        MyFd(sys.FdValue)
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:20:43: cannot convert f (value of int32 type Fake) to owner type MyFd: it holds a new sys.Fd, which only package sys can make
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. MyFd is defined from the owner type
+    sys.Fd, so a new MyFd holds a new sys.Fd. Converting a Fake into a MyFd is
+    allowed only where converting it into a sys.Fd is allowed too, and only the
+    package that declares sys.Fd may make one, where its invariants are kept.
+    Convert a value that is already a sys.Fd, made by the package that declares
+    it:
+        MyFd(sys.FdValue)
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:22:32: cannot convert 5 (untyped int constant) to owner type Deep: it holds a new sys.Fd, which only package sys can make
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. Deep is defined from the owner type
+    sys.Fd, so a new Deep holds a new sys.Fd. Converting an untyped int into a
+    Deep is allowed only where converting it into a sys.Fd is allowed too, and
+    only the package that declares sys.Fd may make one, where its invariants are
+    kept.
+    Convert a value that is already a sys.Fd, made by the package that declares
+    it:
+        Deep(sys.FdValue)
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:24:47: cannot convert n (value of type *int32) to *MyFd: the pointer gives write access to an owner of type sys.Fd outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. A pointer conversion from *int32 to
+    *MyFd lets code read and write the same object as either type. A write
+    through it could make a sys.Fd from a plain value, or replace one, so the
+    conversion is allowed only where int32 converts to MyFd and MyFd converts to
+    int32. Only the package that declares sys.Fd may do that, where its
+    invariants are kept.
+    Use the functions and methods of the package that declares sys.Fd.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:26:47: cannot convert s (value of union type FakeSlot) to owner type MySlot: it holds a new sys.Slot, which only package sys can make
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. MySlot is defined from the owner type
+    sys.Slot, so a new MySlot holds a new sys.Slot. Converting a FakeSlot into a
+    MySlot is allowed only where converting it into a sys.Slot is allowed too,
+    and only the package that declares sys.Slot may make one, where its
+    invariants are kept.
+    Convert a value that is already a sys.Slot, made by the package that
+    declares it:
+        MySlot(sys.SlotValue)
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:28:52: cannot convert fd (value of int32 type sys.Fd) to owner type sys.Inner outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. Converting the owner sys.Fd into a
+    sys.Inner moves it, but the result is a sys.Inner that nobody in its package
+    made. sys.Fd is made by the rules of another package, perhaps from any
+    number, so the conversion could forge a sys.Inner. Only the package that
+    declares sys.Inner may do that, where its invariants are kept, or the
+    package of a type defined from sys.Inner.
+    Use a constructor from the package that declares sys.Inner.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)
+
+$DIR/main.p:30:48: cannot convert i (value of int32 type sys.Inner) to owner type sys.Fd outside package sys
+    An owner owns memory or another resource and releases it when it is dropped,
+    so it moves instead of being copied. Converting the owner sys.Inner into a
+    sys.Fd moves it, but the result is a sys.Fd that nobody in its package made.
+    sys.Inner is made by the rules of another package, perhaps from any number,
+    so the conversion could forge a sys.Fd. Only the package that declares
+    sys.Fd may do that, where its invariants are kept, or the package of a type
+    defined from sys.Fd.
+    Use a constructor from the package that declares sys.Fd.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E3212" for a longer explanation)

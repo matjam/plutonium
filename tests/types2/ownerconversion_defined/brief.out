@@ -1,0 +1,7 @@
+$DIR/main.p:18:37: cannot convert 3 (untyped int constant) to owner type MyFd: it holds a new sys.Fd, which only package sys can make
+$DIR/main.p:20:43: cannot convert f (value of int32 type Fake) to owner type MyFd: it holds a new sys.Fd, which only package sys can make
+$DIR/main.p:22:32: cannot convert 5 (untyped int constant) to owner type Deep: it holds a new sys.Fd, which only package sys can make
+$DIR/main.p:24:47: cannot convert n (value of type *int32) to *MyFd: the pointer gives write access to an owner of type sys.Fd outside package sys
+$DIR/main.p:26:47: cannot convert s (value of union type FakeSlot) to owner type MySlot: it holds a new sys.Slot, which only package sys can make
+$DIR/main.p:28:52: cannot convert fd (value of int32 type sys.Fd) to owner type sys.Inner outside package sys
+$DIR/main.p:30:48: cannot convert i (value of int32 type sys.Inner) to owner type sys.Fd outside package sys

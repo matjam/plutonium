@@ -475,7 +475,8 @@ func (check *Checker) reportTypeArg(at positioner, err error, what string) {
 // (rule 1), and converting an owner to another owner type gives a value
 // that nobody in the target's package made (rule 3): both are allowed only
 // in the package that declares the target, or for rule 3 in the package of
-// an operand type defined from the target.
+// an operand type defined from the target. A target defined from another
+// owner type A holds a new A, so the conversion must also be allowed to A.
 // A pointer conversion (*T)(p) of a *S, where S or T is an owner, gives
 // read and write access as either type, so it needs both S to T and T to S.
 // Converting an owner to a non-owner reads it and is allowed anywhere.
@@ -532,6 +533,10 @@ func (check *Checker) ownerConvDenied(V, T Type, depth int) *Named {
 			return n
 		}
 	}
+	// A T defined from an owner type A holds a new A.
+	if a := ownerRHS(n); a != nil && !Identical(V, a) {
+		return check.ownerConvDenied(V, a, depth+1)
+	}
 	return nil
 }
 
@@ -573,8 +578,19 @@ func (check *Checker) ownerDefinedFrom(V, T Type) bool {
 // ownerConvError reports the conversion T(x) that only the package of the
 // owner type c may make.
 func (check *Checker) ownerConvError(x *operand, T Type, c *Named) {
-	t, v := check.sprintf("%s", T), check.sprintf("%s", x.typ())
+	t, v, o := check.sprintf("%s", T), check.sprintf("%s", x.typ()), check.sprintf("%s", c)
 	pkg := c.Origin().obj.pkg.name
+	if !Identical(Unalias(T), c) {
+		// T is defined from c (rule 1 or 3, type T owner c).
+		check.explainf(x, OwnerConversion, pu.New(Explanation{
+			Text: compat.Concat(whatOwners+" ", t, " is defined from the owner type ", o, ", so a new ", t, " holds a new ", o, ". Converting ", article(v), " into ", article(t), " is allowed only where converting it into ", article(o), " is allowed too, and only the package that declares ", o, " may make one, where its invariants are kept."),
+			Fixes: compat.Clone([]ExplainFix{{
+				Intro: compat.Concat("Convert a value that is already ", article(o), ", made by the package that declares it"),
+				Code:  compat.Concat(t, "(", o, "Value)"),
+			}}),
+		}), "cannot convert %s to owner type %s: it holds a new %s, which only package %s can make", x, pu.Box(t), pu.Box(o), pu.Box(pkg))
+		return
+	}
 	text := compat.Concat(whatOwners+" Converting a plain ", v, " into ", article(t), " would make a second owner of whatever the value refers to (a descriptor, a page frame), and both would release it. Only the package that declares ", t, " may do that, where its invariants are kept.")
 	if IsOwner(x.typ()) {
 		text = compat.Concat(whatOwners+" Converting the owner ", v, " into ", article(t), " moves it, but the result is ", article(t), " that nobody in its package made. ", v, " is made by the rules of another package, perhaps from any number, so the conversion could forge ", article(t), ". Only the package that declares ", t, " may do that, where its invariants are kept, or the package of a type defined from ", t, ".")
