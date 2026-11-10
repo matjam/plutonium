@@ -17,12 +17,23 @@ package main
   safe main.ordinary ./main.p:9:1
     calls pluto/arena.*Fixed.New
       ./main.p:9:46: call pluto/arena.*Fixed.New
-    calls pluto/arena.*lifetime.reclaim
+    calls pluto/arena.runEntry
       ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:93:5: call pluto/arena.*lifetime.reclaim
-    calls pluto/rt.getg
+      pluto/arena/fixed.p:201:2: call pluto/arena.*Fixed.runEntries
+      pluto/arena/fixed.p:193:3: call pluto/arena.runEntry
+    calls pluto/arena.*Fixed.entry
       ./main.p:9:33: call pluto/arena.*Fixed.Reset
-      pluto/arena/fixed.p:94:3: call pluto/rt.ResumeAllocFreeExit
-      pluto/rt/goexit.p:80:2: call pluto/rt.setGoexit
-      pluto/rt/goexit.p:48:10: call pluto/rt.current
-      pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
+      pluto/arena/fixed.p:201:2: call pluto/arena.*Fixed.runEntries
+      pluto/arena/fixed.p:193:12: call pluto/arena.*Fixed.entry
+    calls pluto/sync/atomic.LoadInt64
+      ./main.p:9:33: call pluto/arena.*Fixed.Reset
+      pluto/arena/fixed.p:202:2: call pluto/arena.*Fixed.checkLive
+      pluto/arena/fixed.p:277:5: call pluto/sync/atomic.LoadInt64
+    calls pluto/rt.GenEndArena
+      ./main.p:9:33: call pluto/arena.*Fixed.Reset
+      pluto/arena/fixed.p:206:2: call pluto/arena.*Fixed.reclaim
+      pluto/arena/fixed.p:153:4: call pluto/rt.GenEndArena
+    calls pluto/arena.*Fixed.record
+      ./main.p:9:33: call pluto/arena.*Fixed.Reset
+      pluto/arena/fixed.p:206:2: call pluto/arena.*Fixed.reclaim
+      pluto/arena/fixed.p:153:19: call pluto/arena.*Fixed.record

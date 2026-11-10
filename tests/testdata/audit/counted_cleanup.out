@@ -38,7 +38,7 @@ package main
     calls pluto/rt.getg
       ./main.p:18:18: may drop pluto/alloc.*Restore.Drop
       pluto/alloc/alloc.p:55:3: call pluto/rt.UseAllocator
-      pluto/rt/rt.p:968:7: call pluto/rt.current
+      pluto/rt/rt.p:964:7: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.*MapTable[K, V].retireTable
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
@@ -52,7 +52,7 @@ package main
       pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
       pluto/rt/str.p:500:2: call pluto/rt.notCalled
       pluto/rt/str.p:551:2: call pluto/rt.panicMessage
-      pluto/rt/rt.p:500:2: call pluto/rt.printString
+      pluto/rt/rt.p:496:2: call pluto/rt.printString
     calls pluto/rt.casUint64
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
       pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
@@ -60,7 +60,7 @@ package main
       pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
       pluto/rt/str.p:500:2: call pluto/rt.notCalled
       pluto/rt/str.p:551:2: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
     calls pluto/rt.loadUint64
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
@@ -69,7 +69,7 @@ package main
       pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
       pluto/rt/str.p:500:2: call pluto/rt.notCalled
       pluto/rt/str.p:551:2: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
     calls pluto/rt.lastResort
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
@@ -78,7 +78,7 @@ package main
       pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
       pluto/rt/str.p:500:2: call pluto/rt.notCalled
       pluto/rt/str.p:551:2: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
     calls pluto/rt.callerFrame
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
@@ -87,7 +87,7 @@ package main
       pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
       pluto/rt/str.p:500:2: call pluto/rt.notCalled
       pluto/rt/str.p:551:2: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:173:2: call pluto/rt.callerFrame
     calls pluto/rt.raise
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
@@ -96,7 +96,7 @@ package main
       pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
       pluto/rt/str.p:500:2: call pluto/rt.notCalled
       pluto/rt/str.p:551:2: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:176:2: call pluto/rt.raise
     calls pluto/rt.syscall3
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
@@ -105,7 +105,7 @@ package main
       pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
       pluto/rt/str.p:500:2: call pluto/rt.notCalled
       pluto/rt/str.p:551:2: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
       pluto/rt/rt_linux.p:319:38: call pluto/rt.syscall3
     calls pluto/rt.inc32
@@ -115,6 +115,6 @@ package main
       pluto/rt/map.p:607:6: call pluto/rt.NeedsDrop
       pluto/rt/str.p:500:2: call pluto/rt.notCalled
       pluto/rt/str.p:551:2: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32

@@ -118,7 +118,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:500:2: call pluto/rt.printString
+      pluto/rt/rt.p:496:2: call pluto/rt.printString
     calls pluto/rt.schedInInterrupt
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
@@ -151,35 +151,35 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
     calls pluto/rt.loadUint64
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
     calls pluto/rt.lastResort
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
     calls pluto/rt.callerFrame
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:173:2: call pluto/rt.callerFrame
     calls pluto/rt.raise
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:176:2: call pluto/rt.raise
     calls pluto/rt.*timerHeap.nextDeadline
       ./main.p:14:37: call main.recursiveB
@@ -218,7 +218,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
       pluto/rt/rt_linux.p:319:38: call pluto/rt.syscall3
     calls pluto/rt.noTasksLeft
@@ -361,7 +361,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:500:2: call pluto/rt.printString
+      pluto/rt/rt.p:496:2: call pluto/rt.printString
     calls pluto/rt.schedInInterrupt
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
@@ -389,31 +389,31 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
     calls pluto/rt.loadUint64
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
     calls pluto/rt.lastResort
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
     calls pluto/rt.callerFrame
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:173:2: call pluto/rt.callerFrame
     calls pluto/rt.raise
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:176:2: call pluto/rt.raise
     calls pluto/rt.*timerHeap.nextDeadline
       ./main.p:15:54: may call pluto/rt.waitShutdown
@@ -447,7 +447,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
       pluto/rt/rt_linux.p:319:38: call pluto/rt.syscall3
     calls pluto/rt.noTasksLeft
@@ -619,7 +619,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:500:2: call pluto/rt.printString
+      pluto/rt/rt.p:496:2: call pluto/rt.printString
     calls pluto/rt.schedInInterrupt
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
@@ -657,7 +657,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
     calls pluto/rt.loadUint64
       ./main.p:16:16: call main.recursiveA
@@ -665,7 +665,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
     calls pluto/rt.lastResort
       ./main.p:16:16: call main.recursiveA
@@ -673,7 +673,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
     calls pluto/rt.callerFrame
       ./main.p:16:16: call main.recursiveA
@@ -681,7 +681,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:173:2: call pluto/rt.callerFrame
     calls pluto/rt.raise
       ./main.p:16:16: call main.recursiveA
@@ -689,7 +689,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:176:2: call pluto/rt.raise
     calls pluto/rt.*timerHeap.nextDeadline
       ./main.p:16:16: call main.recursiveA
@@ -733,7 +733,7 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
       pluto/rt/rt_linux.p:319:38: call pluto/rt.syscall3
     calls pluto/rt.noTasksLeft
@@ -883,7 +883,7 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:500:2: call pluto/rt.printString
+      pluto/rt/rt.p:496:2: call pluto/rt.printString
     calls pluto/rt.schedInInterrupt
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
@@ -911,31 +911,31 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
     calls pluto/rt.loadUint64
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
     calls pluto/rt.lastResort
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
     calls pluto/rt.callerFrame
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:173:2: call pluto/rt.callerFrame
     calls pluto/rt.raise
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:176:2: call pluto/rt.raise
     calls pluto/rt.*timerHeap.nextDeadline
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -969,7 +969,7 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
       pluto/rt/rt_linux.p:319:38: call pluto/rt.syscall3
     calls pluto/rt.noTasksLeft
@@ -1123,7 +1123,7 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:500:2: call pluto/rt.printString
+      pluto/rt/rt.p:496:2: call pluto/rt.printString
     calls pluto/rt.schedInInterrupt
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1156,35 +1156,35 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
     calls pluto/rt.loadUint64
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
     calls pluto/rt.lastResort
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
     calls pluto/rt.callerFrame
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:173:2: call pluto/rt.callerFrame
     calls pluto/rt.raise
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:176:2: call pluto/rt.raise
     calls pluto/rt.*timerHeap.nextDeadline
       ./main.p:20:47: call main.Maker[T].Discard
@@ -1223,7 +1223,7 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
       pluto/rt/rt_linux.p:319:38: call pluto/rt.syscall3
     calls pluto/rt.noTasksLeft
@@ -1384,7 +1384,7 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:500:2: call pluto/rt.printString
+      pluto/rt/rt.p:496:2: call pluto/rt.printString
     calls pluto/rt.schedInInterrupt
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1417,35 +1417,35 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
     calls pluto/rt.loadUint64
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
     calls pluto/rt.lastResort
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
     calls pluto/rt.callerFrame
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:173:2: call pluto/rt.callerFrame
     calls pluto/rt.raise
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:505:2: call pluto/rt.fatal
+      pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:176:2: call pluto/rt.raise
     calls pluto/rt.*timerHeap.nextDeadline
       ./main.p:21:59: call main.Maker[T].Discard
@@ -1484,7 +1484,7 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
-      pluto/rt/rt.p:499:2: call pluto/rt.startPanic
+      pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
       pluto/rt/rt_linux.p:319:38: call pluto/rt.syscall3
     calls pluto/rt.noTasksLeft
