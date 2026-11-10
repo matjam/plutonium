@@ -110,170 +110,827 @@ status 2 (section 17.3, Ending a task with `rt.ExitTask`).
 
 ### 19.2 The sendable rule
 
-A value **crosses** to another task when it is
+A value that **crosses** to another party (section 19.3, Crossings) must be **sendable** (section 8.8,
+Sendable types), and it may not hold a view that the other party could use while the memory changes:
 
-- an argument or the receiver of a task statement (section 19.1), or a func value given to a function
-  that starts a task with it;
-- sent on a channel, or received from one;
-- held inside an interface, struct or array that crosses;
-- a variable that a scoped task uses, whether it takes it or captures it (section 19.4);
-- loaded by a task from memory that other tasks may reach, when it is a pointer or any value that holds a
-  view: a load from a package variable (a per-CPU variable included), from the object of a `synced[T]`,
-  or from the contents of a map, or from memory reached through one of those, crosses to the task that
-  loads it. The load counts in the task's own code and in every function it calls, an atomic load
-  included, once a task other than the main task, or an interrupt handler, may run (section 19.3, The
-  tasks). A value that holds a view is a pointer, a slice,
-  an interface, a func value, a method value, or a struct, array or union that holds one of them. An interrupt handler that loads such a value is a party in the same way
-  (section 19.3, Interrupt handlers).
+- A type that holds a `shared[T]` or a `weak[shared[T]]`, directly or through a field, element, payload,
+  box or pointer, is not sendable (section 8.8). A task statement whose arguments or receiver have such a
+  type, a channel type whose element is such a type, and a send of such a value are error E2010.
+  Converting a value of such a type to `error`, or to an interface that embeds it, is error E2020 at the
+  conversion, since every `error` is sendable.
+- A view of the starting or sending function's frame is E3004 for a task statement and E3005 for a send
+  (E2011 where the type checker sees it directly).
+- A view of heap or static memory must meet rule 2 of section 19.3 (E3501).
 
-Every value that crosses must be **sendable** (section 8.8, Sendable types), and may not hold a view that
-the other task could use while it changes:
-
-- a type that holds a `shared[T]` or a `weak[shared[T]]`, directly or through a field, element, payload,
-  box or pointer, is not sendable (section 8.8): error E2010 at the task statement, at the channel type
-  whose element is not sendable, or at the send. Converting a value of such a type to `error`, or to an
-  interface that embeds it, is error E2020 at the conversion, since every `error` is sendable;
-- a view of the starting or sending function's frame: E3004 for a task statement and E3005 for a send
-  (E2011 where the type checker sees it directly);
-- a view of heap or static memory that may change while both tasks can use it: E3501 (section 19.3).
-
-Moving an owner to another task is safe because the sender loses it: only one task can use it afterwards,
-and an owner that manages memory (`vec.Vec`, `hash.Map`, `strings.Builder`) takes that memory with it
-(section 8.8). A `synced[T]` and a
-map let several tasks reach the same memory, so what changes in it is subject to section 19.3. Strings
-are sendable because their bytes never change and their counts are atomic once a program has started a task
-(section 18.7, Shared ownership). A string made with `unsafe.String` is not counted (section
-18.8); sending one is the responsibility of the unsafe code that made it, which must keep its bytes
-alive and unchanged (section 18.12).
+Moving an owner to another party is safe because the sender loses it: only one party can use it
+afterwards, and an owner that manages memory (`vec.Vec`, `hash.Map`, `strings.Builder`) takes that memory
+with it (section 8.8). A `synced[T]` and a map let several parties reach the same memory, so what changes
+in it is subject to section 19.3. Strings are sendable because their bytes never change and their counts
+are atomic once a program has started a task (section 18.7, Shared ownership). A string made with
+`unsafe.String` is not counted (section 18.8); sending one is the responsibility of the unsafe code that
+made it, which must keep its bytes alive and unchanged (section 18.12).
 
 The type part of the rule (`shared[T]`) is checked by the type checker on the arguments and receiver of
-every task statement and on the element type of every channel type, looking through struct fields, array
+every task statement and on the element type of every channel type. It looks through struct fields, array
 elements, union payloads, the referents of boxes, pointers and slices, and the transparent wrappers
-`ring`, `volatile` and `aligned`. The view part is checked by the frame rules (section 18.3, Views) and the race
-rules (section 19.3) where values cross, and, through interface values, for every type the program
-converts to that interface, except `error` and the interfaces that embed it, which are sendable by
-definition (section 8.8). A conversion whose result is a view of the frame that made it (section 18.3) is not
-counted, since such a value cannot cross. In a generic function the rule is checked for each instantiation.
+`ring`, `volatile` and `aligned`. The view part is checked by the frame rules (section 18.3, Views) and by
+rule 2 of section 19.3 wherever a value crosses. Through an interface value it is checked for every type
+the program converts to that interface, except `error` and the interfaces that embed it, which are
+sendable by definition (section 8.8). A conversion whose result is a view of the frame that made it
+(section 18.3) is not counted, since such a value cannot cross. In a generic function the rule is checked
+for each instantiation.
 
 ### 19.3 Data race freedom
 
-A **data race** is two accesses to the same memory by different tasks or interrupt handlers, at least one a
-write and at least one not atomic, that are not ordered by the memory model (memory-model.md section 2).
-Safe code has none: the compiler rejects every program in which two tasks, or a task and an interrupt
-handler, could make such accesses. It checks the whole program when it compiles, with no lifetime, borrow
-or region annotations, by three rules, all inferred from the program. Every piece of memory that tasks
-share is then owned by one task (moved there), never changed while shared, used only atomically, or
+A **data race** is two accesses to the same memory by different parties (tasks or interrupt handlers), at
+least one a write and at least one not atomic, that are not ordered by the memory model (memory-model.md
+section 2). Safe code has none: the compiler rejects every program in which two parties could make such
+accesses. It checks the whole program when it compiles, with no lifetime, borrow or region annotations.
+Everything it uses is inferred from the program. Every piece of memory that parties share is then one of
+four things: owned by one party (moved there), never changed while shared, used only atomically, or
 guarded by a lock that every access holds.
 
-**The tasks.** The compiler finds every task the program may start: each task statement, each func value
-passed to a function that starts a task with it (section 19.1), and each `s.Task` call (section 19.4).
-It also finds every interrupt handler the program installs (section 20.10), which is a party in the
-rules below like a task (see Interrupt handlers). The **main task** runs package initialization and `main`. A task statement that may run more than once
-(in a loop, or in a function that may be called more than once) may start several tasks that run the
-same code at once. Package initialization, which may not start a task (section 15.2, Panics and tasks), and
-the part of `main` before the first statement that may start a task, run while no other task exists.
-No handler is a party during that time either, until the first statement that may install an interrupt
-handler (section 20.10) or enable interrupts (`x86.Sti`, `x86.RestoreFlags`), whichever comes first. From
-that statement on, writes are checked against the handlers like writes in any task, and a view that a
-handler loads crosses to it (section 19.2), whether or not a task has started.
+This section first defines the model the rules use, each term once. Then it states the rules, each with
+its error. It ends with the limits of the analysis and a table of programs with their results.
 
-**Accesses and locks.** For each task the compiler collects what it reads and writes, in its own code and
-in every function it calls (a call through an interface or func value reaches every function that could
-be called there), and which locks are held at each access:
+**Parties.** A **party** is code that may run at the same time as other code:
 
-- A lock is a `sync.Mutex`, a `sync.RWMutex` or an `rt.Lock` (a `sync.Mutex` cannot be taken in an interrupt
-  handler, E2584, so a handler uses `rt.Lock`). It is held from `Lock` (or `RLock`, or a `TryLock` or
-  `TryRLock` that succeeded, in the branch where it did) to `Unlock` (or `RUnlock`), or to the end of the
-  function after `defer mu.Unlock()`.
-- A lock counts as held at a statement only if it is held on every path to that statement.
-- A function that returns with a lock held holds it for its caller, and a lock held around a call counts
-  as held inside the callee.
-- A lock reached through a pointer is named by where the pointer came from, so `s.mu` and `s.items` in
-  one method are the lock and the data of the same object.
-- A task, an interrupt handler, and a function that `s.Task`, `wg.Task` or a task statement starts, begin
-  with no lock held, whatever the code that starts them holds.
-- Every `Unlock`, `RUnlock` and `c.Wait(l)` must release a lock that the task holds (Releasing a lock,
-  below). A release of a lock the compiler cannot name is a compile error.
-- `c.Wait(l)` of a `sync.Cond` counts as `l.Unlock()` followed by `l.Lock()`. The argument must name a
-  lock the task holds for writing: the address of a lock (`&mu`, `&s.mu`), or a pointer to one. So a lock
-  held before the `Wait` is held again after it, and a view loaded before the `Wait` has crossed a release
-  of that lock (rule 2). A `sync.Locker` held in a variable, the result of `rw.RLocker()`, and a `Wait`
-  called through an interface or a func value do not name a lock, so such a `Wait` is a compile error.
-  `Signal` and `Broadcast` need no lock, and they neither take nor release one.
-- A method value may be called later, anywhere, so what its method does counts as done with no lock
-  held.
-- The order that channel operations, `sync.WaitGroup.Wait` and the end of a task impose is not used:
-  reading shared data after `wg.Wait()` still holds the data's lock. The join of a `sync.Scope` is used,
-  for the frame data it covers (section 19.4), and so is the return of `sync.Once.Do`, for the data that
-  Once initializes (rule 1, Lazy initialization).
+- the **main task**, which runs package initialization and then `main`;
+- each **task** the program may start: by a task statement (section 19.1), by a func value given to a
+  function that starts a task with it, by `s.Task` of a `sync.Scope` (section 19.4) and by `wg.Task` of a
+  `sync.WaitGroup`;
+- each **interrupt handler** the program installs (section 20.10).
+
+The compiler finds the parties from package initialization and `main`: a task statement in a function
+that no party calls starts no party. A party is **repeated** when its start may run more than once: a
+task statement in a loop, or in a function that may be called more than once, starts several tasks that
+run the same code at once. Every interrupt handler is repeated, since it may run on several processors at
+once. Two instances of one repeated party count as two parties below.
+
+A task, an interrupt handler, and a function that `s.Task`, `wg.Task` or a task statement starts, begin
+with no lock held, whatever the code that starts them holds.
+
+**The start of sharing.** The **start of sharing** is the first statement, in the main task's order
+through package initialization and `main`, that may start a task, install an interrupt handler, or enable
+interrupts (`x86.Sti`, `x86.StiHlt`, `x86.RestoreFlags`), itself or through the calls it makes. Package
+initialization may not start a task (section 15.2, Panics and tasks). An access of the main task is
+**before the start of sharing** when no path to it passes such a statement. A function that the main task
+calls both before and after the start of sharing counts as called after it. Accesses before the start of
+sharing do not count in the rules below, and loads before it do not cross.
+
+**Part of the enclosing function.** Three kinds of code are **part of the enclosing function**, at the
+point where they run:
+
+- a function literal called where it is written: `func() { ... }()`;
+- a deferred function literal: `defer func() { ... }()`;
+- the body of a range-over-func loop (section 12.11), when the iterator calls `yield` only on the party
+  that runs the loop. The iterator counts as a call around the body.
+
+Such code runs on the party of the function that contains it. It shares that function's held set and
+releases (Held sets, below) and its calls of `Once.Do` (Lazy initialization, below). Any other function
+literal is a func value.
+
+Whether an iterator calls `yield` on another party is part of its summary (Held sets, below). The summary
+records a call of a func-valued parameter, or of a copy of one, **on another party** when the call is in a
+function given to `s.Task`, `wg.Task`, a task statement or a function that starts a task with it, or when
+the parameter is passed to a callee whose summary records such a call. A copy the compiler cannot follow
+counts as called on another party. When the iterator is a func value or a method called through an
+interface, every candidate counts, and a candidate the compiler cannot know counts as calling `yield` on
+another party.
+
+A loop body whose iterator may call `yield` on another party is a func value that the iterator's party
+runs. It starts with no lock held. A `defer` in it is a compile error, since the deferred call would run
+on the wrong party at the wrong time. If two tasks may call `yield` at once, the body follows section
+19.4, Callees (E3406).
+
+For a body that is part of the enclosing function, the locks held at its start are those held at the loop
+statement, less the locks the iterator may release, intersected with those held at the end of the body on
+every earlier run (as for a loop, Releasing a lock). A lock that the body may release counts as not held
+in the iterator after its call of `yield`, and that call counts as a call that may release the lock.
+
+**Memory and data.** The rules work on **data**. A field of a struct is one datum. All the elements of an
+array or slice together are one datum, except that elements selected by different constant indexes
+(`table[0]`, `table[1]`) are different data. An element selected by a variable index counts as every
+element.
+
+**The memory an object owns** is the object of each `owned[T]` it holds, and the memory managed by each
+owner value it holds (the storage of a `vec.Vec`, the table of a `hash.Map`, the buffer of a
+`strings.Builder`), through owners that hold one another, to any depth. It is not what a pointer, a
+`shared[T]` or `synced[T]` reference, a map or a channel in it refers to. The memory a datum owns is part
+of that datum: a read of it reads the datum, and a write of it writes the datum.
+
+These are the kinds of memory that several parties can reach, each with its owner:
+
+- A **package variable** is data, with the memory it owns.
+- A **static object** is an object that a package-level initializer creates as a composite literal whose
+  address it takes (`var Stdout = &File{fd: 1}`), so that it lives in static storage (section 18.2), and
+  that no code moves, drops or overwrites as a whole after the start of sharing. Each of its fields is a
+  datum, with the memory it owns. The compiler names the target of a `take(p)` or of an assignment
+  `*p = v` by where the pointer came from (Locks and names, below); one it cannot name counts as a move of
+  every static object of the type. Nothing frees static storage, and its cleanup runs only in package
+  cleanup, after the tasks have ended (section 15.4).
+- The object of a **`synced[T]`** is shared by every party that holds a reference to it. Each field is a
+  datum, with the memory it owns. Calling a pointer method on the box (`task s.Serve()`, `s.Add(1)`) uses
+  the object.
+- The **contents of a map** are shared by every copy of the map. The contents of all maps of one type are
+  one datum once a map of that type crosses (Crossings, below), or once a party reaches one through a
+  package variable or through memory it did not allocate.
+- A **per-CPU variable** has one copy per processor and follows section 20.9, with the memory it owns.
+- **Frame memory** of a function that starts scoped tasks follows section 19.4.
+- An **arena** (`arena.Fixed`, `arena.Chunked`) owns every object that its `New` or `Slice` allocated.
+- Any other object is reached only through a view that crossed, and rule 2 decides it.
+
+**Crossings.** A value **crosses** to a party when it is
+
+1. an argument or the receiver of a task statement (section 19.1), or a func value given to a function
+   that starts a task with it;
+2. sent on a channel, or received from one;
+3. held inside an interface, struct, array or union that crosses;
+4. a variable that a scoped task uses, whether it takes it or captures it (section 19.4);
+5. loaded by a party from memory that several parties can reach, when the value holds a view: a load from
+   a package variable (a per-CPU variable included), a static object, the object of a `synced[T]`, the
+   contents of a map, or memory reached through one of those or through a view that crossed. The load
+   counts in the party's own code and in every function it calls, an atomic load included.
+
+A value **holds a view** when it is a pointer, a slice, an interface, a func value or a method value, or a
+struct, array or union that holds one of them. Crossings count only after the start of sharing.
+
+**Accesses.** For each party the compiler collects what it reads and writes, in its own code and in every
+function it calls. A call through an interface or a func value reaches every function that could be
+called there. A method value may be called later, anywhere, so what its method does counts as done with
+no lock held and outside every `Do`. An access made with `pluto/sync/atomic` operations (the methods of
+`atomic.Int64` and the other atomic types, or functions such as `atomic.AddInt64(&x, 1)`) is **atomic**.
+Writing a whole struct writes all its fields.
+
+Two accesses **conflict** when they reach overlapping data, at least one writes, they are not both
+atomic, they are made by different parties (or by two instances of one repeated party), and both come
+after the start of sharing.
+
+**Frees are writes.** Dropping, freeing or moving an object counts as a write of the whole object, and so
+does assigning a new value to, or dropping, any owner that holds it (directly, or through owners that hold
+one another). A `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked`, the drop at the end
+of the arena's scope included, takes memory back. It counts as freeing every object that `New` or `Slice`
+allocated in that arena, of every type, whether or not the type has drop glue. The compiler cannot tell
+which objects come after a mark, so a `Release` counts as freeing objects of every type allocated in the
+arena too. The drops that the arena's drop entries run (section 18.9, Drop entries) count on top of that.
+An allocation made through the arena's `Alloc` and still live makes the call panic and take nothing back
+(section 18.9, Live allocations), so it is not freed. The compiler names an arena as it names a lock
+(Locks and names, below). A call on an arena it cannot name, such as `workers[i].arena` with a variable
+index, counts as that call on every arena it may be, within the limits of How precise the race check is
+(below); beyond those limits it counts as that call on every arena of the program. The name follows a
+move of the arena: after `b := take(a)`, a call on `b` frees the objects allocated through `a` before the
+move. This holds for every rule of this section and for scoped tasks (section 19.4), so in safe code no
+party frees memory that another party may still use (memory-model.md section 4.1). Values of
+`pluto/sync` and `pluto/sync/atomic` types synchronize themselves through their methods; assigning a
+whole new value to one is an ordinary write.
+
+**Locks and names.** A **lock** is a `sync.Mutex`, a `sync.RWMutex` or an `rt.Lock`. A `sync.Mutex`
+cannot be taken in an interrupt handler (E2584), so a handler uses `rt.Lock`.
+
+The compiler follows a lock by its **name**. A name is a package variable that is not a pointer, or a
+local variable or parameter (the receiver included), followed by field selections and constant indexes of
+arrays. Only the variable itself may hold a pointer on the way. So `mu`, `s.mu`, `s.inner.mu` (with
+`inner` a struct field) and `table[0]` are names. `s.next.mu` is not: it loads a pointer from memory at
+each use, and another party may change that pointer in between. Copy the pointer into a local:
+`n := s.next; n.mu.Lock(); ...; n.mu.Unlock()`. `locks[i]` with a variable index is not a name either:
+take a pointer once and use it for both calls, `l := &locks[i]; l.Lock(); ...; l.Unlock()`.
+
+- A local that holds a pointer names nothing if its address is taken, if a function literal assigns it,
+  or if a scoped task captures it.
+- A parameter names, at each call, the lock that its argument names there.
+- A copy carries the names: after `cur = next`, the lock named `next.mu` is named `cur.mu` too.
+- A name ends when the variable it starts from is assigned, and when the lock is given a new value or the
+  memory that holds it is moved or assigned, in the function or in a function it calls.
+- A copy of a struct that holds a lock holds a different lock (and is a compile error, Copying a lock,
+  below).
+
+A lock **guards in place** a datum when both are reached from the same base by field selections and
+constant indexes with no pointer load between, or when the lock is **package-level**: a package variable,
+or a field or constant element of one, reached with no pointer load. So `s.mu` and `s.items` in one method
+are a lock and a datum of the same object, and so are `std.mu` and `std.buf` for a static object `std`.
+A lock guards the contents of a map in place when it guards the variable or field that holds the map in
+place: `s.mu` for `s.m[k]`, or a package-level lock for a package-level map.
+Only such locks can guard a datum (The guard set, below). A lock in the frame of a function that starts
+scoped tasks, used by those tasks, is one lock in all of them (section 19.4).
+
+**Held sets.** The **held set** at a statement is the set of locks held there, each with its mode:
+**write** (`Lock`, a `TryLock` that succeeded) or **read** (`RLock`, a `TryRLock` that succeeded).
+
+- A lock is held from `Lock` (or `RLock`, or a successful `TryLock` or `TryRLock` in the branch where it
+  returned true) to `Unlock` (or `RUnlock`), or to the end of the function after `defer mu.Unlock()`.
+  The branch where it returned true is the `if` branch of `if mu.TryLock() {`, and the code after
+  `if !mu.TryLock() { return }`. A result stored in a variable first is not followed.
+- A lock counts as held at a statement only if it is held, under one of its names, on every path to that
+  statement.
+- A lock held around a call counts as held inside the callee, for the callee's accesses. A function that
+  returns with a lock held holds it for its caller, under the caller's name for the argument: after
+  `x.lock()`, `x.mu` is held.
+- `c.Wait(l)` of a `sync.Cond` counts as `l.Unlock()` followed by `l.Lock()`. `Signal` and `Broadcast`
+  need no lock, and they neither take nor release one.
+- A `Lock` of a lock that has no name holds nothing.
+- A call through an interface, a func value or a method value runs its candidates with the caller's held
+  set for their accesses. For releases (Releasing a lock, below), each candidate counts as called with
+  nothing held, so it may release only the locks it takes itself.
+- A generic function is followed for each instantiation, and a method of a type parameter is that method
+  of the type argument.
+
+Each function has a **summary**, which a call uses in place of the callee's body:
+
+- its accesses, each with the locks held at it relative to the callee's start;
+- the locks it **returns holding**;
+- the locks it **releases**, which its caller then no longer holds;
+- the locks it **may release**: a lock released on some path, directly or by a callee, `c.Wait(l)`
+  included, to any depth, even if it is taken again before the return;
+- the func-valued parameters it calls **on another party** (Part of the enclosing function, above), and
+  those it calls from **several scoped tasks at once** (section 19.4, Callees);
+- the Onces whose `Do` it calls on every path to its return, to any depth through calls with a known
+  target (Lazy initialization, below);
+- for each view it returns, the locks under which it was loaded and that stay held to the return with no
+  ending event (Views loaded under a lock, below).
+
+The analysis may show fewer locks held than a run holds, never more. A lock it does not show held counts
+as not held.
+
+**Non-migrating and interrupt-disabled regions.** These two kinds of region are found the way held locks
+are: on every path, across calls, with a deferred release counting as a release at the end of the
+function.
+
+- A **non-migrating region** is a stretch of code where, on every path, preemption is disabled
+  (`rt.DisablePreemption` to `rt.EnablePreemption`), maskable interrupts are disabled (`x86.Cli` to
+  `x86.Sti`, `x86.SaveFlagsCli` to `x86.RestoreFlags`), or an `rt.Lock` is held. The task cannot move to
+  another processor inside it.
+- An **interrupt-disabled region** is a stretch of code where maskable interrupts are disabled by those
+  calls, or an `rt.Lock` is held in kernel mode (abi.md section 12.5: runtime locks disable interrupts
+  there), or the code is the body of a `//pu:interrupt` handler up to a call that may switch tasks
+  (`rt.Preempt`, `rt.Yield`) or to a call of `x86.Sti`, which ends it. A handler is entered through an
+  interrupt gate that disables interrupts (section 20.10), so its body is such a region. The body of a
+  handler marked `//pu:interrupt trap` is not: a trap gate leaves interrupts as they were, so the handler
+  can be re-entered, and it opens an interrupt-disabled region of its own with `x86.Cli` or
+  `x86.SaveFlagsCli` where it needs one. Exceptions and nonmaskable interrupts are not excluded by an
+  interrupt-disabled region; that remains a contract of the kernel (section 20.10).
+
+Section 20.9 (Per-CPU variables) uses both. It also uses them for a store that depends on an earlier load
+of the same per-CPU variable: that is a read-modify-write and needs a non-migrating region, as `ticks++`
+does. The calls named above are not unsafe code: they cannot make an access invalid, and the analysis
+follows them (section 18.12). A wrong pairing can stop a processor, which is a liveness failure, not a
+safety one.
+
+**The guard set.** A write of a datum is **shared** when it conflicts with an access by another party or
+another instance of its own party. The **guard set** G(D) of a datum D is the set of locks that every
+shared write of D holds in write mode and that guard D in place. A write under `RLock` does not count as
+holding that lock. An atomic write counts as holding a lock named "atomic", which no other access holds.
+
+- When D has a shared write and G(D) is empty, D has no guard.
+- A read of D needs a lock of G(D), held in either mode, when some shared write of D may be made by
+  another party or by another instance of the reader's party. The reads of a party that is the only
+  writer of D, and not repeated, need none. For "atomic", the read must be atomic.
+
+**Views loaded under a lock.** A view loaded by a crossing load (Crossings, case 5) from a datum D, or from
+memory D owns, while the party holds locks of G(D), is **valid** at a later use when one of those locks
+stays held on every path from the load to the use, with no **ending event** for it on the way:
+
+- an `Unlock`, `RUnlock` or `c.Wait` of that lock, under any of its names, even if the lock is taken
+  again after it;
+- a call whose summary may release that lock; a view passed to such a call counts as used after the
+  release;
+- the end of the lock's name.
+
+A copy of the view whose uses the compiler cannot follow counts as used with no lock held: one stored
+anywhere but in memory that the same guard set guards, sent on a channel, passed to a task, captured by a
+function literal that is not part of the enclosing function, or held in a method value. An argument of a
+deferred call is used when the call runs, at the end of the function, so it is valid only if the lock is
+still held there (a `defer mu.Unlock()` written before it runs after it). A view that a call returns,
+loaded in the callee, counts as loaded at the call under the locks its summary records for it that the
+caller holds across the whole call.
+
+**Initialization.** Package initialization, and the part of `main` before the start of sharing, run while
+no other party exists. A datum that no access writes after the start of sharing is **unchanged**, with
+the memory it owns.
+
+**Lazy initialization.** A datum that a `sync.Once` initializes needs no lock. A package variable, with
+the memory it owns, is **initialized by** a package-level Once `o` when every write of it after the start
+of sharing is made during a call of a function passed to `o.Do`, and every read of it outside such a call
+is made where a call of `o.Do` has returned on every path to the read. A field of an object, with the
+memory it owns, is initialized in the same way by a Once that is a field of the same object. The Once is
+named as a lock is named (Locks and names, above), so `t.once` and `t.index` reached through one pointer
+are the Once and the data of one object. The return of `f` is synchronized before the return of every
+`Do` (memory-model.md section 3.4), so a read after a returned `Do` sees every write that `f` made.
+
+- **During a call of `f`.** A write is made during the call when it is in `f`, or in a function that `f`
+  calls, on the path from the call of `f` that `Do` makes. The same function reached in any other way,
+  such as a literal that is also called directly or stored, writes outside. A write through a pointer is a
+  write of the data that the compiler names as its target, by where the pointer came from; a write whose
+  target it cannot name is a write of all data of that type. A task that `f` starts is another party, so
+  its writes are outside. A method value's method counts as run outside every `Do`.
+- **After a returned `Do`.** A call of `o.Do` counts for a read when it is made on the reading party, in
+  the reading function or in code that is part of it (above), or in a function called from there whose
+  summary shows a call of `o.Do` on every path to its return, at any depth. A `Do` made by another party,
+  such as the task that started the reader, does not count, and neither does a `Do` reached through an
+  interface, a func value or a method value (`rt.CatchExitTask(func() { o.Do(f) })` included). An
+  interrupt handler cannot call `Do`, which may park (E2584).
+- **Otherwise.** A datum written outside these calls, or read on some path with no returned `Do`, follows
+  rule 1 as other data does. `Do` holds the Once's own lock while `f` runs, so the writes inside `f`
+  hold that lock and it is in the guard set. A write outside with no lock is E3502, which names that
+  write. A read with no returned `Do`, when every write is inside, is E3503, which names the Once and the
+  read. Data written inside the calls of two Onces has no lock that every write holds (E3502).
+- **When `f` does not return.** `Do` returns only after some `f` has returned. A panic in `f` stops the
+  program (section 17.1), and that `Do` never returns. If `f` ends its task with `rt.ExitTask` (section
+  17.3), `Do` does not return to its caller either: its frame leaves with the others. The Once releases
+  its lock and is not done, so the next call of `o.Do` calls its own function, which finds what the first
+  one left. Either way, the writes of an `f` that did not return are followed by the writes of the next
+  `f` under the same lock, and no read follows a returned `Do` until some `f` has returned.
+- **Several functions.** Different calls of `o.Do` may pass different functions. Only one of them
+  returns, and they all write inside. Data that the function which ran did not write keeps the value it
+  had at the start of sharing.
+- **Resetting.** A Once whose whole value is assigned after the start of sharing, or that is moved,
+  dropped or freed with the object that holds it, initializes nothing: its data follows the ordinary
+  rules. A Once cannot be copied (Copying a lock, below).
+- **Views.** A view loaded from the data crosses, and rule 2 decides what it may point to. Dropping or
+  replacing an owner that the data holds is a write (Frees are writes, above), so outside `f` it sends
+  the data back to the ordinary rules. A view obtained through a counted reference held in a local
+  variable ends with that reference (section 18.3), so a use after the reference is dropped is E3313.
+
+```go
+type Config struct{ port int }
+
+var (
+	cfgOnce sync.Once
+	cfg     owned[Config]
+)
+
+func port() int {
+	cfgOnce.Do(func() { cfg = new(Config{port: 8080}) })
+	return cfg.port // allowed: every write of cfg is inside cfgOnce.Do, which has returned here
+}
+
+func serve(done chan bool) {
+	println(port())
+	done <- true
+}
+
+func main() {
+	done := make(chan bool)
+	task serve(done)
+	task serve(done)
+	<-done
+	<-done
+}
+```
+
+A write outside the Once sends the data back to rule 1. Here `reload` replaces the owner with no lock:
+
+```go
+type Limits struct{ max int }
+
+var (
+	limOnce sync.Once
+	lim     owned[Limits]
+)
+
+func maxConns() int {
+	limOnce.Do(func() { lim = new(Limits{max: 64}) })
+	return lim.max
+}
+
+func reload() {
+	lim = new(Limits{max: 128}) // error: E3502, a write of lim outside limOnce.Do, with no lock
+}
+
+func main() {
+	task reload()
+	println(maxConns())
+}
+```
+
+**Ordering used.** The order that channel operations, `sync.WaitGroup.Wait` and the end of a task impose
+is not used: reading shared data after `wg.Wait()` still needs a lock of its guard set. Two orders are
+used: the join of a `sync.Scope`, for the frame data it covers (section 19.4), and the return of
+`sync.Once.Do`, for the data that Once initializes (Lazy initialization, above).
+
+**Rule 1: shared data.** After the start of sharing, each datum that two parties may access, with at
+least one access a write, must be unchanged, initialized by a Once, used only atomically, or guarded. The
+data this rule covers are those that several parties can reach by name: package variables, the fields of
+static objects and of `synced[T]` objects, and the contents of maps, each with the memory it owns.
+Guarded means that the datum has a guard (The guard set, above) and every read that needs one holds a
+lock of it.
+
+- E3502: a datum with a shared write has no guard. The error names a write, the party that makes it (by
+  the statement that starts it), and an access of another party it may meet.
+- E3503: a read holds no lock of the guard set it needs. The error names the guard set, the writes that
+  hold it, and the read.
+- E2010: a package variable whose type is not sendable (one that holds a `shared[T]`) is used by two
+  parties, since copying a reference out of it changes a count with plain arithmetic.
+- E3502: assigning a new value to a lock that another party may also use, which names the assignment. No
+  guard can order it with the other party's critical section, which lasts from its `Lock` to its
+  release. Moving or freeing the memory that holds such a lock is a write of that memory, which this rule
+  already covers.
+
+A field of a static object or of a `synced[T]` object can be guarded only by a lock of the same object or
+a package-level lock (guards in place). Writes that initialize a `synced[T]` object before the reference
+is first copied do not count. A map used by one party at a time needs no lock. Maps of one type that a
+party fills before it shares them, and maps of types that never cross, need no lock either. Once a map of
+a type crosses, maps of that type that parties fill for themselves after handing them to a function must
+hold the guard too, or the shared map takes a type of its own. Per-CPU variables follow section 20.9
+instead of this rule.
+
+```go
+var (
+	mu   sync.Mutex
+	hits int
+)
+
+func handle(done chan bool) {
+	mu.Lock()
+	hits++ // every write holds mu: G(hits) is {mu}
+	mu.Unlock()
+	done <- true
+}
+
+func main() {
+	done := make(chan bool)
+	for i := 0; i < 4; i++ {
+		task handle(done)
+	}
+	for i := 0; i < 4; i++ {
+		<-done
+	}
+	println(hits) // error: E3503, hits is read without holding mu
+}
+```
+
+**Rule 2: what may cross.** A view that crosses must point to memory that is safe for every party that
+may use it. That includes a view the party loads from shared memory, and a view held in an interface,
+func value or method value that it loads, wherever the view was stored. The memory must be one of these:
+
+1. **Owned.** The memory of an owner that moved to the party, under the exclusivity of Owner transfer
+   requires exclusivity (below).
+2. **Never changes while shared.** A package variable or part of one, or a field of a static object, that
+   is unchanged (Initialization, above), with the memory it owns; or such data that a Once initializes,
+   read where that Once's `Do` has returned (Lazy initialization, above).
+3. **Atomic or synchronized.** Memory of a `pluto/sync` or `pluto/sync/atomic` type, a runtime record
+   (`rt.Task`, `rt.Timer`), a channel, or a struct of only those (`task worker(&wg)` with a package-level
+   `wg`). Also a struct object of one of these kinds, each of whose fields meets the **field
+   conditions**: it is unchanged once the object is shared, or it is used only atomically, or it is
+   guarded by locks that guard it in place (of the same object, or package-level), or it is initialized by
+   a Once of the same object:
+   - a static object;
+   - the object of a `synced[T]`;
+   - an object whose type satisfies rule 3, the type rule.
+4. **Guarded.** A datum that rule 1 guards, a field of an object of case 3 that is guarded by the field
+   conditions, or memory that either owns, through a view that is valid at each use (Views loaded under a
+   lock, above). Every access to that memory, by every party and through every view of it, holds a lock
+   of its guard set (a write in write mode). A lock held around a call counts inside the callee, so
+   `items.Push(x)` between `mu.Lock()` and `mu.Unlock()` may load the backing storage of a package-level
+   `vec.Vec`; `hash.Map` and `strings.Builder` are used the same way.
+
+A pointer to, or slice of, anything other than a struct crosses only in cases 1, 2 and 4 and the
+`pluto/sync` part of case 3. Anything else is error E3501, at the crossing, or at the use for case 4. It
+names a write that could change the memory while the other party uses it, or for case 4 the event that
+ended the view. The fixes: pass a copy of the value; move an owner (a `vec.Vec` instead of a slice) so
+that only the receiver has it; or keep the shared data where rule 1 guards it, and use views of it only
+while a lock of its guard set is held.
+
+A static object stays static when code assigns a new pointer to the package variable that refers to it:
+the assignment is a write of the variable under rule 1, so it needs the variable's guard or an atomic
+store, and a party that loaded the old pointer may go on using the old object. A party that loads the
+variable after that gets the new object, which must be safe for it by its own case.
+
+```go
+type Config struct{ n int }
+type Server owner struct{ cfg owned[Config] }
+
+var srv Server
+
+func watch(c *Config) { for { println(c.n) } }
+
+func start() {
+	srv.cfg = new(Config)
+	task watch(&*srv.cfg) // error: E3501, the next line frees the Config that watch reads
+	srv.cfg = new(Config) // assigning to the owner drops the old Config: a write of it
+}
+```
+
+A pointer that reaches a task through a package variable instead of an argument crosses in the same way.
+Here `reader` loads `p`, so the `Node` it points to must be safe for `reader` and `main`. The next
+assignment to `b` drops that `Node`, which is a write of it after the start of sharing, so the `Node` is
+neither unchanged memory nor of a type that satisfies the type rule:
+
+```go
+type Node struct{ n int }
+
+var (
+	b owned[Node]
+	p *Node
+)
+
+func reader() { println(p.n) } // error: E3501, p is loaded here and main frees the Node it points to
+
+func main() {
+	b = new(Node)
+	p = &*b
+	task reader()
+	b = new(Node) // drops the Node that p points to
+}
+```
+
+A container in a package variable under one lock is the common case of guarded owned memory. Here every
+access to `items`, and to the storage it owns, holds `mu`. `Push` loads the backing slice from that
+storage, which is a crossing, and uses it only inside the call, where `mu` is held:
+
+```go
+// items and the storage it owns are guarded by mu.
+var (
+	mu    sync.Mutex
+	items vec.Vec[int]
+)
+
+func add(x int, done chan bool) {
+	mu.Lock()
+	items.Push(x) // allowed: Push uses the backing slice while mu is held
+	mu.Unlock()
+	done <- true
+}
+
+func start(done chan bool) {
+	for i := 0; i < 4; i++ {
+		task add(i, done)
+	}
+}
+```
+
+A view that outlives its lock is the error. Here `first` returns a pointer into the storage after its
+deferred `Unlock` has run, and `Push` in another task may move the elements and free that storage:
+
+```go
+// first lets a pointer into items escape its lock.
+var (
+	mu    sync.Mutex
+	items vec.Vec[int]
+)
+
+func first() *int {
+	mu.Lock()
+	defer mu.Unlock()
+	return items.Ptr(0)
+}
+
+func grow() {
+	mu.Lock()
+	items.Push(1)
+	mu.Unlock()
+}
+
+func read() {
+	p := first()
+	println(*p) // error: E3501, p points into items and is used after mu is released
+}
+
+func start() {
+	task grow()
+	task read()
+}
+```
+
+The same holds for memory owned by a static object. `std` is static, `mu` guards `buf` in place, and
+`Push` uses the backing storage of `buf` only while `l.mu` is held:
+
+```go
+type Logger struct {
+	mu  sync.Mutex
+	buf vec.Vec[string]
+}
+
+var std = &Logger{}
+
+func (l *Logger) Print(s string) {
+	l.mu.Lock()
+	l.buf.Push(s) // allowed: memory owned by a static object, used while l.mu is held
+	l.mu.Unlock()
+}
+
+func work(done chan bool) {
+	std.Print("hello\n")
+	done <- true
+}
+
+func main() {
+	done := make(chan bool)
+	task work(done)
+	task work(done)
+	<-done
+	<-done
+}
+```
+
+A wait loop on a `sync.Cond` keeps its lock. `Wait(&mu)` releases `mu` while it waits and holds it again
+when it returns, so `mu` is held on every path to `Len` and `Pop`, and `Pop` loads the storage after the
+last `Wait`:
+
+```go
+type Job struct{ id int }
+
+var (
+	mu       sync.Mutex
+	nonEmpty sync.Cond
+	jobs     vec.Vec[Job]
+)
+
+func push(j Job) {
+	mu.Lock()
+	jobs.Push(j)
+	mu.Unlock()
+	nonEmpty.Signal() // needs no lock
+}
+
+func worker() {
+	mu.Lock()
+	for jobs.Len() == 0 {
+		nonEmpty.Wait(&mu) // allowed: counts as mu.Unlock() and then mu.Lock()
+	}
+	j, _ := jobs.Pop()
+	mu.Unlock()
+	println(j.id)
+}
+
+func start() {
+	task worker()
+	task worker()
+	push(Job{id: 1})
+	push(Job{id: 2})
+}
+```
+
+A view kept across the `Wait` is ended by it. Here `add` may grow `names` while `second` waits, which
+moves the elements and frees the storage that `p` points into:
+
+```go
+// second keeps a pointer into names across a Wait.
+var (
+	mu    sync.Mutex
+	ready sync.Cond
+	names vec.Vec[string]
+)
+
+func add(s string) {
+	mu.Lock()
+	names.Push(s)
+	mu.Unlock()
+	ready.Broadcast()
+}
+
+func second() {
+	mu.Lock()
+	for names.Len() < 1 {
+		ready.Wait(&mu)
+	}
+	p := names.Ptr(0)
+	for names.Len() < 2 {
+		ready.Wait(&mu)
+	}
+	println(*p) // error: E3501, p was loaded under mu and is used after a Wait released mu
+	mu.Unlock()
+}
+
+func start() {
+	task second()
+	add("a")
+	add("b")
+}
+```
+
+A call that may release the lock ends a view in the same way, even when the call returns with the lock
+held. Here the summary of `waitNonEmpty` records that it may release `q.mu`:
+
+```go
+// peekWait keeps a view across a call that may release q.mu.
+type Queue struct {
+	mu       sync.Mutex
+	nonEmpty sync.Cond
+	items    vec.Vec[int]
+}
+
+func (q *Queue) waitNonEmpty() {
+	for q.items.Len() == 0 {
+		q.nonEmpty.Wait(&q.mu)
+	}
+}
+
+func (q *Queue) peekWait() int {
+	q.mu.Lock()
+	p := q.items.Ptr(0)
+	q.waitNonEmpty() // may release q.mu: ends p
+	v := *p          // error: E3501, p is used after a call that may release q.mu
+	q.mu.Unlock()
+	return v
+}
+
+var q = &Queue{}
+
+func main() {
+	task q.peekWait()
+	q.mu.Lock()
+	q.items.Push(1)
+	q.mu.Unlock()
+	q.nonEmpty.Signal()
+}
+```
+
+A static object needs no lock to be reached. `os.Stdout` points to a `File` that the package initializer
+of `pluto/os` created, so every task may print through it, even while other tasks drop the files they
+opened. The `File` fields that change are used atomically:
+
+```go
+func work(name string, done chan bool) {
+	if f, err := os.Open(name); err == nil {
+		f.Close() // f is dropped at the end of the if: another File, which does not count
+	}
+	fmt.Println("done with", name) // allowed: os.Stdout points to a static File
+	done <- true
+}
+
+func start(done chan bool) {
+	task work("a", done)
+	task work("b", done)
+}
+```
+
+**Rule 3: the type rule.** An object of a struct type crosses by case 3 of rule 2 when the type satisfies
+the **type rule**:
+
+- **The free condition.** No code overwrites a whole object of the type through a pointer, or frees,
+  drops or moves one (or replaces or drops an owner that holds one, or resets, releases or drops an arena
+  that allocated one) after the start of sharing. A static object is exempt: a drop, free, move or
+  overwrite of another object of the same type does not count against it.
+- **The field conditions** of rule 2 case 3 hold for every field, with the guard sets inferred as for
+  rule 1.
+
+Writes that initialize an object do not count: writes through a pointer to memory the function allocated
+(or that a function returned after allocating it and keeping it to itself, such as a constructor), made
+before the pointer is stored, passed to a function that keeps it, sent or returned, including writes by
+a function it is passed to for that purpose. So an object built by its constructor and then only read,
+and an object whose methods all hold its own `sync.Mutex`, may both be shared. An object that some code
+frees while tasks run fails the free condition, since a task could still use it: share it as the object
+of a `synced[T]`, whose last release frees it after every use, or hand it over by moving its owner. A
+type that fails the rule gives E3501 at the crossing, which names a write that breaks it.
+
+```go
+type Counter struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (c *Counter) Add()      { c.mu.Lock(); c.n++; c.mu.Unlock() }
+func (c *Counter) Peek() int { return c.n } // makes the task statement below error E3501:
+                                            // n is changed under c.mu in Add and read here without it
+
+var counter Counter
+
+func run(done chan bool) {
+	task work(&counter, done) // work calls Add, and run calls Peek
+	println(counter.Peek())
+}
+```
 
 **Releasing a lock.** Every call of `Unlock` or `RUnlock` of a `sync.Mutex`, a `sync.RWMutex` or an
-`rt.Lock`, and every `c.Wait(l)` of a `sync.Cond`, must release a lock that the calling task holds at that
-call by the inference above: held on every path to the call, for writing (`Lock`, `TryLock`) for `Unlock`
-and `Wait`, and for reading (`RLock`, `TryRLock`) for `RUnlock`. Otherwise the call is a compile error,
-which names the call and a path on which the lock is not held. Interrupt handlers follow the same rule. The
-rule needs no annotation and costs nothing at run time. It covers a read lock, which has no single owner:
-each task releases only the read lock it took. So no task can release a lock that another task holds. A
-locked lock cannot be handed to another task to unlock. To let another task end the work, send it a
-message on a channel, or start it in a `sync.Scope` and wait for it. Where one task must take a permit
-and another give it back, use a buffered channel as the semaphore: any task may receive from it or send
-to it.
+`rt.Lock`, and every `c.Wait(l)` of a `sync.Cond`, must release a lock that the calling party holds at
+that call by the held set: held on every path to the call, in write mode for `Unlock` and `Wait`, and in
+read mode for `RUnlock`. Otherwise the call is a compile error, which names the call and a path on which
+the lock is not held. A lock the compiler cannot name cannot be shown held, so its release is an error:
+`l.Unlock()` on a `sync.Locker` or any other interface value, a `Wait` given the result of
+`rw.RLocker()` or a `Locker` held in a variable, and a `Wait` called through an interface or a func value.
+Pass the lock's own type (`*sync.Mutex`) or use a type parameter. Interrupt handlers follow the same
+rule. The rule needs no annotation and costs nothing at run time. It covers a read lock, which has no
+single owner: each party releases only the read lock it took. So no party can release a lock that
+another party holds. A locked lock cannot be handed to another party to unlock. To let another task end
+the work, send it a message on a channel, or start it in a `sync.Scope` and wait for it. Where one task
+must take a permit and another give it back, use a buffered channel as the semaphore: any task may
+receive from it or send to it.
 
-How "held at the release" is decided:
+How the held set applies at a release:
 
-- **Names.** The compiler must name the lock the same way at the `Lock` and at the release, so that both
-  reach the same lock on every path. A name is a package variable that is not a pointer, or a local
-  variable or parameter (the receiver included), followed by field selections and constant indexes of
-  arrays. Only the variable itself may hold a pointer on the way. So `mu`, `s.mu`, `s.inner.mu` (with
-  `inner` a struct field) and `table[0]` are names, but `s.next.mu` is not: it loads a pointer from memory
-  at each use, and another task may change that pointer in between. Copy the pointer into a local:
-  `n := s.next; n.mu.Lock(); ...; n.mu.Unlock()`. A local that holds a pointer names nothing if its
-  address is taken or a function literal assigns it. A parameter names, at each call, the lock its argument
-  names there.
-- **Assignments and moves.** Assigning to a variable ends every name through it. A copy carries the
-  names: after `cur = next`, the lock held as `next.mu` is held as `cur.mu` too, and a release through
-  either name ends both. Assigning a new value to a lock, or moving or assigning the memory that holds it,
-  in the function or in a function it calls, ends its name, so a later release is an error. A copy of a
-  struct that holds a lock holds a different lock, which is not held. Assigning a new value to a lock
-  that another task may also use is error E3502, which names the assignment: no guard can order it with
-  the other task's critical section, which lasts from its `Lock` to its release. Moving or freeing the
-  memory that holds such a lock is a write of that memory, which the rules above already reject while
-  another task may use it.
-- **Variable indexes.** `locks[i]` with a variable index is not a name. Take a pointer once and use it for
-  both calls: `l := &locks[i]; l.Lock(); ...; l.Unlock()`.
-- **`TryLock`.** The lock is held in the branch where the call returned true: the `if` branch of
-  `if mu.TryLock() {`, and the code after `if !mu.TryLock() { return }`.
+- **Names.** A release through one name of a lock ends all its names. A local or parameter that is
+  assigned before the release names a different lock there.
 - **`defer`.** `defer mu.Unlock()` releases at the end of the function, also when it ends by a panic. So
   the lock must be held at the `defer` statement and at every point after it. A `c.Wait(&mu)` there keeps
   it held, since `Wait` takes the lock again before it returns. Deferred calls run in reverse order, and
   each must find its lock held after the ones that run before it.
 - **Loops.** A lock taken and released in one iteration is held between the two on every path. A lock
   released after a loop must be held on every path out of the loop, including the one that skips it.
-- **Calls.** A function that returns with a lock held, such as `func (s *S) lock() { s.mu.Lock() }`, holds
-  it for its caller under the caller's name for the argument: after `x.lock()`, `x.mu` is held. A release
-  in a callee, such as `func (s *S) unlock() { s.mu.Unlock() }`, is allowed when every call of the callee
-  holds the lock its argument names, and the caller then no longer holds it. A function reached through an
-  interface, a func value or a method value counts as called with no lock held for this rule, so it may
-  release only locks it takes itself. A helper that locks and unlocks its own parameter around a call of a
-  func value, `withLock(&mu, f)`, compiles.
+- **Calls.** A release in a callee, such as `func (s *S) unlock() { s.mu.Unlock() }`, is allowed when
+  every call of the callee holds the lock its argument names, and the caller then no longer holds it. A
+  function reached through an interface, a func value or a method value counts as called with nothing
+  held, so it may release only locks it takes itself. A helper that locks and unlocks its own parameter
+  around a call of a func value, `withLock(&mu, f)`, compiles.
 - **Recursion.** A recursive function may release a lock only if every call of it, the recursive calls
   included, holds that lock, for chains of calls of any depth.
-- **Function literals.** A literal called where it is written, or deferred, such as
-  `defer func() { mu.Unlock() }()`, is part of the function that contains it, at the point where it runs.
-  So is the body of a range-over-func loop (section 12.11), with the iterator as a call around it: a lock
-  taken in the body and released by a `defer` there is held where the function returns. A literal used in
-  any other way is a func value.
-- **Generics.** The rule is checked for each instantiation, and a method of a type parameter is that
-  method of the type argument. So `func withLocked[L sync.Locker](l L, f func())` that locks and unlocks
-  `l` compiles when `L` is `*sync.Mutex`.
-- **Interfaces.** `l.Unlock()` on a `sync.Locker`, or on any interface value, does not name a lock, so it
-  is an error. Pass the lock's own type (`*sync.Mutex`) or use a type parameter.
+- **Generics.** So `func withLocked[L sync.Locker](l L, f func())` that locks and unlocks `l` compiles
+  when `L` is `*sync.Mutex`, and is an error when `L` is the interface `sync.Locker`.
 
 The methods of `sync.Mutex` and `sync.RWMutex`, of the `Locker` that `RWMutex.RLocker` returns, and
-`sync.Cond.Wait` release locks that their callers hold, through a lock inside the type or the `Locker` they
-are given. They are trusted for this (section 18.12), and the rule is checked at each call of them instead.
-The runtime (`pluto/rt`), which implements `rt.Lock`, channels and the scheduler, is outside the race rules
-(What is not checked, below). No other code needs an exemption.
+`sync.Cond.Wait` release locks that their callers hold, through a lock inside the type or the `Locker`
+they are given. They are trusted for this (section 18.12), and the rule is checked at each call of them
+instead. The runtime (`pluto/rt`), which implements `rt.Lock`, channels and the scheduler, is outside the
+race rules (What is not checked, below). No other code needs an exemption.
 
 ```go
 type Stats struct {
@@ -309,27 +966,39 @@ func finish() {
 }
 ```
 
-**Non-migrating and interrupt-disabled regions.** These two kinds of region are found the way held locks are: on every path, across calls, with a
-deferred release counting as a release at the end of the function.
+A range-over-func body is part of the function that holds the lock only when the iterator calls `yield`
+on that function's party. Here `par` calls `yield` in a scoped task, so the body is a func value run by
+that task, which holds nothing:
 
-- A **non-migrating region** is a stretch of code where, on every path, preemption is disabled
-  (`rt.DisablePreemption` to `rt.EnablePreemption`), maskable interrupts are disabled (`x86.Cli` to `x86.Sti`,
-  `x86.SaveFlagsCli` to `x86.RestoreFlags`), or an `rt.Lock` is held. The task cannot move to another
-  processor inside it.
-- An **interrupt-disabled region** is a stretch of code where maskable interrupts are disabled by those
-  calls, or an `rt.Lock` is held in kernel mode (abi.md section 12.5: runtime locks disable interrupts
-  there), or the code is the body of a `//pu:interrupt` handler up to a call that may switch tasks
-  (`rt.Preempt`, `rt.Yield`) or to a call of `x86.Sti`, which ends it. A handler is entered through an
-  interrupt gate that disables interrupts (section 20.10), so its body is such a region. The body of a
-  handler marked `//pu:interrupt trap` is not: a trap gate leaves interrupts as they were, so the handler
-  can be re-entered, and it opens an interrupt-disabled region of its own with `x86.Cli` or `x86.SaveFlagsCli` where it needs one.
-  Exceptions and nonmaskable interrupts are not excluded by an interrupt-disabled region; that remains a contract of the kernel
-  (section 20.10).
+```go
+// par runs the loop body in a scoped task.
+var (
+	mu   sync.Mutex
+	data int
+)
 
-Section 20.9 (Per-CPU variables) uses both. It also uses them for a store that depends on an earlier load
-of the same per-CPU variable: that is a read-modify-write and needs a non-migrating region, as `ticks++` does. The calls named above are not unsafe code: they cannot make an
-access invalid, and the analysis follows them (section 18.12). A wrong pairing can stop a processor, which
-is a liveness failure, not a safety one.
+func par(yield func() bool) {
+	var s sync.Scope
+	s.Task(func() { yield() })
+	s.Wait()
+}
+
+func f() {
+	mu.Lock()
+	for range par {
+		mu.Unlock() // error: the body runs on another party, which does not hold mu
+		mu.Lock()
+	}
+	mu.Unlock()
+}
+
+func g() { mu.Lock(); data++; mu.Unlock() }
+
+func main() {
+	task g()
+	f()
+}
+```
 
 **Waiting in a non-migrating region.** An operation that may park the task is a compile error where the
 check below reaches it inside a non-migrating region: between `rt.DisablePreemption` and
@@ -430,507 +1099,154 @@ memory or data race error. Calls through operations tables and allocation while 
 ordinary in a kernel, and a conservative rule would reject them. This is the one check in the language
 that accepts a program on doubt (section 1.2, Design rules).
 
-**Guards.** For data that several tasks may use, the compiler infers its **guard**: a lock that every
-write of the data holds for writing (`Lock`, not `RLock`). The data is safe when every access, read or
-write, holds its guard; a read may hold it with `RLock`. Data that every access reads or changes with
-`pluto/sync/atomic` operations (the methods of `atomic.Int64` and the other atomic types, or functions
-such as `atomic.AddInt64(&x, 1)`) needs no lock. A field of a struct is one piece of data, and all the
-elements of an array or slice together are one piece, except that elements selected by different constant
-indexes (`table[0]`, `table[1]`) are different pieces; an element selected by a variable index counts as
-every element. Writing a whole struct writes all its fields.
-
-**Frees are writes.** Dropping, freeing or moving an object counts as a write of the whole object, and so
-does assigning a new value to, or dropping, any owner that holds it (directly, or through owners that hold
-one another). A `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked`, the drop at the end
-of the arena's scope included, takes memory back. It counts as freeing every object that `New` or `Slice`
-allocated in that arena, of every type, whether or not the type has drop glue. The compiler cannot tell
-which objects come after a mark, so a `Release` counts as freeing objects of every type allocated in the
-arena too. The drops that the arena's drop entries run (section 18.9, Drop entries) count on top of that.
-An allocation made through the arena's `Alloc` and still live makes the call panic and take nothing back
-(section 18.9, Live allocations), so it is not freed. The compiler names an arena as it names a lock: by
-the variable or field it is reached through, and for a pointer by where the pointer came from. A call on
-an arena it cannot name, such as `workers[i].arena` with a variable index, counts as that call on every
-arena it may be, within the limits of section 18.3 (How precise the frame check is); beyond those
-limits, such as an arena reached through more loads than they allow, it counts as that call on every
-arena of the program. The name follows a move of the arena: after `b := take(a)` or another move, the
-arena is named by `b`, and a call on `b` frees the objects allocated through `a` before the move. This holds for rules
-1 to 3 below, for the type rule, and for scoped tasks (section 19.4). So
-an object reached through an owner can change while some code may replace, drop or move that owner, and in
-safe code no task frees memory that another task may still use (memory-model.md section 4.1).
-Values of `pluto/sync` and `pluto/sync/atomic` types synchronize themselves through their methods, and
-assigning a whole new value to one is an ordinary write.
-
-**Rule 1: package variables.** A package variable, or a field or element of one, that two tasks may use,
-or that the tasks of one task statement may use while several run, with at least one of them writing it
-after tasks have started, must be atomic or guarded. Per-CPU variables follow section 20.9 instead.
-A package variable here includes the memory it owns: the object of an `owned[T]` it holds and the memory
-of the owners it holds, through owners that hold one another. A pointer or other view loaded from a
-package variable is a value of the variable for this rule, and a value that crosses to the task that loads
-it (section 19.2), so what it points to follows rule 2. A package variable whose type is not sendable (one
-that holds a `shared[T]`) may be used by one task only, since copying a reference out of it changes a
-count with plain arithmetic: a use by a second task, or by the tasks of one task statement while several
-run, is error E2010.
-
-- E3502: it is written with no lock that every write holds. The error names the write, the task that
-  makes it (by the statement that starts it), and an access of another task it may meet.
-- E3503: it is read without its guard. The error names the guard, the writes that hold it, and the read.
-
-```go
-var (
-	mu   sync.Mutex
-	hits int
-)
-
-func handle(done chan bool) {
-	mu.Lock()
-	hits++ // every write holds mu: mu guards hits
-	mu.Unlock()
-	done <- true
-}
-
-func main() {
-	done := make(chan bool)
-	for i := 0; i < 4; i++ {
-		task handle(done)
-	}
-	for i := 0; i < 4; i++ {
-		<-done
-	}
-	println(hits) // error: E3503, hits is read without holding mu
-}
-```
-
-A package variable written only during package initialization, or only by `main` before it starts its
-first task, may be read by every task without a lock. That covers the variable and the memory it owns. A
-pointer read from it still crosses, so memory the variable does not own, such as an object that a handler
-table registered during initialization points to, is safe only by rule 2.
-
-**Lazy initialization.** Data that a `sync.Once` initializes needs no lock either. A package variable,
-with the memory it owns, is **initialized by** a package-level Once `o` when, once tasks have started,
-every write of it is made during a call of a function passed to `o.Do`, and every read of it outside such
-a call is made where a call of `o.Do` has returned on every path to the read. A field of an object, with
-the memory it owns, is initialized in the same way by a Once that is a field of the same object. The
-Once is named as a lock is named (Accesses and locks, above), so `t.once` and `t.index` reached through
-one pointer are the Once and the data of one object. Data that a Once initializes may be read by every
-task without a lock. The return of `f` is synchronized before the return of every `Do` (memory-model.md
-section 3.4), so a read after a returned `Do` sees every write that `f` made.
-
-- **During a call of `f`.** A write is made during the call when it is in `f`, or in a function that `f`
-  calls, on the path from the call of `f` that `Do` makes; a callee counts as a lock held around a call
-  counts inside the callee. The same function reached in any other way, such as a literal that is also
-  called directly or stored, writes outside. A write through a pointer is a write of the data that the
-  compiler names as its target, by where the pointer came from; a write whose target it cannot name is a
-  write of all data of that type. A task that `f` starts is another task, so its writes are outside. A
-  method value's method counts as run outside every `Do`, as it counts as run with no lock held. Writes
-  made during package initialization, or by `main` before it starts its first task, do not count.
-- **After a returned `Do`.** A call of `o.Do` counts for a read when it is made in the reading function,
-  or in a function that it calls directly and that calls `o.Do` on every path to its return, as a lock
-  held at a return counts for the caller. A `Do` made by another task, such as the task that started
-  the reader, does not count, and neither does a `Do` reached through an interface, a func value or a
-  method value (`rt.CatchExitTask(func() { o.Do(f) })` included). An interrupt handler cannot call `Do`,
-  which may park (E2584), so it never reads data a Once initializes without the ordinary rules.
-- **Otherwise, the ordinary rules.** Data written outside these calls, or read on some path with no
-  returned `Do`, follows rule 1 as other data does. `Do` holds the Once's own lock while `f` runs, so the
-  writes inside `f` hold that lock and it is the inferred guard. A write outside with no lock is E3502,
-  which names that write. A read with no returned `Do`, when every write is inside, is E3503, which names
-  the Once and the read. Data written inside the calls of two Onces has no lock that every write holds
-  (E3502).
-- **When `f` does not return.** `Do` returns only after some `f` has returned. A panic in `f` stops the
-  program (section 17.1), and that `Do` never returns. If `f` ends its task with `rt.ExitTask` (section
-  17.3), `Do` does not return to its caller either: its frame leaves with the others. The Once releases
-  its lock and is not done, so the next call of `o.Do` calls its own function, which finds what the first
-  one left. Either way, the writes of an `f` that did not return are followed by the writes of the next
-  `f` under the same lock, and no read follows a returned `Do` until some `f` has returned.
-- **Several functions.** Different calls of `o.Do` may pass different functions. Only one of them
-  returns, and they all write inside. Data that the function which ran did not write keeps the value it
-  had when tasks started.
-- **Copying and resetting.** A Once whose whole value is assigned once tasks have started, or that is
-  moved, dropped or freed with the object that holds it, initializes nothing: its data follows the
-  ordinary rules. A copy of a Once is another Once, so a `Do` on the copy does not count for the data of
-  the first.
-- **Views.** A pointer or slice loaded from the data crosses (section 19.2), and rule 2 decides what it
-  may point to. Memory that the data owns is safe by rule 2 case 2 for a package variable, and case 3 for
-  a `synced[T]` object. Dropping or replacing an owner that the data holds is a write (Frees are writes,
-  above), so outside `f` it sends the data back to the ordinary rules, and a view loaded from it is E3501
-  as well, naming that write. A view obtained through a counted reference held in a local variable ends
-  with that reference (section 18.3), so a use after the reference is dropped is E3313.
-
-```go
-type Config struct{ port int }
-
-var (
-	cfgOnce sync.Once
-	cfg     owned[Config]
-)
-
-func port() int {
-	cfgOnce.Do(func() { cfg = new(Config{port: 8080}) })
-	return cfg.port // allowed: every write of cfg is inside cfgOnce.Do, which has returned here
-}
-
-func serve(done chan bool) {
-	println(port())
-	done <- true
-}
-
-func start(done chan bool) {
-	task serve(done)
-	task serve(done)
-}
-```
-
-A write outside the Once sends the data back to rule 1. Here `reload` replaces the owner with no lock:
-
-```go
-type Limits struct{ max int }
-
-var (
-	limOnce sync.Once
-	lim     owned[Limits]
-)
-
-func maxConns() int {
-	limOnce.Do(func() { lim = new(Limits{max: 64}) })
-	return lim.max
-}
-
-func reload() {
-	lim = new(Limits{max: 128}) // error: E3502, a write of lim outside limOnce.Do, with no lock
-}
-
-func start() {
-	task reload()
-	println(maxConns())
-}
-```
-
-**Rule 2: views that cross.** A pointer or slice that crosses to another task (section 19.2) must point
-to memory that is safe for both. That includes a pointer the task loads from a package variable, from the
-object of a `synced[T]` or from a map, and a view held in an interface, func value or method value that it
-loads from one, wherever the view was stored. The memory must be:
-
-- memory of a `pluto/sync` or `pluto/sync/atomic` type, a runtime record (`rt.Task`, `rt.Timer`), a
-  channel, or a struct of only those (`task worker(&wg)` with a package-level `wg`);
-- a package variable, or part of one, including the memory it owns (rule 1), that no task writes once
-  tasks have started, or that a package-level Once initializes (rule 1, Lazy initialization), read where
-  that Once's `Do` has returned. Replacing, dropping or moving an owner the variable holds writes the memory it
-  owns (Frees are writes, above). This case also covers a **static object**: an object that a
-  package-level initializer creates as a composite literal whose address it takes (`var Stdout =
-  &File{fd: 1}`), so that it lives in static storage (section 18.2), and that no code moves, drops or
-  overwrites as a whole once tasks have started. Nothing frees static storage, and its cleanup runs only
-  in package cleanup, after the tasks have ended (section 15.4), so the free condition of the type rule
-  below does not apply to it: a drop, free, move or overwrite of another object of the same type does
-  not count. A static object may change, but each of its fields or elements must meet the field
-  conditions of the type rule: it never changes once tasks have started, or it is used only atomically,
-  or only under one lock of the same object or one package-level lock. The compiler names the target of
-  a `take(p)` or an assignment `*p = v` as it names a lock, by where the
-  pointer came from; one it cannot name counts as a move of every static object of the type. A static
-  object stays static when code assigns a new pointer to the package variable that refers to it: the
-  assignment is a write of the variable under rule 1, so once tasks have started it needs the variable's
-  guard or an atomic store, and a task that loaded the old pointer may go on using the old object. A
-  task that loads the variable after that gets the new object, which must be safe for it by its own
-  case;
-- the object of a `synced[T]` (rule 3), and memory that it owns and that a Once of the same object
-  initializes, read where that Once's `Do` has returned;
-- memory that a package variable owns (rule 1), or that the object of a `synced[T]` owns through owners
-  that hold one another, when every access to that memory, by every task and through every view of it,
-  holds the guard inferred for it (Guards, above; a write holds it for writing), and the view is used
-  only while the guard it was loaded under is still held: on every path from the load to the use, the
-  guard is held and not released. A release between them counts even when the lock is taken again, by
-  `Unlock` and `Lock` or by a `Cond.Wait` that releases it (Accesses and locks, above), since another
-  task may have changed or freed the memory in between. The guard of a package variable is the one rule 1 infers,
-  and the guard of a `synced[T]` object is the lock of the same object that rule 3 infers. A lock held
-  around a call counts inside the callee, so `items.Push(x)` between `mu.Lock()` and `mu.Unlock()` may
-  load the backing slice of a package-level `vec.Vec`; `hash.Map` and `strings.Builder` are used the
-  same way. A use of the view where no guard is held, on some path, is error E3501. That includes a view
-  used after `Unlock`, or returned to a caller that uses it after the callee unlocks. A copy of the view
-  whose uses the compiler cannot follow counts as used with no lock held: one stored anywhere but in
-  memory that the same guard guards, sent on a channel, passed to a task, captured by a function literal
-  that is not called where it is written, or held in a method value. An argument of a deferred call is
-  used when the call runs, at the end of the function, so it holds the guard only if the guard is still
-  held there (a `defer mu.Unlock()` written before it runs after it);
-- an object of a struct type that satisfies the **type rule**: no code overwrites a whole object of the
-  type through a pointer, or frees, drops or moves one (or replaces or drops an owner that holds one) once
-  tasks have started, and each field either never changes once an object is shared, or is used only
-  atomically, or only under one lock of the same object or one package-level lock, inferred as above,
-  or is initialized by a Once of the same object (rule 1, Lazy initialization).
-  Writes that initialize an object do not count: writes through a pointer to memory the function
-  allocated (or that a function returned after allocating it and keeping it to itself, such as a
-  constructor), made before the pointer is stored, passed to a function that keeps it, sent or returned,
-  including writes by a function it is passed to for that purpose. So an object built by its constructor
-  and then only read, and an object whose methods all hold its own `sync.Mutex`, may both be shared.
-  An object that some code frees while tasks run is not safe for an unscoped task by this rule, since the
-  task could still use it: such an object is shared as the object of a `synced[T]`, whose last release
-  frees it after every use (rule 3), or handed over by moving its owner.
-
-A pointer to, or slice of, anything other than a struct crosses only in the first four cases. Anything
-else is error E3501, which names a write that could change the memory while the other task uses it. The
-fixes: pass a copy of the value; move an owner (a `vec.Vec` instead of a slice) so that only the receiver
-has it; or keep the shared data where rules 1 and 3 guard it, and use views of it only while the guard
-is held.
-
-```go
-type Config struct{ n int }
-type Server owner struct{ cfg owned[Config] }
-
-var srv Server
-
-func watch(c *Config) { for { println(c.n) } }
-
-func start() {
-	srv.cfg = new(Config)
-	task watch(&*srv.cfg) // error: E3501, the next line frees the Config that watch reads
-	srv.cfg = new(Config) // assigning to the owner drops the old Config: a write of it
-}
-```
-
-A pointer that reaches a task through a package variable instead of an argument crosses in the same way.
-Here `reader` loads `p`, so the `Node` it points to must be safe for `reader` and `main`. The next
-assignment to `b` drops that `Node`, which is a write of it once tasks have started, so the `Node` is
-neither unchanged memory nor of a type that satisfies the type rule:
-
-```go
-type Node struct{ n int }
-
-var (
-	b owned[Node]
-	p *Node
-)
-
-func reader() { println(p.n) } // error: E3501, p is loaded here and main frees the Node it points to
-
-func main() {
-	b = new(Node)
-	p = &*b
-	task reader()
-	b = new(Node) // drops the Node that p points to
-}
-```
-
-```go
-type Counter struct {
-	mu sync.Mutex
-	n  int
-}
-
-func (c *Counter) Add()      { c.mu.Lock(); c.n++; c.mu.Unlock() }
-func (c *Counter) Peek() int { return c.n } // makes the task statement below error E3501:
-                                            // n is changed under c.mu in Add and read here without it
-
-var counter Counter
-
-func run(done chan bool) {
-	task work(&counter, done) // work calls Add, and run calls Peek
-	println(counter.Peek())
-}
-```
-
-A container in a package variable under one lock is the common case of guarded owned memory. Here every
-access to `items`, and to the storage it owns, holds `mu`. `Push` loads the backing slice from that
-storage, which is a crossing, and uses it only inside the call, where `mu` is held:
-
-```go
-// items and the storage it owns are guarded by mu.
-var (
-	mu    sync.Mutex
-	items vec.Vec[int]
-)
-
-func add(x int, done chan bool) {
-	mu.Lock()
-	items.Push(x) // allowed: Push uses the backing slice while mu is held
-	mu.Unlock()
-	done <- true
-}
-
-func start(done chan bool) {
-	for i := 0; i < 4; i++ {
-		task add(i, done)
-	}
-}
-```
-
-A view that outlives the guard is the error. Here `first` returns a pointer into the storage after its
-deferred `Unlock` has run, and `Push` in another task may move the elements and free that storage:
-
-```go
-// first lets a pointer into items escape its lock.
-var (
-	mu    sync.Mutex
-	items vec.Vec[int]
-)
-
-func first() *int {
-	mu.Lock()
-	defer mu.Unlock()
-	return items.Ptr(0)
-}
-
-func grow() {
-	mu.Lock()
-	items.Push(1)
-	mu.Unlock()
-}
-
-func read() {
-	p := first()
-	println(*p) // error: E3501, p points into items and is used after mu is released
-}
-
-func start() {
-	task grow()
-	task read()
-}
-```
-
-A wait loop on a `sync.Cond` keeps its guard. `Wait(&mu)` releases `mu` while it waits and holds it again
-when it returns, so `mu` is held on every path to `Len` and `Pop`:
-
-```go
-type Job struct{ id int }
-
-var (
-	mu       sync.Mutex
-	nonEmpty sync.Cond
-	jobs     vec.Vec[Job]
-)
-
-func push(j Job) {
-	mu.Lock()
-	jobs.Push(j)
-	mu.Unlock()
-	nonEmpty.Signal() // needs no lock
-}
-
-func worker() {
-	mu.Lock()
-	for jobs.Len() == 0 {
-		nonEmpty.Wait(&mu) // allowed: counts as mu.Unlock() and then mu.Lock()
-	}
-	j, _ := jobs.Pop()
-	mu.Unlock()
-	println(j.id)
-}
-
-func start() {
-	task worker()
-	task worker()
-	push(Job{id: 1})
-	push(Job{id: 2})
-}
-```
-
-A view kept across the `Wait` crosses a release of its guard. Here `add` may grow `names` while `second`
-waits, which moves the elements and frees the storage that `p` points into:
-
-```go
-// second keeps a pointer into names across a Wait.
-var (
-	mu    sync.Mutex
-	ready sync.Cond
-	names vec.Vec[string]
-)
-
-func add(s string) {
-	mu.Lock()
-	names.Push(s)
-	mu.Unlock()
-	ready.Broadcast()
-}
-
-func second() {
-	mu.Lock()
-	for names.Len() < 1 {
-		ready.Wait(&mu)
-	}
-	p := names.Ptr(0)
-	for names.Len() < 2 {
-		ready.Wait(&mu)
-	}
-	println(*p) // error: E3501, p was loaded under mu and is used after a Wait released mu
-	mu.Unlock()
-}
-
-func start() {
-	task second()
-	add("a")
-	add("b")
-}
-```
-
-A static object needs no lock to be reached. `os.Stdout` points to a `File` that the package initializer
-of `pluto/os` created, so every task may print through it, even while other tasks drop the files they
-opened. The `File` fields that change are used atomically:
-
-```go
-func work(name string, done chan bool) {
-	if f, err := os.Open(name); err == nil {
-		f.Close() // f is dropped at the end of the if: another File, which does not count
-	}
-	fmt.Println("done with", name) // allowed: os.Stdout points to a static File
-	done <- true
-}
-
-func start(done chan bool) {
-	task work("a", done)
-	task work("b", done)
-}
-```
-
-**Rule 3: synced objects and maps.** Every task that holds a reference to a `synced[T]` may use its
-object, so every field of `T` that some code changes must be guarded by a lock of the same object, or
-used only atomically, or initialized by a Once of the same object (rule 1, Lazy initialization), with
-the errors of rule 1 (E3502, E3503). Writes that initialize the object before
-the reference is first copied do not count. Calling a pointer method on the box (`task s.Serve()`,
-`s.Add(1)`) uses the object in the same way.
-
-The contents of a built-in map are shared by every copy of the map, and a map may cross to another task
-(section 19.2). When copies of one map may be used by several tasks, its contents follow the same rule:
-the writes (assignments to elements, `delete`, `clear`) must hold one guard, and every read holds it too
-(E3502, E3503). The guard is a package-level lock or a lock of the struct the map is a field of. A map used
-by one task at a time needs no lock. The tasks of a `sync.Scope` that write a map during an
-interval need a guard (rule 1 or 2 of Sharing, section 19.4), because a map has no partition form:
-writes to different keys race on the table. Since
-any copy of a map reaches its table, the compiler treats the contents of all maps of one type as one piece
-of data once a map of that type crosses to another task (or a task reaches one through a package variable
-or memory it did not allocate): maps of that type that tasks fill for themselves after handing them to a
-function must then hold the guard too, or the shared map takes a type of its own. Maps a task fills before
-it shares them, and maps of types that never cross, need no lock.
-
-**Interrupt handlers.** Each interrupt handler the program installs (section 20.10) is a party that may run
-at any point where interrupts are enabled, on any processor, and on several processors at once. Rules 1 to 3
-apply with handlers as parties, and the errors name the handler as the party (E3502, E3503). So data that
-a handler accesses while other code may write it, or that a handler writes while other code may access it,
+**Interrupt handlers.** Each interrupt handler the program installs (section 20.10) is a repeated party
+that may run at any point where interrupts are enabled, on any processor. Rules 1 to 3 apply with
+handlers as parties, and the errors name the handler as the party (E3502, E3503, E3501). So data that a
+handler accesses while other code may write it, or that a handler writes while other code may access it,
 must be atomic or guarded by an `rt.Lock`, unless it is a per-CPU variable (section 20.9). Data that is
-not written while a handler may run, such as a table filled before the first handler is installed, needs
-neither. A pointer that a handler loads from such a table crosses to the handler (section 19.2), so the
-device record it points to is safe by rule 2: a package variable no party writes, a static object, or an
-object whose type satisfies the type rule. The guard inference recognizes an `rt.Lock` as it recognizes a `sync.Mutex`. A `volatile[T]` access, and an
-interrupt-disabled region, exclude only code on the same processor, so alone they satisfy the rules only for
-per-CPU variables. An allocator has no exemption: its state is data like any other, and when a handler can
-reach its `Alloc` or `Free`, the state they share with other code meets these rules (for example per-CPU
-caches that are touched only in interrupt-disabled regions). The parts of an allocator written in unsafe
-code are the responsibility of that code (section 18.12).
+not written after the start of sharing, such as a table filled before the first handler is installed and
+before interrupts are enabled, needs neither. A pointer that a handler loads from such a table crosses to
+the handler, so the device record it points to must meet rule 2: a package variable no party writes, a
+static object, or an object whose type satisfies the type rule. A `volatile[T]` access, and an
+interrupt-disabled region, exclude only code on the same processor, so alone they satisfy the rules only
+for per-CPU variables. An allocator has no exemption: its state is data like any other, and when a
+handler can reach its `Alloc` or `Free`, the state they share with other code meets these rules (for
+example per-CPU caches that are touched only in interrupt-disabled regions). The parts of an allocator
+written in unsafe code are the responsibility of that code (section 18.12).
 
-**Owner transfer requires exclusivity.** An owner moves to the receiving task, but the move is valid
+**Owner transfer requires exclusivity.** An owner moves to the receiving party, but the move is valid
 only if no other view of the memory it holds is still live (section 18.3, Views): a pointer or slice
 obtained from the owner and kept in a field, passed through a helper or copied to another variable
 before `take` or the move, not only one its constructor kept. A view whose last use comes before the
 move is allowed. A view of a local owner used after the move is E3313, and one stored where the compiler
 cannot follow it is E3314, since the move ends it (section 18.3, A local owner's memory). Any other view
-that may still be used while the receiving task can use the memory is E3501, which names the view, the
-move and the conflicting use. Generation checks alone do not prevent races.
-Thus `task c.bump()` hands over an `owned[Counter]` only under that exclusivity proof (section 8.8).
+that may still be used while the receiving party can use the memory is E3501, which names the view, the
+move and the conflicting use. Generation checks alone do not prevent races. Thus `task c.bump()` hands
+over an `owned[Counter]` only under that exclusivity proof (section 8.8).
+
+**Copying a lock.** A `sync.Mutex`, `sync.RWMutex`, `sync.Once`, `sync.WaitGroup` or `sync.Cond` may not
+be copied after its first use, as in Go, and outside `pluto/rt` neither may an `rt.Lock`. The type system
+already forbids copying a `sync.Scope`, which is an owner (section 19.4; a Scope that has started tasks
+may not be moved either, E3405). For the other types the compiler cannot tell the first use, so any copy
+from a place of a value whose type holds one of them, directly or through fields and array elements, is a
+compile error: an assignment or initialization from a variable, field, element or dereference, an
+argument, a result, a value sent on a channel, a range value, a value receiver, and a conversion,
+including to an interface. A composite literal, a zero value and the result of a call are new values,
+not copies. Moving an owner that holds one is a move, not a copy. Pass a pointer, or keep the value in
+one place.
 
 **What is not checked.** Unsafe code (section 18.12, Safe and unsafe code) is the programmer's
 responsibility: memory reached through `unsafe.Pointer` or `rt.Pinned`, functions without a body, and the
-variables, records and non-migrating regions of the runtime (`pluto/rt`), which implements tasks with its own locks and with
-preemption disabled. The runtime's non-migrating regions are not checked for waits (Waiting in a non-migrating region, above), and
-its releases of its own locks are not checked by the rule for releasing a lock (above). Nor are the
-bodies of the lock methods and of `sync.Cond.Wait` that section 18.12 lists, whose callers the rule
-checks instead. A data race in unsafe code gives torn or stale values (memory-model.md section 4),
-and it is never undefined behavior in the compiler's sense: the compiler may not assume races are absent. A
-torn pointer or length can then break memory safety, which is why unsafe code must not race.
+variables, records and non-migrating regions of the runtime (`pluto/rt`), which implements tasks with its
+own locks and with preemption disabled. The runtime's non-migrating regions are not checked for waits
+(Waiting in a non-migrating region, above), and its releases of its own locks are not checked by the rule
+for releasing a lock (above). Nor are the bodies of the lock methods and of `sync.Cond.Wait` that section
+18.12 lists, whose callers the rule checks instead. A data race in unsafe code gives torn or stale values
+(memory-model.md section 4), and it is never undefined behavior in the compiler's sense: the compiler may
+not assume races are absent. A torn pointer or length can then break memory safety, which is why unsafe
+code must not race.
+
+**How precise the race check is.** So that a programmer can tell what is accepted:
+
+- A place is a variable followed by steps: field selections, indexes and dereferences. The check follows
+  a place through at most two pointer loads and eight steps. Beyond that, the place stands for everything
+  reachable from the point where it was cut, of every type.
+- A value passed to a function is followed from at most sixteen places it may come from. Beyond that, it
+  counts as coming from anywhere under the variables those places start from.
+- A func value passed as an argument is followed through at most four nested calls of functions that
+  receive it.
+- Recursive functions are followed until their summaries stop changing, with the limits above and no
+  others: the answer does not depend on the order in which the compiler visits functions.
+- An interface or func-value call reaches the candidates that section 18.3 (How precise the frame check
+  is) defines.
+
+These limits are part of the language: a program that needs more precision is rejected with the access or
+crossing that could not be proved, and a program that would need a func value followed through more
+calls is rejected with an implementation-limit error (section 21.4). A program is never accepted with a
+party or an access left out. An implementation uses these limits exactly: it may not raise them, since a
+program it then accepted would be rejected by another implementation, and acceptance may not depend on
+the implementation or its optimizer (section 21.3, Acceptance does not depend on optimization). A later
+edition of the language may raise them.
+
+**Conformance.** Each row gives a program, the result that every implementation must give, and the rule
+that decides it. "A compile error" is an error that has no code yet. Rows 1 to 12 are the first shape a
+Go programmer would write; rows 13 to 21 are Go locking idioms; rows 52 to 66 settle audit K
+(docs/verification/2026-11-09-spec-audit-k.md).
+
+| # | Program | Result | Deciding rule |
+|---|---|---|---|
+| 1 | `var mu sync.Mutex; var cache = map[string]*Entry{}`; `get` stores `&Entry{}` under `mu` | E3002 | 18.3: a frame view stored in package memory |
+| 2 | `var cache = map[string]synced[Entry]{}`; `get` copies the `synced[Entry]` out under `mu`; the fields of `Entry` that change use its own lock | accepted | rule 1 (map contents, synced object) |
+| 3 | `var std = &Logger{w: os.Stderr, prefix: "app: "}` with a `sync.Mutex` field that `Printf` takes | accepted | rule 2 case 3 (static object) |
+| 4 | `func init() { Register("echo", &echoHandler{}) }` storing into a package map | E3002 | 18.3 |
+| 5 | `var handlers = map[string]Handler{"echo": &echoHandler{}}`, read by every task | accepted | Initialization; rule 2 cases 2 and 3 |
+| 6 | `var cfg atomic.Pointer[Config]` with `cfg.Store(&Config{...})` in a reload task | E3003 | 18.3 |
+| 7 | `var cfg owned[Config]` replaced by a reload task while readers hold `&*cfg` | E3501 | rule 2 (Frees are writes) |
+| 8 | `var cfg synced[Config]` under a mutex; readers copy the reference out under it, the reload task assigns under it | accepted | rule 1 |
+| 9 | `var free vec.Vec[owned[Conn]]` under `mu`; `Get` pops, `Put` pushes | accepted | rule 2 case 4 |
+| 10 | `var stats Stats` or `var stats = &Stats{}` with only `atomic.Int64` fields | accepted | rule 1 (atomic); rule 2 case 3 |
+| 11 | `var inst owned[DB]; var once sync.Once`; `once.Do(func() { inst = open() })`, then a read of `inst` | accepted | Lazy initialization |
+| 12 | `vec.Vec[Job]` queue under `mu`; `c.Signal()` after a push; workers loop on `c.Wait(&mu)` and pop | accepted | Held sets (`Wait`); rule 2 case 4 |
+| 13 | `mu.Lock(); defer mu.Unlock()` | accepted | Releasing a lock (`defer`) |
+| 14 | `mu.Lock()` with early-return branches that each unlock once; a branch that unlocks twice | accepted; the second `Unlock` is a compile error | Releasing a lock |
+| 15 | `rw.RLock(); ...; rw.RUnlock()`; and `rw.RLock(); rw.Unlock()` | accepted; the `Unlock` is a compile error | Releasing a lock (mode) |
+| 16 | `rw.RLock(); p := items.Ptr(0); rw.RUnlock(); rw.Lock(); _ = *p` | E3501 | Views loaded under a lock |
+| 17 | A struct with an embedded `sync.Mutex`: `c.Lock(); c.n++; c.Unlock()` | accepted | Locks and names |
+| 18 | Hand-over-hand with locals (`cur := prev.next; cur.mu.Lock(); prev.mu.Unlock(); prev = cur`); the same with `l.head.mu.Unlock()` | accepted; the second is a compile error | Locks and names |
+| 19 | `stripes[h%n].Lock(); ...; stripes[h%n].Unlock()`; and `s := &stripes[h%n]; s.Lock(); ...; s.Unlock()` | a compile error; the pointer form is accepted | Locks and names (variable index) |
+| 20 | `mu.Lock(); for !ready { c.Wait(&mu) }; ...; mu.Unlock()` | accepted | Releasing a lock |
+| 21 | `func (s *S) withLock(f func()) { s.mu.Lock(); defer s.mu.Unlock(); f() }` | accepted | Releasing a lock (Calls) |
+| 22 | `p.Lock(); q.Unlock()` where `p` and `q` point to one mutex by different parameters | a compile error | Releasing a lock |
+| 23 | `g.p.mu.Lock(); ...; g.p.mu.Unlock()` | a compile error | Locks and names (a pointer loaded from memory) |
+| 24 | `mu = sync.Mutex{}` in one task while another task uses `mu` | E3502 | rule 1 (assigning a lock) |
+| 25 | `mu.Lock(); s.Task(func() { mu.Unlock() })` | a compile error | Parties (a task starts with nothing held) |
+| 26 | An interrupt handler calls `l.Unlock()` on an `rt.Lock` that the interrupted code holds | a compile error | Releasing a lock |
+| 27 | `u := mu.Unlock; mu.Lock(); u()` | a compile error | Releasing a lock (method value) |
+| 28 | `mu.Lock(); f(1)` with `func f(n int) { if n > 0 { f(n - 1); mu.Unlock() } }` | a compile error | Releasing a lock (Recursion) |
+| 29 | The `finish` example above: a task unlocks a lock its starter took | a compile error | Releasing a lock |
+| 30 | A task reads `p.x` of a `*P` from `ar.New[P]()`; the starter calls `ar.Reset()` while it runs | E3501 | rule 3 (free condition; Frees are writes) |
+| 31 | `b = new(Node); p = &*b; task reader(); b = new(Node)`; `reader` reads `p.n` | E3501 | Crossings case 5; rule 2 |
+| 32 | `var p atomic.Pointer[Node]`; `reader` calls `p.Load()`; `main` later drops that `Node` | E3501 | Crossings (an atomic load); rule 2 |
+| 33 | `var r shared[Node]`, copied by two tasks | E2010 | rule 1 |
+| 34 | A handler table filled with `&devs[i]` before the first install, read by the handler | accepted | Initialization; rule 2 case 2 |
+| 35 | A handler installed before any task loads `p`; `main` then replaces the owner of `*p` | E3501 | The start of sharing; rule 2 |
+| 36 | `take(os.Stdout)` in one task while another prints | E3501 | Memory and data (static object); rule 3 |
+| 37 | The `work` example above: a task drops its own `File` and prints to `os.Stdout` | accepted | rule 2 case 3 (static object) |
+| 38 | `p := items.Ptr(0)` under `mu`, then `task use(p)` | E3501 | Views loaded under a lock (a copy that cannot be followed) |
+| 39 | `defer use(items.Ptr(0))` after `defer mu.Unlock()`; and before it | accepted; E3501 | Views loaded under a lock (deferred argument) |
+| 40 | `if fast { mu.Lock() }; p := items.Ptr(0)` | E3501 | Held sets (every path) |
+| 41 | `items.Push` under `a` in one task and under `b` in another | E3502 | The guard set; rule 1 |
+| 42 | `var m map[int]synced[Node]` under `mu`; a task copies `m[k]` out, another deletes the entry | accepted | rule 1 (map contents, synced object) |
+| 43 | `var m map[int]*Node` into a `vec.Vec[owned[Node]]`, both under `mu`; `m[k]` used after `Unlock` while another task removes the node | E3501 | rule 2 case 4 |
+| 44 | The `tick` example above: a direct call reaches a send inside `rt.DisablePreemption` | a compile error | Waiting in a non-migrating region |
+| 45 | The `flush` example above: the send is behind an interface call | accepted (panics at run time if it parks) | Waiting in a non-migrating region |
+| 46 | A second task reads data a Once initializes with no `Do` of its own | E3503 | Lazy initialization |
+| 47 | The `Do` is in a helper that calls it on some paths only, then the read | E3503 | Lazy initialization (every path) |
+| 48 | The `Limits` example above: `reload` writes `lim` outside the Once | E3502 | Lazy initialization; rule 1 |
+| 49 | The `second` example above: a view kept across `Wait` | E3501 | Views loaded under a lock |
+| 50 | `c.Wait(rw.RLocker())` | a compile error | Releasing a lock (a lock with no name) |
+| 51 | A deferred `c.Wait(&mu)` after `defer mu.Unlock()` | accepted | Releasing a lock (`defer`) |
+| 52 | K1: the `par` example above, a body that unlocks while `par` calls `yield` in a scoped task | a compile error | Part of the enclosing function; Releasing a lock |
+| 53 | K1: `mu.Lock(); for x := range v.All() { defer mu.Unlock(); ...; break }` with `vec.Vec.All` calling `yield` in its own loop | accepted | Part of the enclosing function |
+| 54 | K1: `for range par { defer cleanup() }` | a compile error | Part of the enclosing function (`defer` in a body run by another party) |
+| 55 | K2: the `Logger` example above, `var std = &Logger{}` with `buf vec.Vec[string]` under `l.mu` | accepted | rule 2 case 4 (memory owned by a static object) |
+| 56 | K3: the `peekWait` example above | E3501 | Views loaded under a lock (a call that may release) |
+| 57 | K4: `idt.Install(32, timerHandler); x86.Sti(); table[0] = Device{port: 0x40}`, and the handler reads `table` | E3502 | The start of sharing; rule 1 |
+| 58 | K5: a scoped task loads `p := items.Ptr(0)` under a frame `mu`, unlocks, locks again and uses `*p`, while another scoped task pushes under `mu` | E3402 | 19.4 Sharing (form 2) |
+| 59 | K6: `stats` written only with `a` and `b` both held; one task reads under `a`, another under `b`; a view loaded under both is used after `b.Unlock()` with `a` held | accepted | The guard set; Views loaded under a lock |
+| 60 | K6: task A writes `x` under `L` at one write and under `M` at another, and is its only writer; task B reads `x` under `L` | E3502 | The guard set (G(x) is empty) |
+| 61 | K7: `//pu:percpu var runq vec.Vec[*Task]`, `runq.Push(t)` inside an interrupt-disabled region | accepted | 20.9 (owned memory of a per-CPU variable) |
+| 62 | K9: `cfgOnce.Do(load); for _, s := range cfg.servers.All() { println(s.name, cfg.port) }` | accepted | Part of the enclosing function; Lazy initialization |
+| 63 | K10: at package level, `mu.Lock(); p := items.Ptr(0); mu.Unlock(); mu.Lock(); _ = *p` | E3501 | Views loaded under a lock (8.8 says the same) |
+| 64 | K11: a static object whose only changing field is an `atomic.Int64`, read by two tasks | accepted | rule 2 case 3 (not case 2) |
+| 65 | K12: `rw.RLock(); c.Wait(&rw)` | a compile error | Releasing a lock (`Wait` needs write mode) |
+| 66 | K13: `cfg()` calls `load()`, which calls `once.Do(f)` on every path; `cfg()` then reads the data | accepted | Lazy initialization (any depth) |
+| 67 | K14: `c2 := c` for a `sync.Cond` `c`; and a call of a method with a value receiver on a struct that holds a `sync.Mutex` | a compile error | Copying a lock |
+| 68 | An owner struct that holds a locked `sync.Mutex` moved on a channel | accepted (the receiver starts with nothing held) | Locks and names (a move ends the name) |
+| 69 | `func bump(l *sync.Mutex) { l.Lock(); x++; l.Unlock() }` called with `&a` by one task and `&b` by another | E3502 | The guard set |
+| 70 | Readers use an object under `rw.RLock`; a writer frees it under `rw.Lock` | accepted | Frees are writes; The guard set |
+| 71 | A scoped task unlocks the starting function's lock | a compile error | Parties (a task starts with nothing held) |
+| 72 | A task statement in `start`, which nothing calls from `main` | accepted (no party) | Parties |
 
 ### 19.4 Scoped tasks
 
@@ -1047,7 +1363,10 @@ whole object here too (section 19.3, Frees are writes):
    write like any other.
 2. **Guarded by a lock:** every access, in every task and in the starting function, holds one and the
    same lock, inferred as in section 19.3 (a `sync.Mutex`, or the write lock of a `sync.RWMutex` with
-   reads under `RLock`).
+   reads under `RLock`). The lock is held by the rules of section 19.3, Held sets. A view loaded from
+   such a place, or from memory it owns (section 19.3, Memory and data), may be used only while it is
+   valid: the lock stays held from the load to the use, with no ending event between (section 19.3,
+   Views loaded under a lock). A use after an `Unlock` and a new `Lock` is E3402.
 3. **Partitioned:** each task writes elements or windows of a slice or array that no other task, and not
    the starting function, can reach during the interval, in one of the forms below.
 
