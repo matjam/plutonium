@@ -723,6 +723,13 @@ compiler (2026-10-11).
     value holds its own count until the loop ends.
 174. **Owners in for clauses** (planned; sections 12.10, 18.6, D65, finding D8): an owner declared in a for
     clause moves between iterations and is dropped once.
+177. **A `%w` wrapper of a field error is bounded by the object** (planned, check only; sections 16.5, 16.7
+    rule 4, 18.3, D69, finding B5): `fmt.Errorf("...: %w", err)` of an error in a field of an owner keeps a
+    pointer into the owner. The analysis already bounds `Errorf`'s result by its `%w` operand for a frame
+    `ErrorBuf` (`tests/testdata/escape/review4/e03_errorbuf_wrapped_by_errorf.p`, `e04_errorbuf_joined.p`).
+    Add tests for a wrapper of a field error of a local owner: used after the owner is moved or dropped is
+    E3313, returned past the owner is E3001, and stored in the heap is E3002. Fix the analysis if one is
+    accepted.
 
 ## Gaps the integrated specification defines (complete-spec section 6.5)
 

@@ -168,8 +168,13 @@ an error.
   operations (a parser, a device, a connection) keeps its last error in a field and returns a pointer to
   it. The error is valid while the object lives and until its next error. `fmt.ErrorBuf` is such a
   field: `buf.Errorf(format, args...)` formats into a buffer of its own, wraps the first `%w` operand, and
-  returns the buffer as the error. Code that keeps such an error longer wraps it with `fmt.Errorf`, which
-  copies the message.
+  returns the buffer as the error. Code that needs an error independent of the object formats it with
+  `%v` (`fmt.Errorf("parse: %v", err)`), which copies the message into a counted error, or copies what it
+  needs into an error of its own allocated with `alloc.Synced` (section 16.7). Wrapping with `%w` copies
+  only the message text: the wrapper holds the error it wraps, here a pointer into the object, so
+  `errors.Unwrap` returns that pointer and `errors.Is` and `errors.As` see the field as it is when they
+  run. A wrapper made with `%w` is therefore bounded by the object, like the error it wraps, and the view
+  rules of section 18.3 apply to it.
 
 **Library error types.** The functions of the standard library report failures with error types that
 record the context. A failed file operation returns a `*os.PathError`, with the operation, the path and
@@ -269,7 +274,9 @@ that refers to it goes, and no code releases it by hand.
    only codes, as a kernel's are, pays nothing beyond one predictable test when it copies or drops a
    non-nil error.
 4. `%w` copies the wrapped error into the wrapper (count plus one). A wrapper keeps what it wraps alive,
-   and the caller's own copy is released when it goes out of scope.
+   and the caller's own copy is released when it goes out of scope. A wrapped error that is not counted
+   copies as a value (rule 3), so a wrapper of an error in a field of an owner holds a view of that owner
+   and is bounded by it (section 16.5).
 5. There is no `errors.Free`. Errors made under an arena (`defer alloc.Use(&a).Restore()`) are freed
    into the arena when their last reference goes, and `a.Reset()` then reclaims them. A `Reset` while one
    is still referenced panics (section 18.9, Arenas).

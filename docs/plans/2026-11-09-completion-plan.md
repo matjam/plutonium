@@ -52,7 +52,7 @@ The other 39 findings fill gaps or fix text without breaking a promise. Each rul
 - C5: define `type V U` for union and packed types the way 7.12 does for enums.
 - B2: a Fixed arena sizes its bookkeeping from its own backing at construction, with no record per allocation from the parent.
 - B4: state where the cleaned-place write check runs and what it costs.
-- B5: `%w` of an error held in a field copies it into a counted error, as 16.5 promises.
+- B5: decided as option (b), D69: `%w` keeps the field error it wraps, as in Go, and the wrapper is bounded by the object (16.5, 16.7 rule 4). The copy first proposed here was a false friend.
 - B6: the handler data rule becomes a consequence of race rules 1 to 3 (written data must be atomic or locked); the init exemption ends when a handler is installed or interrupts are enabled.
 - B7: counted box types are refused at the C boundary, like strings.
 - B8: state what `rt.ExitTask` drops mid-expression and inside a `Drop` method.

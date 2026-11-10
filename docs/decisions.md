@@ -1101,6 +1101,23 @@ Why: one simple rule, and the two uses ordinary code needs.
 
 Lands with: section 11.5; roadmap item 176.
 
+## D69. A `%w` wrapper of a field error is bounded by the object (16.5, 16.7)
+
+Question: audit B5. Section 16.5 said that wrapping an error held in a field of a longer-lived object with
+`fmt.Errorf` makes it independent of the object. The audit proposed that `%w` copy such an error into a
+counted error.
+
+Decision: as in Go, `%w` keeps the error it wraps. For an error in a field (`&p.err`, a `fmt.ErrorBuf`) the
+wrapper holds a pointer into the object, so `errors.Unwrap(e) == err` holds and `errors.As` sees the field.
+Only the message text is copied. The wrapper is bounded by the object like the error it wraps, and the view
+rules of 18.3 apply to it. Code that needs an independent error formats it with `%v`, or copies what it needs
+into an error allocated with `alloc.Synced`.
+
+Why: in Go a wrapped pointer error is the same pointer and sees later changes. A copy would make `Unwrap` and
+`As` differ from Go, a false friend. The escape analysis already bounds `Errorf`'s result by its `%w` operand.
+
+Lands with: sections 16.5 and 16.7 rule 4; roadmap item 177 (tests).
+
 ## Deferred
 
 None. The entry on Linux file names that are not valid UTF-8 is closed by D36.
