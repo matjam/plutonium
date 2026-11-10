@@ -103,9 +103,13 @@ func AnalyzeWith(prog *load.Program, mv *moves.Info) (scoped.Overlaps, error) {
 		compat.Fprintfb(os.Stderr, "race: %d units\n", compat.ArgI(int64(len(a.units))))
 	}
 	a.callGraph()
-	if !a.mayStartTasks() {
+	starts := a.mayStartTasks()
+	// A release of a lock that is not held is an error in any program
+	// (section 19.3, Releasing a lock).
+	a.checkReleases()
+	if !starts {
 		// One task alone cannot race.
-		return nil, nil
+		return nil, a.errs.Err()
 	}
 	a.run()
 	if debug {
@@ -449,6 +453,9 @@ func (a *analyzer) scanValues() {
 						}
 					case *ast.SelectorExpr:
 						if called[n] {
+							// The selected name is part of the call, not a
+							// value of its own.
+							called[n.Sel] = true
 							return true
 						}
 						if sel := p.Info.Selections[n]; sel != nil && (sel.Kind() == types2.MethodVal || sel.Kind() == types2.MethodExpr) {

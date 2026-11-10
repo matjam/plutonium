@@ -108,8 +108,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   after their `defer` where a callee that ends the task or a panic may run them (19.3, Held sets). Item 236.
 - `c.Wait()` of a `sync.Cond` is not treated as `Unlock` then `Lock` of a named lock, so data read after it in a
   wait loop is E3503, and a view kept across it is not yet E3501 (19.3). Item 219.
-- An `Unlock`, `RUnlock` or `c.Wait(l)` of a lock the task does not hold is not rejected, so one task can release
-  another task's lock (19.3, Releasing a lock). Item 220.
 - `rt.Yield` inside a non-migrating region compiles and does not panic, so a task can resume on another processor
   while it holds a view of per-CPU data (19.3, Switching tasks in a non-migrating region). Item 229.
 - A function started by `time.AfterFunc` counts as started once, so two runs after a `Reset` may race on what it

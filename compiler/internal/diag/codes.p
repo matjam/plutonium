@@ -171,9 +171,10 @@ const (
 
 // Data races (internal/race): E3500-E3599.
 const (
-	RaceSendView  Code = "E3501" // a view of memory that may change crosses to another task
-	RaceNoLock    Code = "E3502" // shared data written by several tasks with no one lock held at every write
-	RaceUnguarded Code = "E3503" // shared data read without the lock that guards it
+	RaceSendView       Code = "E3501" // a view of memory that may change crosses to another task
+	RaceNoLock         Code = "E3502" // shared data written by several tasks with no one lock held at every write
+	RaceUnguarded      Code = "E3503" // shared data read without the lock that guards it
+	RaceReleaseNotHeld Code = "E3504" // a lock released where the party does not hold it
 )
 
 // Closures and their records (E3100-E3199).

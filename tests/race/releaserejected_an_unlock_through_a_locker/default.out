@@ -1,0 +1,21 @@
+$DIR/main.p:13:2: l.Unlock() releases a lock through the interface pluto/sync.Locker, so the compiler cannot name the lock or show it held: call the method on the lock's own type (*sync.Mutex) or use a type parameter
+    A lock is released where the code that releases it does not hold it. Every
+    Unlock or RUnlock of a sync.Mutex, a sync.RWMutex or an rt.Lock, and every
+    Wait(l) of a sync.Cond, must release a lock held on every path to the call,
+    in write mode for Unlock and Wait and in read mode for RUnlock. A lock the
+    compiler cannot name cannot be shown held: one reached through an interface
+    such as sync.Locker, a func value or a method value, a pointer loaded from
+    memory, or an array element with a variable index. A task, a scoped task and
+    an interrupt handler start with no lock held, so none of them can release a
+    lock that another party took.
+    Release the lock in the function that took it, on every path, and name it
+    the same way at both calls: copy a pointer into a local once (l :=
+    &locks[i]) and use the local for both. To let another task end the work,
+    send it a message on a channel instead of handing it a locked lock.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3504" for a longer explanation)

@@ -733,13 +733,17 @@ func DescribeFault(addr, pc uintptr, write bool) bool {
 		// The faulting code may hold the lock (a fault inside the
 		// allocator), so wait for it only a little, then read the table
 		// as it is: the program stops after this either way.
-		locked := false
-		for i := 0; i < 1000 && !locked; i++ {
-			locked = d.mu.TryLock()
+		found, locked := false, false
+		for i := 0; i < 1000; i++ {
+			if d.mu.TryLock() {
+				found = d.describe(addr, pc, write)
+				d.mu.Unlock()
+				locked = true
+				break
+			}
 		}
-		found := d.describe(addr, pc, write)
-		if locked {
-			d.mu.Unlock()
+		if !locked {
+			found = d.describe(addr, pc, write)
 		}
 		if found {
 			return true

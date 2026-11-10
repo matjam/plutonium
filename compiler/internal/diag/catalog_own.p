@@ -167,6 +167,14 @@ func init() {
 			Fixed:   "wg.Wait()\nmu.Lock()\nn := counter\nmu.Unlock()\nprintln(n)",
 		}),
 		pu.New(Entry{
+			Code: RaceReleaseNotHeld, Name: "RaceReleaseNotHeld",
+			Text:    "A lock is released where the code that releases it does not hold it. Every Unlock or RUnlock of a sync.Mutex, a sync.RWMutex or an rt.Lock, and every Wait(l) of a sync.Cond, must release a lock held on every path to the call, in write mode for Unlock and Wait and in read mode for RUnlock. A lock the compiler cannot name cannot be shown held: one reached through an interface such as sync.Locker, a func value or a method value, a pointer loaded from memory, or an array element with a variable index. A task, a scoped task and an interrupt handler start with no lock held, so none of them can release a lock that another party took.\nRelease the lock in the function that took it, on every path, and name it the same way at both calls: copy a pointer into a local once (l := &locks[i]) and use the local for both. To let another task end the work, send it a message on a channel instead of handing it a locked lock.",
+			Why:     whyRace,
+			Spec:    pspec("19.3", "Data race freedom"),
+			Example: "func finish() {\n\tmu.Unlock() // the task that runs finish never took mu\n}",
+			Fixed:   "func finish() {\n\tmu.Lock()\n\tready = true\n\tmu.Unlock()\n}",
+		}),
+		pu.New(Entry{
 			Code: CheckerCode(typerr.DropNotOwner), Name: "DropNotOwner",
 			Text:    "A method named Drop runs automatically when a value is destroyed. That only makes sense for a type whose values have exactly one owner: if the values were copied as ordinary values are, every copy would run Drop and release the same resource. A type with a Drop method must be declared owner, so that its values move instead of being copied.\nDrop also takes a pointer receiver, never a value receiver: a value receiver would move the owner into the method, which would drop it again when it returns. Write func (f *File) Drop().",
 			Why:     whyOwners,

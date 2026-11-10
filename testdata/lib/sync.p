@@ -131,13 +131,16 @@ func main() {
 	println("mutex counter", counter)
 	mu.Unlock()
 
-	if !mu.TryLock() {
+	// An Unlock must release a lock held on every path (section 19.3,
+	// Releasing a lock), so each one is where its TryLock succeeded.
+	if mu.TryLock() {
+		if mu.TryLock() {
+			println("TryLock succeeded on a held mutex")
+		}
+		mu.Unlock()
+	} else {
 		println("TryLock failed on a free mutex")
 	}
-	if mu.TryLock() {
-		println("TryLock succeeded on a held mutex")
-	}
-	mu.Unlock()
 
 	rwDone.Add(6)
 	for i := 0; i < 4; i++ {
@@ -149,17 +152,19 @@ func main() {
 	rw.RLock()
 	println("rwmutex", pair[0], pair[1], "torn reads", torn.Load(), "reads", reads.Load())
 	rw.RUnlock()
-	if !rw.TryRLock() {
+	if rw.TryRLock() {
+		if rw.TryLock() {
+			println("TryLock succeeded with a reader")
+		}
+		rw.RUnlock()
+	} else {
 		println("TryRLock failed")
 	}
 	if rw.TryLock() {
-		println("TryLock succeeded with a reader")
-	}
-	rw.RUnlock()
-	if !rw.TryLock() {
+		rw.Unlock()
+	} else {
 		println("TryLock failed on a free RWMutex")
 	}
-	rw.Unlock()
 
 	onceWG.Add(10)
 	for i := 0; i < 10; i++ {

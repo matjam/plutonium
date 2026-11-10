@@ -1,0 +1,1 @@
+$DIR/main.p:17:2: mu.Unlock() releases mu, which is not held here: finish runs as a task (at main.p:13), which starts with no lock held
