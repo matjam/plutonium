@@ -331,7 +331,7 @@ Point{1, 2}
 m["foo"]
 s[i : j + 1]
 obj.color
-f.p[i].x()
+obj.p[i].x()
 ```
 
 An `Arguments` list may begin with a type only for the built-in functions that take one, such as `new` and `make` (chapter 13).
@@ -416,7 +416,7 @@ t.M2() // (&t).M2()           M2 expects *T2 receiver, see section 11.14
 but the following is invalid:
 
 ```go
-q.M0() // (*q).M0 is valid but not a field selector
+q.M0() // invalid: (*q).M0 is valid but not a field selector (E0076)
 ```
 
 ### 11.8 Method expressions
@@ -1168,10 +1168,10 @@ Binary operators of the same precedence associate from left to right. For instan
 ```go
 +x                         // x
 42 + a - b                 // (42 + a) - b
-23 + 3*x[i]                // 23 + (3 * x[i])
+23 + 3*v[i]                // 23 + (3 * v[i])
 x <= f()                   // x <= f()
 ^a >> b                    // (^a) >> b
-f() || g()                 // f() || g()
+ok || g()                  // ok || g()
 x == y+1 && <-chanInt > 0  // (x == (y+1)) && ((<-chanInt) > 0)
 ```
 
@@ -1411,7 +1411,7 @@ func() int(x)   // x is converted to func() int (unambiguous)
 **Constant conversions.** A constant value `x` can be converted to type `T` if `x` is representable by a value of `T` (section 8.5, Representability), or if `x` is an untyped integer or rune constant, or a constant of type `rune`, and `T` is a string type (below). A constant of another integer type does not convert to a string: `const n int = 65; string(n)` is an error. Converting a constant to a type that is not a type parameter yields a typed constant.
 
 ```go
-uint(iota)              // iota value of type uint
+uint(1 << 10)           // 1024 of type uint
 float32(2.718281828)    // 2.718281828 of type float32
 float32(0.49999999)     // 0.5 of type float32
 float64(-1e-1000)       // 0.0 of type float64
@@ -1634,11 +1634,11 @@ The divisor of a constant division or remainder operation must not be zero:
 The values of typed constants must always be accurately representable by values of the constant type. The following constant expressions are illegal:
 
 ```go
-uint(-1)    // -1 cannot be represented as a uint
-int(3.14)   // 3.14 cannot be represented as an int
-int64(Huge) // 1267650600228229401496703205376 cannot be represented as an int64
-Four * 300  // operand 300 cannot be represented as an int8 (type of Four)
-Four * 100  // product 400 cannot be represented as an int8 (type of Four)
+uint(-1)    // illegal: -1 cannot be represented as a uint
+int(3.14)   // illegal: 3.14 cannot be represented as an int
+int64(Huge) // illegal: 1267650600228229401496703205376 cannot be represented as an int64
+Four * 300  // illegal: operand 300 cannot be represented as an int8 (type of Four)
+Four * 100  // illegal: product 400 cannot be represented as an int8 (type of Four)
 ```
 
 The mask used by the unary bitwise complement operator `^` matches the rule for non-constants: the mask is all 1s for unsigned constants and -1 for signed and untyped constants.
@@ -1753,6 +1753,7 @@ func f(path string) error {
 		println(cfg.name) // error: cfg is not declared here; the clause runs when load failed
 		return err
 	}
+	println(cfg.name) // cfg is in scope here
 	return nil
 }
 ```

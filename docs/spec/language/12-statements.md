@@ -1073,7 +1073,7 @@ goto Error
 Executing the `goto` statement must not cause any variables to come into scope that were not already in scope at the point of the `goto`. For instance, this example:
 
 ```go
-	goto L // BAD
+	goto L // error: the jump skips the declaration of v (E0123)
 	v := 3
 L:
 ```
@@ -1084,7 +1084,7 @@ A `goto` statement outside a block cannot jump to a label inside that block. For
 
 ```go
 if n%2 == 1 {
-	goto L1
+	goto L1 // error: L1 is inside a block the goto is not in (E0124)
 }
 for n > 0 {
 	f()

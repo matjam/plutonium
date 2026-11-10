@@ -18,7 +18,6 @@
 # pre:, body: and tail: take the tab-indented lines that follow.
 
 == 07-types.md 7.9 | type ReadCloser interface {
-known: no item: the compiler reports the clash of the two Close methods on line 2, where Reader is embedded, not on line 3, the line the spec marks
 with: 07-types.md 7.9 | type Reader interface {
 
 == 07-types.md 7.13 | type DeviceState union {
@@ -34,9 +33,6 @@ pre:
 	type File owner struct{ fd int32 }
 	type Node struct{ v int }
 
-== 07-types.md 7.18 | type File owner struct {
-known: spec example wrong: syscall.Close takes an int, and f.fd is an int32 (E0023); section 10.8 has the same File with closeFD(fd int32)
-
 == 10-declarations-and-scope.md 10.8 | // A Mutex is a data type with two methods, Lock and Unlock.
 with: 10-declarations-and-scope.md 10.8 | type (
 
@@ -44,7 +40,6 @@ with: 10-declarations-and-scope.md 10.8 | type (
 with: 10-declarations-and-scope.md 10.8 | type List[T any] struct {
 
 == 10-declarations-and-scope.md 10.10 | var i int
-known: spec example wrong: it declares i twice in one block (lines 1 and 6), and section 1.3 does not make var declarations alternatives (E0010)
 pre:
 	var entries map[string]int
 	var name string
@@ -99,7 +94,19 @@ pre:
 	func each(items []Item, f func(it *Item)) {}
 
 == 11-expressions.md 11.6 | x
-known: spec example wrong: f is called as a function on line 4 and has a field p on line 9, so no declaration of f compiles both
+pre:
+	type Point struct{ x, y int }
+	type Elem struct{}
+	func (Elem) x() int { return 0 }
+	type Object struct {
+		color string
+		p     []Elem
+	}
+	var x, i, j int
+	var s string
+	var m map[string]int
+	var obj Object
+	func f(a float64, b bool) {}
 
 == 11-expressions.md 11.7 | x.f
 pre:
@@ -109,7 +116,6 @@ pre:
 with: 11-expressions.md 11.7 | type T0 struct {
 
 == 11-expressions.md 11.7 | q.M0() // (*q).M0 is valid but not a field selector
-known: spec example wrong: the line is invalid (E0076), as the text before it says, but its comment does not mark it as an error (chapter 2)
 with: 11-expressions.md 11.7 | type T0 struct {
 
 == 11-expressions.md 11.8 | t.Mv(7)
@@ -220,7 +226,13 @@ pre:
 	func Greeting(prefix string, who ...string) {}
 
 == 11-expressions.md 11.18 | +x                         // x
-known: spec example wrong: x is a number on lines 1 and 4 and is indexed on line 3, so no declaration of x compiles every line
+pre:
+	var a, b, i, x, y int
+	var v []int
+	var ok bool
+	var chanInt chan int
+	func f() int  { return 0 }
+	func g() bool { return true }
 
 == 11-expressions.md 11.19 | // FMA allowed for computing r, because x*y is not explicitly rounded:
 pre:
@@ -255,10 +267,9 @@ pre:
 	var ok bool
 
 == 11-expressions.md 11.24 | *Point(p)       // same as *(Point(p))
-known: spec example wrong: it shows how conversions parse; line 1 needs Point to be a pointer type and line 2 converts p to *Point, and line 5 is a function type, not an expression
+skip: it shows how conversions parse: line 1 needs Point to be a pointer type, line 2 converts p to *Point, and line 5 is a function type, so no declarations fit every line
 
-== 11-expressions.md 11.24 | uint(iota)              // iota value of type uint
-known: spec example wrong: uint(iota) is valid only in a const declaration (E0036), and (*int)(nil) is not a constant, so no one wrapping compiles both
+== 11-expressions.md 11.24 | uint(1 << 10)           // 1024 of type uint
 pre:
 	type myString string
 
@@ -270,8 +281,7 @@ pre:
 pre:
 	type myString string
 
-== 11-expressions.md 11.25 | uint(-1)    // -1 cannot be represented as a uint
-known: spec example wrong: every line is a compile error, but no line carries an error comment (chapter 2)
+== 11-expressions.md 11.25 | uint(-1)    // illegal: -1 cannot be represented as a uint
 with: 11-expressions.md 11.25 | const Huge = 1 << 100        // Huge == 1267650600228229401496703205376  (untyped integer constant)
 
 == 11-expressions.md 11.26 | y[f()], ok = g(z || h(), i()+x[j()], <-c), k()
@@ -326,7 +336,6 @@ tail:
 	return 0, nil
 
 == 11-expressions.md 11.27 | func f(path string) error {
-known: spec example wrong: cfg is not used after the or clause, so line 2 is an error too (E0101)
 pre:
 	type Config struct{ name string }
 	func load(path string) (Config, error) { return Config{}, nil }
@@ -559,11 +568,7 @@ pre:
 tail:
 	Error:
 
-== 12-statements.md 12.17 | goto L // BAD
-known: spec example wrong: line 1 is an error (E0123, the goto jumps over the declaration of v), but its comment says BAD, not error (chapter 2)
-
 == 12-statements.md 12.17 | if n%2 == 1 {
-known: spec example wrong: line 2 is an error (E0124, the goto jumps into a block), but no comment marks it (chapter 2)
 pre:
 	var n int
 	func f() {}
@@ -611,9 +616,6 @@ pre:
 	type T struct{ n int }
 	var v int
 	var a alloc.Allocator
-
-== 15-program-initialization-and-execution.md 15.1 | var i int
-known: spec example wrong: it declares i twice in one block, and section 1.3 does not make var declarations alternatives (E0010)
 
 == 15-program-initialization-and-execution.md 15.1 | t.i == 0
 pre:

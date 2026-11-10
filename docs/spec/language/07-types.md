@@ -649,10 +649,13 @@ When embedding interfaces, methods with the same names must have identical signa
 
 ```go
 type ReadCloser interface {
-	Reader   // includes methods of Reader in ReadCloser's method set
-	Close()  // illegal: signatures of Reader.Close and Close are different
+	// illegal: the signatures of Reader.Close and Close are different
+	Reader  // includes methods of Reader in ReadCloser's method set
+	Close()
 }
 ```
+
+The rule names no single line of the clash: an implementation may report it at either method.
 
 **General interfaces.** In their most general form, an interface element may also be an arbitrary type term
 `T`, or a term of the form `~T` specifying the underlying type `T`, or a union of terms `t1|t2|…|tn`. Together
@@ -1619,7 +1622,7 @@ type File owner struct {
 
 func (f *File) Drop() {
 	if f.open {
-		syscall.Close(f.fd)
+		syscall.Close(int(f.fd))
 	}
 }
 

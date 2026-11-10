@@ -39,11 +39,11 @@ The zero value of a map is the nil map. It has length 0, reading from it yields 
 element type, and writing to it is a run-time panic (section 17.1, Panics). The nil channel blocks every
 send and receive forever (section 7.11, Channel types).
 
-These two simple declarations are equivalent:
+These two simple declarations give `i` and `j` the same initial value, 0:
 
 ```go
 var i int
-var i int = 0
+var j int = 0
 ```
 
 After
