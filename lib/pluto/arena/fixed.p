@@ -9,37 +9,57 @@ import (
 
 // Fixed owns one fixed-capacity payload. It moves rather than copies and
 // never grows or relocates its payload (language spec section 18.9).
+//
+// Its bookkeeping lives in its own backing (abi.md section 1.3, D54): a
+// table after the payload, sized when the arena is made for one record and
+// one drop entry per 16-byte granule of payload. Records of allocations grow
+// up from the start of the table and drop entries grow down from its end. An allocation that finds
+// no room in the table fails, and the parent is never asked again.
 type Fixed owner struct {
-	parent alloc.Allocator
-	base   unsafe.Pointer
-	size   uintptr
-	off    uintptr
-	life   lifetime
-	live   int64   // allocations made through Alloc and not freed yet
-	nent   uintptr // drop entries, at the end of the payload, growing down
-	added  uint64  // drop entries ever recorded
+	parent   alloc.Allocator
+	base     unsafe.Pointer
+	size     uintptr // payload capacity
+	held     uintptr // bytes of the backing: payload and table
+	table    uintptr // offset of the table in the backing
+	off      uintptr
+	nrec     uintptr // allocation records, from the start of the table
+	nent     uintptr // drop entries, from the end of the table
+	added    uint64  // drop entries ever recorded
+	live     int64   // allocations made through Alloc and not freed yet
+	identity uint64
+	reset    uint64
+	next     uint64 // the identity of the latest allocation
+	// retired is set by an allocation whose granules' address history is
+	// exhausted: the address just past the last such granule (abi.md
+	// section 1.3, Arena epochs).
+	retired uintptr
 }
 
 var _ alloc.Allocator = (*Fixed)(nil)
 
-// NewFixed explicitly allocates capacity bytes from parent. Allocation
-// bookkeeping is separately allocated from that parent as allocations occur.
-// The parent must outlive the Fixed and its Drop. Zero capacity is empty.
+// NewFixed explicitly allocates capacity bytes from parent, with the
+// arena's bookkeeping table after them, in one request. The table has room
+// for one allocation and its drop entry per 16-byte granule of the
+// payload; the arena asks the parent for nothing more until its Drop gives
+// the backing back. The
+// parent must outlive the Fixed and its Drop. Zero capacity is empty.
 func NewFixed(capacity uintptr, parent alloc.Allocator = alloc.Default()) Fixed {
 	if parent == nil {
 		panic("arena: NewFixed with a nil parent allocator")
 	}
-	if capacity > uintptr(^uint(0)>>1) {
+	if capacity > uintptr(^uint(0)>>1)/4 {
 		panic("arena: fixed capacity is too large")
 	}
 	if capacity == 0 {
-		return Fixed{parent: parent, life: newLifetime(parent)}
+		return Fixed{parent: parent, identity: rt.ArenaIdentity()}
 	}
-	p := parent.Alloc(capacity, 16)
+	payload := (capacity + 15) &^ 15
+	held := payload + payload/16*(unsafe.Sizeof(fixedRecord{})+unsafe.Sizeof(dropEntry{}))
+	p := parent.Alloc(held, 16)
 	if p == nil {
 		panic("arena: out of memory")
 	}
-	return Fixed{parent: parent, base: p, size: capacity, life: newLifetime(parent)}
+	return Fixed{parent: parent, base: p, size: capacity, held: held, table: payload, identity: rt.ArenaIdentity()}
 }
 
 // Alloc returns size zeroed bytes aligned to align, or nil when the arena
@@ -54,8 +74,8 @@ func (a *Fixed) Alloc(size, align uintptr) unsafe.Pointer {
 }
 
 // alloc is Alloc without the count, for the plain views of New and Slice.
-// It leaves keep bytes free below the drop entries.
-func (a *Fixed) alloc(size, align, keep uintptr) unsafe.Pointer {
+// It leaves room in the table for ents more drop entries.
+func (a *Fixed) alloc(size, align, ents uintptr) unsafe.Pointer {
 	if align == 0 {
 		align = 1
 	}
@@ -68,21 +88,22 @@ func (a *Fixed) alloc(size, align, keep uintptr) unsafe.Pointer {
 	if a.base == nil {
 		return nil
 	}
-	limit := a.limit()
+	if (a.nrec+1)*unsafe.Sizeof(fixedRecord{})+(a.nent+ents)*unsafe.Sizeof(dropEntry{}) > a.held-a.table {
+		return nil // the table is full
+	}
 	start := uintptr(a.base) + a.off
 	pad := (align - start&(align-1)) & (align - 1)
-	if pad > limit-a.off || size > limit-a.off-pad || keep > limit-a.off-pad-size {
+	if pad > a.size-a.off || size > a.size-a.off-pad {
 		return nil
 	}
-	p := unsafe.Add(a.base, a.off+pad)
-	p = a.life.allocate(p, size)
+	p := a.allocate(unsafe.Add(a.base, a.off+pad), size)
 	if p == nil {
-		if r := a.life.retired; r != 0 {
+		if r := a.retired; r != 0 {
 			// Granules whose address history is exhausted are retired:
 			// allocate after them. A Fixed has no other storage, so once
 			// every granule is retired its allocations fail.
-			a.off = min(r-uintptr(a.base), limit)
-			return a.alloc(size, align, keep)
+			a.off = min(r-uintptr(a.base), a.size)
+			return a.alloc(size, align, ents)
 		}
 		return nil
 	}
@@ -91,45 +112,85 @@ func (a *Fixed) alloc(size, align, keep uintptr) unsafe.Pointer {
 	return p
 }
 
-// Free reclaims only the latest allocation, invalidating it before reuse.
-func (a *Fixed) Free(p unsafe.Pointer, size, align uintptr) {
-	rt.GenCheckArenaFree(p, max(size, uintptr(1)))
-	if p != nil {
-		atomic.AddInt64(&a.live, -1)
+// allocate records an allocation of size bytes at p in the table and
+// returns its pointer, tagged with a new epoch in a checked build, or nil
+// when the address history of its granules is exhausted.
+func (a *Fixed) allocate(p unsafe.Pointer, size uintptr) unsafe.Pointer {
+	if a.next == ^uint64(0) {
+		panic("arena: allocation identity exhausted")
 	}
-	r := a.life.head
-	if r == nil || p == nil || uintptr(p) < uintptr(r.p) || uintptr(p) >= uintptr(r.p)+r.size || max(size, uintptr(1)) != uintptr(r.p)+r.size-uintptr(p) {
-		return
+	a.retired = 0
+	token := uintptr(0)
+	result := p
+	if genCheck {
+		token = rt.GenRegister(unsafe.Pointer(uintptr(p)), size, p, 0)
+		result = rt.GenTagArena(token, p, size)
+		if result == nil {
+			if token != 0 {
+				a.retired = rt.GenArenaExhausted(p, size)
+			}
+			rt.GenUnregister(token)
+			return nil
+		}
 	}
-	position := uintptr(p) - uintptr(a.base)
-	a.off = position
-	if a.life.freeTail(p, max(size, uintptr(1)), rt.CallerPC()) {
-		rt.ResumeAllocFreeExit()
+	a.next++
+	r := a.record(a.nrec)
+	*r = fixedRecord{id: a.next, start: uintptr(p) - uintptr(a.base)}
+	r.setToken(token)
+	a.nrec++
+	return result
+}
+
+// record returns allocation record i.
+func (a *Fixed) record(i uintptr) *fixedRecord {
+	return (*fixedRecord)(unsafe.Add(a.base, a.table+i*unsafe.Sizeof(fixedRecord{})))
+}
+
+// reclaim ends the allocations after the first n, latest first.
+func (a *Fixed) reclaim(n uintptr, pc uintptr, freed bool) {
+	for ; a.nrec > n; a.nrec-- {
+		if genCheck {
+			rt.GenEndArena(a.record(a.nrec-1).token(), pc, freed)
+		}
 	}
 }
 
-// limit is the end of the payload room: the drop entries take the end of
-// the backing.
-func (a *Fixed) limit() uintptr {
-	if a.nent == 0 {
-		return a.size
+// Free reclaims only the latest allocation, invalidating it before reuse.
+func (a *Fixed) Free(p unsafe.Pointer, size, align uintptr) {
+	rt.GenCheckArenaFree(p, max(size, uintptr(1)))
+	if p == nil {
+		return
 	}
-	return a.size&^(unsafe.Alignof(dropEntry{})-1) - a.nent*unsafe.Sizeof(dropEntry{})
+	atomic.AddInt64(&a.live, -1)
+	if a.nrec == 0 {
+		return
+	}
+	r := a.record(a.nrec - 1)
+	start := uintptr(a.base) + r.start
+	position := uintptr(p) - uintptr(a.base)
+	if uintptr(p) < start || uintptr(p) >= uintptr(a.base)+a.off || max(size, uintptr(1)) != a.off-position {
+		return
+	}
+	a.off = position
+	if uintptr(p) == start {
+		a.reclaim(a.nrec-1, rt.CallerPC(), true)
+		return
+	}
+	if genCheck {
+		rt.GenTrimArena(r.token(), uintptr(p), rt.CallerPC())
+	}
 }
 
 // entry returns drop entry i.
 func (a *Fixed) entry(i uintptr) *dropEntry {
-	return (*dropEntry)(unsafe.Add(a.base, a.size&^(unsafe.Alignof(dropEntry{})-1)-(i+1)*unsafe.Sizeof(dropEntry{})))
+	return (*dropEntry)(unsafe.Add(a.base, a.held-(i+1)*unsafe.Sizeof(dropEntry{})))
 }
 
 // allocEntry allocates n values of size bytes in all and records a drop
-// entry for them, or returns nil when the payload has no room for both.
+// entry for them, or returns nil when the payload or the table has no room
+// for both.
 func (a *Fixed) allocEntry(size, align, n uintptr, fn func(unsafe.Pointer, uintptr)) unsafe.Pointer {
-	keep := unsafe.Sizeof(dropEntry{})
-	if a.nent == 0 {
-		keep += a.size & (unsafe.Alignof(dropEntry{}) - 1) // the first entry is aligned
-	}
-	p := a.alloc(size, align, keep)
+	p := a.alloc(size, align, 1)
 	if p == nil {
 		return nil
 	}
@@ -154,56 +215,75 @@ func (a *Fixed) runEntries(stop uintptr) {
 func (a *Fixed) Reset() {
 	a.runEntries(0)
 	a.checkLive()
-	a.life.resetMarks()
+	a.resetMarks()
 	a.off = 0
 	a.nent = 0
-	if a.life.reclaim(0, rt.CallerPC(), false) {
-		rt.ResumeAllocFreeExit()
-	}
+	a.reclaim(0, rt.CallerPC(), false)
 }
 
 // FixedMark belongs to one Fixed and a still-live allocation position.
 type FixedMark struct {
 	identity uint64
 	reset    uint64
-	sequence uint64
+	id       uint64 // the identity of the latest allocation, or 0
+	nrec     uintptr
 	off      uintptr
-	end      uintptr
 	nent     uintptr
 }
 
 func (a *Fixed) Mark() FixedMark {
-	return FixedMark{a.life.identity, a.life.reset, a.life.sequence(), a.off, a.life.end(), a.nent}
+	id := uint64(0)
+	if a.nrec > 0 {
+		id = a.record(a.nrec - 1).id
+	}
+	return FixedMark{a.identity, a.reset, id, a.nrec, a.off, a.nent}
+}
+
+// valid reports whether m is a mark of a's present allocations: none of
+// the allocations before it has been reclaimed since it was taken.
+func (a *Fixed) valid(m FixedMark) bool {
+	if m.identity != a.identity || m.reset != a.reset || m.identity == 0 {
+		return false
+	}
+	if m.nrec > a.nrec || m.off > a.off || m.nent > a.nent {
+		return false
+	}
+	if m.nrec == 0 {
+		return m.id == 0
+	}
+	return a.record(m.nrec-1).id == m.id
 }
 
 func (a *Fixed) Release(m FixedMark) {
-	if !a.life.valid(m.identity, m.reset, m.sequence, m.end) || m.off > a.off || m.nent > a.nent {
+	if !a.valid(m) {
 		panic("arena: Release of a stale mark")
 	}
 	a.runEntries(m.nent)
 	a.checkLive()
 	a.off = m.off
 	a.nent = m.nent
-	if a.life.reclaim(m.sequence, rt.CallerPC(), false) {
-		rt.ResumeAllocFreeExit()
-	}
+	a.reclaim(m.nrec, rt.CallerPC(), false)
 }
 
 func (a *Fixed) Drop() {
 	a.runEntries(0)
 	a.checkLive()
-	a.life.resetMarks()
-	base, size, parent := a.base, a.size, a.parent
-	a.base, a.size, a.off, a.nent = nil, 0, 0, 0
-	exiting := a.life.reclaim(0, rt.CallerPC(), false)
+	a.resetMarks()
+	a.reclaim(0, rt.CallerPC(), false)
+	base, held, parent := a.base, a.held, a.parent
+	a.base, a.size, a.held, a.table, a.off, a.nent = nil, 0, 0, 0, 0, 0
 	if base != nil {
-		if rt.CatchAllocFree(parent, base, size, 16) {
-			exiting = true
+		if rt.CatchAllocFree(parent, base, held, 16) {
+			rt.ResumeAllocFreeExit()
 		}
 	}
-	if exiting {
-		rt.ResumeAllocFreeExit()
+}
+
+func (a *Fixed) resetMarks() {
+	if a.reset == ^uint64(0) {
+		panic("arena: mark identity exhausted")
 	}
+	a.reset++
 }
 
 // checkLive panics while an allocation made through Alloc is not freed
@@ -215,5 +295,5 @@ func (a *Fixed) checkLive() {
 }
 
 func (a *Fixed) Used() int      { return int(a.off) }
-func (a *Fixed) Available() int { return int(a.limit() - a.off) }
+func (a *Fixed) Available() int { return int(a.size - a.off) }
 func (a *Fixed) Cap() int       { return int(a.size) }

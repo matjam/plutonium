@@ -32,6 +32,28 @@ func main() {
 	heap.Free(s, 32, 16)
 	checked = !rt.GenRegisteredLive(s)
 
+	// A Fixed of one granule: once it is exhausted, allocation fails. It
+	// comes first, while no arena has used its address yet: an address
+	// keeps its history when the parent hands it out again, and the bounds
+	// below are for a fresh granule.
+	g := arena.NewFixed(16)
+	failed := -1
+	for i := 0; i < rounds && failed < 0; i++ {
+		if p := g.Alloc(8, 8); p == nil {
+			failed = i
+		} else {
+			g.Free(p, 8, 8) // counted until freed: Reset checks the count
+		}
+		g.Reset()
+	}
+	if checked && (failed < 30000 || failed > 32767) {
+		fail("one-granule Fixed failed at", failed)
+	}
+	if !checked && failed >= 0 {
+		fail("unchecked Fixed failed at", failed)
+	}
+	g.Drop()
+
 	// Mark/Release: every round allocates at the same place until its
 	// granule is exhausted.
 	a := arena.NewChunked()
@@ -78,23 +100,5 @@ func main() {
 	}
 	f.Drop()
 
-	// A Fixed of one granule: once it is exhausted, allocation fails.
-	g := arena.NewFixed(16)
-	failed := -1
-	for i := 0; i < rounds && failed < 0; i++ {
-		if p := g.Alloc(8, 8); p == nil {
-			failed = i
-		} else {
-			g.Free(p, 8, 8) // counted until freed: Reset checks the count
-		}
-		g.Reset()
-	}
-	if checked && (failed < 30000 || failed > 32767) {
-		fail("one-granule Fixed failed at", failed)
-	}
-	if !checked && failed >= 0 {
-		fail("unchecked Fixed failed at", failed)
-	}
-	g.Drop()
 	println("sum", sum, "wrong", wrong)
 }

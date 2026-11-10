@@ -195,12 +195,13 @@ func main() {
 	println("unreachable")
 }
 `, "drop 3\ndrop 2\ndrop 1\n", "drop failed"},
-		// A Fixed keeps its entries in its backing: a New fails when there
-		// is no room for the value and its entry.
+		// A Fixed keeps its entries in the table in its backing: a New
+		// fails when the table has no room for its entry, here the third
+		// in a payload of two granules.
 		{"fixedTableFull", `package main
 import "pluto/arena"
 ` + res + `func main() {
-	f := arena.NewFixed(64)
+	f := arena.NewFixed(32)
 	f.New[Res]().id = 1
 	println(1)
 	f.New[Res]().id = 2

@@ -8,7 +8,8 @@ import (
 )
 
 // Sections 17.3 and 18.6 require an exiting allocator callback to finish the
-// owner's remaining required record/backing cleanup before propagating exit.
+// owner's remaining required record/backing cleanup before propagating exit:
+// every request the arena made of its parent is given back.
 func TestSafeArenaDropCallback(t *testing.T) {
 	t.Parallel()
 	for _, constructor := range []string{"arena.NewFixed(256,c)", "arena.NewChunked(256,c)"} {
@@ -34,9 +35,16 @@ func main(){c:=counter{base:alloc.Default()}
  println(exited,c.live,c.allocations,c.frees,c.after)
 }
 `
-					want := "false 0 3 3 3\n"
+					// A Fixed asks its parent once, for its payload and its
+					// bookkeeping together (abi.md section 1.3, D54); a
+					// Chunked makes three requests here.
+					n := 3
+					if constructor == "arena.NewFixed(256,c)" {
+						n = 1
+					}
+					want := fmt.Sprintf("false 0 %d %d %d\n", n, n, n)
 					if exiting {
-						want = "true 0 3 3 0\n"
+						want = fmt.Sprintf("true 0 %d %d 0\n", n, n)
 					}
 					out, status := runSrc(t, source, opt, "--gencheck")
 					if status != 0 || out != want {

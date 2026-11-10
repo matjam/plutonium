@@ -6,9 +6,10 @@ import (
 	"unsafe"
 )
 
-// Allocation bookkeeping is separate from payload and comes from the named
-// parent allocator. Reclaimed records are returned to it. Runtime reader and
-// address-history metadata uses the checked directory's permanent storage.
+// A Chunked's allocation bookkeeping is separate from payload and comes from
+// the named parent allocator (a Fixed keeps its own, fixed.p). Reclaimed
+// records are returned to it. Runtime reader and address-history metadata
+// uses the checked directory's permanent storage.
 type allocation struct {
 	prev     *allocation
 	p        unsafe.Pointer

@@ -78,7 +78,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - In kernel mode, `rt.Park` does not yet panic when interrupts are disabled, so a wait with interrupts disabled and
   no lock held is not caught at run time (19.3, abi.md 12.4). Item 213.
 - A deadlock report does not name a panic in progress (19.1, 19.4). Item 205.
-- A Fixed arena still asks its parent for bookkeeping (18.9, F.2). Item 153.
 - `Free` through an arena still reclaims the latest allocation and can panic with "arena allocation freed" (18.9).
   Item 154.
 - The write check for cleaned places is not gated on package cleanup having started (15.4, 21.5). Item 155.

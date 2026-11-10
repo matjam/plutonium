@@ -105,8 +105,10 @@ func main() {
 	}
 }
 
-// Explicit parent accounting distinguishes payload from per-allocation
-// records, and checks that Release/Reset/Drop return every owned allocation.
+// Explicit parent accounting: a Fixed makes one parent request for its
+// payload and its bookkeeping table together, and allocations, Release and
+// Reset ask the parent for nothing more (section 18.9, abi.md 1.3, D54); Drop
+// returns that one request.
 func TestFixedParentAllocationCost(t *testing.T) {
 	t.Parallel()
 	const source = `package main
@@ -139,7 +141,7 @@ func main() {
  println("done",c.live,c.allocations,c.frees)
 }
 `
-	const want = "payload 1\nrecords 3 7 8\nprefix 2 7\nreset 1\ndone 0 3 3\n"
+	const want = "payload 1\nrecords 1 7 8\nprefix 1 7\nreset 1\ndone 0 1 1\n"
 	for _, opt := range []int{0, 2} {
 		t.Run(fmt.Sprintf("O%d", opt), func(t *testing.T) {
 			t.Parallel()
