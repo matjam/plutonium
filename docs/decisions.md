@@ -2240,6 +2240,26 @@ Why: each makes the text say one thing; G3 picks the simpler sound form. Goal: P
 
 Lands with: items 232 and 235.
 
+## D128. A deferred call counts at every point after its `defer` (19.3, F.5)
+
+Question: audit N2. A deferred read was not tied to the `Do`: in `defer show(); once.Do(load)`, a `load`
+that ends its task with `rt.ExitTask` runs `show` with no `Do` returned while another task's `Do` runs
+`load` again. The panic sentence of Lazy initialization ("stops the program") also disagreed with 17.2.
+
+Decision: a deferred call, with its literal's body or callee, counts as made at its `defer` statement and at
+every point after it, for every fact found on every path: held locks, regions, valid views, the returned
+`Do` and the start of sharing (one sentence in Held sets, cited from each). The scoped join already said
+so (19.4, Deferred calls). A panic in `f` keeps the Once locked and not done while the panicking task's
+deferred calls run; a deferred call armed inside `f` sees what `f` wrote under that lock, and one armed
+elsewhere needs a `Do` returned before its `defer`, which none has. N1 and N3 are wording: the switch
+check starts from every region handler code opens; the G3 sentence strips only the caller's hold.
+
+Why: the release rule already used this form; stating it once makes every rule agree and closes the race.
+Releasing the Once on a panic was rejected: the next `Do` would rerun `f` while deferred calls armed
+inside the first `f`, which need no `Do`, still read and write the data. Goal: Safe, Plain.
+
+Lands with: items 236 and 218.
+
 ## Deferred
 
 None open. D105 (lazy initialization through `sync.Once`) and D106 (`sync.Cond.Wait`) were deferred for

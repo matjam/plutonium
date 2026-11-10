@@ -1155,8 +1155,12 @@ compiler (2026-10-11).
     Note for spec examples: the race check follows tasks only from package initialization and `main`,
     and the test adds an empty `main` to a block that has none, so a block whose tasks start in an
     uncalled function is never race-checked. Library:
-    `Once.doSlow` releases its lock in a deferred call and sets `done` only after `f` returns, so an
-    `f` that ends its task with `rt.ExitTask` leaves the Once not done instead of locked for good. Spec
+    `Once.doSlow` releases its lock when `f` ends its task with `rt.ExitTask` and sets `done` only after
+    `f` returns, so such an `f` leaves the Once not done instead of locked for good. A panic in `f` must
+    keep the lock while the panicking task's deferred calls run (D128, finding N2 of audit N), so the
+    release cannot be a plain deferred `Unlock`: catch the task's end (`rt.CatchExitTask`) or test for a
+    panic in progress. A deferred read counts at its `defer` statement and every point after it (item
+    236). Spec
     example: the `type Config struct{ port int }` and `type Limits struct{ max int }` blocks of 19.3,
     which now start their tasks from `main`.
 219. **`sync.Cond.Wait` in the guard inference** (planned, phase 1; sections 19.3 (Held sets; Views loaded under a lock), 19.7, F.5,
@@ -1272,6 +1276,13 @@ compiler (2026-10-11).
     check does not start from that region, and the wait check does not start from regions in code a
     handler may reach (E2584 reports those waits once). `compiler/internal/race/region.p` already puts a
     handler body in `regIRQ`; check the rest and add tests for spec rows 110 to 115.
+236. **A deferred call counts at every point after its `defer`** (planned, phase 1; sections 19.3 (Held
+    sets; Views loaded under a lock; Lazy initialization; The start of sharing), 17.2, 17.3, D128, finding
+    N2 of audit N): a deferred call runs where its function leaves, which may be a callee that ends the
+    task with `rt.ExitTask` or a panic, so its accesses, views, regions and returned `Do`s use what holds
+    at its `defer` statement and at every point after it, less what deferred calls that run before it
+    release. Today `walker.finish` (`compiler/internal/race/walk.p`) runs the deferred calls with the join
+    of the states at the returns only. Add tests for spec rows 122 to 126.
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and

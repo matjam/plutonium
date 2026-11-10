@@ -322,7 +322,9 @@ func main() {
   pointer into a local first (`l := &locks[i]; l.Lock(); ...; l.Unlock()`). A `sync.Locker` interface, a
   stored method value (`u := mu.Unlock`) and a func value cannot release a lock. A helper that locks or
   unlocks its parameter or receiver works when every call matches (`s.lock(); defer s.unlock()`).
-  `defer mu.Unlock()` needs `mu` held at every point after the `defer`. Not checked yet: item 220.
+  `defer mu.Unlock()` needs `mu` held at every point after the `defer`. Not checked yet: item 220. Any
+  deferred call runs where the function leaves, which may be any point after its `defer` (a callee that
+  ends the task, a panic), so it holds only the locks held at the `defer` and at every point after it.
 - **Rule 1, shared data** (package variables, fields of static and `synced` objects, map contents, each with
   the memory it owns: an `owned[T]` it holds, the storage of a `vec.Vec` or `hash.Map` in it). Data that two
   tasks use, one writing, must be unchanged after sharing starts, initialized by a Once, atomic, or guarded:
@@ -371,7 +373,9 @@ func main() {
   a reset function reached through a func value, is E3502; a read with no `Do` before it, such as in a task
   that `main` started after its own `Do`, is E3503. A helper counts as after a `Do` only when every call of it
   is; `main`, task functions, handlers, `AfterFunc` functions and `//pu:export` functions never are. Do not reassign the Once. A function passed to
-  `Do` that ends its task with `rt.ExitTask` leaves the Once not done; the next `Do` runs its function.
+  `Do` that ends its task with `rt.ExitTask` leaves the Once not done; the next `Do` runs its function. So a
+  deferred read needs the `Do` before its `defer`: `once.Do(load); defer show()`, not `defer show();
+  once.Do(load)` (E3503).
 - **`sync.Cond`.** `var c sync.Cond` (zero value ready, no `NewCond`, nothing to free). Wait with the lock:
   `mu.Lock(); for q.Len() == 0 { c.Wait(&mu) }; j, _ := q.Pop(); mu.Unlock()`. The compiler counts
   `c.Wait(&mu)` as `mu.Unlock()` then `mu.Lock()`, so the loop keeps its guard. A pointer loaded before the

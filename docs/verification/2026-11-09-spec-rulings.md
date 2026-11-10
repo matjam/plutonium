@@ -1633,3 +1633,91 @@ Added: 110 to 115 (M1), 116 and 117 (M2), 118 and 119 (M3), 120 (M4), 121 (G3). 
 rule), 61 (both regions), 80 and 81 (box sentence), 109 (method shape, static `sc`, two tasks).
 
 No code block was added or changed.
+
+## Audit N
+
+Audit N (docs/verification/2026-11-09-spec-audit-n.md) checked the audit M pass: all six rulings applied
+and consistent, rows 109 to 121 right. One medium finding (N2) and two low ones (N1, N3) are resolved
+here. Decision D128 records them; roadmap item 236 is new and item 218's library note changed; table rows
+122 to 126 pin the shapes.
+
+### Rulings
+
+- N2 (medium): one sentence in Held sets states that a deferred call, with its literal's body or its
+  callee, counts as made at its `defer` statement and at every point after it, since its function may
+  leave at any of them (its end, a callee that calls `rt.ExitTask`, a panic). It holds a lock only if the
+  lock is held at all those points and no deferred call that runs before it releases it. Lazy
+  initialization gets the specific sentence: a `Do` counts for a deferred read only when it returned on
+  every path to the `defer` statement. The panic sentence now says a panic in `f` ends the program after
+  the panicking task's deferred calls, with the Once locked and not done meanwhile (also in F.5 and
+  memory-model.md 3.4).
+- N1 (low): the switch check "does start from every region that handler code opens itself ..., whether
+  inside the handler body's own region, after `x86.Sti`, or in a trap handler".
+- N3 (low): the G3 sentence now says "without the caller's hold of that lock; locks the iterator takes
+  itself are counted as usual".
+
+### Sweep: rules that depend on "on every path before"
+
+- Held sets (locks for accesses): the new Held sets sentence. Before, the deferred literal was "part of
+  the enclosing function, at the point where they run", and nothing said where that is; the compiler
+  uses the join of the states at the returns only. Fixed.
+- Releasing a lock: already covered by "the lock must be held at the `defer` statement and at every point
+  after it"; the new sentence uses the same form.
+- Regions (non-migrating, interrupt-disabled): only "a deferred release counting as a release at the end"
+  was stated, which says nothing about a deferred call's own accesses. Fixed with a sentence citing Held
+  sets.
+- Valid views under a lock: "used when the call runs, at the end of the function, so it is valid only if
+  the lock is still held there" missed an exit on a path that never reaches the end (`if bad {
+  mu.Unlock(); rt.ExitTask() }`). Rewritten: the lock must stay held with no ending event from the load
+  to the `defer` statement and to every point after it. A view a deferred literal uses is covered too.
+- Lazy initialization (returned `Do`): fixed as above. The callee credit ("every call of it is made where
+  a `Do` has returned") follows, since a deferred call of a function counts at its `defer` statement.
+- The start of sharing: "no path to it passes such a statement" read at the `defer` statement would put a
+  deferred write of `main` armed before the first task start before sharing. Fixed: a deferred access is
+  before the start only when no path from the `defer` statement passes one either.
+- The scoped-sharing join: already covered by 19.4, Deferred calls ("when a path runs its `defer`
+  statement and then reaches a point of that interval, or a return before the task is joined"). The Held
+  sets sentence cites it.
+
+### Attacks on N2
+
+- The audit's example (row 122): A's `load` exits, A's frames leave, the Once is released, A's deferred
+  `show` reads while B's `Do` reruns `load`. The `defer` statement has no returned `Do` before it: E3503.
+- `once.Do(load); defer show()` (row 123): the deferred call is armed only after `Do` returned, so the
+  Once is done whenever `show` runs: accepted. An exit inside a later call still has the `Do` behind it.
+- A deferred call armed inside `load`: it runs as `load`'s frame leaves, before `Do`'s frame releases the
+  Once, so it is during the call of `f` and holds the Once's lock. On a panic the lock stays held. It
+  sees only its own task's writes.
+- A deferred call in an outer frame armed after an earlier `Do` on the same Once returned: the Once is
+  done, so `f` cannot be running for it.
+- `defer func() { once.Do(load); show() }()`: the `Do` is inside the deferred call, before the read, so it
+  counts; if that `load` exits, 17.3 ends the deferred call's frames and `show` does not run.
+- `rt.CatchExitTask(func() { once.Do(load) }); defer show()`: a `Do` through a func value does not count,
+  as before: E3503.
+- A panic in `load` in a hosted build: the Once stays locked; B's `Do` waits until the program ends, so B
+  never reads; A's outer deferred calls need a `Do` returned before their `defer`, and none on this Once
+  has. Releasing the Once on a panic was rejected (D128).
+- A deferred call that itself calls `rt.ExitTask` during a panic stops the deferred calls (17.2); the
+  program ends with the panic and the Once is still locked. Nothing new is read.
+- Held set (rows 124, 125): a deferred literal armed after `defer mu.Unlock()` runs before it with `mu`
+  held at every point: accepted. Armed before `mu.Lock()`: a `step` that ends the task before the lock
+  is taken, or the deferred `Unlock` that runs first, leaves it unheld: E3502.
+- Valid view: `mu.Lock(); p := items.Ptr(0); defer use(p); if bad { mu.Unlock(); rt.ExitTask() }; ...`
+  with `defer mu.Unlock()` before: the `Unlock` on the exit path is an ending event after the `defer`
+  statement: E3501, where reading at the end alone accepted it.
+- Start of sharing (row 126): `defer func() { cfg = 0 }()` in `main` before `task reader()` writes after
+  the start: a shared write, so `reader`'s read with no lock is E3503.
+- Regions: `rt.DisablePreemption(); defer rt.EnablePreemption(); defer func() { ticks++ }()` keeps the
+  literal inside the region (it runs before the deferred release); a deferred `ticks++` armed before
+  `DisablePreemption` is E2022.
+- Cost: code that arms a deferred call before taking the lock it needs, and relies on reaching the end,
+  is now rejected. Moving the `defer` after the `Lock` (or the `Do`) fixes it, as for `defer mu.Unlock()`.
+- Build modes: freestanding and kernel builds run no deferred calls on a panic, but `rt.ExitTask` runs
+  them in every mode, and 19.4 already makes deferred rules the same in every build mode.
+
+### Table rows
+
+Added: 122 and 123 (the deferred read rejected and accepted), 124 and 125 (held set of a deferred
+literal), 126 (a deferred write of `main` is after the start of sharing). No row changed.
+
+No code block was added or changed.
