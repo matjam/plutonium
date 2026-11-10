@@ -416,8 +416,10 @@ a frame is a compile error (section 12.12). A task statement never starts a scop
 - where `s` is dropped: at the end of its block, on every path out of it, by the rules of section 18.6.
   Among the variables of one block, Scopes are dropped first, before the others are dropped in reverse
   order of declaration, so a task has returned before anything it may use is dropped. In a function's
-  outermost block the drop runs after the deferred calls, and a deferred `s.Wait()` joins at the same
-  point.
+  outermost block the drop runs after the deferred calls, so the deferred calls may run before this join
+  (Deferred calls, below).
+- where a deferred `s.Wait()` runs. Deferred calls run in reverse order, so it joins the tasks started on
+  `s` after its `defer` statement before any call deferred earlier runs, on a return and on a panic.
 
 The compiler follows, at each statement, which `s.Task` calls may have tasks that are not yet joined:
 an `s.Task` adds itself, an `s.Wait()` removes every `s.Task` on `s`, and where paths meet, the sets are
@@ -549,6 +551,40 @@ function calls `Task` (assigning, passing or returning it) is error E3405: the t
 address. A Scope that moves while tasks it started may run, which the compiler cannot see when a helper
 started them through a pointer, stops the program. Calling `s.Drop()` by hand is allowed, and waits.
 Reading a variable nobody writes, and calling `s.Task` again, are allowed.
+
+**Deferred calls.** A deferred call can run while a scoped task is not joined: when the function returns
+before the join, since deferred calls run before the function's variables are dropped (section 18.6), and
+when the task panics, since a panic runs the armed deferred calls while other tasks keep running
+(section 17.2). So a deferred call counts as a statement of a task's interval when a path runs its `defer`
+statement and then reaches a point of that interval, or a return before the task is joined. It is checked
+by the Sharing rules above and by E3404, with the accesses of its callee or its literal. The rule is the
+same in every build mode, so a program compiles the same way whether or not its panics run deferred calls.
+
+```go
+func fill() {
+	w := vec.New[int]()
+	defer w.Drop()                 // error E3404: may free w while the task pushes
+	var s sync.Scope
+	s.Task(func() { w.Push(1) })
+	s.Wait()                       // a panic before this line runs the deferred Drop
+}
+```
+
+The fix is to arm the deferred call where no task it conflicts with can run: after `s.Wait()`, or before
+a deferred `s.Wait()` that comes ahead of the first `s.Task`, which then joins first. An owner may also be
+left to the end of its block, since Scopes are dropped before the other variables of their block. Calling
+`s.Wait()` before the return is not enough on its own: a panic between the `s.Task` and the `Wait` still
+runs the deferred call while the task runs.
+
+```go
+func fill() {
+	w := vec.New[int]()
+	defer w.Drop()
+	var s sync.Scope
+	defer s.Wait()                 // runs first: joins before w is dropped
+	s.Task(func() { w.Push(1) })   // allowed
+}
+```
 
 **Non-local exits.** Every path out of the Scope's block drops it, so `return`, `break`, `continue` and
 `goto` join. `rt.ExitTask` leaves every frame through its ordinary return path, so the Scope's drop joins

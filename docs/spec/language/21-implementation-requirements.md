@@ -166,10 +166,12 @@ static object with a cleanup obligation tests one program-wide flag, a load and 
 compiler proves cannot reach one has no test. The unchecked mode keeps this check, since it guards owners
 and counts and not freed memory.
 
-An `arena.Fixed` or `arena.Chunked` counts its live counted objects, and its `Reset`, `Release` and `Drop`
-panic while the count is not zero (section 18.9, Arenas). The cost is one atomic counter per arena and one
-increment and one decrement per counted object made in it. The unchecked mode keeps this check too: without
-it a reset could free the bytes of a string another task still reads, which no epoch check can catch.
+An `arena.Fixed` or `arena.Chunked` counts its live allocations (every allocation made through its `Alloc`
+and not freed yet, owners and counted objects alike; not the plain views of `New` and `Slice`), and its
+`Reset`, `Release` and `Drop` panic while the count is not zero (section 18.9, Allocators, Live
+allocations). The cost is one atomic counter per arena and one increment and one decrement per allocation
+made through `Alloc`. The unchecked mode keeps this check too: without it a reset could free the bytes of
+a string, or the memory of an owner, that another task still uses, which no epoch check can catch.
 
 The implementation provides a tool that lists unsafe code (section 20.1, Package `unsafe`): for each
 package, the functions that use unsafe code, and the safe functions that call them (`pluto vet -unsafe`).

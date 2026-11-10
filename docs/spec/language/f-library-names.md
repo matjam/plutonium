@@ -121,16 +121,18 @@ private fixed-capacity backing. `Fixed` is a movable owner; it never grows its p
 backing on drop; its allocation bookkeeping comes out of that backing, sized when it is constructed, so an
 allocation never asks the parent for more and fails when the table is full. `arena.Chunked` grows by
 taking chunks from its parent allocator. An arena takes memory back in bulk only: freeing into it takes
-nothing back, and `Reset`, `Release(m)` and `Drop` reclaim. Both count their live counted objects, and
-`Reset`, `Release` and `Drop` panic while the count is not zero (section 18.9, Arenas).
+nothing back, and `Reset`, `Release(m)` and `Drop` reclaim. Both count their live allocations, every
+allocation made through their `Alloc` and not freed yet, and `Reset`, `Release` and `Drop` panic with
+"arena has live allocations" while the count is not zero (section 18.9, Allocators, Live allocations).
 An arena's `New[T]()` and `Slice[T](n)` methods return views that live until the arena takes their
-memory back. Fixed and Chunked ordinary APIs enforce that lifetime statically or, in a checked build,
+memory back; they are not counted. Fixed and Chunked ordinary APIs enforce that lifetime statically or, in a checked build,
 at runtime (sections 18.9 and 18.11). Direct raw allocation and unsafe pointer access retain their
 manual lifetime obligations (section 18.12). `arena.NewUnsafe(buf []byte) Arena` is a borrowed-buffer
 manual allocator. Its constructor and typed allocation/reclamation methods are explicit unsafe
 operations; it preserves the caller's buffer and owns no private payload, and it keeps no count of live
-counted objects. No arena is safe for unsynchronized simultaneous use by several tasks, except that the
-release of a counted object made in a `Fixed` or `Chunked` arena may happen in any task.
+allocations. No arena is safe for unsynchronized simultaneous use by several tasks, except that the
+free of an allocation made in a `Fixed` or `Chunked` arena (the release of a counted object, or the drop
+of an owner moved to another task) may happen in any task.
 
 ### F.3 Iterators and containers
 

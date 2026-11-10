@@ -295,8 +295,8 @@ call returns the first reference to a new channel or map; copying it counts anot
 freed to its allocator when the last reference goes (section 18.7, Shared ownership). The allocator is
 recorded in the object, so freeing goes to the allocator the object came from, whichever is the default
 at the time. A map or channel made in an arena is released like any other, and the
-arena counts it as a live counted object until then: `Reset`, `Release` and `Drop` of the arena panic
-while it is referenced (section 18.9, Arenas).
+arena counts it as a live allocation until then: `Reset`, `Release` and `Drop` of the arena panic
+while it is referenced (section 18.9, Allocators, Live allocations).
 
 A map literal allocates a map from the current allocator. A map in a package-level initializer is subject
 to the rule of section 15.2 (Package initialization).
@@ -435,8 +435,11 @@ func head() int {
 }
 ```
 
-Memory that only an arena should own is allocated through the arena, which returns views: `a.New[T]()`
-gives a `*T`, valid until the arena is reset or dropped.
+A box made with an arena as its allocator (`new(T, &a)`) is an owner like any other, and the arena counts
+it as a live allocation until the box is dropped: `Reset`, `Release` and `Drop` of the arena panic while
+it lives (section 18.9, Allocators, Live allocations). Memory that only an arena should own is allocated
+through the arena, which returns views: `a.New[T]()` gives a `*T`, valid until the arena is reset or
+dropped, and not counted.
 
 ### 13.10 Moving out of a place
 

@@ -247,15 +247,17 @@ concurrent use (`alloc.Slab` without a lock, an `arena.Arena`) may be used by on
 which is why every task starts with the program-wide default allocator, never with an override that the
 starting task installed with `alloc.Use` (language spec section 19.1, Tasks).
 
-An arena takes its memory back only in bulk, through `Reset`, `Release` or `Drop`. Counted objects made in
-an arena (strings, boxes, maps, channels and allocated errors) must be released before the arena takes back
-their memory, since releasing one writes its count. `arena.Fixed` and `arena.Chunked` make this hold: each
-keeps an atomic count of its live counted objects, and `Reset`, `Release` and `Drop` panic while the count
-is not zero (language spec section 18.9). A counted object may be released in another task than the one
-that uses the arena. That release changes only the arena's count, with an atomic decrement, and the
+An arena takes its memory back only in bulk, through `Reset`, `Release` or `Drop`. Everything allocated
+through an arena's `Alloc` must be freed before the arena takes back its memory: a counted object made in
+it (a string, a `shared` or `synced` box, an allocated error) is released, since releasing one writes its
+count, and an owner made in it (a box, a vector's array, a map, a channel) is dropped, since it may have
+moved to another task. `arena.Fixed` and `arena.Chunked` make this hold: each keeps an atomic count of its
+live allocations, and `Reset`, `Release` and `Drop` panic while the count is not zero (language spec section
+18.9). The plain views of `New` and `Slice` are not counted. An allocation may be freed in another task than
+the one that uses the arena. That free changes only the arena's count, with an atomic decrement, and the
 decrement that brings the count to zero is synchronized before the `Reset`, `Release` or `Drop` that reads
-it. So a task that still holds a string made in another task's arena keeps the arena from taking back its
-bytes, and the owner of the arena panics instead of reusing them.
+it. So a task that still holds a string, or an owner, made in another task's arena keeps the arena from
+taking back that memory, and the owner of the arena panics instead of reusing it.
 
 In a checked build, freeing heap memory gives it a new generation, and taking arena memory back
 ends the incarnation of the reclaimed allocations (language spec section 18.11, Generation checks).

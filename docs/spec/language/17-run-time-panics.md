@@ -67,9 +67,11 @@ dependent value and neither panics nor faults (section 11.24).
   `alloc.SetDefault`; an allocation with a nil allocator argument; an allocator that returns no memory
   ("out of memory"). These are `new`, `make`, the operations that make strings, and the allocating
   functions of the standard library (sections 13.7, 13.9 and 18.9).
-- `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked` while a counted object made in it
-  (a string, a box, a map, a channel or an allocated error) is still referenced, in any task ("arena has
-  live counted objects"; section 18.9, Arenas). The arena takes nothing back.
+- `Reset`, `Release` or `Drop` of an `arena.Fixed` or `arena.Chunked` while an allocation made through its
+  `Alloc` is not freed yet: an owner made in it (a box, a vector's array, a map, a channel) that is not
+  dropped, or a counted object made in it (a string, a `shared` or `synced` box, an allocated error) that
+  is still referenced, in any task ("arena has live allocations"; section 18.9, Allocators, Live
+  allocations). The arena takes nothing back.
 
 *Control.*
 
@@ -349,8 +351,9 @@ println(*first)               // panic: use of freed memory
 
 A use is a read, a write, or a drop that updates a count. Dropping a string or a counted box whose memory
 an arena has taken back is a use, since the drop changes its count. An `arena.Fixed` or `arena.Chunked`
-keeps this from happening: its `Reset`, `Release` and `Drop` panic while a counted object made in it is
-still referenced (section 18.9, Arenas), so a string made in the arena must be released before any of them.
+keeps this from happening: its `Reset`, `Release` and `Drop` panic while an allocation made in it is not
+freed yet (section 18.9, Allocators, Live allocations), so a string made in the arena must be released,
+and an owner made in it dropped, before any of them.
 
 The panic for arena memory names the call that ended the arena's epoch, such as `Reset`.
 

@@ -353,13 +353,14 @@ path), is not such a point for its caller. `opt.GenFrees` computes which functio
   its parent, with room for the largest number of allocations its payload capacity can hold. It takes
   no record from the parent per allocation, so allocation, `Reset` and `Release` never call the parent,
   and an allocation fails, without advancing the cursor, when the table is full.
-- **Live counted objects.** A `Fixed` and a `Chunked` each hold one atomic word, the number of live
-  counted objects (strings, boxes, maps, channels and allocated errors) in their memory. When the
-  runtime allocates such an object from an arena it tells the arena so, the arena records it in the
-  allocation's bookkeeping entry and adds one; the `Free` of an allocation so recorded subtracts one,
-  from whichever task released the last reference. Other allocators are not told. `Reset`, `Release` and `Drop` load the word with acquire ordering and panic with "arena
-  has live counted objects" when it is not zero, before taking anything back (language spec section
-  18.9). The cost is the word and one atomic add per counted object at each end of its life.
+- **Live allocations.** A `Fixed` and a `Chunked` each hold one atomic word, the number of live
+  allocations in their memory: every allocation made through the arena's `Alloc` (owners, string
+  buffers, boxes, map tables, channels, allocated errors) and not freed yet. `Alloc` adds one with
+  relaxed ordering; `Free` subtracts one with release ordering, from whichever task dropped the owner or
+  released the last reference. The plain views of `New[T]()` and `Slice[T](n)` do not go through this
+  count. `Reset`, `Release` and `Drop` load the word with acquire ordering and panic with "arena has live
+  allocations" when it is not zero, before taking anything back (language spec section 18.9). The cost
+  is the word and one atomic add at each end of each counted allocation's life.
 - **Disjoint ranges.** A stale arena pointer into memory a slab now uses, or a stale slab pointer into
   an arena chunk, never matches.
 - **Counted strings and boxes.** A string's control word (section 1.1) keeps the tag of its buffer, and

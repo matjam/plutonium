@@ -632,12 +632,12 @@ section builds on this chapter: identical underlying types (section 8.2), identi
 assignability (section 8.4), representability (section 8.5) and the kinds of section 8.7. The rules that
 depend on the kind of a type are these:
 
-- Converting a value of non-owner type to an owner type is allowed only in the package that declares the owner
-  type, where its invariants are kept (E3212). Converting an owner to a non-owner type reads its value and
-  moves nothing; the result is a plain value with no `Drop`. Converting between two owner types with the same
-  underlying type moves, and is allowed only in the package that declares the result type or in the package
-  of an operand type defined from it (E3212). A pointer conversion where either base type is an owner, and a
-  union conversion whose result is an owner union, have the same limits.
+- Converting a value of non-owner type to an owner type makes a new owner, and converting between two owner
+  types with the same underlying type moves; both are allowed only where section 11.24 (Conversions, Owners,
+  rules 1 and 3) allows them, which is in the package that declares the result type, with further limits when
+  a type is defined from another owner type (E3212). Converting an owner to a non-owner type reads its value
+  and moves nothing; the result is a plain value with no `Drop`. A pointer conversion where either base type
+  is an owner, and a union conversion whose result is an owner union, have the limits section 11.24 gives.
 - A box never converts to or from a pointer, except through `(*T)(p)`, `&*p` and `unsafe`. A `weak[P]` is made
   by converting a reference (section 7.19).
 - A value of type `rune`, or a slice whose element type is `rune`, converts to a string; a string converts to no rune and to no slice (section 11.24, Conversions to and from a string type).

@@ -267,8 +267,8 @@ that refers to it goes, and no code releases it by hand.
    `synced` reference that it holds. Copying the interface increments the count. Dropping it, or
    overwriting it, decrements the count. At zero the error's `Drop` runs, which drops the errors it wraps,
    and the memory is freed to the allocator recorded in the object (section 18.7, Shared ownership). In an
-   arena, freeing takes no memory back; it lowers the arena's count of live counted objects, and the arena
-   reclaims the memory when it is reset (section 18.9, Arenas).
+   arena, freeing takes no memory back; it lowers the arena's count of live allocations, and the arena
+   reclaims the memory when it is reset (section 18.9, Allocators, Live allocations).
 3. Every other error value copies as a value: codes, sentinels, and errors that live in a field of an owner.
    Whether an `error` value is counted is a property of its dynamic type, so a program whose errors are
    only codes, as a kernel's are, pays nothing beyond one predictable test when it copies or drops a

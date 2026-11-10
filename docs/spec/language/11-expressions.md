@@ -798,7 +798,7 @@ yields an additional untyped boolean value. The value of `ok` is `true` if the a
 
 A type assertion from an **owning interface** to an owner type moves the value out of the interface. The operand `x` must be a whole variable or a temporary, and it holds nothing afterward. Asserting out of a field, an element or `*p` would move out of a place that still holds the value, which is error E3303 (section 18.5, Places); take the value out first, as in `take(&d.state).(T)`. The same holds for a moving assertion on an owner union and for a type switch with a binding (section 12.9). In the comma-ok form `v, ok := x.(T)`, `x` is moved only where `ok` is true, and it is still usable on the path where `ok` is false. The same holds for an owner union: `f, ok := s.(Slot.Open)` moves the payload out only where `ok` is true, and the single-value form `f := s.(Slot.Open)` moves it out and leaves `s` empty (section 7.13, Unions; section 18.5, Moves).
 
-An assertion from an owning interface to an **ordinary interface** type, `x.(I)`, moves nothing. The result lends from `x`, as converting an owner to an ordinary interface does: it is a view of the value `x` holds, and `x` keeps the value and drops it as before (section 18.3, Views). The comma-ok form lends in the same way when `ok` is true.
+An assertion from an owning interface to an **ordinary interface** type, `x.(I)`, moves nothing. The result lends from `x`, as converting an owner to an ordinary interface does: it is a view of the value `x` holds, and `x` keeps the value and drops it as before (section 18.3, Views). The result holds the payload's word, or points at the payload's copy in the frame, not at `x` itself, so it is a view obtained from `x`: moving, dropping or assigning `x`, a call that may free or move out what `x` holds, or an assignment to an owner field on its path ends it, and a later use is E3313. The comma-ok form lends in the same way when `ok` is true.
 
 **Where `ok` is true.** In the comma-ok form, the move happens at the assertion when the assertion holds. The compiler follows `ok` only through direct tests of it, on the variable the assertion declared or assigned, with no assignment to it in between. Such a test is the condition of an `if` statement that is `ok`, `!ok`, or a chain of `&&` or `||` with one of these as an operand. A branch of that `if` statement where the condition's value fixes `ok` is a path where `ok` is known: the then-branch of `if ok` and of `if ok && c`, and the else-branch of `if !ok` and of `if !ok || c`, are paths where `x` was moved; the then-branch of `if !ok` and of `if !ok && c`, and the else-branch of `if ok` and of `if ok || c`, are paths where `x` still holds its value. On every other path, including the then-branch of `if !ok || c`, a branch after `ok` was assigned, and every path when `ok` is `_`, `x` counts as possibly moved, and using it is error E3302 (section 18.5, Moves). The usual form tests `ok` right after the assertion:
 
@@ -1550,7 +1550,7 @@ t2 := (*[1]string)(t) // panics: len([1]string) > len(t)
 
 1. Converting a value to an owner type makes a new owner. It is allowed only in the package that declares the owner type, where the invariants of the type are kept. In any other package it is an error (E3212). When the owner type `B` is defined from another owner type `A` (`type B owner A`), a new `B` holds a new `A`, so the conversion is allowed only where a conversion to `A` is allowed too. Converting a constant to an owner type is such a conversion: the result is a non-constant owner value, so `Frame(0)` is not a constant expression and cannot initialize a constant.
 2. Converting an owner to a type that is not an owner reads the value and moves nothing. The result is a plain value with no `Drop`. When the result is a pointer, slice or other view (`(*T)(h)` for `type H owner *T`), it is a view of the memory the owner owns, bounded by the owner as section 18.3 (A local owner's memory) says: using it after the owner is moved, dropped or given a new value is E3313.
-3. Converting an owner to another owner type `T` with the same underlying type moves it. The result is a `T` that nobody in `T`'s package made, so the limit of rule 1 applies: the conversion is allowed only in the package that declares `T`, or in the package that declares the operand's type when that type is defined from `T`, directly or through other owner types. In any other package it is an error (E3212). Without the limit, a package could declare `type Fake owner uintptr`, make a `Fake` from any number by rule 1, and convert it to another package's `Frame`.
+3. Converting an owner to another owner type `T` with the same underlying type moves it. The result is a `T` that nobody in `T`'s package made, so the limit of rule 1 applies: the conversion is allowed only in the package that declares `T`, or in the package that declares the operand's type when that type is defined from `T`, directly or through other owner types. When `T` is itself defined from another owner type `A` (`type T owner A`), a new `T` holds an `A`, so, as in rule 1, the conversion is allowed only where converting the operand to `A` is allowed too; an operand of type `A` needs no conversion. In any other package it is an error (E3212). Without the limit, a package could declare `type Fake owner uintptr`, make a `Fake` from any number by rule 1, and convert it to another package's `Frame`, directly or through a type of its own defined from `Frame`.
 
 The same limits hold for the other conversions that can produce an owner:
 
@@ -1573,9 +1573,18 @@ package q
 
 type Fake owner uintptr
 
+type MyFrame owner p.Frame
+
 func forge() p.Frame {
 	return p.Frame(Fake(0x1000)) // error E3212: p.Frame is declared in package p
 }
+
+func forge2() p.Frame {
+	mf := MyFrame(Fake(0x1000)) // error E3212: MyFrame is defined from p.Frame, and a Fake does not convert to p.Frame here
+	return p.Frame(mf)
+}
+
+func wrap(f p.Frame) MyFrame { return MyFrame(f) } // allowed: f is already a p.Frame
 ```
 
 Converting an owner to an interface type lends it when the interface is ordinary, and moves it when the interface is owning (section 7.9, Interface types). A value-receiver method of an owner type never satisfies an interface method (section 8.6, Method sets), so the conversion is an error when the interface needs one.

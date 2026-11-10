@@ -795,9 +795,15 @@ holds comes from its type.
 
 - An **ordinary interface** is any interface type not declared `owner`: `any`, `error`, `io.Reader`. It never
   owns what it holds. Converting an owner, or a counted reference held in one word (a `shared[T]` or
-  `synced[T]` reference, a `weak[P]`, a channel or a map), to an ordinary interface **lends** it: the interface is a view of the variable that was converted, valid while that variable holds
-  the value, and the variable is not moved. That is what makes `fmt.Println(buf)` work on an owner without
-  giving it away. Such an interface follows the view rules of section 18.3 (Views): it cannot be returned or
+  `synced[T]` reference, a `weak[P]`, a channel or a map), to an ordinary interface **lends** it, and the
+  variable is not moved. That is what makes `fmt.Println(buf)` work on an owner without giving it away.
+  How the interface holds what it lends depends on the size (Representation, below). An owner larger than
+  one word is not copied: the interface points at the variable and is a view of the variable itself. A
+  one-word value stored directly (a box, a channel, a map, a `weak` reference, an owner defined from a
+  pointer type, or a one-field struct of one of these) is copied into the data word: the interface is a
+  view obtained from the variable, and it ends when the variable is moved, dropped or given a new value,
+  or when a call or field assignment may free what that word points to (E3313; section 18.3, Views lists
+  these events). Either way the interface follows the view rules of section 18.3: it cannot be returned or
   stored beyond the life of the variable. The interface `error`, and every interface that embeds it, is the
   one exception for counted references: it counts a `synced[T]` reference it holds, as
   section 16.7 (Allocated errors and ownership) defines; a `shared[T]` cannot be converted to it (section 8.8,
@@ -816,7 +822,9 @@ method. An interface that embeds an owning interface must itself be declared `ow
 A type assertion `x.(T)` from an owning interface to an owner type moves the value out of `x`. In the comma-ok
 form `v, ok := x.(T)`, `x` is moved only where `ok` is true, which the compiler follows through direct tests of
 `ok` (section 11.13). An assertion from an owning interface to an ordinary interface type moves nothing: the
-result lends from `x`. A type switch with a binding moves `x` into the binding in every clause except one that
+result lends from `x`. It holds the payload's word, or points at the payload's copy in the frame, not at
+`x`, so it is a view obtained from `x` that the events of section 18.3 end (E3313), as for a one-word
+owner above. A type switch with a binding moves `x` into the binding in every clause except one that
 names a single ordinary interface type, where the binding lends from `x` (section 12.9, Switch statements).
 Asserting an ordinary interface to an owner type, including an owning interface, is a compile error (E3308),
 since the interface only lends the value and the result would be a second owner; assert it to an ordinary
@@ -860,7 +868,10 @@ The data word holds the value itself when the dynamic type is one word that the 
   into the frame like any other struct.
 
 A channel or a map in the data word of an ordinary interface is lent, as a `shared[T]` or `synced[T]`
-reference is: the interface is a view of the variable that was converted and holds no count of its own. An
+reference is: the interface holds a copy of the variable's word and no count of its own. It is a view
+obtained from the variable that was converted, ended by the events of section 18.3 (Views), as a box
+in the data word is: after `x := any(m)`, the assignment `m = nil` drops the map, and using `x` again is
+E3313. An
 `any` made from a channel in a package-level variable may be kept anywhere, while
 `func f() any { return make(chan int) }` is a compile error, since the interface would outlive the
 temporary channel (section 18.3, Views).
@@ -1665,11 +1676,12 @@ A type is an owner only if it is declared so, or if its construction makes it on
 
 The library's `vec.Vec[T]`, `hash.Map[K, V]`, `strings.Builder` and `os.File` are declared `owner`.
 
-**Conversions and comparison.** A value of non-owner type converts into an owner type only in the package that
-declares the owner type; an owner converts to a non-owner type by reading its value, without moving it; and
-two owner types with the same underlying type convert by moving, only in the package that declares the result
-type or in the package of an operand type defined from it. Pointer conversions that reach an owner and union
-conversions that make one have the same limits (E3212; section 11.24, Conversions). An owner type is
+**Conversions and comparison.** A value of non-owner type converts into an owner type, and two owner types with
+the same underlying type convert by moving, only where section 11.24 (Conversions, Owners) allows it: in the
+package that declares the result type, with further limits when a type is defined from another owner type, so
+that only a type's own package can make one. An owner converts to a non-owner type by reading its value,
+without moving it. Pointer conversions that reach an owner and union conversions that make one have the
+limits section 11.24 gives (E3212). An owner type is
 comparable when its underlying type is, and comparing reads the operands without moving them (section 8.10,
 Comparable types). No other operator applies to an owner, even one with a numeric underlying type: the
 arithmetic is done on the value read out by a conversion, `int32(fd) + 1` (section 11.18, Operators).

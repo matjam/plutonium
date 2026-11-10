@@ -128,10 +128,31 @@ frame rules above, and in addition it may not be used, in the same function, aft
 - an assignment to an owner field on the path from the variable to the memory the view looks at, which
   drops the old value: after `p := &*n.child`, `n.child = new(Leaf)` ends `p`.
 
-A view of the variable itself (`&v`, or an ordinary interface that lends it, section 7.9) is not ended by
-a call or field assignment, since the variable is still where it was and holds the current value. Such a view may be stored in memory the same variable owns,
-which is released with what it views. When the variable is moved whole, its memory goes with the
-value, and a view of it kept in that value is then a view of the new owner. A variable whose drop releases or writes through a
+A view of the variable itself is not ended by a call or field assignment, since the variable is still
+where it was and holds the current value. Only two views are views of the variable itself: `&v`, and an
+owner larger than one word lent to an ordinary interface, whose data word points at the variable (section
+7.9). Such a view may be stored in memory the same variable owns, which is released with what it views.
+When the variable is moved whole, its memory goes with the value, and a view of it kept in that value is
+then a view of the new owner.
+
+An ordinary interface that holds a one-word value lent from the variable holds a copy of that word, not
+the variable's address: an `owned`, `shared` or `synced` box, a map, a channel, a `weak` reference, an
+owner defined from a pointer type, or a struct with one field or an array of length 1 that holds one of
+these (section 7.9). Such an interface is a view obtained from the variable, and each event of the list
+above ends it (E3313). So is the result of an assertion from an owning interface to an ordinary
+interface, or the binding of a type switch clause that names one, which lends from the asserted variable
+(section 11.13): it holds the payload's word or points at the payload's storage, not at the variable.
+
+```go
+func reset(p *owned[T]) { *p = new(T) } // drops the old box
+
+b := new(T)
+x := any(b)    // x holds a copy of the box pointer
+reset(&b)      // may free the box x holds
+fmt.Println(x) // error E3313: x was ended by the call reset(&b)
+```
+
+A variable whose drop releases or writes through a
 view of another local variable (a string, vector or other value that holds a view of a local arena
 or owner) must be declared after that variable, so that it is dropped first (section 18.6, Drops);
 otherwise the declaration of the holder is E3313, and the error names both variables. A view of a temporary owner (`makeVec().Slice()`) may not outlive the
@@ -141,7 +162,9 @@ object, so a call that may free memory of the object through any reference that 
 another local, a field, a parameter of the same box type) ends the view too, unless the compiler knows the
 two point to different objects: after `b := a` and `s := a.Slice()` for a `shared[vec.Vec[int]]` `a`,
 `b.Push(1)` ends `s` (E3313). A function literal holds the views that the local variables it uses hold
-where it is made, so calling it after the owner was moved, dropped or given a new value is E3313 too.
+where it is made, so calling it after any event of the list above that ends one of those views is E3313
+too: the owner is moved, dropped or given a new value, a call may free or move an owner out of the viewed
+memory, or an owner field on the view's path is assigned.
 
 **A local's scope.** A view of a local variable whose type has drop glue (an owner, or a value that
 holds a counted value: a string, a box, a map, a channel, an allocated error, or a struct, array or
@@ -163,8 +186,9 @@ println(*p) // error E3313: s's scope ended at the end of its block
 The compiler follows views through local variables, their fields, and the calls that store them into
 other arguments. A view stored anywhere else (through a pointer, in a variable that a function literal
 uses or whose address is kept, or by a call the compiler cannot see into) cannot be followed, so the owner
-may not be moved, dropped, given a new value, or passed by pointer to a call that may free the viewed
-memory, while that view could still be used (E3314).
+may not be moved, dropped, given a new value, passed by pointer to a call that may free the viewed memory
+or move an owner out of it, or have an owner field on the view's path assigned, while that view could
+still be used (E3314). These are the events of the list above.
 
 **Heap memory reached any other way** (through a pointer that a field holds, through a `*T` parameter,
 through a box reached from another object) is checked at run time by generation checks (section 18.11):
@@ -233,7 +257,9 @@ interface holding a copy made in the body) is therefore valid for one iteration.
   declared outside the loop body or in the loop's header, or anywhere a view of the frame may not go at
   all (section 18.3).
 - A local variable whose address is never taken is checked where the next iteration starts, so keeping
-  a view in it and then leaving the loop with `break` or `return` is allowed.
+  a view in it and then leaving the loop with `break` or `return` is allowed, unless the viewed variable
+  has drop glue: its scope ends when the loop is left, and a use of the view after that is E3313
+  (section 18.3, A local's scope).
 - A closure that uses only variables declared outside the loop refers to the same addresses on every
   iteration and may be kept.
 - Copying the variable into one declared in the body (`i := i`) does not help, since that copy is reused
@@ -283,7 +309,8 @@ it until the variable is given a new value.
 - taking its address (`&b`), calling a method with a pointer receiver (`b.Write(p)`, which passes `&b`),
   and selecting a field to read it;
 - converting it to an ordinary interface such as `any` or `error`, which lends it: the interface is a
-  view of the variable (section 7.9);
+  view of the variable, or, for a one-word owner, a view that holds a copy of its word (section 7.9;
+  section 18.3 says when each ends);
 - comparing it with `==` or `!=`, where its type is comparable (section 8.10, Comparable types);
 - converting it to a type that is not an owner type, which yields a plain value with no `Drop` (section
   11.24, Conversions);
@@ -368,14 +395,15 @@ ordinary interface type, where the binding lends; after the switch the variable 
 if some paths moved it and others did not (section 11.13, Type assertions; section 12.9, Switch
 statements).
 
-**Conversions.** Converting a value into an owner type creates a new owner, and is allowed only in the
-package that declares the owner type, where its invariants are kept (E3212). Converting between two owner
-types with the same underlying type moves, and has the same package limit: it is allowed only in the package
-that declares the result type, or in the package of an operand type defined from it, since otherwise any
-package could forge an owner of another package's type through a look-alike owner of its own. A pointer
-conversion that reaches an owner, a union conversion that makes an owner union, and a composite literal of an
-owner struct with unexported fields are limited the same way (section 11.24, Conversions; section 7.18, Owner
-types). Converting an owner to a non-owner type reads it (above).
+**Conversions.** Converting a value into an owner type creates a new owner, and converting between two
+owner types with the same underlying type moves. Both are allowed only where section 11.24 (Conversions,
+Owners, rules 1 and 3) allows them: in the package that declares the result type, where its invariants are
+kept, or, for a move, in the package of an operand type defined from the result type; and when the result
+type is defined from another owner type, only where a conversion to that type is allowed too (E3212).
+Otherwise any package could forge an owner of another package's type through a look-alike owner of its
+own. A pointer conversion that reaches an owner, a union conversion that makes an owner union, and a
+composite literal of an owner struct with unexported fields are limited the same way (section 11.24,
+Conversions; section 7.18, Owner types). Converting an owner to a non-owner type reads it (above).
 
 **Generic code.** A type parameter admits owner types only if its constraint is marked `owner` (section
 10.9, Type parameter declarations); instantiating any other type parameter with an owner type is error
@@ -631,9 +659,9 @@ reference until the function returns or the same conversion runs again (section 
 the string writes its header, so the string must not be used, or dropped, after the arena is reset or
 dropped. For an arena in a local variable the compiler checks this: such a string is a view of the arena
 (section 18.9). A string must be declared after the arena it views, and is dropped before it (section 18.3, A
-local owner's memory). For every other arena the arena checks it at run time: it counts its live counted
-objects, and `Reset`, `Release` and `Drop` panic while a string made in it is still referenced anywhere,
-in this task or another (section 18.9, Arenas).
+local owner's memory). For every other arena the arena checks it at run time: it counts its live
+allocations, and `Reset`, `Release` and `Drop` panic while a string made in it is still referenced anywhere,
+in this task or another (section 18.9, Live allocations).
 
 **Races.** A string's bytes never change, so reading a shared string needs no lock. Writing a string
 variable that another task may read at the same time is a data race on a value of three words; safe code
@@ -753,8 +781,9 @@ limit remains a gap for valid safe arena programs, not a restriction on the spec
 
 **Arenas.** An arena owns everything allocated in it and reclaims it all at once when it is reset or
 dropped. Freeing into an arena takes no memory back, so the same owner code works in an arena and on the
-general heap: an owner allocated in an arena is dropped as usual, and its free costs nothing. Freeing a
-counted object only lowers the arena's count of live counted objects (below). The library provides
+general heap: an owner allocated in an arena is dropped as usual, and its free takes no memory back. Freeing
+any allocation, an owner's or a counted object's, only lowers the arena's count of live allocations
+(below). The library provides
 `arena.Fixed`, a fixed-capacity owner of private backing from its parent allocator, and `arena.Chunked`,
 an owner that takes more chunks from a parent allocator as needed. The ordinary fixed constructor is
 `arena.NewFixed(capacity uintptr, parent alloc.Allocator = alloc.Default()) Fixed`. It explicitly
@@ -774,19 +803,28 @@ An arena also hands out memory as
 plain views (`a.New[T]()` returns a `*T`, `a.Slice[T](n)` a `[]T`) that are valid until the arena is
 reset or dropped; the compiler does not drop the values in them.
 
-**Live counted objects.** A counted object made in an arena must be released before the arena takes its
-memory back, since releasing it writes its count, and a copy of it may sit in another task. So
-`arena.Fixed` and `arena.Chunked` each count their live counted objects: strings, boxes, maps, channels and
-allocated errors (section 16.6) whose memory the arena handed out. The count rises when the arena hands out
-the memory of such an object, and falls when the object's last reference is released and its memory is
-freed to the arena. `Reset`, `Release` and `Drop` panic with "arena has live counted objects" while the
-count is not zero (section 17.1, Panics). `Release` checks the whole count, so a counted object made before
-the mark also stops it. The cost is one counter per arena and one increment and one decrement per counted
-object made in it; the counter is atomic, since the last reference to a string can be released in another
-task. Plain views (`a.New[T]()`, `a.Slice[T](n)`) and owners are not counted. A counted value stored in
-memory the arena handed out as a plain view is never dropped by the compiler, so it keeps the count up
-until the program clears that place. The manual `Arena` of `arena.NewUnsafe` keeps no count; its caller
-ends every count obligation before taking memory back (below).
+**Live allocations.** Everything allocated in an arena, except its plain views, must be freed before the
+arena takes its memory back. An owner made in the arena (a box from `new(T, &a)`, the array of a `vec.Vec` that grows while the
+arena is the current allocator, a map table, a channel) can be moved to another task, and a counted object
+(a string, a `shared[T]` or `synced[T]` box, an allocated error, section 16.6) can be copied to one; freeing
+either writes memory the arena handed out. So `arena.Fixed` and `arena.Chunked` each count their **live
+allocations**: every allocation made through the arena's `Alloc` that is not freed yet, owners and counted
+objects alike. The count rises when `Alloc` hands out memory, and falls when that memory is freed to the
+arena: when an owner is dropped, or a counted object's last reference is released. Only the plain views
+`a.New[T]()` and `a.Slice[T](n)` (above) are not counted; they are bounded views of the arena, which the
+frame and arena rules keep from outliving it. `Reset`, `Release` and `Drop` panic with "arena has live
+allocations" while the count is not zero (section 17.1, Panics), and take nothing back. `Release` checks the
+whole count, so an allocation made before the mark and not yet freed also stops it: an owner that must
+outlive a `Release` is allocated from the parent or from another arena. The cost is one counter per arena
+and one increment and one decrement per allocation made through `Alloc`; the counter is atomic, since the
+last reference to a string can be released, and an owner dropped, in another task. An owner or counted
+value stored in memory the arena handed out as a plain view is never dropped by the compiler, so it keeps
+the count up until the program drops it or clears that place. For an arena in a local variable the
+compiler also checks, at compile time, that nothing allocated in it while it is installed outlives it
+(Allocations from a local arena, above; section 18.3), so a program that compiles drops those owners and
+releases those counted values before the arena is dropped, and the count stays a run-time check only for
+a `Reset` or `Release` that comes earlier. The manual `Arena` of `arena.NewUnsafe` keeps no count; its
+caller frees every allocation and ends every count obligation before taking memory back (below).
 
 ```go
 func (s *Server) step(n int) {
@@ -794,6 +832,12 @@ func (s *Server) step(n int) {
 	s.last = fmt.Sprintf("item %d", n) // a counted string in s.arena, kept in a field
 	r.Restore()
 	s.arena.Reset() // panics: s.last still references a string in the arena
+}
+
+func (s *Server) handoff(ch chan owned[Job]) {
+	j := new(Job, &s.arena) // an owner in s.arena: counted
+	ch <- j                 // moved to another task
+	s.arena.Reset()         // panics while the other task has not dropped j
 }
 ```
 
