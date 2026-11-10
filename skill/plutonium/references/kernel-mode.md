@@ -184,9 +184,10 @@ deferred or used as a value (E2573); install it in the interrupt table with a ty
 which returns the `x86.Gate` (a table is an array of `Gate`; `x86.Lidt` loads it).
 
 - **The gate is what makes the handler's body safe.** An interrupt gate clears the interrupt flag on entry, so the body
-  of a plain `//pu:interrupt` handler is an interrupt-disabled region, until a call of `x86.Sti` (or
-  `StiHlt`) or of a function that may switch tasks. Per-CPU data the handler shares with code it interrupts needs no
-  other protection inside that stretch. A raw word written into the table (an address stored as an integer through
+  of a plain `//pu:interrupt` handler is an interrupt-disabled region, and a non-migrating one, until a call of `x86.Sti` (or
+  `StiHlt`) or of a function that may switch tasks (`rt.Preempt`, `rt.Yield`, or an interface or func-value call one
+  of whose candidates may). Per-CPU data the handler shares with code it interrupts needs no other protection inside
+  that stretch: `ticks++`, `&v` and `runq.Push(t)` are fine before `rt.Preempt()`, and E2022 or E2023 after it. A raw word written into the table (an address stored as an integer through
   `unsafe.Pointer`) is unsafe code: the typed gate is how the compiler knows every installed handler is entered with
   interrupts disabled.
 - **A handler that can be entered again** says so: `//pu:interrupt trap` (the only argument the directive takes; any

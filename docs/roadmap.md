@@ -1250,7 +1250,13 @@ compiler (2026-10-11).
     locks held at every call of each func parameter, with modes; a range body on the caller's task adds
     them under the caller's names for accesses and views, and a view passed to `yield` counts as loaded
     there. A returned `Do` counts in a callee whose every call on the same party follows one. Spec rows 82
-    to 85.
+    to 85. Audit M (D124, D125, D127): name a returned closure's captured, never-assigned receiver and
+    parameters by the call's arguments when `x.M(args)` is ranged over or called directly (M2, rows 109,
+    116, 117); count every party entry (`main`, `init`, task functions, `AfterFunc` functions, handlers, the
+    panic handler, `//pu:export` functions, scheduler methods, functions whose value reaches unsafe code,
+    func values with unknown callers) as a call with no returned `Do` (M3, rows 118, 119); when the body may
+    release a lock, count every access of the iterator without it (G3, row 121); record locks held at calls
+    of copies of a func parameter (G7).
 233. **The only writer's views** (planned, phase 1; section 19.3 (Views loaded under a lock; rule 2 case
     4), D121, finding L6 of audit L): a view loaded by the only writer of a datum, not repeated, is valid
     with no lock. Check what the race check does today and add a test for spec row 90.
@@ -1258,6 +1264,14 @@ compiler (2026-10-11).
     of audit L): a method value's method runs with the caller's held set (and outside every `Do`); the
     map trigger counts memory a callee on the same party allocated; `p := &mu` names `mu`. Check what the
     race check does today for each, and add tests for spec rows 91, 94 and 96.
+235. **A handler body is a non-migrating region** (planned, phase 1; sections 19.3 (Non-migrating and
+    interrupt-disabled regions; Waiting in a non-migrating region; Switching tasks in a non-migrating
+    region), 20.9, 20.10, D123, finding M1 of audit M): the body of a `//pu:interrupt` handler is
+    non-migrating up to `x86.Sti` or a call that may switch tasks, which ends it (through every candidate
+    of interface, func-value, method-value, hook and allocator calls) and is not an error; the switch
+    check does not start from that region, and the wait check does not start from regions in code a
+    handler may reach (E2584 reports those waits once). `compiler/internal/race/region.p` already puts a
+    handler body in `regIRQ`; check the rest and add tests for spec rows 110 to 115.
 188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
     builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
     it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and
@@ -1426,7 +1440,10 @@ compiler (2026-10-11).
     an argument for a parameter or receiver whose summary keeps it in place. Make the contents of such a
     map part of the datum of its place, per object, guarded in place; leave other maps in the datum of
     their type, which only a package-level lock guards. Summaries record, per map parameter and receiver,
-    whether it keeps it in place. Spec rows 86 to 89 and 101.
+    whether it keeps it in place. Spec rows 86 to 89 and 101. Audit M (D126): an E3502 or E3503 about map
+    contents reached through a place that is not kept in place names the first occurrence of that place
+    (by package path, file, position) that copies it out or stores a value that is not new, and says that
+    it takes the map out of its place so the place's lock no longer guards it (row 120; chapter 21.1).
 195. **Generation check tuning** (planned; section 18.11; moved from item 85): coherent whole-range and
     ancestor snapshots, same-granule scalar checks, proven extent reuse and interval lookup hints without
     cached liveness. Item 85 records the current costs.

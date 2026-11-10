@@ -1499,3 +1499,137 @@ Rows 73 to 99 cover every finding (L1 rows 73 to 76, L2 77 and 78, L3 79 to 81, 
 Go shapes of the audit's section 6. Rows 5 and 71 were fixed (L10).
 
 No code block was added or changed.
+
+## Audit M
+
+Audit M (docs/verification/2026-11-09-spec-audit-m.md) checked the audit L pass. All thirteen L rulings
+held. Its four medium findings, its low notes and its seven guesses are resolved here as the audit
+proposed. Decisions D123 to D127 record them; roadmap items 192, 232 and 235 hold the compiler work; table
+rows 110 to 121 pin the shapes, and rows 25, 61, 80, 81 and 109 changed. Each edit was attacked before
+the next one.
+
+### Rulings
+
+- M1 (medium): a `//pu:interrupt` handler body is a non-migrating region up to the end of its
+  interrupt-disabled region. A call that may switch ends it (through every candidate of an interface,
+  func-value, method-value or hook call, and an allocator that may switch) instead of being an error.
+  The sentence "A handler body is interrupt-disabled but not non-migrating" is gone. 19.3 (regions,
+  Waiting, Switching), 20.9 and 20.10 say the same; row 61 now names both regions. D123, item 235.
+- M2 (medium): new Locks and names bullet: a captured, never-assigned parameter or receiver is the same
+  name inside the literal; when `x.M(args)` is ranged over or called directly, the literal's names map
+  through `x` and `args`. Part of the enclosing function and 12.11 point at it. Row 109 now uses the
+  method shape. D124, item 232.
+- M3 (medium): every party entry counts as a call with no returned `Do`. The list: `main`, `init`, task
+  statement, `s.Task`, `wg.Task` and `rt.Go` functions, `AfterFunc` functions, handlers, the panic
+  handler, `//pu:export` functions, scheduler methods, functions whose value reaches unsafe code, and the
+  candidates of a func value whose calls are not all known. Rows 118 and 119. D125, item 232.
+- M4 (medium): the E3502 or E3503 for map contents reached through a place not kept in place names the
+  first occurrence that takes the map out, and why the place's lock no longer guards it. Stated in Maps
+  kept in place and in rule 1's error list, and in item 192. Row 120. D126.
+- Row 25 cites Releasing a lock. Rows 80 and 81 cite the new box sentence.
+
+### Guesses resolved
+
+- G1 (returned-closure captures): M2.
+- G2 (box dereference): Locks and names now says an `owned[T]` box in a variable is no pointer load for
+  names and guards in place, since only a write of the variable, itself a free, changes what it reaches.
+- G3 (accesses after `yield`): the simpler form. When the body may release a lock, every access of the
+  iterator counts without it, before its first `yield` as after. The summary needs no new item. Row 121.
+- G4 (handler region through an interface): M1, which ends the region when any candidate may switch.
+- G5 (count raised on some paths): the conservative follow applies where the count may be zero on some
+  path to the call.
+- G6 (Once entries): M3.
+- G7 (copies of a func parameter): the summary item now covers calls of a copy, and a copy the compiler
+  cannot follow counts as called with nothing held.
+
+### Decisions beyond the rulings
+
+- M1, the wait check. The handler body is now non-migrating, so the wait check would have started there
+  as well as E2584. The wait check now does not start from any non-migrating region in a handler body or
+  in a function a handler may reach. E2584 follows every call from the handler, so every wait such a
+  region reaches is E2584 already, and each is reported once. The switch check still starts from regions
+  that handler code opens itself (`x86.Cli`, `x86.SaveFlagsCli`, `rt.DisablePreemption`, `rt.Lock`),
+  since a switch is not E2584's concern and that code asked to stay on one processor. Row 114.
+- M1, callees. The handler region ends the way a held lock is released: a callee whose summary may switch
+  ends it at the call for the caller, and inside the callee the region lasts to its own switch. This uses
+  the machinery regions already share with locks.
+- M2, scope. Only the direct forms (range over or call of `x.M(args)`) map. A stored result is a func
+  value, as a stored `TryLock` result is not followed (row 116). A literal passed to a callee keeps the
+  function's own parameter names, which its summary maps up.
+- M4, which occurrence. "First" is by package path, then file name, then position, so two implementers
+  name the same one.
+- M3, scheduler methods. 19.5 is the place that names functions the runtime calls with no visible call,
+  so the list cites it instead of appendix F's hooks, which are runtime functions, not program ones.
+
+### Attacks
+
+M1:
+- `ticks++` then `rt.Preempt()` in a handler: inside the region, accepted (row 110). Reversed order: the
+  switch ended the region, E2022 (row 111). `p := &ticks; rt.Preempt(); *p = 0`: E2023 (row 112).
+- A switch through an interface candidate, then `ticks++`: E2022, since the call ends the region when any
+  candidate may switch (row 113). Without this, a handler could switch through an interface and keep a
+  per-CPU view.
+- A callee `tick()` that does `ticks++` then `rt.Preempt()`, called only from the handler: `ticks++` is
+  inside the region (held until the callee's switch); code after `tick()` in the handler is outside.
+- The same `tick()` also called from a task with no region: not in a region on every path, E2022, as
+  before.
+- `x86.SaveFlagsCli()` inside the handler, then `rt.Preempt()`: a region the handler opened, so the
+  switch check reports it (row 114); no double report, since E2584 does not cover switches.
+- `x86.Sti()` then `x86.Cli()` then `ticks++` in a handler: the Cli region is an ordinary non-migrating
+  region, accepted.
+- A blocking send in a handler: E2584 only (row 115). A function reached from both a handler and a task
+  with a wait inside `rt.DisablePreemption`: E2584 on the handler path; the wait check does not start
+  there. Nothing is lost, since E2584 rejects the program.
+- Trap handlers: their body is not interrupt-disabled, so not non-migrating; unchanged.
+- Re-entry on the same processor: an interrupt gate holds off maskable interrupts; exceptions and NMIs
+  stay the kernel's contract, as before.
+- Run time: the handler runs with a zero count, so `rt.Preempt` switches; the task resumes with its own
+  flag (abi.md 12.2), possibly on another processor, which is why the region must end there.
+
+M2:
+- The audit's `Scores.All` example: the body holds `sc.mu`, `*p += 1` writes `sc.v` under it (row 109).
+- `All` assigns `s` after making the literal: the capture carries no name, E3502 (row 117). The literal
+  assigning `s`, or `&s` taken anywhere: excluded the same way.
+- `it := sc.All(); sc = other; for range it`: a stored result maps nothing (row 116). Had it mapped, the
+  body would claim `other.mu` while `sc`'s lock is held.
+- The body assigns `sc`: the caller's name ends, as for any name.
+- `sc` a pointer package variable: not a name, so nothing maps; conservative.
+- Value receiver: copying a struct with a lock is already a compile error.
+- A capture of a local, not a parameter (`t := s.inner`): not covered, no name; conservative.
+- Two returned literals: each is a candidate, so the body gets only the locks both hold.
+- `x.M()()` returning holding `s.mu`: the direct call maps it, as for a callee returning holding.
+
+M3:
+- The audit's example (row 118): `main` is an entry, so it has no credit; `println(cfg)` is E3503.
+- `//pu:export get` whose only Plutonium caller follows a `Do` (row 119): C may call first, E3503.
+- A function called both by `task f()` and directly after a `Do`: the task entry removes the credit;
+  conservative, and the `Do` can be moved into `f`.
+- Row 85 (literal passed to `Each`): its calls are visible and on the caller's party, so it keeps the
+  credit.
+- `init`: reads before the start of sharing do not count anyway; listing it costs nothing.
+- A function whose value reaches `rt.Pinned` or a bodyless function: an entry, since that code may call it.
+
+M4:
+- Row 120: the `Dump` in another package is named, by package path order, even though the access the
+  error names is in `Put`.
+- A map that never was in a place (a local `make` passed around): no occurrence, so nothing is named.
+- Several copies: the first by path, file, position; deterministic.
+- A place that stores a non-new value (`c.m = other`): named the same way.
+
+Low:
+- G2: `var b owned[S]`, another party does `b = new(S{})`: a free, which conflicts with the sync calls
+  (L3), so row 80 is E3502 and the name never changes in an accepted program.
+- G3: row 121, the iterator reads `mu`-guarded data before its first `yield` while the body may unlock:
+  E3503. Stricter than tracking order, and needs no summary item; a body that releases the iterator's
+  caller lock is rare.
+- G5: a region that raises the count on one path and only disables interrupts on another: the
+  conservative follow applies, since on that path the run-time test cannot catch the switch.
+- G7: `g := yield; g(x)` inside the iterator: covered; a copy stored where it cannot be followed counts
+  as called with nothing held.
+
+### Table rows
+
+Added: 110 to 115 (M1), 116 and 117 (M2), 118 and 119 (M3), 120 (M4), 121 (G3). Changed: 25 (deciding
+rule), 61 (both regions), 80 and 81 (box sentence), 109 (method shape, static `sc`, two tasks).
+
+No code block was added or changed.

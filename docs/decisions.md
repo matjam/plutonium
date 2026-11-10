@@ -2164,6 +2164,82 @@ Why: each makes the text say one thing. Goal: Plain.
 
 Lands with: item 234.
 
+## D123. A handler body is a non-migrating region (19.3, 20.9, 20.10)
+
+Question: audit M1. 19.3 said a handler body was interrupt-disabled but not non-migrating, so 20.9 rejected
+`ticks++`, `&v` and `runq.Push(t)` in a timer handler, while row 61 accepted them.
+
+Decision: the body of a `//pu:interrupt` handler is a non-migrating region up to the end of its
+interrupt-disabled region. A call that may switch tasks ends it, as `x86.Sti` does, and is not an error
+there; a call through an interface, func value, method value or hook ends it when any candidate may
+switch. The switch check does not start from that region; it does start from regions handler code opens
+itself. The wait check does not start from regions in code a handler may reach, since E2584 reports those
+waits through every call.
+
+Why: interrupts are off and nothing switches before that call, so the task stays on one processor. It is
+the commonest kernel shape. Requiring `rt.DisablePreemption` in handlers was rejected: a cost on every
+interrupt, and it would defer the handler's own `rt.Preempt`. Goal: Kernel, Safe.
+
+Lands with: item 235.
+
+## D124. A returned closure carries its captured parameters' names (19.3, 12.11)
+
+Question: audit M2. A method that returns a locking iterator closure, `for _, p := range sc.All()`, gave
+the body no locks, since the closure's lock `s.mu` has a capture as its base.
+
+Decision: a captured parameter or receiver that nothing assigns and whose address is not taken is the
+same name as the parameter inside the literal. When the result of `x.M(args)` is ranged over or called
+directly, the literal's names map to the caller's through `x` and `args`. A result stored first is a func
+value and maps nothing. Several returned literals count as candidates.
+
+Why: it is the Go 1.23 shape for a guarded collection, and row 109 promised it. Treating every capture as a
+name was rejected as unsound when the capture is assigned. Goal: Go, Safe.
+
+Lands with: item 232.
+
+## D125. Party entries get no returned-`Do` credit (19.3)
+
+Question: audit M3. "Every call of it follows a returned `Do`" held vacuously for `main`, handlers, task
+functions and others with no visible call.
+
+Decision: each entry of a party counts as a call with no returned `Do`: `main`, `init`, the functions of
+task statements, `s.Task`, `wg.Task` and `rt.Go`, `AfterFunc` functions, interrupt handlers, the panic
+handler, `//pu:export` functions, scheduler methods the runtime calls, functions whose value reaches
+unsafe code, and each candidate of a func value whose calls are not all known.
+
+Why: the credit is sound only when every real entry passes a `Do` first. Goal: Safe.
+
+Lands with: item 232.
+
+## D126. The map fallback error names the copy (19.3, 21.1)
+
+Question: audit M4. One copy of a map out of its place anywhere sends its contents to the type-wide datum,
+and the error at the visibly locked write named nothing that pointed at the copy.
+
+Decision: an E3502 or E3503 about map contents reached through a place that is not kept in place names the
+first occurrence of that place (by package path, file, position) that copies it out or stores a value that
+is not new, and says that it takes the map out of its place so the place's lock no longer guards it.
+
+Why: ordinary code should not need the rule to find the cause. Making the copy itself the error was rejected:
+it breaks maps that a package lock guards, which the rule allows. Goal: Plain.
+
+Lands with: item 192.
+
+## D127. Smaller fixes of audit M (19.3)
+
+Question: audit M low notes and guesses G2, G3, G5 and G7, and row 25.
+
+Decision: when a range body may release a lock, every access of the iterator counts as made without it,
+so summaries need no "after `yield`" item (G3). An `owned[T]` box in a variable is no pointer load for
+names and guards in place (G2, rows 80 and 81). The Cli-only conservative follow applies where the count
+may be zero on some path to the call (G5). The summary records locks held at calls of copies of a func
+parameter, and a copy it cannot follow counts as called with nothing held (G7). Row 25 cites Releasing a
+lock.
+
+Why: each makes the text say one thing; G3 picks the simpler sound form. Goal: Plain, Safe.
+
+Lands with: items 232 and 235.
+
 ## Deferred
 
 None open. D105 (lazy initialization through `sync.Once`) and D106 (`sync.Cond.Wait`) were deferred for

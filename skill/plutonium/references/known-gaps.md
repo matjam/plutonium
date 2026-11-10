@@ -141,7 +141,8 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   holds a mutex another task locks is not rejected (19.3, Accesses). Item 231.
 - A range body does not get the locks its iterator holds at `yield`, so a locked iterator is E3502 or E3501 as a
   range loop while the same literal passed to it compiles; a `Do` before a call does not count in the callee
-  (19.3, Part of the enclosing function). Item 232.
+  (19.3, Part of the enclosing function). This includes the method shape `range sc.All()`, whose closure locks
+  `s.mu` (19.3, Locks and names). Item 232.
 - Maps are grouped by type, so two objects that each guard a map field with their own mutex are E3502 (19.3, Maps
   kept in place). Item 192.
 

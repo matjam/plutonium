@@ -307,7 +307,10 @@ func main() {
 - **Range bodies.** A range-over-func body shares the function's locks only when the iterator calls
   `yield` on the same task (`v.All()` does). The body also holds the locks the iterator holds at every
   `yield`, so a locked iterator (`mu.Lock(); defer mu.Unlock(); for ... { if !yield(p) { return } }`)
-  works, and the yielded pointer is valid in the body. An iterator that calls `yield` from `s.Task` runs
+  works, and the yielded pointer is valid in the body. The Go method shape works too: for
+  `for _, p := range sc.All()`, where `All` returns a closure that locks `s.mu` (its receiver, never reassigned),
+  the body holds `sc.mu`. Store the closure first (`it := sc.All()`) and the lock is not added. If the body may
+  unlock a lock held at the loop, every access of the iterator counts as made without it. An iterator that calls `yield` from `s.Task` runs
   the body on that task: it holds nothing there, and `defer` in it is a compile error.
 - **Release only a lock you hold** (19.3, Releasing a lock; D108). Every `Unlock`, `RUnlock` and `c.Wait(&mu)`
   must release a lock the calling task holds on every path, in the same mode (`RUnlock` after `RLock`).
@@ -348,12 +351,14 @@ func main() {
   indexed, ranged over, passed to `len`, `delete`, `clear`, compared with `nil`, or passed to a parameter that
   does only those) belongs to that field: `c.mu` guards `c.m[k]` for each object, so a struct with a mutex and
   a map works with many instances. A map copied out anywhere else (returned, assigned, sent, put in an
-  interface) joins the one datum of its map type, which only a package-level lock can guard. A map used by one
+  interface) joins the one datum of its map type, which only a package-level lock can guard; the error then
+  names that copy. A map used by one
   task at a time needs none.
 - A function started by `time.AfterFunc` is a repeated party: `Reset` can run it again while a run is going,
   so what it writes needs a lock or an atomic even if nothing else touches it.
 - `rt.Yield` inside a non-migrating region (`rt.DisablePreemption`, a held `rt.Lock`, `x86.Cli`) is a compile
-  error, or panics where the call is not followed; the task could resume on another processor.
+  error, or panics where the call is not followed; the task could resume on another processor. An interrupt
+  handler's own body is the exception: `rt.Preempt()` there ends its region instead (see `kernel-mode.md`).
 - Moving, freeing or overwriting memory that holds a `sync` value or channel another task may use is an error,
   whatever lock the write holds (E3502 by name, E3501 through a pointer).
 - **Do not copy locks.** Copying a `sync.Mutex`, `RWMutex`, `Once`, `WaitGroup` or `Cond`, or a struct that
@@ -364,7 +369,8 @@ func main() {
   new(Config{...}) }); return cfg.port` compiles. A package-level Once covers package variables; a Once field
   covers the other fields of the same object (`t.once.Do(...)` then `t.index`). A write anywhere else, even in
   a reset function reached through a func value, is E3502; a read with no `Do` before it, such as in a task
-  that `main` started after its own `Do`, is E3503. Do not reassign the Once. A function passed to
+  that `main` started after its own `Do`, is E3503. A helper counts as after a `Do` only when every call of it
+  is; `main`, task functions, handlers, `AfterFunc` functions and `//pu:export` functions never are. Do not reassign the Once. A function passed to
   `Do` that ends its task with `rt.ExitTask` leaves the Once not done; the next `Do` runs its function.
 - **`sync.Cond`.** `var c sync.Cond` (zero value ready, no `NewCond`, nothing to free). Wait with the lock:
   `mu.Lock(); for q.Len() == 0 { c.Wait(&mu) }; j, _ := q.Pop(); mu.Unlock()`. The compiler counts
