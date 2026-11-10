@@ -819,7 +819,7 @@ functions without `//pu:fpu` (no floats, section 10.2) never use it.
 | function literal | `<enclosing symbol>.func<N>` |
 | a closure a function returns (language spec section 11.5) | `<function symbol>.func<N>`, e.g. `main.Count.func1` or `pluto/vec.(*Vec).All[int].func1`: named after the function that makes it, not the caller whose region it is built in, and shared by every call |
 | the closure of a `ring` iterator (language spec section 7.17) | `builtin.(*ring[T,N]).All.func1`, or `.Values.func1` |
-| task statement thunk (section 12.6) | `<enclosing symbol>.go<N>` |
+| task statement thunk (section 12.6) | `<enclosing symbol>.task<N>` |
 | bound method wrapper | `<method symbol>-fm` |
 | a region's drop function (section 4.1) | `<function symbol>·rdrop`; `pluto.noRegionDrop` for the regions that turned out to need none |
 | static closure record | `<function symbol>·f` |
@@ -1390,7 +1390,7 @@ The rules a backend follows (language spec section 19.5; memory-model.md section
 **Task statements.** `task f(args)` evaluates the function value or receiver and the arguments (with
 defaults, and a copy of the array behind variadic arguments) into an argument block in the starting
 frame, laid out like a struct, and calls `rt.spawnGo(thunk, block, size, align, bound)`, where `thunk`
-is the closure record of a generated `func(p unsafe.Pointer)` named `<function>.go<N>` that loads the
+is the closure record of a generated `func(p unsafe.Pointer)` named `<function>.task<N>` that loads the
 values from `p` and makes the call, and `bound` is the stack size the compiler computed for the call graph
 of the function started, or 0 when that graph is not bounded (language spec section 19.1; roadmap item
 18). `spawnGo` asks the backend for a task with a stack of `bound` bytes (`Proven`), or, when `bound` is

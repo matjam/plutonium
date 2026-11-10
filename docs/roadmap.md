@@ -1,9 +1,10 @@
 # Plutonium roadmap
 
-**Updated:** 2026-10-27 (paths; the compiler is self-hosted and the Go implementation removed)
+**Updated:** 2026-11-09 (cleanup after the implementation survey: stale statuses fixed, open remainders of done
+items moved to items 177 to 197, order of work added)
 
 Every known gap between the specification and the compiler and standard library, in priority order. The
-specification ([language.md](spec/language.md), version 0.3, with the binary interface in
+specification ([language.md](spec/language.md), version 0.4 (draft), with the binary interface in
 [abi.md](spec/abi.md), the [memory model](spec/memory-model.md), [debugging.md](spec/debugging.md) and the
 [debug allocator](spec/debug-allocator.md)) is the single source of truth; this document tracks status and
 order only. Each item names the section of the specification that states the rule it implements. Where code
@@ -22,6 +23,35 @@ integrated specification defines (complete-spec section 6.5, the implementation 
 needs, then concurrency, the rest of the language, tooling, platforms and libraries. Item numbers are stable
 because other documents cite them; an item added later takes the next free number and is listed in the
 section where it belongs.
+
+## Order of work
+
+The [completion plan](plans/2026-11-09-completion-plan.md) sets the order. Its phases, with the items each
+one covers:
+
+- **Phase 0, the specification.** User and coordinator rulings on the audits (done: decisions D42 to D69),
+  a second audit pass, a test that compiles the spec's examples (item 185), this roadmap cleanup and the
+  known-gaps list, then spec version 0.4.
+- **Phase 1, soundness in the compiler.** The rulings' compiler work (items 146 to 176, first A1, C1, C2,
+  B1 and B10: items 146, 147, 148, 152, 159; and item 177); a consuming method value (item 178); the
+  view-tracking cases left by item 138 (item 179); the escape contract of `rt.ReleaseValues` (item 180);
+  the false escape errors in `types2` unit-test builds (item 181); the lowering backstops (item 182); the
+  order of evaluation in the rest of lowering (item 183); the allocators the race check does not follow
+  (item 196).
+- **Phase 2, test closure.** Tests for untested diagnostic codes and rules (item 184); CI gaps (item 186);
+  close item 20 when nothing is left open under it.
+- **Phase 3, checks, kernel and performance evidence.** Item 101 phases 3 and 4; proven task stacks in
+  checked, kernel and freestanding builds (item 188); generation-check tuning (item 195); measurements
+  per the [evidence plan](plans/2026-10-15-language-goal-evidence.md).
+- **Phase 4, compiler speed and tools.** The [speed plan](plans/2026-10-28-compiler-speed.md); `sync.Scope`
+  phase 2 (item 193), then parallel compiler phases and incremental builds (item 34); DWARF variables and
+  types (item 189); alternate signal stacks (item 190); optimizations and precision limits (items 24, 191,
+  192, 194 and the limit recorded in item 5).
+- **Phase 5, library.** `io`, `bufio`, scanning in `fmt`; time zones and layouts (item 45); `net` (item 46);
+  `sync.NewCond` (item 197).
+- **Phase 6, platforms.** Items 38, 37, 36 and 39, in that order.
+
+Small cleanups that fit anywhere: item 187.
 
 ## Current conformance follow-up, 2026-10-15
 
@@ -399,11 +429,7 @@ against the corrected specification. The immediate implementation order is:
      `diag/stale_counted_views`, `diag/stale_arena_reclaim`, and the seven item 102 race probes that waited
      on this item. A local owner loaded whole is moved and its memory goes with it, so a view of it kept
      in the value moved is a view of the new owner. A map's walk (`rt.MapIter`) owns no memory: what it
-     returns is a view of the map. Open: heap or caller memory a method of a local owner returns is taken
-     to be the owner's, so a view of the owner stored into unrelated memory reached that way is not
-     caught, and a pointer to caller memory so treated loses its tie to the caller when the owner moves.
-     A view kept in a local owner that is moved and then stored in a package variable is not caught. A
-     view of a table a map walk retired may outlive the walk while the map lives.
+     returns is a view of the map. Four cases are still accepted; item 179 tracks them.
 139. **Loops made with `goto` and the blocks a scoped task outlives** (done; sections 18.4, 11.5, 12.17 and
      19.4; found by the third adversarial review, defect 8). A loop made with `goto` (l05: `top: v := n;
      ps[i] = &v; ...; goto top`) shares one variable across its iterations. Sections 11.5 and 12.17 count a
@@ -449,9 +475,7 @@ against the corrected specification. The immediate implementation order is:
      writes of the allocator's memory, which the roadmap's first design had: by 18.9 `Alloc` never hands
      out again memory it handed out and `Free` takes back only what it is given, so a task allocating from
      the frame's arena (and freeing its own vector) does not meet a live view of another party. The
-     default allocator needs nothing. Not covered: an allocator reached other than through the variable
-     itself or a field holding its address (one behind a parameter or a heap pointer, `alloc.Use`
-     windows), and bulk calls seen by the race checks outside scoped tasks. Tests:
+     default allocator needs nothing. What the check does not cover is item 196. Tests:
      `tests/race/viewsrejected_task_{resets,releases}_the_arena_a_view_points_into`,
      `viewsrejected_task_resets_a_chunked_arena_a_view_points_into`,
      `viewsrejected_task_resets_the_arena_through_a_{helper,field}`, and accepted
@@ -581,10 +605,9 @@ against the corrected specification. The immediate implementation order is:
      `lower/generic_owner_method_value_views` (a method value, a method expression and a type switch).
 
 
-Next, finish **item 18**, bounded task-stack inference: the analysis and `--stackreport`
-are in, but the runtime's call graph has cycles, so no task is proven yet. Step A breaks
-the cycles for builds with `--gencheck=false`. Then fill the small unverified witness
-pairs in the resolution record; reuse completed shutdown, counting and arena tests.
+The next work is in the order of work at the top of this document. Item 18's step A is done: with
+`--gencheck=false` tasks get proven stacks. What is left of it (checked, kernel, freestanding and
+custom-scheduler builds, and the unverified witness pairs of the resolution record) is item 188.
 Performance work follows the separate [evidence plan](plans/2026-10-15-language-goal-evidence.md).
 
 ## Gaps of the integrated specification
@@ -622,9 +645,9 @@ The implementation gaps of
 | 32 | Package initialization starts no task (done, D2) | 100 | 15.2, 15.3, 19.1, 19.3 |
 | 33 | `clear` of a slice of owners drops each element (done) | 75 | 13.3 |
 | 34 | Ordinary kernel lifetime protection (in progress) | 101 | 1.2, 18.11, 21.5 |
-| 35 | Outstanding aliases across owner transfer (audited) | 102 | 8.8, 19.3 |
-| 36 | Nonconsuming owner indexing/length receivers (planned) | 103 | 11.11, 13.6 |
-| 37 | Bounded task-stack inference (planned) | 18 | 19.1 |
+| 35 | Outstanding aliases across owner transfer (done) | 102 | 8.8, 19.3 |
+| 36 | Nonconsuming owner indexing/length receivers (done) | 103 | 11.11, 13.6 |
+| 37 | Bounded task-stack inference (done for `--gencheck=false`; the rest is item 188) | 18, 188 | 19.1 |
 | 38 | A string is cut with `strings.Slice`, E2019 (done, D9) | 104, 74 | 7.3, 11.12, F.6 |
 | 39 | Normal termination follows Go (done, D10) | 105 | 15.4, 19.1 |
 | 40 | `errors.New` has a fresh identity (done, D11) | 106 | 16.3 |
@@ -648,8 +671,8 @@ compiler (2026-10-11).
    System V classification; signatures with no C equivalent are compile errors.
 5. **Escape errors for frame views** (done, `70f2401`, `052c091`, `2a27f12`, `af28ec6`; sections 18.3, 18.4
    and 11.5): returning, storing or sending a view of a frame is a compile error (E3001 to E3008, closures
-   in regions E3100 to E3102), by a whole-program analysis (`internal/escape`, replaced by `internal/escape2`, item 142) with
-   explanatory messages.
+   in regions E3100 to E3102), by a whole-program analysis with explanatory messages. That analysis is now
+   `internal/escape2`; item 142 records the change.
    The run-time half is item 71.
 
    The two known escape bugs are fixed and verified on native amd64 (2026-10-12). Closure result
@@ -730,14 +753,31 @@ compiler (2026-10-11).
     Add tests for a wrapper of a field error of a local owner: used after the owner is moved or dropped is
     E3313, returned past the owner is E3001, and stored in the heap is E3002. Fix the analysis if one is
     accepted.
+178. **A consuming method used as a method value is an error** (planned; sections 11.9, 18.5, G26 decision
+    (a); moved from items 20 and 75): `done := c.Close` for a method with an owner value receiver is
+    accepted today, because `compiler/internal/moves/expr.p` moves the receiver into the method value and
+    reports nothing. The method expression and the direct call still work. Needs an error code, its
+    catalog entry and tests.
+179. **The view-tracking cases item 138 left** (planned; section 18.3; moved from item 138): heap or caller
+    memory a method of a local owner returns is taken to be the owner's, so a view of the owner stored
+    into unrelated memory reached that way is not caught, and a pointer to caller memory so treated loses
+    its tie to the caller when the owner moves. A view kept in a local owner that is moved and then
+    stored in a package variable is not caught. A view of a table a map walk retired may outlive the walk
+    while the map lives.
+180. **The escape contract of `rt.ReleaseValues` and `ZeroValues`** (planned; sections 18.3, 18.6; found by
+    the third adversarial review, program `review3/o14_drop_in_vec_of_owners_local`): the contract table
+    gives them no effects, though they run the elements' `Drop` methods, so the analysis accepts o14. It
+    is the one entry of `knownEscapeGaps` in `tests/escapereview_test.go`; remove it when o14 is rejected.
+196. **Allocators the race check does not follow** (planned; sections 19.4, 18.9; moved from item 140): an
+    allocator reached other than through the variable itself or a field holding its address (one behind
+    a parameter or a heap pointer, `alloc.Use` windows), and bulk calls seen by the race checks outside
+    scoped tasks.
 
 ## Gaps the integrated specification defines (complete-spec section 6.5)
 
 73. **Order of evaluation** (done, gap 1, `f74c4a4`; section 11.26): calls, method calls, receives and
     logical operations are evaluated first, left to right, then the other operands, so `[]int{a, f()}` with
-    an `f` that changes `a` gives `[2 2]`. Open: survey the rest of `compiler/internal/lower` and add `testdata/run`
-    and difftest cases (assignments, `x[i] = f()`, operands of operators); every difference from the
-    specified order is a false friend and is fixed.
+    an `f` that changes `a` gives `[2 2]`. The survey of the rest of lowering is item 183.
 78. **A pointer-receiver method on an owner temporary** (done, gap 2, `04d7cf95`; sections 11.14 and 12.4):
     `readAll(f).Slice()`, with views of the temporary limited to the statement.
 79. **Composite literal keys that name promoted fields** (done, gap 3, `42dc6640`; section 11.3): the key
@@ -772,9 +812,7 @@ compiler (2026-10-11).
     [implementation and acceptance plan](plans/2026-10-13-safe-arena-lifetimes.md).
     Prior full native gates pass with unchanged caps; see the
     [verification and measurement record](verification/2026-10-12-generation-directory.md).
-    Tuning remains ordered after the gap list: coherent whole-range/ancestor snapshots,
-    same-granule scalar checks, proven extent reuse and interval lookup hints without cached
-    liveness. Dense reads cost 16.498 ns versus prior checked 0.809 ns; consumed 1024-byte
+    Tuning is item 195. Dense reads cost 16.498 ns versus prior checked 0.809 ns; consumed 1024-byte
     copy/clear costs 1503.776 ns versus 49.247 ns. These scoped measurements are not application
     ratios, and sparse mapping-layout differences are documented.
 86. **Sendability looks through pointers and slices** (done, gap 11, `29b06f73`; sections 8.8 and 19.2): a
@@ -878,7 +916,7 @@ compiler (2026-10-11).
 13. **Debugging** (done, `002e065`, `48d130a`, `8d57684`, `170d539`, `697ad2b`; sections 17.1, 17.5,
     21.7; [debugging.md](spec/debugging.md), [debug-allocator.md](spec/debug-allocator.md)): DWARF line
     tables and CFI, symbolized traces on panics and faults, reproducible paths, and the debug allocator.
-    Open: DWARF variable and type information (item 42).
+    DWARF variable and type information is item 189.
 54. **Compile-time panic handler, `//pu:panic`** (done, `1fd3e85`; section 17.4): one handler per
     freestanding or kernel program, linked as a direct call from the runtime and checked never to return.
 55. **Interrupt context cannot wait** (done, `1fd3e85`, `662497a`; section 20.10): a whole-program check
@@ -896,9 +934,8 @@ compiler (2026-10-11).
 14. **Tasks and the hosted scheduler** (done, `0ebe75d`, `1976415`, `d40ae60`, `ec9d6dc`, `add8fb6`;
     sections 19.1, 19.5 and 12.12, abi.md section 12): the task mechanism, fixed stacks with guard pages,
     a work-stealing scheduler with preemption and system-call hand-off, an epoll poller, timers, and
-    deadlock detection that lists every task. The sendable rules are checked (section 19.2). Follow-ups: a
-    program that binds its own hosted backend runs on one thread; spawning costs about twice a mature
-    scheduler's.
+    deadlock detection that lists every task. The sendable rules are checked (section 19.2). The
+    follow-ups are item 194.
 15. **Channels and `select`** (done, `0ebe75d`; sections 7.11, 12.13 and 19.8): counted references
     (item 67), `make(chan T, n, a)`.
 16. **`pluto/sync`** (done, `8fd524c`; section F.5, memory-model.md section 3.4): `Mutex`, `RWMutex`,
@@ -931,7 +968,8 @@ compiler (2026-10-11).
     the scheduler's half). Lowering makes a constant condition a plain jump and registers no frame
     slot in unreachable code, so a panic under a false build constant leaves no edge. Checked builds
     stay not computed: `genLive` follows a record's chain of parents recursively, as deep as
-    allocators nest. The compiler itself starts no tasks.
+    allocators nest. The compiler itself starts no tasks. Checked, kernel, freestanding and
+    custom-scheduler builds are item 188.
 53. **Scheduler contract for kernels** (done, `7d4cf29`, `d81508d`, `5001093`; section 19.5, abi.md
     section 12, [plan](plans/2026-10-09-scheduler-contract.md)): permit-based park and ready,
     interrupt-safe wake, backend task records, a current-task slot, `rt.Preempt`, link-time binding with
@@ -939,9 +977,7 @@ compiler (2026-10-11).
 63. **`sync.Scope`** (done, `a7948f6`, `f23c29c`, `8444dae`; sections 19.4 and 15.4, abi.md section 12.10,
     [plan](plans/2026-10-10-scoped-puroutines.md)): an owner whose drop waits, with `Task`, `Wait` and
     `Drop`; tasks started on a local `Scope` use the starting function's variables, checked for races
-    (`internal/scoped`, `internal/race`). Follow-ups (phase 2 of the plan): a Scope reached through a
-    pointer, helpers that start tasks for their caller's Scope, an error-collecting scope; `Index` and
-    `SetIndex` of library containers are not partitioned between tasks.
+    (`internal/scoped`, `internal/race`). Phase 2 of the plan is item 193.
 66. **Large task stacks** (done, `173c2f6`; section 19.1, abi.md sections 12.1 and 12.7): 64 MiB lazily
     mapped hosted stacks, cached.
 67. **Counted channels, and a channel owns its timer** (done, `bdb7683`; sections 7.11, 19.6, 19.8, abi.md
@@ -953,6 +989,17 @@ compiler (2026-10-11).
     finding B6 of the [rulings](verification/2026-11-09-spec-rulings.md)): the race check treats handlers as parties from the first statement that may
     install one or enable interrupts, and does not require locks for data no one writes while a handler
     may run.
+188. **Proven task stacks in every build** (planned; section 19.1; the rest of item 18 and gap 37): checked
+    builds stay not computed because `genLive` follows a record's chain of parents recursively; rewrite
+    it without recursion. Then compute bounds for kernel, freestanding and custom-scheduler builds, and
+    fill the small unverified witness pairs in the
+    [resolution record](verification/2026-10-15-spec-consistency.md).
+193. **`sync.Scope` phase 2** (planned; section 19.4, [plan](plans/2026-10-10-scoped-puroutines.md); moved
+    from item 63): a Scope reached through a pointer, helpers that start tasks for their caller's Scope,
+    an error-collecting scope; `Index` and `SetIndex` of library containers are not partitioned between
+    tasks. The parallel compiler phases need it.
+194. **Hosted scheduler follow-ups** (planned; sections 19.1, 19.5; moved from item 14): a program that binds
+    its own hosted backend runs on one thread; spawning a task costs about twice a mature scheduler's.
 
 ## Language
 
@@ -965,13 +1012,17 @@ compiler (2026-10-11).
     generation checks and arena epochs (items 71 and 72). Commits: `ca7e064`, `dc808a9`, `01daa4b`,
     `1b25e7d`, `052c091`. Audited on 2026-10-31 ([record](verification/2026-10-31-item20-audit.md)): items
     78, 86 to 89 and 92 are done, the generation checks of item 85 work (what is left in item 85 is speed
-    tuning), and every library owner that item 51 names is an owner with `Drop`. Open: a consuming
-    method used as a method value is accepted, not an error (item 75, section 18.5); generation checks
-    for early boot, interrupts and arenas in kernel builds (item 101 phases 3 and 4, section 18.11); the
-    four view-tracking limits at the end of item 138 (section 18.3); and cases for rules that have none
-    (E3205, E3208, E3209, E3007, the embedded, array and interface forms of E3202, most kinds of E3204,
-    a view converted into a box, a map lent to an ordinary interface, a send in a `select`; the audit
-    lists them).
+    tuning), and every library owner that item 51 names is an owner with `Drop`. Open, each part
+    tracked by its own item: a consuming method used as a method value is accepted, not an error (item
+    178, sections 11.9 and 18.5); generation checks for early boot, interrupts and arenas in kernel
+    builds (item 101 phases 3 and 4, section 18.11); the four view-tracking cases left by item 138 (item
+    179, section 18.3); `rt.ReleaseValues` and `ZeroValues` have no effects in the escape contract
+    table (item 180); and cases for rules that have none (item 184: E3205, E3208, E3209, E3007, the
+    embedded, array and interface forms of E3202, most kinds of E3204, a view converted into a box, a
+    map lent to an ordinary interface, a send in a `select`; the audit lists them). The 2026-11-09
+    rulings add ownership work: moves and views in items 146, 147, 148, 149, 170, 171, 172, 174 and 175;
+    drops and counts in items 152, 158, 159, 160, 169 and 173; closure regions in item 176. Close this
+    item when those are done.
 24. **Compile-time type-switch folding** (planned; an optimization, sections 12.9 and 21.3): decide
     `switch any(x).(type)` on a type parameter per instantiation; acceptance never depends on it.
 28. **`defer` in loops** (decided; sections 12.19 and 12.11): a `defer` in a loop is E2530; a range-over-func
@@ -996,15 +1047,15 @@ compiler (2026-10-11).
     `owned[T]`, `take(&place)`, owning interfaces. Counted allocated errors are item 11.
 57. **Counted strings** (done, `a0e0987`, `70a2ebf`, `a433e5e`; sections 7.3 and 18.8, abi.md section 1.1,
     memory-model.md section 3.7): an immutable, valid-UTF-8, reference-counted value with elided counts
-    (`opt.ElideStringHolds`). Open: interface boxes hold their string until the function returns;
-    `(string, error)` returns through memory; Linux file names that are not UTF-8 are decided (D36, item 122); `compiler/compat` can drop helpers for what is native.
+    (`opt.ElideStringHolds`). Linux file names that are not UTF-8 are decided (D36, item 122). The
+    efficiency follow-ups are item 191.
 60. **Counted `map[K]V`** (done, gap 21, `7867af2`, `8fd4ab7`, `0f8bc1b`, `c491a67`, `3c094e3`; sections 7.10,
     12.10, 13.3, 13.5, 13.7 and 19.3, abi.md section 1.4): one word, a counted reference to a
     `pluto/rt.MapTable`; `make(map[K]V, n, a)` takes an allocator and a literal allocates from the current
     allocator; owner keys and elements are E3213; a map is sendable, and the contents of the maps of a type
     that crosses to another task fall under the guard rule of item 59; go2pu translates Go's maps as they
-    are. `hash.Map` takes owner values and has `Remove` and `Pop` (item 132). Left: the race rule groups maps
-    by type, so two maps of one type are guarded together when either crosses.
+    are. `hash.Map` takes owner values and has `Remove` and `Pop` (item 132). The race rule groups maps
+    by type; item 192 tracks that.
 61. **Removed conversions** (done, `080e49b`, `d611757`, `271e57f`; sections 11.24 and 18.8): `string(b)`
     is E2015, `[]byte(s)` and `[]rune(s)` are E2016, `string(i)` of a non-rune integer is E2017; the
     messages show the replacement (`strings.FromUTF8`, `strings.Bytes`, `strconv.Itoa`).
@@ -1012,8 +1063,10 @@ compiler (2026-10-11).
     sections 12.12, 4.5, 4.6, 17.1, 19.4): `task f(x)` starts a task; `task` is a contextual keyword that
     begins a statement when the next token is an identifier or `func`; `go f()` is E1012 and names `task`.
     The word "task" replaced "puroutine" in the runtime's messages and traces, `(*sync.WaitGroup).Task`,
-    `rt.Panic.Task`, the diagnostics and their goldens. The generated thunks keep the name
-    `<function>.go<N>` (abi.md section 12.6), which the specification does not fix.
+    `rt.Panic.Task`, the diagnostics and their goldens. The generated thunks are named
+    `<function>.task<N>` (`compiler/internal/lower/conc.p:601`, `scope_task.p:127`), as traces show
+    (`main.main.task1` in `tests/build_deadlock_test.go`, `tests/dwarf_test.go`); abi.md sections 8 and
+    12.6 now say so.
 64. **Map iteration guarantees and per-map seeds** (done, `7867af2`; sections 12.10 and 7.10): a deletion
     never moves another entry, every entry present when a loop starts and not deleted before it is reached
     is visited exactly once, and a table rebuilt during a walk is kept until the last walk ends. Hosted maps
@@ -1025,7 +1078,8 @@ compiler (2026-10-11).
     page-owning owners between address spaces waits for the PlutoniumOS IPC design.
 71. **Generation checks by default for hosted builds** (done, `766837b`, `b7a42d8`; sections 18.11 and
     21.5, abi.md section 1.3): a use of freed heap memory is a run-time panic; `--gencheck=false` is the
-    unchecked mode; kernel and freestanding builds stay unchecked until a kernel tag encoding exists.
+    unchecked mode. Kernel and freestanding builds were left unchecked at first; item 101 phase 2
+    (`58fcd043`) made them checked by default too.
     Historical prefix-only measurements reported 1.02x over `bench/`. That result does not describe
     the shared-directory implementation; item 85 records its current measured costs and tuning work.
 72. **Arena epochs** (original `3410025` implementation; D7 nonwrapping follow-up under85,
@@ -1042,10 +1096,10 @@ compiler (2026-10-11).
     panics for a value that is not a member, as a union switch does (12.1, 12.9, 7.12, `b87fbac2`); the
     directive groups of section 20.3 (`section`, `noreturn`, `noescape`, `nosimd`, `nochecks`, with
     `nobounds` retired into `nochecks`, E2601, `45f1758`), with AGENTS.md and `internal/lsp/hover.go` in
-    step. Open: a consuming method used as a method value is an error (11.9; G26, decision (a): the method
-    expression and the direct call still work; the compiler accepts it today); `clear` on a slice of
-    owners drops each element (13.3; done, row 33, `2f0b88da`: each owner is dropped in index order, its
-    `Drop` method before its place becomes the zero value).
+    step; `clear` on a slice of owners drops each element (13.3; done, row 33, `2f0b88da`: each owner is dropped in index order, its
+    `Drop` method before its place becomes the zero value). One sub-item is not done and moved to item 178:
+    a consuming method used as a method value is an error (11.9; G26, decision (a)); the compiler accepts
+    it today.
 77. **No `append`** (done, `38f6777`, `fa4bdcc`, `57e4f05`; sections 13.1, 7.5 and 18.10,
     [plan](plans/2026-10-10-remove-append.md)): every call is E2013 with the fix for its idiom; `vec.Vec`
     grows, `vec.Fixed` is bounded; `fmt.Appendf` replaces `Bprintf`; `make([]T, ...)` is E2014 (fix
@@ -1080,6 +1134,27 @@ compiler (2026-10-11).
 176. **Region rules for closures** (planned; section 11.5, D68, findings D6 and D14): check that a closure passed
     through a func value or an interface counts as kept, and that storing it in the same frame or passing it
     to `s.Task` is allowed.
+181. **False escape errors in heavy unit-test builds of `types2`** (planned; section 18.3): the checked test
+    builds of `sched`, `summary`, `solve`, `escape2` and `eir` are rejected
+    at `compiler/internal/types2/conversions.p:89` and `:97` and `unify.p:735`. An agent on this stopped on
+    2026-10-31 with nothing landed; add the cheap gate check it planned.
+182. **Audit the lowering backstops** (planned; section 21.2): each `unsupportedf` (E2500) site and packed
+    field backstop in `compiler/internal/lower` is either unreachable after the type checker (say so in a
+    comment or remove it) or a missing feature (add an item): `builtin.p:149`, `:219`; `expr.p:117`,
+    `:686`, `:1013`, `:1310`; `stmt.p:126`, `:721`; `packed.p:124`, `:136`, `:192`, `:238`.
+183. **Order of evaluation in the rest of lowering** (planned; section 11.26; moved from item 73): survey the
+    rest of `compiler/internal/lower` and add `testdata/run` and difftest cases (assignments, `x[i] =
+    f()`, operands of operators); every difference from the specified order is a false friend and is
+    fixed.
+191. **Counted string efficiency** (planned; sections 7.3, 18.8; moved from item 57): interface boxes hold
+    their string until the function returns; `(string, error)` returns through memory;
+    `compiler/compat` can drop helpers for what is native.
+192. **Maps of one type guarded together** (planned; sections 7.10, 19.3; moved from item 60): the race rule
+    groups maps by type, so two maps of one type are guarded together when either crosses. Precision,
+    not soundness.
+195. **Generation check tuning** (planned; section 18.11; moved from item 85): coherent whole-range and
+    ancestor snapshots, same-granule scalar checks, proven extent reuse and interval lookup hints without
+    cached liveness. Item 85 records the current costs.
 
 ## Tooling
 
@@ -1103,6 +1178,31 @@ compiler (2026-10-11).
     visible. The shared classifier also corrects editor labels. Exact CLI goldens, native full tests,
     zero lint, aggregate coverage nondecrease and all floors, SSA checks, generation-off tests and a
     tracked-only archive pass. See the [verification record](verification/2026-10-12-pluto-doc.md).
+184. **Tests for untested diagnostic codes** (planned; section 21.1; the survey's section 3 and the
+    [item 20 audit](verification/2026-10-31-item20-audit.md)): 30 Plutonium codes have no test that
+    expects them, among them E1005 to E1009, E1011, E2009, E2101, E2104, E2106, E2109, E2405, E2500,
+    E3007, E3205, E3208, E3209, E4002 to E4004, E4017, E4018, E5002 to E5008 and E9001; the sub-forms
+    of E3202, E3204, E3210 and E3212 and the rules the audit lists also have none. Of the 103 untested
+    Go-derived codes, first E0036, E0083, E0148, E0085, E0088, E0086, E0091, E0092, E0112, E0114, E0117,
+    E0119, E0120, E0124, E0100, E0128, E0129, E0130, E0150 and E0133 to E0146: check which are tested by
+    message, remove those Plutonium cannot reach, and test the rest.
+185. **Compile the specification's examples** (planned; section 1.3, chapter 2): a test that compiles every
+    code block of `docs/spec/language/`; blocks marked as errors must fail with the stated code, and the
+    rest must compile. `TestSpecReferences` checks numbering and catalog citations only, and
+    `tools/skillcheck` compiles the skill's blocks, not the spec's.
+186. **CI gaps** (planned): CI installs only `binutils` and `qemu-system-x86`, so the gdb tests in
+    `tests/dwarf_test.go` skip; the heavy compiler unit tests need `PLUTO_UNIT_HEAVY=1`, which CI does not
+    set; nothing runs difftest (item 32), which needs a Go toolchain. Coverage measurement of
+    `compiler/` and the test memory guard left with the Go implementation (AGENTS.md, "Known gaps").
+    Install gdb, run the heavy tests and difftest weekly, and restore the coverage measurement and the
+    memory guard.
+187. **Stale `TODO(A)` in the escape report** (planned): `compiler/internal/escape2/report/resolve.p:130`
+    says `diag.EscapeLimit` is not in `internal/diag` yet, but `compiler/internal/diag/codes.p:136` has
+    it. Use `diag.EscapeLimit` and remove the local `codeEscapeLimit`.
+189. **DWARF variables, parameters and types** (planned; section 21.7, debugging.md; moved from items 13 and
+    42): `DW_TAG_variable`, `DW_TAG_formal_parameter`, the type tags, locations, and enumeration types
+    for enums. `compiler/internal/debuginfo/dwarf.p` writes only compile unit, subprogram and inlined
+    subroutine tags.
 
 ## Platforms and formats
 
@@ -1122,9 +1222,9 @@ compiler (2026-10-11).
     `testdata/run/fmtvalues.p`.
 41. **Symbolized stack traces on panic** (done, `48d130a`; sections 17.1 and 21.7,
     [debugging.md](spec/debugging.md)): the trace table, walked by the panic path and the fault handler;
-    inlined calls are frames. Open: a per-thread alternate signal stack for worker threads.
-42. **DWARF line tables and CFI** (done, `002e065`, `8d57684`; debugging.md): for `gdb` and `perf`. Open:
-    variable and type information, and DWARF enumeration types for enums.
+    inlined calls are frames. A per-thread alternate signal stack for worker threads is item 190.
+42. **DWARF line tables and CFI** (done, `002e065`, `8d57684`; debugging.md): for `gdb` and `perf`.
+    Variable and type information and enumeration types are item 189.
 43. **Debug allocator** (done, `170d539`, `8bf78ed`; section 18.12, [debug-allocator.md](spec/debug-allocator.md)):
     guard pages, canaries, poisoning, a quarantine, a side table for invalid frees, leak reports with
     allocation sites. See item 96.
@@ -1136,13 +1236,17 @@ compiler (2026-10-11).
 46. **`net`** (planned, hosted): sockets over the epoll poller of item 14.
 47. **`fmt.Sprintf` returns a string** (done, `a0e0987`; section 18.8): counted strings built in a
     buffer of `pluto/fmt`'s own; `Appendf` formats into a `vec.Vec` or `vec.Fixed`.
-51. **Owner types in the library** (in progress; sections 7.18 and 18.10): `vec.Vec`, `hash.Map`,
+51. **Owner types in the library** (done; sections 7.18 and 18.10): `vec.Vec`, `hash.Map`,
     `hash.Set`, `strings.Builder`, `bytes.Buffer`, `heap.Heap`, `flag.FlagSet`, `os.DirEntries`,
-    `exec.Cmd`, `arena.Chunked`, `sync.Scope` and `os.File` (item 134) are owners with `Drop`.
-52. **The `pu` mirror package for self-hosting** (done, `de6aa50`;
+    `exec.Cmd`, `arena.Chunked`, `sync.Scope` and `os.File` (item 134) are owners with `Drop`; the
+    [item 20 audit](verification/2026-10-31-item20-audit.md) found none missing. `sync.NewCond` still
+    returns a `*Cond` from `alloc.New` that the caller frees with `alloc.Free`
+    (`lib/pluto/sync/waitgroup.p:108`); item 197 decides it.
+52. **The `pu` mirror package for self-hosting** (done, `de6aa50`, history;
     [plan](plans/2026-10-09-self-hosting-plan.md)): a Go package `pu` with the library owners,
-    which go2pu mapped one to one. The Go package went with the Go implementation; the translated
-    compiler uses `compiler/pu`. A Go `map` translates to the built-in map unchanged (item 60).
+    which go2pu mapped one to one. It was deleted with the Go implementation, so this item is history
+    only. The translated compiler uses `compiler/pu`. A Go `map` translates to the built-in map
+    unchanged (item 60).
 56. **Self-hosting prerequisites** (done: the compiler builds itself since the `go-cutover` tag; [plan](plans/2026-10-09-self-hosting-plan.md)): done are
     single-pointer structs in an interface's data word (`bcfe96f`, section 7.9), itab lookup by hash
     (`79a4326`, abi.md section 5), `//pu:stack` for `main` (`b951dd2`, section 20.3), growable arenas
@@ -1155,8 +1259,10 @@ compiler (2026-10-11).
     native verified: zero-ready `hash.FNV32a`/`FNV64a` match Go, and explicit-key `hash.SipHash24`
     matches official vectors and an independent one-shot Go oracle at O0/O2. Copies and sums
     preserve independent state; public methods allocate nothing. Full native gates pass. See the
-    [verification record](verification/2026-10-12-streaming-hash.md). Compiler hashing migration,
-    explicit comparable-value encoding and key acquisition remain in the later port.
+    [verification record](verification/2026-10-12-streaming-hash.md). The port finished without moving
+    the compiler to these hashers: no compiler code imports `pluto/hash` or uses `maphash`, and
+    `lower/iface.p` (`descHash`) and `lsp/diagnostics.p` (`hashBytes`) keep small FNV-1a functions of
+    their own. Nothing is left for self-hosting.
 65. **Range over a vector reads its length once** (done, `dad7c36`; sections 12.10 and 11.11): `All`,
     `Values` and `Backward` of `vec.Vec` read the length when the loop starts.
 68. **`bytes.Buffer` grows** (done, `9c6cdcc`; sections 7.18 and F.3): `NewBuffer` and `NewBufferString`; a
@@ -1175,3 +1281,9 @@ compiler (2026-10-11).
     nil only before `SetDefault` in a freestanding build, that the arena window follows the `Restore`'s
     extent, that the panic buffer is 1024 bytes, that the library names in F.3 and F.6 exist, and that
     the debug allocator registers generation tags.
+190. **Alternate signal stacks for worker threads** (planned; sections 17.1, 21.7; moved from item 41): a
+    per-thread alternate signal stack, so a fault on a worker thread's stack can still be reported.
+197. **`sync.NewCond` and its raw pointer** (planned, a decision; sections 7.18, 18.10, F.5; from item 51):
+    `NewCond` returns a `*Cond` from `alloc.New` that the caller frees with `alloc.Free`
+    (`lib/pluto/sync/waitgroup.p:108`). Decide whether it returns an owner, a counted reference or a
+    value.

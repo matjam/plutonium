@@ -219,7 +219,7 @@ library change that breaks an example fails that test: fix the text, or the comp
 specification. `references/stdlib*.md` and `references/diagnostics.md` are generated; after the library or the
 diagnostics catalog changes run `skill/plutonium/tools/regenerate.sh` (`SKILLCHECK_FRESH=1 go test ./tools/skillcheck
 -run TestGeneratedFresh` tells whether they are stale). `references/known-gaps.md` lists where the code differs from
-the specification today; each item is guarded by a block that fails when the gap closes, so delete the item then.
+the specification today, one line per gap with the roadmap item that tracks it; delete a line when its item is done.
 
 ## Directives
 
