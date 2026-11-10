@@ -1256,10 +1256,17 @@ compiler (2026-10-11).
     Go-derived codes, first E0036, E0083, E0148, E0085, E0088, E0086, E0091, E0092, E0112, E0114, E0117,
     E0119, E0120, E0124, E0100, E0128, E0129, E0130, E0150 and E0133 to E0146: check which are tested by
     message, remove those Plutonium cannot reach, and test the rest.
-185. **Compile the specification's examples** (planned; section 1.3, chapter 2): a test that compiles every
-    code block of `docs/spec/language/`; blocks marked as errors must fail with the stated code, and the
-    rest must compile. `TestSpecReferences` checks numbering and catalog citations only, and
-    `tools/skillcheck` compiles the skill's blocks, not the spec's.
+185. **Compile the specification's examples** (done, `5280a707`; section 1.3, chapter 2):
+    `tests/specexamples_test.go` (`TestSpecExamples`) compiles the go blocks of `docs/spec/language.md`,
+    `docs/spec/language/`, `abi.md`, `memory-model.md`, `debugging.md` and `debug-allocator.md`. A line
+    marked `error`, `illegal` or `invalid` must fail on that line with the stated code, and other lines
+    and unmarked blocks must build cleanly. Per-block context and known failures are in
+    `tests/testdata/specexamples/examples.txt`; a known failure that starts passing fails the test. Of 334
+    blocks, 308 are checked in 349 builds and 26 are skipped by rule (elided code, non-source fragments).
+    Known failures: 12 spec examples are wrong, 8 wait on items 146, 147, 148, 149, 168, 199, 201 and 208, and 2 have no
+    item (a duplicate method from an embedded interface is reported on the embed line, section 7.9; and
+    `send(buf.Len(), buf)` is accepted although item 75 makes a use and a move in one call an error,
+    section 11.14).
 186. **CI gaps** (planned): CI installs only `binutils` and `qemu-system-x86`, so the gdb tests in
     `tests/dwarf_test.go` skip; the heavy compiler unit tests need `PLUTO_UNIT_HEAVY=1`, which CI does not
     set; nothing runs difftest (item 32), which needs a Go toolchain. Coverage measurement of

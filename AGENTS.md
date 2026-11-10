@@ -160,7 +160,10 @@ and goldens that fail; read the diff before committing it.
 - `escapereview_test.go` (the escape review programs, rejected by the escape
   analysis), `audit_test.go` (`pluto vet -unsafe` goldens),
   `directive_test.go` (directive diagnostics and the section 20.3 audit),
-  `parse_test.go` (parser errors and a parse of every source file of the repository).
+  `parse_test.go` (parser errors and a parse of every source file of the repository),
+  `specexamples_test.go` (compiles the spec's go blocks; marked lines must fail with
+  their code, the rest must build; context and known failures in
+  `tests/testdata/specexamples/examples.txt`).
 
 About the programs:
 - `testdata/run/*.p` are programs in the common subset of Go and Plutonium. Their
