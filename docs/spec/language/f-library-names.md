@@ -289,7 +289,8 @@ returns a `synced[Timer]` handle, and dropping it never stops the timer (`Stop` 
 `time.Tick` return a counted channel that owns its timer, stopped and freed with the channel's last
 reference (section 19.6, Timers). `time.AfterFunc(d, f)` starts `f` as a task when the timer expires, so
 `f` is subject to the rules of the `task` statement for func arguments: a function that may capture
-variables from a frame is a compile error (section 12.12). No library type needs a `Free` call. Underneath is the
+variables from a frame is a compile error (section 12.12). A `Reset` can start `f` again, so the race
+rules count it as a repeated party (section 19.3, Parties). No library type needs a `Free` call. Underneath is the
 runtime's mechanism (section F.1): a monotonic clock, `rt.Now()`, timers that never allocate, and
 `rt.ParkUntil`. A kernel's scheduler provides the clock and the hardware with `Now` and `ArmTimer`.
 

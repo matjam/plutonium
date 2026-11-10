@@ -1363,7 +1363,11 @@ A task is preempted after a time slice wherever it is (language spec section 19.
 preemption-disable count, raised by `rt.DisablePreemption`, by runtime locks, by
 `pluto/alloc`'s per-processor caches (`rt.ProcPin`) and while the task is switched out. A preemption
 that arrives while it is non-zero sets a pending flag, and the task yields when the count returns to
-zero. `rt.Park` with a non-zero count panics with "blocking with preemption disabled". The compiler
+zero. `rt.Park` with a non-zero count panics with "blocking with preemption disabled", and so does
+`rt.Yield`, which would let the task resume on another processor (language spec section 19.3, Switching
+tasks in a non-migrating region). `rt.Preempt` with a non-zero count sets the pending flag instead of
+switching, and the yield that the pending flag makes, `preemptPark` and the backend's switch are not
+tested. The compiler
 inserts the same test, and the kernel-mode test below, at the entry of every function marked
 `//pu:blocking`, after its prologue and before its body. For a function marked `//pu:blocking` without a
 body, the test goes before each call of it, in the caller (language spec section 20.3).

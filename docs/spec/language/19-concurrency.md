@@ -90,8 +90,9 @@ and preemption cannot be observed by the program (section 19.7). Code that must 
 preemption that arrives meanwhile happens when it is enabled again. Such code may not wait: a wait that a non-migrating region reaches through calls with a single known
 target is a compile error (section 19.3, Waiting in a non-migrating region), and any other wait there
 panics with "blocking with preemption disabled" (section 17.1) when it would park or when a function
-marked `//pu:blocking` is called, in kernel mode also inside an interrupt-disabled region. Blocking on a channel, a lock or I/O,
-or calling `rt.Yield()`, gives up the processor early.
+marked `//pu:blocking` is called, in kernel mode also inside an interrupt-disabled region. Nor may it
+call `rt.Yield`, which is checked the same way (section 19.3, Switching tasks in a non-migrating region).
+Blocking on a channel, a lock or I/O, or calling `rt.Yield()`, gives up the processor early.
 
 **Deadlock.** In hosted builds, when every task waits for another task and none waits for I/O, a system
 call or an armed timer, the program ends with a fatal error and status 2 (section 17.1) after printing the
@@ -165,7 +166,14 @@ The compiler finds the parties from package initialization and `main`: a task st
 that no party calls starts no party. A party is **repeated** when its start may run more than once: a
 task statement in a loop, or in a function that may be called more than once, starts several tasks that
 run the same code at once. Every interrupt handler is repeated, since it may run on several processors at
-once. Two instances of one repeated party count as two parties below.
+once. A function that `time.AfterFunc` starts is repeated wherever the call is: a `Reset` through any
+handle of its timer starts it again, and a new run may overlap one still going (section 19.6). Two
+instances of one repeated party count as two parties below.
+
+The function of an `rt.Timer` runs wherever timers run (section 19.6). `Timer.Init` takes an
+`unsafe.Pointer`, so the code that arms such a timer, and the timer's function, are unsafe code (section
+18.12): the function is not a party of these rules, and what it shares is the responsibility of that code
+(What is not checked, below).
 
 A task, an interrupt handler, and a function that `s.Task`, `wg.Task` or a task statement starts, begin
 with no lock held, whatever the code that starts them holds.
@@ -208,6 +216,18 @@ statement, less the locks the iterator may release, intersected with those held 
 every earlier run (as for a loop, Releasing a lock). A lock that the body may release counts as not held
 in the iterator after its call of `yield`, and that call counts as a call that may release the lock.
 
+To these the body adds the locks that the iterator's summary shows held at every call of `yield` (Held
+sets, below), each in the same mode and under the caller's name for it, as for a lock a callee returns
+holding. A lock that has no name in the caller is not added. The body holds these locks for its accesses
+and for its views, not for releases: it may not release them, just as a func value that the iterator
+calls may not (Releasing a lock). A view that the iterator passes to `yield` counts as loaded at that
+call under those locks, so it is valid in the body while they stay held (Views loaded under a lock).
+
+So a body and the same code written as a function literal passed to the iterator get the same held set
+for accesses, the same valid views and the same Onces (Lazy initialization, below). They differ only
+where a body can do what a func value cannot: release a lock held at the loop statement, `defer` to the
+end of the enclosing function, and leave it with `break` or `return`.
+
 **Memory and data.** The rules work on **data**. A field of a struct is one datum. All the elements of an
 array or slice together are one datum, except that elements selected by different constant indexes
 (`table[0]`, `table[1]`) are different data. An element selected by a variable index counts as every
@@ -234,11 +254,40 @@ These are the kinds of memory that several parties can reach, each with its owne
   the object.
 - The **contents of a map** are shared by every copy of the map. The contents of all maps of one type are
   one datum once a map of that type crosses (Crossings, below), or once a party reaches one through a
-  package variable or through memory it did not allocate.
+  package variable or through memory that neither its own code nor a function it called on its own party
+  allocated. A map **kept in place** (below) is not part of that datum.
 - A **per-CPU variable** has one copy per processor and follows section 20.9, with the memory it owns.
 - **Frame memory** of a function that starts scoped tasks follows section 19.4.
 - An **arena** (`arena.Fixed`, `arena.Chunked`) owns every object that its `New` or `Slice` allocated.
 - Any other object is reached only through a view that crossed, and rule 2 decides it.
+
+**Maps kept in place.** A **place** is a package variable of map type, or a field of map type of a struct
+type (one field declaration, for each instantiation of a generic type), with every object of that type
+holding one place of it. A place is **kept in place** when, in the whole program:
+
+- every value stored in it is new: the value of a `make` call, of a map composite literal or of `nil`,
+  written directly as the right side of the assignment, as the initializer, or as the field's element of
+  a struct composite literal; and
+- every other occurrence of the place in an expression (`c.m`, or `m` for a package variable) is one of
+  these uses, which do not copy the map value: the map operand of an index expression (read, assignment,
+  compound assignment, or the comma-ok form), the argument of `len`, `delete` or `clear`, the range
+  expression of a `for` statement, an operand compared with `nil`, or the argument for a parameter or
+  receiver that keeps it in place (below).
+
+Every other occurrence **copies the map out**: an assignment of it to anything else, its address (`&c.m`),
+a conversion to an interface, a return, a send, an argument of a task statement, an element of a
+composite literal, an argument for a parameter that does not keep it in place or of a call through an
+interface, a func value or a method value, and a copy of a struct value that holds the place. Moving an
+owner that holds the place is not a copy: the place moves with it. A parameter or receiver of map type
+**keeps it in place** when the function uses it only in the ways listed above and never assigns it; the
+summary records this for each such parameter and receiver, and on a cycle of calls a parameter keeps it
+in place unless some use on the cycle copies it out.
+
+The contents of the map in a place kept in place are reached only through that place. They are part of
+the datum of the place, per object, with the memory they own, and a lock that guards the place in place
+guards them (Locks and names, below). A copy of a struct that holds a lock is already a compile error
+(Copying a lock, below), so the common shape, a struct with a mutex and a map, loses nothing to the last
+rule of the list. The contents of any other map stay in the datum of its type.
 
 **Crossings.** A value **crosses** to a party when it is
 
@@ -257,10 +306,21 @@ struct, array or union that holds one of them. Crossings count only after the st
 
 **Accesses.** For each party the compiler collects what it reads and writes, in its own code and in every
 function it calls. A call through an interface or a func value reaches every function that could be
-called there. A method value may be called later, anywhere, so what its method does counts as done with
-no lock held and outside every `Do`. An access made with `pluto/sync/atomic` operations (the methods of
-`atomic.Int64` and the other atomic types, or functions such as `atomic.AddInt64(&x, 1)`) is **atomic**.
-Writing a whole struct writes all its fields.
+called there. A method value may be called later, anywhere, so its method counts as run outside every
+`Do` (Lazy initialization, below). Like any call through a func value, a call of a method value runs the
+method with the caller's held set (Held sets, below). An access made with `pluto/sync/atomic` operations
+(the methods of `atomic.Int64` and the other atomic types, or functions such as `atomic.AddInt64(&x, 1)`)
+is **atomic**. Writing a whole struct writes all its fields.
+
+A call of a method of a `pluto/sync` value (`mu.Lock()`, `wg.Add(1)`, `o.Do(f)`, `c.Wait(&mu)`), and a
+send, receive or `close` on a channel, is an access of the memory of that value, or of the channel's
+object, and it counts as an atomic write: the value synchronizes itself. Such an access does not
+conflict with another such call or with an atomic access. It conflicts with a plain write that changes
+the value's own memory: a whole new value assigned to it, or a free, move or overwrite of an object or
+owner that holds it (Frees are writes, below). A write of other memory of the same datum, such as another
+field of an object that the datum owns, does not conflict with it. So when such a plain write is shared,
+the datum has no guard (The guard set, below), whatever locks the write holds: no lock orders it with the
+other party's call.
 
 Two accesses **conflict** when they reach overlapping data, at least one writes, they are not both
 atomic, they are made by different parties (or by two instances of one repeated party), and both come
@@ -280,7 +340,7 @@ index, counts as that call on every arena it may be, within the limits of How pr
 (below); beyond those limits it counts as that call on every arena of the program. The name follows a
 move of the arena: after `b := take(a)`, a call on `b` frees the objects allocated through `a` before the
 move. This holds for every rule of this section and for scoped tasks (section 19.4), so in safe code no
-party frees memory that another party may still use (memory-model.md section 4.1). Values of
+party frees memory that another party may use at the same time (memory-model.md section 4.1). Values of
 `pluto/sync` and `pluto/sync/atomic` types synchronize themselves through their methods; assigning a
 whole new value to one is an ordinary write.
 
@@ -299,6 +359,8 @@ take a pointer once and use it for both calls, `l := &locks[i]; l.Lock(); ...; l
   or if a scoped task captures it.
 - A parameter names, at each call, the lock that its argument names there.
 - A copy carries the names: after `cur = next`, the lock named `next.mu` is named `cur.mu` too.
+- An address carries the name: after `p := &mu`, `*p` is a name of `mu`. So `p.Lock()` takes the
+  package-level lock `mu`, and it guards what `mu` guards; after `p := &s.mu`, `*p` is a name of `s.mu`.
 - A name ends when the variable it starts from is assigned, and when the lock is given a new value or the
   memory that holds it is moved or assigned, in the function or in a function it calls.
 - A copy of a struct that holds a lock holds a different lock (and is a compile error, Copying a lock,
@@ -308,8 +370,10 @@ A lock **guards in place** a datum when both are reached from the same base by f
 constant indexes with no pointer load between, or when the lock is **package-level**: a package variable,
 or a field or constant element of one, reached with no pointer load. So `s.mu` and `s.items` in one method
 are a lock and a datum of the same object, and so are `std.mu` and `std.buf` for a static object `std`.
-A lock guards the contents of a map in place when it guards the variable or field that holds the map in
-place: `s.mu` for `s.m[k]`, or a package-level lock for a package-level map.
+The contents of a map kept in place are part of the datum of their place, so a lock that guards the place
+guards them: `s.mu` for `s.m[k]`, for each object `s`, or a package-level lock for a package-level map.
+The contents of any other map are one datum for the map type, which no lock of one object guards in
+place; only a package-level lock can guard them.
 Only such locks can guard a datum (The guard set, below). A lock in the frame of a function that starts
 scoped tasks, used by those tasks, is one lock in all of them (section 19.4).
 
@@ -341,6 +405,8 @@ Each function has a **summary**, which a call uses in place of the callee's body
 - the locks it **releases**, which its caller then no longer holds;
 - the locks it **may release**: a lock released on some path, directly or by a callee, `c.Wait(l)`
   included, to any depth, even if it is taken again before the return;
+- for each func-valued parameter, the locks held at every call of it, each with its mode, relative to
+  the callee's start (Part of the enclosing function, above);
 - the func-valued parameters it calls **on another party** (Part of the enclosing function, above), and
   those it calls from **several scoped tasks at once** (section 19.4, Callees);
 - the Onces whose `Do` it calls on every path to its return, to any depth through calls with a known
@@ -362,12 +428,19 @@ function.
 - An **interrupt-disabled region** is a stretch of code where maskable interrupts are disabled by those
   calls, or an `rt.Lock` is held in kernel mode (abi.md section 12.5: runtime locks disable interrupts
   there), or the code is the body of a `//pu:interrupt` handler up to a call that may switch tasks
-  (`rt.Preempt`, `rt.Yield`) or to a call of `x86.Sti`, which ends it. A handler is entered through an
+  (below) or to a call of `x86.Sti`, which ends it. A handler is entered through an
   interrupt gate that disables interrupts (section 20.10), so its body is such a region. The body of a
   handler marked `//pu:interrupt trap` is not: a trap gate leaves interrupts as they were, so the handler
   can be re-entered, and it opens an interrupt-disabled region of its own with `x86.Cli` or
   `x86.SaveFlagsCli` where it needs one. Exceptions and nonmaskable interrupts are not excluded by an
   interrupt-disabled region; that remains a contract of the kernel (section 20.10).
+
+A call **may switch tasks** when it is a call of `rt.Yield` or `rt.Preempt`, or of a function whose summary
+shows that it may reach one of them, at any depth. Such a call lets the task resume on another processor,
+so it is a compile error inside a non-migrating region (Switching tasks in a non-migrating region, below).
+A handler body is interrupt-disabled but not non-migrating, so it may call `rt.Preempt`; its region ends
+there. Parking also lets the task move, and the wait check covers it (Waiting in a non-migrating region,
+below).
 
 Section 20.9 (Per-CPU variables) uses both. It also uses them for a store that depends on an earlier load
 of the same per-CPU variable: that is a read-modify-write and needs a non-migrating region, as `ticks++`
@@ -394,6 +467,11 @@ stays held on every path from the load to the use, with no **ending event** for 
 - a call whose summary may release that lock; a view passed to such a call counts as used after the
   release;
 - the end of the lock's name.
+
+A view loaded by the only writer of D, when that party is not repeated, from D or from memory D owns, is
+valid at each use with no lock: no other party writes D, so nothing can end it but the party's own code,
+which the rules of chapter 18 already check within one party. It still counts as used with no lock held
+when it crosses to another party.
 
 A copy of the view whose uses the compiler cannot follow counts as used with no lock held: one stored
 anywhere but in memory that the same guard set guards, sent on a channel, passed to a task, captured by a
@@ -426,8 +504,13 @@ are the Once and the data of one object. The return of `f` is synchronized befor
   the reading function or in code that is part of it (above), or in a function called from there whose
   summary shows a call of `o.Do` on every path to its return, at any depth. A `Do` made by another party,
   such as the task that started the reader, does not count, and neither does a `Do` reached through an
-  interface, a func value or a method value (`rt.CatchExitTask(func() { o.Do(f) })` included). An
-  interrupt handler cannot call `Do`, which may park (E2584).
+  interface, a func value or a method value (`rt.CatchExitTask(func() { o.Do(f) })` included). The
+  other way counts, as a held lock does (Held sets, above): a function counts as having a returned
+  `o.Do` throughout its body when every call of it, direct or through an interface or a func value of
+  which it is a candidate, is made on the same party where a call of `o.Do` has returned on every path
+  to the call. A function literal passed to an iterator, or to any function that calls it on the
+  caller's party, so gets the Onces that a range body there would get. A method's run through a method
+  value is outside every `Do`, as above. An interrupt handler cannot call `Do`, which may park (E2584).
 - **Otherwise.** A datum written outside these calls, or read on some path with no returned `Do`, follows
   rule 1 as other data does. `Do` holds the Once's own lock while `f` runs, so the writes inside `f`
   hold that lock and it is in the guard set. A write outside with no lock is E3502, which names that
@@ -530,7 +613,9 @@ a package-level lock (guards in place). Writes that initialize a `synced[T]` obj
 is first copied do not count. A map used by one party at a time needs no lock. Maps of one type that a
 party fills before it shares them, and maps of types that never cross, need no lock either. Once a map of
 a type crosses, maps of that type that parties fill for themselves after handing them to a function must
-hold the guard too, or the shared map takes a type of its own. Per-CPU variables follow section 20.9
+hold the guard too, or the shared map takes a type of its own. A map kept in place (Memory and data,
+above) is outside all this: its contents are part of its place, and the lock that guards the place, such
+as the mutex of the same object, guards them. Per-CPU variables follow section 20.9
 instead of this rule.
 
 ```go
@@ -576,10 +661,15 @@ func value or method value that it loads, wherever the view was stored. The memo
    - a static object;
    - the object of a `synced[T]`;
    - an object whose type satisfies rule 3, the type rule.
+
+   In both forms the memory must not be freed, moved or overwritten as a whole while another party may
+   use it: no write of it, or of an object or owner that holds it, may conflict with a use by the other
+   party, a call of a `pluto/sync` method included (Accesses, above).
 4. **Guarded.** A datum that rule 1 guards, a field of an object of case 3 that is guarded by the field
    conditions, or memory that either owns, through a view that is valid at each use (Views loaded under a
-   lock, above). Every access to that memory, by every party and through every view of it, holds a lock
-   of its guard set (a write in write mode). A lock held around a call counts inside the callee, so
+   lock, above). Every access to that memory that the guard set requires to hold a lock (The guard set,
+   above), by every party and through every view of it, holds a lock of its guard set (a write in write
+   mode). A lock held around a call counts inside the callee, so
    `items.Push(x)` between `mu.Lock()` and `mu.Unlock()` may load the backing storage of a package-level
    `vec.Vec`; `hash.Map` and `strings.Builder` are used the same way.
 
@@ -1096,8 +1186,31 @@ hooks and allocators, and this one does not follow them, for a reason. A wait in
 outcome at run time: the handler runs on top of the code it interrupted, which cannot resume, so the
 processor stops. A wait in a non-migrating region of a task fails loudly at the panic above, and is not a
 memory or data race error. Calls through operations tables and allocation while a lock is held are
-ordinary in a kernel, and a conservative rule would reject them. This is the one check in the language
-that accepts a program on doubt (section 1.2, Design rules).
+ordinary in a kernel, and a conservative rule would reject them. This check, and the switch check below
+where the count is raised, are the only checks in the language that accept a program on doubt (section
+1.2, Design rules).
+
+**Switching tasks in a non-migrating region.** A call that may switch tasks (Non-migrating and
+interrupt-disabled regions, above) is a compile error where the check reaches it inside a non-migrating
+region. The task would go on after the call on whatever processor resumes it, so a per-CPU view, a
+read-modify-write of a per-CPU variable, or anything else the region keeps on one processor (section
+20.9) would no longer hold. The check is the wait check above, with `rt.Yield` and `rt.Preempt` as the
+operations: it follows the same calls with a single known target, from regions in code outside
+`pluto/rt`, and reports a switch on some path of a followed callee.
+
+In a region where only maskable interrupts are disabled (`x86.Cli` or `x86.SaveFlagsCli`, no count
+raised), the run-time test below cannot tell the region from a handler body, which may yield. So there,
+and only there, the check also follows calls with more than one target, as the handler check does
+(section 20.10, Calls through interfaces and func values): a call through an interface, a func value, a
+method value or a hook whose candidates may switch, and an allocation or drop that reaches an installed
+allocator that may switch, is a compile error too.
+
+For a call the check does not follow, `rt.Yield` makes the run-time test that `rt.Park` makes for the
+count: it panics with "blocking with preemption disabled" when the task's preemption count is non-zero
+(section 17.1; abi.md section 12.4). `rt.Preempt` with a non-zero count already switches nothing: it sets
+the pending flag, and the task yields when the count returns to zero. The runtime's own switch path is
+exempt: that pending yield, `preemptPark`, and the switch inside the backend. Neither call tests the
+interrupt flag, so a handler can still yield.
 
 **Interrupt handlers.** Each interrupt handler the program installs (section 20.10) is a repeated party
 that may run at any point where interrupts are enabled, on any processor. Rules 1 to 3 apply with
@@ -1138,8 +1251,9 @@ one place.
 **What is not checked.** Unsafe code (section 18.12, Safe and unsafe code) is the programmer's
 responsibility: memory reached through `unsafe.Pointer` or `rt.Pinned`, functions without a body, and the
 variables, records and non-migrating regions of the runtime (`pluto/rt`), which implements tasks with its
-own locks and with preemption disabled. The runtime's non-migrating regions are not checked for waits
-(Waiting in a non-migrating region, above), and its releases of its own locks are not checked by the rule
+own locks and with preemption disabled. Unsafe code includes the function of an `rt.Timer` and the code
+that arms it (Parties, above). The runtime's non-migrating regions are not checked for waits or switches
+(Waiting in a non-migrating region, and Switching tasks in a non-migrating region, above), and its releases of its own locks are not checked by the rule
 for releasing a lock (above). Nor are the bodies of the lock methods and of `sync.Cond.Wait` that section
 18.12 lists, whose callers the rule checks instead. A data race in unsafe code gives torn or stale values
 (memory-model.md section 4), and it is never undefined behavior in the compiler's sense: the compiler may
@@ -1171,7 +1285,8 @@ edition of the language may raise them.
 **Conformance.** Each row gives a program, the result that every implementation must give, and the rule
 that decides it. "A compile error" is an error that has no code yet. Rows 1 to 12 are the first shape a
 Go programmer would write; rows 13 to 21 are Go locking idioms; rows 52 to 66 settle audit K
-(docs/verification/2026-11-09-spec-audit-k.md).
+(docs/verification/2026-11-09-spec-audit-k.md); rows 73 to 99 settle audit L
+(docs/verification/2026-11-09-spec-audit-l.md), and rows 100 to 109 are the common Go shapes it lists.
 
 | # | Program | Result | Deciding rule |
 |---|---|---|---|
@@ -1179,7 +1294,7 @@ Go programmer would write; rows 13 to 21 are Go locking idioms; rows 52 to 66 se
 | 2 | `var cache = map[string]synced[Entry]{}`; `get` copies the `synced[Entry]` out under `mu`; the fields of `Entry` that change use its own lock | accepted | rule 1 (map contents, synced object) |
 | 3 | `var std = &Logger{w: os.Stderr, prefix: "app: "}` with a `sync.Mutex` field that `Printf` takes | accepted | rule 2 case 3 (static object) |
 | 4 | `func init() { Register("echo", &echoHandler{}) }` storing into a package map | E3002 | 18.3 |
-| 5 | `var handlers = map[string]Handler{"echo": &echoHandler{}}`, read by every task | accepted | Initialization; rule 2 cases 2 and 3 |
+| 5 | `var handlers = map[string]Handler{"echo": &echoHandler{}}`, read by every task | accepted | Initialization; rule 1 (map contents); rule 2 case 3 |
 | 6 | `var cfg atomic.Pointer[Config]` with `cfg.Store(&Config{...})` in a reload task | E3003 | 18.3 |
 | 7 | `var cfg owned[Config]` replaced by a reload task while readers hold `&*cfg` | E3501 | rule 2 (Frees are writes) |
 | 8 | `var cfg synced[Config]` under a mutex; readers copy the reference out under it, the reload task assigns under it | accepted | rule 1 |
@@ -1245,8 +1360,45 @@ Go programmer would write; rows 13 to 21 are Go locking idioms; rows 52 to 66 se
 | 68 | An owner struct that holds a locked `sync.Mutex` moved on a channel | accepted (the receiver starts with nothing held) | Locks and names (a move ends the name) |
 | 69 | `func bump(l *sync.Mutex) { l.Lock(); x++; l.Unlock() }` called with `&a` by one task and `&b` by another | E3502 | The guard set |
 | 70 | Readers use an object under `rw.RLock`; a writer frees it under `rw.Lock` | accepted | Frees are writes; The guard set |
-| 71 | A scoped task unlocks the starting function's lock | a compile error | Parties (a task starts with nothing held) |
+| 71 | `mu.Lock(); s.Task(func() { release() })`, where `release` calls `mu.Unlock()` | a compile error | Releasing a lock (a callee releases what its caller holds; the scoped task holds nothing) |
 | 72 | A task statement in `start`, which nothing calls from `main` | accepted (no party) | Parties |
+| 73 | L1: `rt.DisablePreemption(); s := runq.Slice(); rt.Yield(); use(s[0]); rt.EnablePreemption()` on a per-CPU `runq` | a compile error | Switching tasks in a non-migrating region |
+| 74 | L1: inside `rt.DisablePreemption()`, a call through an interface whose candidate calls `rt.Yield` | accepted; panics "blocking with preemption disabled" if the candidate yields | Switching tasks in a non-migrating region (run-time test) |
+| 75 | L1: inside `x86.Cli()` in kernel mode, a call through an interface whose candidate calls `rt.Yield` | a compile error | Switching tasks in a non-migrating region (followed through every candidate) |
+| 76 | L1: a `//pu:interrupt` handler calls `rt.Preempt()` | accepted (the handler's region ends at the call) | Non-migrating and interrupt-disabled regions |
+| 77 | L2: `t := time.AfterFunc(d, f)`; `t.Reset(0)` while `f` may run; `f` does `n++` on a package `n` nothing else uses | E3502 | Parties (an `AfterFunc` function is repeated); rule 1 |
+| 78 | L2: as row 77, with `f` doing `n.Add(1)` on an `atomic.Int64` | accepted | Parties; rule 1 (atomic) |
+| 79 | L3: `var b owned[S]` with `S{mu sync.Mutex}`; `task user(&b.mu)`; `b = new(S{})` | E3501 | rule 2 case 3 (not freed while shared); Accesses (a `pluto/sync` call) |
+| 80 | L3: two tasks call `b.mu.Lock()` and `b.mu.Unlock()` on `var b owned[S]`; one also does `b = new(S{})` under `b.mu` | E3502 | Accesses (a free conflicts with a `pluto/sync` call); rule 1 |
+| 81 | L3: two tasks lock `b.mu` and write `b.n` under it, for `var b owned[S]` with `S{mu sync.Mutex; n int}` | accepted | Accesses (a write of other memory of the datum does not conflict with the call); The guard set |
+| 82 | L4: the iterator `All` holds `mu` around each `yield(i, scores.Ptr(i))`; `for _, p := range All { *p += 1 }` | accepted | Part of the enclosing function (the iterator's locks at `yield`) |
+| 83 | L4: as row 82, with the body written as a literal passed to `All` | accepted | Held sets (a func value runs with the caller's held set) |
+| 84 | L4: `All` takes and releases `mu` around each `yield`; the body keeps `p` from one run to the next | E3501 | Part of the enclosing function; Views loaded under a lock |
+| 85 | L4: `o.Do(load)`; then `Each(func(x int) bool { use(cfg); return true })`, where `Each` calls its argument on the caller's party | accepted | Lazy initialization (a returned `Do` counts in the callee) |
+| 86 | L5: `type Cache struct{ mu sync.Mutex; m map[string]int }`; `var users = &Cache{m: map[string]int{}}` and `hosts` alike; `Put` writes `c.m[k]` under `c.mu`; tasks call both | accepted | Maps kept in place; Locks and names |
+| 87 | L5: as row 86, with a method `Snapshot` that returns `c.m` | E3502 | Maps kept in place (a return copies the map out); The guard set |
+| 88 | L5: as row 86, with `n := len(c.m)` and `for k := range c.m` under `c.mu`, and `count(c.m)`, where `func count(m map[string]int) int { return len(m) }` | accepted | Maps kept in place (uses, and a parameter that keeps it in place) |
+| 89 | L5: as row 86, with `Reset` doing `m := make(map[string]int); m["a"] = 1; c.m = m` under `c.mu` | E3502 | Maps kept in place (a value stored must be new where it is stored); The guard set |
+| 90 | L6: the only writer of `items`, a task not repeated, pushes under `mu` and runs `for _, x := range items.Slice()` with no lock; other tasks read under `mu` | accepted | Views loaded under a lock (the only writer); rule 2 case 4 |
+| 91 | L7: `m := s.inc; mu.Lock(); m(); mu.Unlock()`, `inc` writes a package `x` that other tasks write under `mu` | accepted | Held sets (a method value runs with the caller's held set) |
+| 92 | L8: an `rt.Timer` function writes a package `n` that a task also writes | not checked (unsafe code) | Parties; What is not checked |
+| 93 | L9: a list of `owned[Node]` links with a `sync.Mutex` in each node, walked hand over hand by two tasks that write node fields | E3502 | Memory and data (owned nodes are part of the root datum); The guard set |
+| 94 | L11: map type `M` never crosses; two tasks each get a map of `M` from `mk()`, which makes it, and fill it | accepted | Memory and data (memory a callee on the same party allocated) |
+| 95 | L12: before the start of sharing `p := items.Ptr(0)`; a task pushes under `mu`; later `mu.Lock(); _ = *p` | accepted by the race rules; the use panics if the push moved the storage (section 18.11) | Frees are writes; Views loaded under a lock |
+| 96 | L13: `p := &mu; p.Lock(); x++; p.Unlock()` in one task, `mu.Lock(); x++; mu.Unlock()` in another | accepted | Locks and names (an address carries the name) |
+| 97 | `wg.Task(work)` several times, `work` writes `results[next.Add(1)-1]` on a package slice; `main` reads `results` after `wg.Wait()` | E3502 | rule 1 (a variable index is every element); Ordering used |
+| 98 | `results := make([]int, n)`; `for i := range n { s.Task(func() { results[i] = f(i) }) }`; read after the Scope's `Wait` | accepted | 19.4 Partitions |
+| 99 | As row 98 with `wg.Task(func() { results[i] = f(i) })` | E2590 | 12.12 (a capturing literal given to a function that starts a task) |
+| 100 | Go shape: `c := &Counter{}` in `main`; `task worker(c)` | E3004 | 18.3 (a frame view passed to a task) |
+| 101 | Go shape: a struct with a mutex and a map, several instances, each method locking its own mutex | accepted | Maps kept in place (row 86) |
+| 102 | Go shape: a worker pool with a jobs channel, a results channel, a package-level `wg`, and `wg.Wait()` then `close(results)` | accepted | Crossings (values cross by channel); Accesses (`pluto/sync` and channel calls) |
+| 103 | Go shape: `task func() { defer wg.Done(); work(items[i]) }()` capturing loop data | E2590 | 12.12 |
+| 104 | Go shape: workers write `results[i]`, read after waiting | E3502 with `wg.Task` (row 97); accepted with a `sync.Scope` (row 98) | rule 1; 19.4 Partitions |
+| 105 | Go shape: a `done` channel closed to cancel, and `select` on it in each task | accepted | Accesses (channel operations) |
+| 106 | Go shape: a package `atomic.Bool` stop flag set by one task, polled by others | accepted | rule 1 (atomic) |
+| 107 | Go shape: a `sync.Once` singleton returning a pointer to its data, nothing resets it | accepted | rule 2 case 2; Lazy initialization |
+| 108 | Go shape: a read-mostly package config map under a package `sync.RWMutex` | accepted | Maps kept in place; rule 1 |
+| 109 | Go shape: a Go 1.23 locked iterator over a guarded collection | accepted | Part of the enclosing function (row 82) |
 
 ### 19.4 Scoped tasks
 
@@ -1639,7 +1791,9 @@ nothing in the library has a `Free` that a program must call.
 task statement, `f` must not be a closure of a frame (section 12.12, Task statements). Discarding the result, as in the
 statement `time.AfterFunc(d, f)`, leaves the timer armed; `Stop` through any handle cancels it. The function does not run
 where the timer fires, which may be an interrupt handler in a kernel: an expired timer is queued for a task
-of `pluto/time`, which starts each function.
+of `pluto/time`, which starts each function. `Reset` through any handle arms the timer again, so `f` may
+run more than once from one call of `AfterFunc`, and a run may overlap one still going: the race rules
+count `f` as a repeated party (section 19.3, Parties).
 
 **The mechanism.** The runtime's clock is `rt.Now()`, monotonic nanoseconds, the same on every processor.
 An `rt.Timer` calls a function once its deadline has passed, and again every period if it has one;

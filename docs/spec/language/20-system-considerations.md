@@ -647,7 +647,9 @@ These rules apply:
   stored anywhere but in a local variable, or returned. A function that receives the pointer may use it
   only inside a non-migrating region that its caller held at the call and the function has not released; a non-migrating region the function opens itself is another one. The analysis counts a non-migrating region once, so the first release of a
   kind (the first `rt.EnablePreemption`, for example) ends it even if its opening was nested: this errs
-  toward rejecting. A use outside that non-migrating region is a compile error (E2023).
+  toward rejecting. A use outside that non-migrating region is a compile error (E2023). A switch of
+  tasks inside the region, such as a call of `rt.Yield`, is a compile error or panics (section 19.3,
+  Switching tasks in a non-migrating region), so the task is on the same processor at every use.
 - Two lone accesses in separate statements may reach the copies of two different processors, because the
   task can migrate between them. That is defined behavior, not a data race. Where the second depends on the
   first, it is the dependent store above and not a lone access.
@@ -668,7 +670,8 @@ interrupts on entry, so the handler is not interrupted by another maskable inter
 it returns or enables them with `x86.Sti`. The compiler checks this through types: a handler's address is
 installed only through `x86.InterruptGate` (section 20.8), which returns a `Gate`, and a raw word written
 into the table is unsafe code. The body of such a handler is an interrupt-disabled region (section 19.3)
-up to a call of `x86.Sti`, which ends it, or a call that may switch tasks.
+up to a call of `x86.Sti`, which ends it, or a call that may switch tasks (section 19.3, Non-migrating
+and interrupt-disabled regions).
 
 A handler that can be re-entered says so with the directive form `//pu:interrupt trap`. It is installed
 only through `x86.TrapGate`, which makes a trap gate that leaves interrupts as they were, and its body is

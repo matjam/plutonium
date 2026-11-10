@@ -783,8 +783,9 @@ current iteration and returns `true` to request the next. A transfer leaving thi
 - **`defer` in the body.** A `defer` in the body defers a call of the enclosing function. It runs when that function returns. Each `defer` statement has one slot in the function's frame (section 12.19, Defer statements), and the body of a range-over-func loop runs once per iteration, so the rule of section 12.19 (Defer statements) for a `defer` in a loop applies to it. A function literal deferred there may not capture the body's own variables, the loop variables included, since the body's frame is gone when it runs (E2534). Pass them as arguments.
 - **The body's party.** The body runs on the task that calls `yield`. When the iterator calls `yield`
   only on the task that runs the loop, the body is part of the enclosing function: it holds the locks
-  the function holds at the loop, less those the iterator may release, and a `Do` of a `sync.Once` before
-  the loop counts in it. When the iterator may call `yield` on another task, for example from `s.Task`,
+  the function holds at the loop, less those the iterator may release, plus those the iterator holds at
+  every call of `yield`, and a `Do` of a `sync.Once` before the loop counts in it. A view the iterator
+  passes to `yield` counts as loaded under those locks. When the iterator may call `yield` on another task, for example from `s.Task`,
   the body is code of that task: it starts with no lock held, and a `defer` in it is a compile error. The
   compiler reads which case holds from the iterator's summary, and an iterator it cannot know counts as
   calling `yield` on another task (section 19.3, Part of the enclosing function).

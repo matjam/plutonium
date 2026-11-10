@@ -95,6 +95,11 @@ dependent value and neither panics nor faults (section 11.24).
   same test (section 20.3). The compiler rejects a wait that the non-migrating region reaches through calls with a
   single known target (section 19.3, Waiting in a non-migrating region); this panic catches the rest, such
   as a wait reached through an interface, a func value, a hook or an allocator.
+- A call of `rt.Yield` while the task's preemption is disabled, by `rt.DisablePreemption` or a held
+  `rt.Lock` ("blocking with preemption disabled"). The compiler rejects a switch that a non-migrating
+  region reaches through calls with a single known target, and in a region opened only by `x86.Cli` or
+  `x86.SaveFlagsCli`, through any call (section 19.3, Switching tasks in a non-migrating region); this
+  panic catches the rest. The runtime's own switch path is exempt (abi.md section 12.4).
 - `rt.ExitTask` called in a function that C code called (section 17.3).
 
 *Memory.*
