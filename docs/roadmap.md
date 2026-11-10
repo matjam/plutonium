@@ -727,7 +727,7 @@ compiler (2026-10-11).
 146. **Views of a local with cleanup end at its scope** (planned; section 18.3, D42, finding A1 of the
     [rulings](verification/2026-11-09-spec-rulings.md)): E3313 covers every local whose type has drop glue, not only owners, and its catalog text
     says so.
-147. **Owner conversions and literals stay in the defining package** (done; sections 7.13, 7.18, 8.11,
+147. **Owner conversions and literals stay in the defining package** (done, `ee470311`; sections 7.13, 7.18, 8.11,
     11.3, 11.24, D43, finding C1): E3212 for conversions to an owner type, a pointer to one or an owner
     union outside its package, for pointer conversions from `*Owner`, and for literals of an owner struct
     with an unexported field; widen the catalog text. `ownerConversion` in `types2/plutonium_owner.p`
@@ -736,7 +736,7 @@ compiler (2026-10-11).
     an empty literal `T{}` stays allowed, as it is the zero value. Converting a value to an owning
     interface is not a conversion to an owner type and stays allowed. Tests: `tests/types2/ownerconversion`
     (accepted forms), `ownerconversion_forms` and `ownerconversion_literal`.
-200. **Owner conversions through a type defined from another owner** (done; sections 11.24, 18.5, 8.11,
+200. **Owner conversions through a type defined from another owner** (done, `5c00ed4c`; sections 11.24, 18.5, 8.11,
     7.18, D72, finding E2 of audit E; extends item 147): for `type T owner A`, `T(x)` and the pointer and
     union forms are E3212 unless converting `x` to `A` is allowed too; `T(a)` with `a` of type `A` stays
     allowed. Tests: `tests/types2/ownerconversion_defined` and `ownerconversion_defined_ok`; the 11.24
@@ -1412,11 +1412,11 @@ compiler (2026-10-11).
     moving conversion moves at the enclosing call or assignment.
 149. **Follow comma-ok `ok` through direct tests** (planned; sections 11.13, 18.5, D47, finding C3): the move
     analysis knows `ok` on the branches of a direct test, and the E3302 message suggests `if !ok`.
-150. **An enum is not an integer type** (done; sections 7.12, 11.24, D48, finding C4): `Shade(color)` and
+150. **An enum is not an integer type** (done, `f4200cfa`; sections 7.12, 11.24, D48, finding C4): `Shade(color)` and
     the other enum-to-enum conversions are E2313; update the catalog text. Constant, comma-ok and plain
     forms are all E2313, and the message shows the conversion through the integer type. Tests:
     `tests/types2/enumerrors_enum_conversion` and `enumconversion_through_integer`.
-151. **Defined union and packed types** (done; sections 7.13, 7.14, 8.2, 10.8, D49, findings C5 and C6):
+151. **Defined union and packed types** (done, `4ae3caaf`; sections 7.13, 7.14, 8.2, 10.8, D49, findings C5 and C6):
     `type V U` for a union or packed `U` gets the variants or fields and layout, no methods, and explicit
     conversion. The checker and lowering already did this; the item adds the tests:
     `testdata/plutonium/uniondefined` (unions, a generic instance, packed types and packed unions, an
