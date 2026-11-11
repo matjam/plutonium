@@ -145,8 +145,9 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		if mapOf(T) != nil {
 			return one(s.makeMap(e, T))
 		}
-		// The checker rejects make of a slice (E2014).
-		s.l.unsupportedf(e.Pos(), "make of %s is not supported", T)
+		// Unreachable: the checker accepts make only of a channel or a
+		// map, and rejects make of a slice (E2014).
+		s.l.internalf(e.Pos(), "make of %s", T)
 		return nil
 
 	case "panic":
@@ -216,7 +217,11 @@ func (s *fnState) builtin(e *ast.CallExpr) []value {
 		p, _ := s.stringParts(s.expr(e.Args[0]))
 		return one(scalarValue(p, T))
 	}
-	s.l.unsupportedf(e.Pos(), "builtin %s is not supported", pu.Box(b.Name()))
+	// Unreachable: the cases above cover every builtin the universe and
+	// package unsafe declare. append, recover, complex, real and imag are
+	// not declared (universe.go), and assert and trace exist only in the
+	// checker's own tests.
+	s.l.internalf(e.Pos(), "builtin %s", pu.Box(b.Name()))
 	return nil
 }
 

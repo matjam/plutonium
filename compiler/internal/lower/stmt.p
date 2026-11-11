@@ -123,7 +123,9 @@ func (s *fnState) stmt(st ast.Stmt) {
 	case *ast.SelectStmt:
 		s.selectStmt(st, nil)
 	default:
-		s.l.unsupportedf(st.Pos(), "unsupported statement %T", st)
+		// Unreachable: case and comm clauses are lowered by their switch
+		// or select, and a bad statement stops the build in the checker.
+		s.l.internalf(st.Pos(), "unexpected statement %T", st)
 	}
 }
 
@@ -718,7 +720,9 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		s.rangeMap(st, label)
 		return
 	}
-	s.l.unsupportedf(st.Pos(), "cannot range over %s", xt)
+	// Unreachable: the checker accepts range only over the types above,
+	// enum types and containers with an All method, handled first.
+	s.l.internalf(st.Pos(), "range over %s", xt)
 }
 
 // callsFunction reports whether e contains a function call (a conversion

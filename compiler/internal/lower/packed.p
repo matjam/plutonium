@@ -121,11 +121,24 @@ func (s *fnState) packedField(base lvalue, p *types2.Packed, idx int) lvalue {
 		// integer stored in the bytes at its offset, and its own fields
 		// are defined by the integer rule.
 		if ref.offset%8 != 0 {
-			s.l.unsupportedf(0, "packed field %s is a big-endian integer that does not start on a byte boundary", pu.Box(f.Var().Name()))
+			// The integer would have to be swapped inside a window of the
+			// outer storage before its own fields are read: roadmap item 238.
+			s.l.unsupportedf(s.pos, "packed field %s is a big-endian integer that does not start on a byte boundary", pu.Box(f.Var().Name()))
 		}
 		return lvalue{ptr: s.offPtr(base.ptr, ref.offset/8), T: ft, stable: base.stable}
 	}
-	if b, ok := ft.Underlying().(*types2.Basic); ok && b.Info()&(types2.IsInteger|types2.IsBoolean) != 0 &&
+	if _, isArray := unwrap(ft).Underlying().(*types2.Array); isArray {
+		// An array field (section 7.14, Fields) is plain memory when its
+		// bytes sit in the storage as they would in a variable: it starts
+		// on a byte and no byte order rearranges them. A volatile packed
+		// value is read and written whole (section 7.15), which a field of
+		// plain memory would not do.
+		if ref.offset%8 != 0 || !s.plainBytes(ref.packed_, ft) || isVolatile(base.T) {
+			s.l.unsupportedf(s.pos, "packed field %s is an array that does not start on a byte boundary, whose elements are byte-swapped, or in a volatile value", pu.Box(f.Var().Name()))
+		}
+		return lvalue{ptr: s.offPtr(base.ptr, ref.offset/8), T: ft, stable: base.stable}
+	}
+	if b, ok := ft.Underlying().(*types2.Basic); ok && b.Info()&(types2.IsInteger|types2.IsBoolean|types2.IsFloat) != 0 &&
 		p.Order() == ast.BigEndian && !isIntegerBacked(p) && !f.IsBits() && f.Width() > 8 && f.Offset()%8 == 0 {
 		// A field of several bytes in a big-endian type laid out by byte
 		// is stored most significant byte first.
@@ -133,10 +146,34 @@ func (s *fnState) packedField(base lvalue, p *types2.Packed, idx int) lvalue {
 		case 16, 32, 64:
 			ref.swap = true
 		default:
-			s.l.unsupportedf(0, "packed field %s of %d bits in a big-endian packed type cannot be accessed", pu.Box(f.Var().Name()), f.Width())
+			// A byte-level integer, bool or float field is 8, 16, 32 or 64
+			// bits wide, and a bits field never gets here.
+			s.l.internalf(s.pos, "packed field %s of %d bits in a big-endian packed type", pu.Box(f.Var().Name()), f.Width())
 		}
 	}
 	return lvalue{ptr: base.ptr, T: base.T, bits: ref}
+}
+
+// plainBytes reports whether a field of type ft inside the storage of the
+// packed type outer, starting on a byte, holds its bytes as a variable of
+// type ft would: the storage is not swapped as a whole, and in a big-endian
+// type laid out by byte the field's elements are single bytes.
+func (s *fnState) plainBytes(outer *types2.Packed, ft types2.Type) bool {
+	if isIntegerBacked(outer) {
+		return !needsSwap(outer)
+	}
+	if outer.Order() != ast.BigEndian {
+		return true
+	}
+	elem := unwrap(ft)
+	for {
+		a, ok := elem.Underlying().(*types2.Array)
+		if !ok {
+			break
+		}
+		elem = unwrap(a.Elem())
+	}
+	return s.l.sizeof(elem) == 1
 }
 
 // isIntegerBacked reports whether p is stored in an integer, whose bit
@@ -187,9 +224,20 @@ func (s *fnState) storageWord(lv lvalue) (word *ssa.Value, t *ssa.Type, shift in
 func (s *fnState) loadBits(lv lvalue) *ssa.Value {
 	ref := lv.bits
 	rt := s.l.scalarType(ref.T)
+	if rt.IsFloat() {
+		// A float field is read as the integer of its bits.
+		it := lv
+		it.bits = pu.New(*ref)
+		it.bits.T = types2.Typ[types2.Uint32]
+		if rt.Size == 8 {
+			it.bits.T = types2.Typ[types2.Uint64]
+		}
+		return s.newValue(ssa.OpBitcast, rt, s.loadBits(it))
+	}
 	word, wt, shift, _ := s.storageWord(lv)
 	if word == nil {
-		s.l.unsupportedf(0, "packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
+		// A field whose bytes span more than eight bytes: roadmap item 238.
+		s.l.unsupportedf(s.pos, "packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
 		return s.zeroScalar(rt)
 	}
 	// Move the field to the top of the word and shift it back down, which
@@ -235,12 +283,18 @@ func (s *fnState) storeBits(lv lvalue, val *ssa.Value) {
 	ref := lv.bits
 	word, wt, shift, ptr := s.storageWord(lv)
 	if word == nil {
-		s.l.unsupportedf(0, "packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
+		// A field whose bytes span more than eight bytes: roadmap item 238.
+		s.l.unsupportedf(s.pos, "packed field of %d bits at bit %d cannot be accessed", ref.width, ref.offset)
 		return
 	}
-	// Bring the new value to the word's width.
+	// Bring the new value to the word's width. A float is written as the
+	// integer of its bits.
 	v := val
 	vt := val.Type
+	if vt.IsFloat() {
+		vt = ssa.IntType(vt.Size)
+		v = s.newValue(ssa.OpBitcast, vt, v)
+	}
 	if ref.swap {
 		ft := ssa.IntType(ref.width / 8)
 		if vt.Size > ft.Size {
@@ -279,13 +333,20 @@ func (s *fnState) storeBits(lv lvalue, val *ssa.Value) {
 	}
 }
 
-// bitsOfValue reads a packed field from a packed value held in a register.
+// bitsOfValue reads a scalar packed field from a packed value held in a
+// register.
 func (s *fnState) bitsOfValue(v *ssa.Value, p *types2.Packed, idx int) *ssa.Value {
+	return s.fieldOfValue(v, p, idx).v
+}
+
+// fieldOfValue reads a packed field, scalar or array, from a packed value
+// held in a register.
+func (s *fnState) fieldOfValue(v *ssa.Value, p *types2.Packed, idx int) value {
 	tmp := s.temp(p, "packed")
 	t := s.l.scalarType(p)
 	if needsSwap(p) {
 		v = s.newValue(ssa.OpBswap, t, v)
 	}
 	s.store(t, tmp, v)
-	return s.loadLV(s.packedField(lvalue{ptr: tmp, T: p}, p, idx)).v
+	return s.loadLV(s.packedField(lvalue{ptr: tmp, T: p}, p, idx))
 }

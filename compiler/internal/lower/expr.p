@@ -114,7 +114,10 @@ func (s *fnState) expr(e ast.Expr) value {
 	case *ast.KeyValueExpr:
 		s.l.internalf(e.Pos(), "key-value outside composite literal")
 	}
-	s.l.unsupportedf(e.Pos(), "unsupported expression %T", e)
+	// Unreachable: a basic literal is a constant, handled above; an
+	// ellipsis or a type is not a value; a bad expression stops the build
+	// in the checker; and the cases above cover the other expressions.
+	s.l.internalf(e.Pos(), "unexpected expression %T", e)
 	return s.zeroValue(T)
 }
 
@@ -589,7 +592,7 @@ func (s *fnState) selector(e *ast.SelectorExpr, T types2.Type) value {
 			x := s.expr(e.X)
 			if !x.addr {
 				if p, ok := unwrap(xt).Underlying().(*types2.Packed); ok && len(sel.Index()) == 1 {
-					return scalarValue(s.bitsOfValue(x.v, p, sel.Index()[0]), T)
+					return s.fieldOfValue(x.v, p, sel.Index()[0])
 				}
 				tmp := s.temp(xt, "tmp")
 				s.storeTo(tmp, x, xt)
@@ -683,7 +686,9 @@ func (s *fnState) unary(e *ast.UnaryExpr, T types2.Type) value {
 		v, _ := s.recv(e, false)
 		return v
 	}
-	s.l.unsupportedf(e.Pos(), "unsupported unary operator %s", e.Op)
+	// Unreachable: ~ appears only in constraints, which the checker
+	// keeps out of expressions.
+	s.l.internalf(e.Pos(), "unary operator %s", e.Op)
 	return s.zeroValue(T)
 }
 
@@ -1010,7 +1015,11 @@ func (s *fnState) equal(x, y value, T types2.Type, pos token.Pos) *ssa.Value {
 	case *types2.TaggedUnion:
 		return s.unionEqual(x, y, unwrap(T), pos)
 	}
-	s.l.unsupportedf(pos, "cannot compare values of type %s", T)
+	// Unreachable: values in registers are compared above, and the cases
+	// above cover every comparable type held in memory. Slices, maps and
+	// functions compare only with nil, a scalar compare, and Plutonium has
+	// no complex numbers.
+	s.l.internalf(pos, "comparison of values of type %s", T)
 	return s.constBool(false)
 }
 
@@ -1307,7 +1316,9 @@ func (s *fnState) compositeLitOf(e *ast.CompositeLit, T types2.Type) value {
 	case *types2.Map:
 		return s.mapLit(e, T)
 	}
-	s.l.unsupportedf(e.Pos(), "unsupported composite literal of type %s", T)
+	// Unreachable: the checker accepts composite literals only of the
+	// types above (literals.go), and of a ring only the empty one.
+	s.l.internalf(e.Pos(), "composite literal of type %s", T)
 	return s.zeroValue(T)
 }
 
