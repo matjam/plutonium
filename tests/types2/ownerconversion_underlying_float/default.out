@@ -1,0 +1,7 @@
+$DIR/test.p:7:31: cannot convert 1.5 (untyped float constant) to type Frame
+    This conversion is not allowed. T(x) converts between number types, between
+    types with the same underlying type, and between pointers and
+    unsafe.Pointer. It does not turn numbers into text: string(65) would make a
+    rune, not "65".
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E0096" for a longer explanation)

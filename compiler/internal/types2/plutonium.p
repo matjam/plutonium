@@ -39,15 +39,19 @@ func (check *Checker) removedConversion(call *ast.CallExpr, V, T Type) {
 	if V == nil || T == nil {
 		return
 	}
-	if allString(T) && someUnder(V, func(_, u Type) bool { return isByteSlice(u) }) {
+	// Only T is a type parameter: x must convert to each type in T's type
+	// set, so one string type in the set is enough for the conversion to
+	// be removed (language spec section 11.24).
+	toString := someUnder(T, func(_, u Type) bool { return isString(u) })
+	if toString && someUnder(V, func(_, u Type) bool { return isByteSlice(u) }) {
 		check.forbidden(call.Fun, BytesToStringNotPermitted, "string(b) of a byte slice is",
 			"it would replace bytes that are not UTF-8; use strings.FromUTF8 or strings.FromUTF8Lossy")
 	}
-	if allString(T) && someUnder(V, isNonRuneInteger) {
+	if toString && someTerm(V, isNonRuneInteger) {
 		check.forbidden(call.Fun, IntToStringNotPermitted, "string(i) of an integer other than a rune is",
 			"it makes the character with that code, not the digits; use string(rune(i)) or strconv.Itoa(i)")
 	}
-	if allString(T) && someUnder(V, isNonRuneSlice) {
+	if toString && someUnder(V, isNonRuneSlice) {
 		check.forbidden(call.Fun, IntToStringNotPermitted, "string(s) of a slice whose elements are not runes is",
 			"only the element type rune says that the integers are characters; use []rune, or write each rune(x) with a strings.Builder")
 	}
@@ -76,17 +80,35 @@ func someUnder(typ Type, f func(t, u Type) bool) bool {
 	return some
 }
 
+// someTerm is someUnder that also says whether the type comes from a term
+// with a tilde. A term ~U stands for U and every type defined from it, so a
+// predicate about the named type must treat it as the widest of them.
+func someTerm(typ Type, f func(t, u Type, tilde bool) bool) bool {
+	if p, _ := Unalias(typ).(*TypeParam); p != nil {
+		some := false
+		p.is(func(tm *term) bool {
+			if tm != nil && f(tm.typ, tm.typ.Underlying(), tm.tilde) {
+				some = true
+			}
+			return true
+		})
+		return some
+	}
+	return f(typ, typ.Underlying(), false)
+}
+
 // isNonRuneInteger reports whether t, with underlying type u, is a typed
 // integer type other than rune (int32), the types for which string(i) is
 // removed. An untyped constant is not one. A defined type whose underlying
 // type is int32 is one: only rune itself says that the integer is a
-// character (language spec section 11.24).
-func isNonRuneInteger(t, u Type) bool {
+// character (language spec section 11.24). So is a term ~int32 of a type
+// parameter, whose type set holds such defined types.
+func isNonRuneInteger(t, u Type, tilde bool) bool {
 	if !isInteger(u) || isUntyped(t) {
 		return false
 	}
 	b, ok := Unalias(t).(*Basic)
-	return !ok || b.kind != Int32
+	return tilde || !ok || b.kind != Int32
 }
 
 // isNonRuneSlice reports whether u is a slice whose element type has the

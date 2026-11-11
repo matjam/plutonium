@@ -1,0 +1,1 @@
+$DIR/test.p:14:38: cannot convert a (variable of type [4]int8) to type Wide

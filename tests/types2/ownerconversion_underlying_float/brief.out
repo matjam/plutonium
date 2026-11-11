@@ -1,0 +1,1 @@
+$DIR/test.p:7:31: cannot convert 1.5 (untyped float constant) to type Frame

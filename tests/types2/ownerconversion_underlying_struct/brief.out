@@ -1,0 +1,1 @@
+$DIR/test.p:7:48: cannot convert s (variable of type struct{x int}) to type Frame

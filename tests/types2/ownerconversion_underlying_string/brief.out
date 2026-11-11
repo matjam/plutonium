@@ -1,0 +1,1 @@
+$DIR/test.p:7:31: cannot convert "abc" (untyped string constant) to type Frame
