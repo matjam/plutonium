@@ -1,0 +1,1 @@
+$DIR/main.p:14:10: b was moved into take (its parameter takes a Buf by value) at line 13, so it can no longer be used here

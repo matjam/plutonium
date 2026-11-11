@@ -189,6 +189,17 @@ func (c *checker) report(d *diag.Diagnostic) {
 	c.errs = diag.List(compat.Append(c.errs, d))
 }
 
+// spreads reports whether args, given to a function of n parameters, are
+// one call whose several results are the arguments (f(g())). One argument
+// to a function whose other parameters have defaults is not.
+func (c *checker) spreads(args []ast.Expr, n int) bool {
+	if len(args) != 1 || n < 2 {
+		return false
+	}
+	tup, ok := c.typeOf(args[0]).(*types2.Tuple)
+	return ok && tup.Len() > 1
+}
+
 func (c *checker) typeOf(e ast.Expr) types2.Type {
 	if e == nil {
 		return nil

@@ -266,7 +266,7 @@ func (f *fn) call(e *ast.CallExpr, kind moveKind) {
 func (f *fn) args(e *ast.CallExpr, sig *types2.Signature, name string, kind moveKind) {
 	params := sig.Params()
 	n := params.Len()
-	if len(e.Args) == 1 && n > 1 {
+	if f.c.spreads(e.Args, n) {
 		f.multi(e.Args[0]) // f(g())
 		return
 	}

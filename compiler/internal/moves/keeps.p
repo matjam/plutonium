@@ -573,7 +573,7 @@ func (c *checker) callArgs(call *ast.CallExpr, fn func(key, val ast.Expr, j int)
 		return
 	}
 	n := sig.Params().Len()
-	if len(call.Args) == 1 && n > 1 {
+	if c.spreads(call.Args, n) {
 		return // f(g()) with several results
 	}
 	for i, a := range call.Args {

@@ -499,6 +499,7 @@ func (fb *fnb) args(e *ast.CallExpr, sig *types2.Signature, fn *types2.Func) ([]
 	if len(e.Args) == 1 {
 		if call, ok := ast.Unparen(e.Args[0]).(*ast.CallExpr); ok {
 			if tup, ok := fb.b.types[call].Type.(*types2.Tuple); ok && tup.Len() > 1 {
+				fb.b.p.Spread[e] = true
 				res, types := fb.callResults(call)
 				for i, r := range res {
 					srcs = compat.Append(srcs, src{r: r, T: types[i]})

@@ -113,6 +113,12 @@ type Program struct {
 	// type has nothing to destroy): they keep nothing, for internal/moves'
 	// facts about calls (Call.Expr).
 	NoCalls []*ast.CallExpr
+
+	// Spread are the call expressions f(g()) whose one argument is a call
+	// with several results, which are the arguments. A call of one
+	// argument to a function whose other parameters have defaults is not
+	// one.
+	Spread map[*ast.CallExpr]bool
 }
 
 // Lookup returns the function of a source, or NoFunc.

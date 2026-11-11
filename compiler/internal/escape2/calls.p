@@ -52,7 +52,7 @@ func CallFacts(p *eir.Program, res *sched.Result) *moves.Calls {
 			for i := range b.Instrs {
 				in := &b.Instrs[i]
 				if in.Op == eir.OpCall && in.Call != nil && in.Call.Expr != nil {
-					noteCall(calls, env, ps, f, in.Call)
+					noteCall(calls, env, ps, p, f, in.Call)
 				}
 			}
 		}
@@ -166,7 +166,7 @@ type slot struct {
 // slots returns, by the callee input each is bound to, the arguments of
 // call c that moves names (solve/call.go, binding). A nil entry is an
 // input bound to no argument expression.
-func slots(c *eir.Call) []*slot {
+func slots(p *eir.Program, c *eir.Call) []*slot {
 	e := c.Expr
 	var recv ast.Expr
 	if se := funSelector(e.Fun); se != nil {
@@ -209,7 +209,7 @@ func slots(c *eir.Call) []*slot {
 		return out
 	}
 	n := c.Sig.Params().Len()
-	if len(e.Args) == 1 && n > 1 {
+	if p.Spread[e] {
 		return out // f(g()) with several results
 	}
 	variadic := c.Sig.Variadic() && !e.Ellipsis.IsValid()
@@ -339,9 +339,9 @@ func declared(m *types2.Func) bool {
 }
 
 // noteCall records the facts about the arguments of call c of f.
-func noteCall(calls *moves.Calls, env solve.Env, ps domain.Paths, f *eir.Func, c *eir.Call) {
+func noteCall(calls *moves.Calls, env solve.Env, ps domain.Paths, p *eir.Program, f *eir.Func, c *eir.Call) {
 	noteCallees(calls, env, f, c)
-	sl := slots(c)
+	sl := slots(p, c)
 	if len(sl) == 0 {
 		return
 	}

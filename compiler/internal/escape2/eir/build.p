@@ -97,7 +97,7 @@ func newBuilder(prog *load.Program, opt Options) *builder {
 	b := pu.New(builder{
 		prog:       prog,
 		fset:       prog.Fset,
-		p:          pu.New(Program{Sources: map[FuncKey]FuncID{}}),
+		p:          pu.New(Program{Sources: map[FuncKey]FuncID{}, Spread: map[*ast.CallExpr]bool{}}),
 		types:      map[ast.Expr]types2.TypeAndValue{},
 		uses:       map[*ast.Ident]types2.Object{},
 		defs:       map[*ast.Ident]types2.Object{},

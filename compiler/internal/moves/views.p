@@ -660,7 +660,9 @@ func (f *fn) viewsTo(e ast.Expr, T types2.Type) []view {
 			out = compat.Append(out, f.selfView(e, e)...)
 		}
 	}
-	if lentIface(T) && lendsRef(f.c.typeOf(e)) {
+	// An error interface counts a synced reference rather than lending it
+	// (sections 7.9 and 16.7).
+	if from := f.c.typeOf(e); lentIface(T) && lendsRef(from) && !(isCountedBox(from) && types2.IsCountedError(T)) {
 		out = compat.Append(out, f.refView(e)...)
 	}
 	return out
@@ -780,6 +782,11 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 	}
 	f.eachArg(call, func(key, val ast.Expr, T types2.Type) {
 		af := f.c.calls.Arg(key)
+		if af != nil && af.Returned && !af.Self && !loadsMayView(T) {
+			// The result holds only what was loaded through the argument,
+			// and that holds no pointer: bytes copied out of a []byte.
+			return
+		}
 		for _, w := range whole(f.viewsTo(val, T)) {
 			w.itself = false // a view obtained from the variable
 			if af != nil && !af.Returned {
@@ -802,6 +809,24 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 		}
 	})
 	return out
+}
+
+// loadsMayView reports whether what is loaded through a value of type T
+// (the elements of a slice, what a pointer points to) may hold a view.
+func loadsMayView(T types2.Type) bool {
+	if T == nil {
+		return true
+	}
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Slice:
+		return mayView(u.Elem())
+	case *types2.Pointer:
+		return mayView(u.Elem())
+	}
+	return true
 }
 
 // ownerPtrView returns the view that the conversion made makes of a, an
@@ -1243,7 +1268,10 @@ func (f *fn) callStores(args []argView) {
 			continue
 		}
 		if af.Self {
-			f.heapPin(a.views, a.call.Pos(), how, !viaUnsafe)
+			// Self covers a callee that only returns the argument: the
+			// result's views are followed where it goes (callViews), so
+			// only one that keeps it elsewhere stores the view.
+			f.heapPin(a.views, a.call.Pos(), how, af.Kept && !viaUnsafe)
 		}
 		for _, in := range af.Into {
 			if in.Arg == a.key {
