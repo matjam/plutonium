@@ -1,0 +1,1 @@
+$DIR/main.p:29:3: cannot pass &o to run, which keeps it after returning
