@@ -49,7 +49,7 @@ import (
 // The other way round, a pin or view that only the freeing call made is
 // not ended.
 
-// findFrees computes c.frees and c.reclaims, after findKeeps.
+// findFrees computes c.frees, c.reclaims and c.asserts, after findKeeps.
 func (c *checker) findFrees(funcs []keepFunc) {
 	c.frees = c.summarize(funcs, func(s *keepScan, body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
 		s.frees(body, found, edge)
@@ -57,6 +57,85 @@ func (c *checker) findFrees(funcs []keepFunc) {
 	c.reclaims = c.summarize(funcs, func(s *keepScan, body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
 		s.reclaims(body, found, edge)
 	})
+	c.asserts = c.summarize(funcs, func(s *keepScan, body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
+		s.assertsIn(body, found, edge)
+	})
+}
+
+// assertsIn finds, in body, the type assertions and type switches on a
+// value loaded from an input or that is one, the calls that pass an input
+// on to a function that does (edge), and the calls whose callees are not
+// known, or of a function without a body, given something that may hold
+// an interface (the worst case). An assertion on an ordinary interface
+// yields what was lent to it (the C2 ruling,
+// docs/verification/2026-11-09-spec-rulings.md): a view of the variable
+// lent.
+func (s *keepScan) assertsIn(body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
+	each := func(bits uint64, site keepSite) {
+		for i := 0; i < maxInputs; i++ {
+			if bits&bit(i) != 0 {
+				found(i, site)
+			}
+		}
+	}
+	ast.Inspect(body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.TypeAssertExpr:
+			o, h := s.sets(x.X)
+			each(o|h, keepSite{pos: x.Pos(), text: exprText(x)})
+		case *ast.CallExpr:
+			tv := s.c.types[x.Fun]
+			if tv.IsType() || tv.IsBuiltin() {
+				return true
+			}
+			site := keepSite{pos: x.Pos(), text: exprText(x)}
+			targets, known := s.c.keepTargets(x)
+			worst := !known || s.c.bodyless(x)
+			s.c.callArgs(x, func(key, val ast.Expr, j int) {
+				o, h := s.sets(val)
+				bits := o | h
+				if bits == 0 {
+					return
+				}
+				if worst && reachesFreeing(s.c.typeOf(val)) {
+					each(bits, site)
+				}
+				for _, t := range targets {
+					for i := 0; i < maxInputs; i++ {
+						if bits&bit(i) != 0 {
+							edge(t.node, j+t.shift, i)
+						}
+					}
+				}
+			})
+		}
+		return true
+	})
+}
+
+// calleeAsserts reports whether a callee of call may assert or type-switch
+// on what its argument key holds (c.asserts).
+func (c *checker) calleeAsserts(call *ast.CallExpr, key ast.Expr) bool {
+	targets, known := c.keepTargets(call)
+	worst := !known || c.bodyless(call)
+	found := false
+	c.callArgs(call, func(k, val ast.Expr, j int) {
+		if k != key || found {
+			return
+		}
+		if worst && reachesFreeing(c.typeOf(val)) {
+			found = true
+			return
+		}
+		for _, t := range targets {
+			fs := c.asserts[t.node]
+			if j+t.shift < len(fs) && fs[j+t.shift].valid() {
+				found = true
+				return
+			}
+		}
+	})
+	return found
 }
 
 // summarize computes, for each function of funcs and each of its inputs,

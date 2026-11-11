@@ -176,6 +176,7 @@ type checker struct {
 	keepDecls  map[*types2.Func]*ast.FuncDecl // the declarations of the functions with a body (keeps.p)
 	frees      map[ast.Node][]keepSite        // through which inputs functions may free memory or move an owner out, by declaration, literal or range body (frees.p)
 	reclaims   map[ast.Node][]keepSite        // through which inputs functions may reset or release a checked arena, likewise (frees.p)
+	asserts    map[ast.Node][]keepSite        // through which inputs functions may assert or type-switch on an interface, likewise (frees.p)
 }
 
 // report records an error once per position and code.

@@ -761,10 +761,13 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 		for _, w := range whole(f.viewsTo(val, T)) {
 			w.itself = false // a view obtained from the variable
 			if af != nil && !af.Returned {
-				if !f.loadsOwned(call, w, T) {
+				switch {
+				case f.loadsOwned(call, w, T):
+					w.inHeap = true
+				case f.assertsLent(call, key, val, w, T):
+				default:
 					continue
 				}
-				w.inHeap = true
 			}
 			if call.Pos() <= w.pos && w.pos < call.End() {
 				// Made by this call (c.Slice() takes &c): name the call. A
@@ -833,6 +836,52 @@ func (f *fn) loadsOwned(call *ast.CallExpr, w view, T types2.Type) bool {
 			return true
 		}
 		for _, o := range owned {
+			if types2.Identical(r, o) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// assertsLent reports whether the result of call may hold what the
+// ordinary interface parameter T was lent by val, view w, through a type
+// assertion or type switch in the callee (calleeAsserts): the C2 ruling
+// (docs/verification/2026-11-09-spec-rulings.md) bounds what an assertion
+// on a lent interface yields by what was lent. The result must hold a
+// pointer or slice of a type the lent word or the owner may hold.
+func (f *fn) assertsLent(call *ast.CallExpr, key, val ast.Expr, w view, T types2.Type) bool {
+	if !lentIface(T) || w.of == nil || !bounds(w.of.Type()) || !f.c.calleeAsserts(call, key) {
+		return false
+	}
+	res := resultLeaves(f.c.typeOf(call), 0)
+	if len(res) == 0 {
+		return false
+	}
+	var words []types2.Type
+	if from := f.c.typeOf(val); from != nil && !types2.IsInterface(from) {
+		switch {
+		case isOwnedBox(from) || isCountedBox(from):
+			if wr, ok := from.Underlying().(*types2.Wrapper); ok {
+				words = compat.Append(words, types2.Type(types2.NewPointer(wr.Elem())))
+			}
+		case lentWord(from):
+			words = compat.Append(words, resultLeaves(from, 0)...)
+			if _, ok := from.Underlying().(*types2.Pointer); ok {
+				words = compat.Append(words, from)
+			}
+		case isOwner(from):
+			words = compat.Append(words, types2.Type(types2.NewPointer(from)))
+		default:
+			words = compat.Append(words, resultLeaves(from, 0)...)
+		}
+	}
+	words = compat.Append(words, f.c.ownedLeaves(w.of.Type())...)
+	for _, r := range res {
+		if _, tp := types2.Unalias(r).(*types2.TypeParam); tp {
+			return true
+		}
+		for _, o := range words {
 			if types2.Identical(r, o) {
 				return true
 			}
