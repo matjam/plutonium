@@ -2,6 +2,7 @@ package moves
 
 import (
 	"compiler/compat"
+	"compiler/internal/escape2/contract"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
@@ -37,13 +38,16 @@ import (
 //     frees through the input it is given. This rule is followed through
 //     any number of calls, to a fixed point, as keeps.p does.
 //
-// A call of a func value whose candidates are not known, or of a function
-// without a body (other than those named above), is taken to free nothing.
+//   - it passes the input, or memory loaded through it, to a call of a func
+//     value whose candidates are not known, or of a function without a
+//     body that the contract table does not describe (bodyless): the worst
+//     case, when the argument's type reaches memory that may be freed
+//     (reachesFreeing).
+//
 // A call's result holds what the escape analysis says it may derive from
 // (keepScan.sets), so a free through a pointer a call returned is found.
-// The other way round, a pin or view that only the freeing call made, or a
-// view of another variable that the owner passed by address holds, is not
-// ended.
+// The other way round, a pin or view that only the freeing call made is
+// not ended.
 
 // findFrees computes c.frees, after findKeeps.
 func (c *checker) findFrees(funcs []keepFunc) {
@@ -328,7 +332,8 @@ func (s *keepScan) freeCall(call *ast.CallExpr, each func(bits uint64, site keep
 		return
 	}
 	prim := s.freePrimitive(call)
-	targets, _ := s.c.keepTargets(call)
+	targets, known := s.c.keepTargets(call)
+	worst := !known || s.c.bodyless(call)
 	s.c.callArgs(call, func(key, val ast.Expr, j int) {
 		own, held := s.addrSets(val)
 		if lentIface(s.c.typeOf(val)) {
@@ -343,7 +348,7 @@ func (s *keepScan) freeCall(call *ast.CallExpr, each func(bits uint64, site keep
 		if own|held == 0 {
 			return
 		}
-		if prim(j) {
+		if prim(j) || worst && reachesFreeing(s.c.typeOf(val)) {
 			each(own|held, site)
 		}
 		for _, t := range targets {
@@ -408,19 +413,129 @@ func (s *keepScan) freePrimitive(call *ast.CallExpr) func(j int) bool {
 	return none
 }
 
+// bodyless reports whether call calls a function or concrete method that
+// has no body here and no entry in the compiler's contract table (an
+// assembly routine, a function the build does not load): nothing is known
+// of what it does, so it is taken to free through every argument whose
+// type reaches memory that may be freed. A contract entry keeps what the
+// table says (the runtime's ReleaseValues and MoveValues are in
+// freePrimitive); the methods the compiler makes (a ring's, an owner's
+// Drop) have no package; an enum's String takes a number. The scheduler
+// hooks the compiler generates (schedHooks) are known by what the backend
+// interface requires of them.
+func (c *checker) bodyless(call *ast.CallExpr) bool {
+	fn := c.staticCallee(call)
+	if fn == nil || fn.Pkg() == nil || c.keepDecls[fn] != nil {
+		return false
+	}
+	sig, _ := fn.Type().(*types2.Signature)
+	if sig == nil {
+		return false
+	}
+	name := compat.Concat(fn.Pkg().Path(), ".", fn.Name())
+	if r := sig.Recv(); r != nil {
+		T := r.Type()
+		if p := pointerElem(T); p != nil {
+			T = p
+		}
+		if _, ok := T.Underlying().(*types2.Wrapper); ok {
+			return false
+		}
+		n, ok := types2.Unalias(T).(*types2.Named)
+		if !ok {
+			return false
+		}
+		name = compat.Concat(fn.Pkg().Path(), ".", n.Obj().Name(), ".", fn.Name())
+	}
+	if schedHooks[name] {
+		return false
+	}
+	_, ok := contract.Lookup(name)
+	return !ok
+}
+
+// schedHooks are the runtime's scheduler hooks, whose bodies the compiler
+// generates to call the program's backend (lib/pluto/rt/sched.p). The
+// backend interface lets only FreeTask free a task: Spawn, Park, Wake and
+// Yield make it runnable or switch away from it, Init and InInterrupt
+// take no task, and NewTask makes one. So these free nothing of their
+// caller's; schedFreeTask stays unknown.
+var schedHooks = map[string]bool{
+	"pluto/rt.schedNewTask": true, "pluto/rt.schedSpawn": true, "pluto/rt.schedPark": true,
+	"pluto/rt.schedWake": true, "pluto/rt.schedYield": true, "pluto/rt.schedInit": true,
+	"pluto/rt.schedInInterrupt": true,
+}
+
+// reachesFreeing reports whether a value of type T may lead to memory that
+// a call given it could free or move an owner out of: an owner or counted
+// box, an interface, a type parameter or an unsafe.Pointer, or a pointer,
+// slice, map, channel, array, struct, union or wrapper that leads to one.
+// A function value leads to nothing of the caller's here.
+func reachesFreeing(T types2.Type) bool {
+	return reaches(T, true, bounds, map[types2.Type]bool{})
+}
+
+// reaches reports whether a value of type T may lead to one whose type
+// leaf accepts, through any interface or type parameter, and through an
+// unsafe.Pointer when viaUnsafe is set.
+func reaches(T types2.Type, viaUnsafe bool, leaf func(types2.Type) bool, seen map[types2.Type]bool) bool {
+	if T == nil || seen[T] {
+		return false
+	}
+	seen[T] = true
+	if leaf(T) {
+		return true
+	}
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Basic:
+		return viaUnsafe && u.Kind() == types2.UnsafePointer
+	case *types2.Interface:
+		return true
+	case *types2.Pointer:
+		return reaches(u.Elem(), viaUnsafe, leaf, seen)
+	case *types2.Slice:
+		return reaches(u.Elem(), viaUnsafe, leaf, seen)
+	case *types2.Array:
+		return u.Len() > 0 && reaches(u.Elem(), viaUnsafe, leaf, seen)
+	case *types2.Map:
+		return reaches(u.Key(), viaUnsafe, leaf, seen) || reaches(u.Elem(), viaUnsafe, leaf, seen)
+	case *types2.Chan:
+		return reaches(u.Elem(), viaUnsafe, leaf, seen)
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if reaches(u.Field(i).Type(), viaUnsafe, leaf, seen) {
+				return true
+			}
+		}
+	case *types2.Wrapper:
+		return reaches(u.Elem(), viaUnsafe, leaf, seen)
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() && reaches(v.Payload(), viaUnsafe, leaf, seen) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // calleeFrees returns the statement or call by which a callee of call may
 // free memory or move an owner out through its argument key, or false.
 func (c *checker) calleeFrees(call *ast.CallExpr, key ast.Expr) (keepSite, bool) {
 	s := keepScan{c: c}
 	prim := s.freePrimitive(call)
-	targets, _ := c.keepTargets(call)
+	targets, known := c.keepTargets(call)
+	worst := !known || c.bodyless(call)
 	var site keepSite
 	found := false
-	c.callArgs(call, func(k, _ ast.Expr, j int) {
+	c.callArgs(call, func(k, val ast.Expr, j int) {
 		if k != key || found {
 			return
 		}
-		if prim(j) {
+		if prim(j) || worst && reachesFreeing(c.typeOf(val)) {
 			site, found = keepSite{pos: call.Pos(), text: exprText(call)}, true
 			return
 		}

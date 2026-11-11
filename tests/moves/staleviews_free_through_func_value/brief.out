@@ -1,0 +1,2 @@
+$DIR/main.p:21:10: s holds a view of v (v.Slice(), line 19), which was passed to run(push, &v), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 20, so s can no longer be used here
+$DIR/main.p:30:10: t holds a view of w (w.Slice(), line 26), which may have been passed to hook(&w), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 28, so t cannot be used here
