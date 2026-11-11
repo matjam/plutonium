@@ -1,0 +1,78 @@
+$DIR/main.p:21:6: i holds a view of x (x, line 19), which was given a new value at line 20, so i can no longer be used here
+    i looks at memory that x refers to, without owning it: the view was made by
+    x at line 19. An ordinary interface made from a map or channel in a local
+    variable holds the variable's word without a count of its own (section 7.9),
+    so it may be used only while the variable keeps that map or channel. At line
+    20 x was given a new value, so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use i before line 20, or give x its new value only after the last use of i
+    Or make the view again after line 20:
+        i = x
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:28:6: i holds a view of x (x, line 26), which was given a new value at line 27, so i can no longer be used here
+    i looks at memory that x refers to, without owning it: the view was made by
+    x at line 26. An ordinary interface made from a map or channel in a local
+    variable holds the variable's word without a count of its own (section 7.9),
+    so it may be used only while the variable keeps that map or channel. At line
+    27 x was given a new value, so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use i before line 27, or give x its new value only after the last use of i
+    Or make the view again after line 27:
+        i = x
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:39:7: p holds a view of u (&u, line 37), which was dropped at the end of its block at line 38, so p can no longer be used here
+    p looks at memory that u holds, without owning it: the view was made by &u
+    at line 37. A view of a local variable whose type has drop glue may be used
+    only until the variable's scope ends, where the variable is released. At
+    line 38 u was dropped at the end of its block, so the view may look at
+    memory that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare u in a block that encloses every use of p, or use p only inside the
+    block of u
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:50:14: s holds a view of t (t.Slice(), line 47), which was given a new value at line 49, so s can no longer be used here
+    s looks at memory that t refers to, without owning it: the view was made by
+    t.Slice() at line 47. An ordinary interface made from a map or channel in a
+    local variable holds the variable's word without a count of its own (section
+    7.9), so it may be used only while the variable keeps that map or channel.
+    At line 49 t was given a new value, so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use s before line 49, or give t its new value only after the last use of s
+    Or make the view again after line 49:
+        s = t.Slice()
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:68:14: s holds a view of t (t.Slice(), line 66), which was passed to t.Reset(), which may free what it looks at or move it out (h.v = ..., line 55) at line 67, so s can no longer be used here
+    s looks at memory that t refers to, without owning it: the view was made by
+    t.Slice() at line 66. An ordinary interface made from a map or channel in a
+    local variable holds the variable's word without a count of its own (section
+    7.9), so it may be used only while the variable keeps that map or channel. A
+    call that may free memory the view looks at, or move an owner out of it,
+    through a pointer to the variable or to memory it owns ends the view as
+    well. At line 67 t was passed to t.Reset(), which may free what it looks at
+    or move it out (h.v = ..., line 55), so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use s before line 67, or make that call only after the last use of s
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

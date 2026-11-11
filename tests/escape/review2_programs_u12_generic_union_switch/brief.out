@@ -1,1 +1,2 @@
+$DIR/main.p:22:14: v is dropped at the end of its block here, but a view of it (v, line 22) was stored in keepAny at line 22, where the compiler cannot check its uses
 $DIR/main.p:29:2: cannot pass U[*Inner].P(&in) to store, which keeps it after returning

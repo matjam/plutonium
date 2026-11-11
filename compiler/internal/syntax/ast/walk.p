@@ -783,8 +783,12 @@ func inspect(node Node, f func(Node) bool) {
 }
 
 func inspectList[N Node](f func(Node) bool, list []N) {
-	for _, node := range list {
-		inspect(node, f)
+	// Index the list rather than range over its values: converting the
+	// loop variable to Node would be a view of it that inspect keeps
+	// through f past the loop variable's next value (language spec
+	// section 18.3).
+	for i := range list {
+		inspect(list[i], f)
 	}
 }
 

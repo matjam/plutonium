@@ -416,7 +416,7 @@ func (s *keepScan) frees(body *ast.BlockStmt, freed func(in int, site keepSite),
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.AssignStmt:
-			if x.Tok != token.ASSIGN {
+			if x.Tok != token.ASSIGN || permutes(x) {
 				return true
 			}
 			for _, l := range x.Lhs {
@@ -431,6 +431,57 @@ func (s *keepScan) frees(body *ast.BlockStmt, freed func(in int, site keepSite),
 		}
 		return true
 	})
+}
+
+// permutes reports whether the assignment as only exchanges the values of
+// its places, as a swap does (a[i], a[j] = a[j], a[i]): every right side
+// is one of the left sides, each once, and the places are written with
+// indexes and fields of plain names and constants, which evaluate to the
+// same place on both sides. Every old value is still held by one of the
+// places afterwards, so the assignment frees nothing.
+func permutes(as *ast.AssignStmt) bool {
+	if len(as.Lhs) < 2 || len(as.Lhs) != len(as.Rhs) {
+		return false
+	}
+	used := compat.Make[bool](len(as.Lhs))
+	for _, r := range as.Rhs {
+		if !plainPlace(r) {
+			return false
+		}
+		t := exprText(r)
+		hit := false
+		for i, l := range as.Lhs {
+			if !used[i] && exprText(l) == t {
+				used[i], hit = true, true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
+	}
+	return true
+}
+
+// plainPlace reports whether e is a place made of names, constants,
+// fields, indexes and arithmetic on them: no call, receive or conversion,
+// so its value and place depend only on the variables it names.
+func plainPlace(e ast.Expr) bool {
+	switch x := e.(type) {
+	case *ast.Ident, *ast.BasicLit:
+		return true
+	case *ast.ParenExpr:
+		return plainPlace(x.X)
+	case *ast.SelectorExpr:
+		return plainPlace(x.X)
+	case *ast.IndexExpr:
+		return plainPlace(x.X) && plainPlace(x.Index)
+	case *ast.StarExpr:
+		return plainPlace(x.X)
+	case *ast.BinaryExpr:
+		return plainPlace(x.X) && plainPlace(x.Y)
+	}
+	return false
 }
 
 // copyPairs returns the calls of the runtime's MoveValues in body that the
@@ -761,7 +812,14 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 		// in its own fields (W{p: &y}, section 18.13), but not of those it
 		// was lent through an interface (an allocator, section 7.9).
 		own, follow := f.ownerAddressed(val)
-		for _, w := range f.viewsTo(val, T) {
+		vs := f.viewsTo(val, T)
+		// A method called on a type parameter's value may be given a
+		// pointer or a counted box: it may free what the views obtained
+		// from the variable look at (section 18.3, D81).
+		if X := f.c.typeOf(val); key == val && isTypeParam(T) && tpBounds(X) && !isOwner(X) && f.isRecv(call, key) {
+			vs = compat.Append(vs, f.tpView(val)...)
+		}
+		for _, w := range vs {
 			if own != nil && w.of != own && !follow[heldKey(w)] {
 				continue
 			}
@@ -800,6 +858,12 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 		}
 	})
 	return out
+}
+
+// isRecv reports whether key is the receiver of the method call call.
+func (f *fn) isRecv(call *ast.CallExpr, key ast.Expr) bool {
+	se := funSelector(call.Fun)
+	return se != nil && se.X == key
 }
 
 // countedReached returns the counted reference types (shared[T],

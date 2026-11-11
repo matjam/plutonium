@@ -1,3 +1,19 @@
+$DIR/main.p:22:14: v is dropped at the end of its block here, but a view of it (v, line 22) was stored in keepAny at line 22, where the compiler cannot check its uses
+    An ordinary interface made from a map or channel in a local variable holds
+    the variable's word without a count of its own (section 7.9), so it may be
+    used only while the variable keeps that map or channel. The compiler follows
+    views through local variables and their fields, and into the arguments of
+    the calls that store them there, but the view of v made by v at line 22 went
+    into memory it does not follow, so it cannot check that the view is not used
+    after line 22.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not let its block end while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
 $DIR/main.p:29:2: cannot pass U[*Inner].P(&in) to store, which keeps it after returning
     U[*Inner].P(&in) points into in. in is a local variable of f (declared at
     main.p:28). store stores u in package variable keepAny (main.p:22), so

@@ -17,9 +17,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   byte arrays, `string(c)`, owner conversions) are not all enforced. Item 166.
 - A deferred call that drops or writes what a scoped task uses, and that can run before the task is joined, is not
   E3404 or E3402 yet (19.4). Item 201.
-- A conversion to an interface of a value whose type contains a type parameter, in generic code, is not yet a frame copy for every
-  instantiation, nor, for every type parameter (`[T any]` too), a view that the D3 events end (E3313, 18.3). A `T`
-  local is not yet treated as having drop glue whenever a type of its type set has it. Items 204 and 208.
 - A `//pu:stack` size outside 64K to 64G, and a program over an implementation limit, have no code yet (20.3, 21.4).
   Item 207.
 - A closure passed through a func value or an interface may not yet count as kept for the closure region errors (11.5).

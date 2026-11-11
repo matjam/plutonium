@@ -294,10 +294,11 @@ func (f *fn) boxView(x ast.Expr, made ast.Expr) []view {
 // in an inner scope whose type has drop glue but is neither an owner nor a
 // counted reference: a view of it is bounded by its scope alone (section
 // 18.3, A local's scope). Owners and counted references are followed
-// through every event that ends their views (ownerVar, countedVar); a
-// variable of the function's top block lasts as long as the frame.
+// through every event that ends their views (ownerVar, countedVar), and a
+// type parameter's value also by the end of its block; a variable of the
+// function's top block lasts as long as the frame.
 func (f *fn) scopeVar(v *types2.Var) *types2.Var {
-	if v == nil || !f.vars[v] || bounds(v.Type()) || !cleans(v.Type()) {
+	if v == nil || !f.vars[v] || (bounds(v.Type()) && !tpBounds(v.Type())) || !cleans(v.Type()) {
 		return nil
 	}
 	if in := f.scopeIn[v]; in == nil || in == ast.Node(f.topBody) {
@@ -309,7 +310,8 @@ func (f *fn) scopeVar(v *types2.Var) *types2.Var {
 // cleans reports whether a value of type T has drop glue (sections 18.6 and
 // 18.8): it is an owner, or holds a counted value (a string, a box, a map,
 // a channel, an allocated error), directly or in a struct, array or union.
-// A type parameter is left out here (roadmap item 208).
+// A type parameter has drop glue unless no type of its type set has it
+// (section 18.3, D81).
 func cleans(T types2.Type) bool { return cleansSeen(T, map[types2.Type]bool{}) }
 
 func cleansSeen(T types2.Type, seen map[types2.Type]bool) bool {
@@ -320,8 +322,8 @@ func cleansSeen(T types2.Type, seen map[types2.Type]bool) bool {
 	if isOwner(T) {
 		return true
 	}
-	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
-		return false
+	if tp, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return tpMay(tp, func(t types2.Type) bool { return cleansSeen(t, seen) })
 	}
 	switch u := T.Underlying().(type) {
 	case *types2.Basic:
@@ -523,7 +525,88 @@ func isCountedBox(T types2.Type) bool {
 
 // bounds reports whether the views of a local variable of type T are
 // bounded by it: an owner, or a counted reference.
-func bounds(T types2.Type) bool { return isOwner(T) || isCountedBox(T) }
+func bounds(T types2.Type) bool { return isOwner(T) || isCountedBox(T) || tpBounds(T) }
+
+// tpBounds reports whether T is a type parameter whose views are bounded
+// by the variable holding it: unless every type of its type set is a value
+// or a view, an instantiation may make it an owner, a counted value, a map
+// or a channel (section 18.3, D81).
+func tpBounds(T types2.Type) bool {
+	tp, ok := types2.Unalias(T).(*types2.TypeParam)
+	return ok && tpMay(tp, func(t types2.Type) bool { return cleans(t) || bounds(t) || lendsRef(t) })
+}
+
+// isTypeParam reports whether T is a type parameter, whose underlying type
+// is its constraint's interface: a value passed as one is not converted.
+func isTypeParam(T types2.Type) bool {
+	_, ok := types2.Unalias(T).(*types2.TypeParam)
+	return ok
+}
+
+// tpMay reports whether some type of the type set of tp may satisfy is:
+// true when the constraint does not limit the set to listed types.
+func tpMay(tp *types2.TypeParam, is func(types2.Type) bool) bool {
+	if isOwner(tp) {
+		return true
+	}
+	ts, limited := tpTerms(tp)
+	if !limited {
+		return true
+	}
+	for _, t := range ts {
+		if is(t) {
+			return true
+		}
+	}
+	return false
+}
+
+// tpTerms returns types the type set of tp is limited to, by the terms of
+// its constraint, and false when the set holds every type with its
+// methods. A set given by several embedded elements is the intersection,
+// so the terms of one of them cover it.
+func tpTerms(tp *types2.TypeParam) ([]types2.Type, bool) {
+	it, _ := tp.Underlying().(*types2.Interface)
+	return ifaceTerms(it, 0)
+}
+
+func ifaceTerms(it *types2.Interface, depth int) ([]types2.Type, bool) {
+	if it == nil || depth > 8 {
+		return nil, false
+	}
+	for i := 0; i < it.NumEmbeddeds(); i++ {
+		e := it.EmbeddedType(i)
+		if u, ok := e.(*types2.Union); ok {
+			var out []types2.Type
+			all := true
+			for j := 0; j < u.Len(); j++ {
+				t := u.Term(j).Type()
+				if sub, isIface := t.Underlying().(*types2.Interface); isIface {
+					ts, k := ifaceTerms(sub, depth+1)
+					if !k {
+						all = false
+						break
+					}
+					out = compat.Append(out, ts...)
+					continue
+				}
+				out = compat.Append(out, t)
+			}
+			if all {
+				return out, true
+			}
+			continue
+		}
+		if sub, isIface := e.Underlying().(*types2.Interface); isIface {
+			if ts, k := ifaceTerms(sub, depth+1); k {
+				return ts, true
+			}
+			continue
+		}
+		return compat.Clone([]types2.Type{e}), true
+	}
+	return nil, false
+}
 
 // isCheckedArena reports whether T is one of the checked arenas of
 // pluto/arena, Fixed and Chunked (section 18.9).
@@ -661,8 +744,14 @@ func (f *fn) viewsTo(e ast.Expr, T types2.Type) []view {
 			out = compat.Append(out, f.boxView(e, e)...)
 		}
 	}
-	if T != nil && types2.IsInterface(T) && !isOwner(T) && isOwner(f.c.typeOf(e)) {
-		if from := f.c.typeOf(e); lentWord(from) || types2.IsInterface(from) {
+	if T != nil && types2.IsInterface(T) && !isOwner(T) && (isOwner(f.c.typeOf(e)) || isTypeParam(f.c.typeOf(e)) && !isTypeParam(T)) {
+		// A type parameter's value converted to an ordinary interface may
+		// be lent its word (a map, a channel, a box), so the interface is
+		// a view the events of its variable end, for every type parameter
+		// and every instantiation, [T ~int] included (section 18.3, D81).
+		if from := f.c.typeOf(e); isTypeParam(from) && !isOwner(from) {
+			out = compat.Append(out, f.tpView(e)...)
+		} else if lentWord(from) || types2.IsInterface(from) {
 			out = compat.Append(out, f.lentViews(e)...)
 		} else {
 			out = compat.Append(out, f.selfView(e, e)...)
@@ -826,7 +915,7 @@ func lentWord(T types2.Type) bool {
 func (f *fn) lentViews(x ast.Expr) []view {
 	vs := f.selfView(x, x)
 	T := f.c.typeOf(x)
-	heap := T != nil && !types2.IsInterface(T) && lentWord(T)
+	heap := T != nil && !types2.IsInterface(T) && (lentWord(T) || tpBounds(T))
 	for i := range vs {
 		if vs[i].itself && vs[i].pos == x.Pos() {
 			vs[i].itself = false
@@ -834,6 +923,21 @@ func (f *fn) lentViews(x ast.Expr) []view {
 		}
 	}
 	return vs
+}
+
+// tpView returns the views an interface made from the type parameter value
+// x holds: what x holds, and a view of the local variable x is part of,
+// since an instantiation may lend the interface its word without a count
+// or copy the value in the frame (section 18.3, D81). Like refView's, the
+// view ends when the variable is given a new value, moved or dropped; a
+// call that frees through x leaves the word itself in place.
+func (f *fn) tpView(x ast.Expr) []view {
+	out := f.viewsOf(x)
+	v, path, box, ok := f.placePath(x)
+	if !ok || v == nil || box || !f.vars[v] {
+		return out
+	}
+	return compat.Append(out, view{of: v, pos: x.Pos(), text: exprText(x), part: path, lent: true})
 }
 
 // callViews returns the views a call's results may hold: the views of the
@@ -894,6 +998,45 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 			out = compat.Append(out, w)
 		}
 	})
+	return compat.Append(out, f.tpRecvViews(call, out)...)
+}
+
+// tpRecvViews returns, for a method called on the value of a type parameter
+// whose type set is not limited to values and views, the view of the local
+// variable the receiver is part of that the result may hold: some
+// instantiation's method may return what the value holds, as a counted box's
+// Slice does, and generic code takes the strictest rule any type argument
+// needs (section 18.3, D81). have is what callViews found already.
+func (f *fn) tpRecvViews(call *ast.CallExpr, have []view) []view {
+	se := funSelector(call.Fun)
+	if se == nil {
+		return nil
+	}
+	if sel := f.c.selections[se]; sel == nil || sel.Kind() != types2.MethodVal {
+		return nil
+	}
+	X := f.c.typeOf(se.X)
+	if X == nil || !isTypeParam(X) || !tpBounds(X) || isOwner(X) {
+		return nil
+	}
+	var out []view
+	for _, w := range whole(f.tpView(se.X)) {
+		if w.pos != se.X.Pos() {
+			continue
+		}
+		w.itself = false
+		w.inHeap = true
+		w.pos, w.text = call.Pos(), exprText(call)
+		dup := false
+		for _, h := range have {
+			if h.of == w.of && h.pos == w.pos && pathKey(h.part) == pathKey(w.part) {
+				dup = true
+			}
+		}
+		if !dup {
+			out = compat.Append(out, w)
+		}
+	}
 	return out
 }
 
@@ -1161,6 +1304,12 @@ func (f *fn) eachArg(call *ast.CallExpr, fn func(key, val ast.Expr, T types2.Typ
 			// box's object, not the box variable's address (boxView).
 			if implicitAddr(f.c, se, recv) && !isCountedBox(f.c.typeOf(se.X)) {
 				val = pu.New(ast.UnaryExpr{OpPos: se.X.Pos(), Op: token.AND, X: se.X})
+			}
+			// A method called on a type parameter's value is the method of
+			// the type argument: the value is not converted to the
+			// constraint's interface (section 18.3, D81).
+			if X := f.c.typeOf(se.X); X != nil && isTypeParam(X) {
+				recv = X
 			}
 			fn(se.X, val, recv)
 		}
@@ -1480,7 +1629,8 @@ func (f *fn) invalidate(v *types2.Var, mv move) {
 	if f.env == nil || !f.vars[v] {
 		return
 	}
-	if !bounds(v.Type()) && !lendsRef(v.Type()) && (mv.kind != mvScopeEnd || !cleans(v.Type())) {
+	lends := lendsRef(v.Type()) || isTypeParam(v.Type())
+	if !bounds(v.Type()) && !lends && (mv.kind != mvScopeEnd || !cleans(v.Type())) {
 		return
 	}
 	// A map or channel variable that is not released here ends only the

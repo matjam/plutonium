@@ -924,13 +924,24 @@ compiler (2026-10-11).
     (E3313, E3314), checked once for the generic body. Both halves were in place; this adds the tests:
     `tests/moves/rejected_owner_type_parameter_converted_to_an_interface` (a new value, a move and the
     end of the block) and `accepted_owner_type_parameter_converted_to_an_interface`.
-208. **Generic code takes the strictest rule any type argument needs** (planned; sections 18.3, 8.7, A,
+208. **Generic code takes the strictest rule any type argument needs** (done; sections 18.3, 8.7, A,
     D81, finding G1 of audit G; extends item 204): the view half of item 204 applies to every type
-    parameter, `[T any]` included, so `x := any(t); t = z; use(x)` is E3313 in a generic body; a `T` local
+    parameter, `[T any]` and `[T ~int]` included, so `x := any(t); t = z; use(x)` is E3313 in a generic body; a `T` local
     counts as having drop glue unless no type in its type set has it (the scope rule of E3313, the
     declaration order rule and the loop rules); a view obtained from a `T` value is bounded by its holder
     unless every type in the set is a value or a view (E3313, E3314, E3009); and a method call on a type
-    parameter is checked against that method of every instantiating type.
+    parameter is checked against that method of every instantiating type. Done: `tpBounds`, `tpMay` and
+    `tpTerms` in `compiler/internal/moves/views.p` read the type set from the constraint's terms, and a
+    type parameter whose set is not limited to values and views is bounded and has drop glue. The result
+    of a method called on a value of such a type parameter is a view of its variable (`tpRecvViews`), as a
+    counted box's `Slice` would be. An element assignment in a generic body frees through the slice, as
+    it does for an owner or counted element type; an assignment that only exchanges places
+    (`a[i], a[j] = a[j], a[i]`, `permutes` in `frees.p`) frees nothing, so a sort keeps a view usable.
+    `inspectList` in `compiler/internal/syntax/ast/walk.p` indexes its list instead of converting the
+    range variable, which the rule now rejects. Tests: `tests/moves/rejected_view_of_a_type_parameter_value`
+    and `accepted_view_of_a_type_parameter_of_values`, `rejected_generic_store_may_free` and
+    `accepted_generic_swap_frees_nothing`; `tests/escape/review2_programs_u12_generic_union_switch` gets the
+    E3314 its `[T any]` binding stored in a package variable now needs.
 173. **Range loops hold a count** (done, `47a958a4`; section 12.10, D64, finding D7): the range temporary over a counted
     value holds its own count until the loop ends. Maps, arrays and channels already did; a range over a
     string now holds an owned count (`rangeString` in `compiler/internal/lower/stmt.p`). Tests:
