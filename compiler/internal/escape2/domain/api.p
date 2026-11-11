@@ -251,6 +251,9 @@ func (k Key) Strict() bool { return k&keyStrict != 0 }
 // WithStrict returns k with the Strict flag.
 func (k Key) WithStrict() Key { return k | keyStrict }
 
+// WithoutStrict returns k without the Strict flag.
+func (k Key) WithoutStrict() Key { return k &^ keyStrict }
+
 // GE reports whether the key stands for its path and every extension.
 func (k Key) GE() bool { return k&keyGE != 0 }
 

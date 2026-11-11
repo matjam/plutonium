@@ -1,0 +1,28 @@
+$DIR/main.p:20:10: w holds a view of c (fmt.Errorf("conn: %w", c.eb.Errorf("x %d", 1)), line 18), which was moved into consume (its parameter takes a Conn by value) at line 19, so w can no longer be used here
+    w looks at memory that c owns, without owning it: the view was made by
+    fmt.Errorf("conn: %w", c.eb.Errorf("x %d", 1)) at line 18. A view of an
+    owner held in a local variable may be used only while the variable keeps the
+    value the view was made from. At line 19 c was moved into consume (its
+    parameter takes a Conn by value), so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use w before line 19, or move c only after the last use of w
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:29:10: w holds a view of c (fmt.Errorf("conn: %w", c.eb.Errorf("x %d", 1)), line 27), which was dropped at the end of its block at line 28, so w can no longer be used here
+    w looks at memory that c owns, without owning it: the view was made by
+    fmt.Errorf("conn: %w", c.eb.Errorf("x %d", 1)) at line 27. A view of an
+    owner held in a local variable may be used only while the variable keeps the
+    value the view was made from. At line 28 c was dropped at the end of its
+    block, so the view may look at memory that was released, or at a value that
+    now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare c in a block that encloses every use of w, or use w only inside the
+    block of c
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

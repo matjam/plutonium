@@ -158,6 +158,7 @@ type solver struct {
 	sumSeen                 table
 	esc, store, heapSt, res vec
 	resHeap                 vec
+	held                    vec // escapes of //pu:resultholds inputs (addEsc)
 	builds                  bool
 	outer                   vec
 	findSeen                table
@@ -1189,6 +1190,7 @@ const (
 	sResHeap
 	sOuter
 	sCutStore = 7 // in the top bits, as sStore
+	sHeld     = 8 // an escape of a //pu:resultholds input (addEsc)
 )
 
 // MaxDerivs bounds the derivations a SolveDerivs collects: they are for
@@ -1208,7 +1210,12 @@ func (s *solver) recordDeriv() bool {
 
 func (s *solver) addEsc(k domain.Key, why uint64) {
 	if slices.Contains(s.f.ResultHolds, k.Input()) {
-		return // kept only in the result (//pu:resultholds)
+		// Kept only in the result (//pu:resultholds, section 18.3):
+		// summary makes the result hold it.
+		if s.sumSeen.add(s.a, sHeld, uint64(k)) {
+			s.held.push(s.a, uint64(k))
+		}
+		return
 	}
 	if s.derivs && s.nderivs < MaxDerivs && s.derivSeen.add(s.a, uint64(k)<<4|1, why) && s.recordDeriv() {
 		s.escDerivs.push(s.a, uint64(k))
@@ -1307,6 +1314,38 @@ func (s *solver) addRes(r int, k domain.Key, field domain.PathID, fieldGE bool) 
 	}
 }
 
+// holdInResults makes the results hold what the function keeps of a
+// //pu:resultholds input (section 18.3): the call counts as returning it.
+// An input a result already holds stays where the function put it, as
+// alloc.Use's Restore holds its allocator in one field; otherwise each
+// result holds it anywhere in it, as a wrapper of fmt.Errorf holds its %w
+// operand in the heap object the result points at.
+func (s *solver) holdInResults() {
+	var has uint64 // inputs a result holds, by bit; Inputs fit in a byte
+	var many []bool
+	for i := 0; i < len(s.res.s); i += 3 {
+		in := domain.Key(s.res.s[i+1]).Input()
+		if in < 64 {
+			has |= 1 << uint(in)
+		} else {
+			for len(many) <= in {
+				many = compat.AppendPlain(many, false)
+			}
+			many[in] = true
+		}
+	}
+	for _, w := range s.held.s {
+		k := domain.Key(w)
+		in := k.Input()
+		if in < 64 && has&(1<<uint(in)) != 0 || in >= 64 && in < len(many) && many[in] {
+			continue
+		}
+		for r := 0; r < s.f.Results; r++ {
+			s.addRes(r, k.WithoutStrict(), domain.Root, true)
+		}
+	}
+}
+
 func (s *solver) addResHeap(r int, counted bool, field domain.PathID) {
 	c := uint64(0)
 	if counted {
@@ -1346,6 +1385,7 @@ func (s *solver) summary() *summary.Summary {
 	for _, k := range s.heapSt.s {
 		sum.HeapStore = compat.AppendPlain(sum.HeapStore, domain.Key(k))
 	}
+	s.holdInResults()
 	if s.f.Results > 0 {
 		sum.Res = compat.Make[summary.Result](s.f.Results)
 	}

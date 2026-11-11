@@ -37,4 +37,20 @@ func TestResultHolds(t *testing.T) {
 	res := leaks.static(use.f, 1, leaks.addr(y))
 	leaks.at(9).ret(0, res[0])
 	wantFindings(t, e.solve(t, leaks.f), "E3001@9")
+
+	// A function that keeps the input and returns other memory (as
+	// fmt.Errorf's wrapper does): the result still holds the input.
+	wrap := e.fn("wrap", 1, 1)
+	wrap.f.ResultHolds = compat.AppendPlain([]int(nil), 0)
+	wrap.sink(eir.SinkGlobal, wrap.input(0))
+	wrap.ret(0, wrap.heap())
+	r = e.solve(t, wrap.f)
+	if len(r.Summary.Esc) != 0 || len(r.Summary.Res) != 1 || len(r.Summary.Res[0].From) == 0 {
+		t.Errorf("wrap's result does not hold its parameter: %s", e.describe(r.Summary))
+	}
+	wleaks := e.fn("wleaks", 0, 1)
+	z := wleaks.obj("z", eir.LifeFrame, -1)
+	wres := wleaks.static(wrap.f, 1, wleaks.addr(z))
+	wleaks.at(9).ret(0, wres[0])
+	wantFindings(t, e.solve(t, wleaks.f), "E3001@9")
 }

@@ -1,0 +1,2 @@
+$DIR/main.p:20:10: w holds a view of c (fmt.Errorf("conn: %w", c.eb.Errorf("x %d", 1)), line 18), which was moved into consume (its parameter takes a Conn by value) at line 19, so w can no longer be used here
+$DIR/main.p:29:10: w holds a view of c (fmt.Errorf("conn: %w", c.eb.Errorf("x %d", 1)), line 27), which was dropped at the end of its block at line 28, so w can no longer be used here

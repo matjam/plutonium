@@ -40,17 +40,33 @@ func Errorf(format string, args ...any) error {
 	nw := p.wrapped.Len()
 
 	if nw > 1 {
-		e := alloc.Synced[wrapErrors](a)
-		e.msg = msg
-		copy(e.errs[:], ws[:nw])
-		e.n = nw
-		return e
+		return wrapMany(a, msg, ws, nw)
 	}
+	return wrapOne(a, msg, ws[0])
+}
+
+// wrapOne returns the error of Errorf with at most one %w operand, w (nil
+// for none). The result keeps w and nothing else does: a wrapper of an
+// error in a field of an object is bounded by the object (language spec
+// sections 16.5 and 18.3).
+//
+//pu:resultholds w
+func wrapOne(a alloc.Allocator, msg string, w error) error {
 	e := alloc.Synced[wrapError](a)
 	e.msg = msg
-	if nw == 1 {
-		e.err = ws[0]
-	}
+	e.err = w
+	return e
+}
+
+// wrapMany returns the error of Errorf with the n %w operands of ws, kept
+// only in the result as in wrapOne.
+//
+//pu:resultholds ws
+func wrapMany(a alloc.Allocator, msg string, ws [maxWrapped]error, n int) error {
+	e := alloc.Synced[wrapErrors](a)
+	e.msg = msg
+	copy(e.errs[:], ws[:n])
+	e.n = n
 	return e
 }
 

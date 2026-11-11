@@ -1,0 +1,2 @@
+$DIR/main.p:18:9: cannot return fmt.Errorf("conn: %w", c.eb.Errorf("x %d", 1)), which points into c, a local variable of returned
+$DIR/main.p:23:2: cannot store fmt.Errorf("conn: %w", c.eb.Errorf("x %d", 1)) in package variable sink, which outlives c
