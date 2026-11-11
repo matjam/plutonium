@@ -1585,7 +1585,7 @@ compiler (2026-10-11).
 191. **Counted string efficiency** (planned; sections 7.3, 18.8; moved from item 57): interface boxes hold
     their string until the function returns; `(string, error)` returns through memory;
     `compiler/compat` can drop helpers for what is native.
-192. **Maps kept in place** (planned, phase 1; sections 7.10, 19.3 (Maps kept in place), D120, finding L5 of
+192. **Maps kept in place** (in progress, `HASH192`: rows 86 to 89 and 101, not row 120 (another package); phase 1; sections 7.10, 19.3 (Maps kept in place), D120, finding L5 of
     audit L; moved from item 60): the race check groups maps by type, so two objects that each guard a map
     with their own mutex are E3502. Find the places (package variables and struct fields of map type, per
     instantiation) that are kept in place: every stored value is a `make`, a map literal or `nil` written

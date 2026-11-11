@@ -272,6 +272,12 @@ type analyzer struct {
 	convSites    map[string]*convSite                // one conversion of each type that can reach another task
 	typeIDs      []types2.Type                       // referent types of synced[T], and map types, numbered for paths
 	crossMaps    map[int]bool                        // map type numbers a crossing value reaches (checkMaps)
+	// Maps kept in place (mapplace.go): the occurrence that takes the map
+	// out of each package variable and field place that is not kept.
+	mapVarOut     map[*types2.Var]*mapOut
+	mapFieldOut   map[string]*mapOut
+	mapFieldKept  map[string]bool
+	mapFieldLabel map[string]string
 	// arenaVars: for each function that starts scoped tasks, the variables
 	// it sets to an object of an arena's New or Slice, and that arena
 	// (allocmem.go).

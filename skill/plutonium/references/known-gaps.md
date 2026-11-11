@@ -65,8 +65,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   range loop while the same literal passed to it compiles; a `Do` before a call does not count in the callee
   (19.3, Part of the enclosing function). This includes the method shape `range sc.All()`, whose closure locks
   `s.mu` (19.3, Locks and names). Item 232.
-- Maps are grouped by type, so two objects that each guard a map field with their own mutex are E3502 (19.3, Maps
-  kept in place). Item 192.
 
 ## 4. Smaller notes
 

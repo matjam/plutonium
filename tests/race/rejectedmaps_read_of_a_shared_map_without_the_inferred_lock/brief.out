@@ -1,1 +1,1 @@
-$DIR/main.p:22:10: an element of a map[string]int is read here without holding mu, which guards it
+$DIR/main.p:22:10: an element of cache is read here without holding mu, which guards it

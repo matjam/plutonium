@@ -22,6 +22,9 @@ type copyCheck struct {
 	a    *analyzer
 	inRT bool
 	memo map[types2.Type]string
+	// sink, when set, receives every copy of a place instead of the
+	// lock check (mapplace.go).
+	sink *mapPlaces
 }
 
 // checkCopies reports every copy of a lock in the program's source.
@@ -125,6 +128,10 @@ func (cc *copyCheck) copied(e ast.Expr, what string) {
 
 func (cc *copyCheck) report(e ast.Expr, T types2.Type, what string) {
 	if T == nil || types2.IsOwner(T) {
+		return
+	}
+	if cc.sink != nil {
+		cc.sink.structCopy(e, T, what)
 		return
 	}
 	lock := cc.lockIn(T)

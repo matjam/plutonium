@@ -983,8 +983,10 @@ func (a *analyzer) isMapID(id int) bool {
 // task statement's argument, a value sent on a channel, or inside one, or
 // that a task reaches through a package variable or memory it did not
 // allocate, are one piece of data. Every write to it must hold one lock,
-// and every access must hold it too: a package-level lock, or a lock in
-// the struct the map is a field of. Maps of other types never reach a
+// and every access must hold it too: a package-level lock. The contents
+// of a map in a place kept in place are instead one datum for each place,
+// per object, which a lock of the struct the map is a field of may guard
+// (Maps kept in place, mapplace.go). Maps of other types never reach a
 // second task, so each stays with the task that made it. Accesses that
 // fill a map before the function that made it hands it to anyone do not
 // count, nor does main's use before it starts a task.
@@ -999,12 +1001,20 @@ func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
 			}
 		}
 	}
+	a.findMapPlaces()
 	marked := map[int]bool{}
 	for id := range a.crossMaps {
 		marked[id] = true
 	}
 	byType := map[int][]entry{}
 	var ids []int
+	// The contents of maps in places kept in place (section 19.3, Maps
+	// kept in place): one datum for each place, per object.
+	byPlace := map[string][]entry{}
+	placeID := map[string]int{}
+	placeLabel := map[string]string{}
+	var places []string
+	outs := map[*access]*mapOut{} // an access through a place that is not kept: what took the map out
 	single := map[*group]*group{} // a multi group's accesses to maps each task makes for itself
 	for _, g := range groups {
 		for _, x := range g.accesses {
@@ -1025,6 +1035,17 @@ func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
 				}
 				eg = single[g]
 			}
+			if key, label, out := a.mapPlaceKey(base, id); key != "" {
+				if byPlace[key] == nil {
+					places = compat.Append(places, key)
+					placeID[key] = id
+					placeLabel[key] = label
+				}
+				byPlace[key] = compat.Append(byPlace[key], entry{x, eg})
+				continue
+			} else if out != nil {
+				outs[x] = out
+			}
 			if byType[id] == nil {
 				ids = compat.AppendPlain(ids, id)
 			}
@@ -1034,6 +1055,9 @@ func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
 	if marked[a.typeID(genericMap)] {
 		for _, id := range ids {
 			marked[id] = true
+		}
+		for _, k := range places {
+			marked[placeID[k]] = true
 		}
 	}
 	gid, hasGeneric := -1, false
@@ -1051,40 +1075,67 @@ func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
 		if hasGeneric {
 			es = compat.Append(compat.Append([]entry(nil), es...), byType[gid]...)
 		}
-		norm := compat.Make[entry](len(es))
-		for i, e := range es {
-			base, _, _, _ := syncedSplit(e.x.place)
-			x := pu.New(*e.x)
-			x.place = vpath{root: root{kind: rLocal, v: mapVar}, path: compat.Sprintfb("$%d", compat.ArgI(int64(id)))}
-			// Locks: package-level ones, and those of the struct the map
-			// is a field of, relative to it.
-			holder, field := splitField(base)
-			var ls, vs lockset
-			for _, l := range e.x.locks {
-				var np vpath
-				if field && l.place.root == holder.root && prefixOf(holder.path, l.place.path) && !strings.ContainsAny(strings.SliceFrom(l.place.path, len(holder.path)), "*%$#") {
-					np = vpath{root: root{kind: rLocal, v: mapVar}, path: strings.SliceFrom(l.place.path, len(holder.path))}
-				} else if _, ok := globalLock(l); ok {
-					np = l.place
-				} else {
-					continue
-				}
-				ls = ls.with(np, l.excl)
-				if e.x.vvalid.find(l.place) >= 0 {
-					vs = vs.with(np, l.excl)
-				}
-			}
-			x.locks, x.vvalid = ls, vs
-			norm[i] = entry{x, e.g}
-		}
 		T := a.typeIDs[id]
-		a.checkPlaces(norm, func(l lock) (string, bool) {
-			if l.place.root.kind == rLocal && l.place.root.v == mapVar {
-				return compat.Concat("rel:", l.place.path), true
+		before := len(a.errs)
+		a.checkMapPlace(es, id, false, func(*access) string { return compat.Concat("an element of a ", types2.TypeString(T, a.qualifier)) })
+		// An error about an access through a place that is not kept in
+		// place names the occurrence that took the map out of it.
+		for _, d := range a.errs[before:] {
+			for _, e := range es {
+				if o := outs[e.x]; o != nil && a.pos(e.x.pos) == d.Pos {
+					d.Text = compat.Concat(d.Text, compat.Sprintfb(" %s; its contents are now one datum for all %s values, which no lock of the struct that held the map guards.", compat.ArgS(capitalize(o.text)), compat.ArgS(types2.TypeString(T, a.qualifier))))
+					break
+				}
 			}
-			return globalLock(l)
-		}, func(*access) string { return compat.Concat("an element of a ", types2.TypeString(T, a.qualifier)) })
+		}
 	}
+	sort.Strings(places)
+	for _, k := range places {
+		id := placeID[k]
+		if !marked[id] {
+			continue
+		}
+		label := placeLabel[k]
+		a.checkMapPlace(byPlace[k], id, strings.HasPrefix(k, "f"), func(*access) string { return compat.Concat("an element of ", label) })
+	}
+}
+
+// checkMapPlace checks the accesses to the contents of one group of maps:
+// those of a type, or those in a place kept in place. For a field place,
+// a lock of the struct that holds the map, relative to it, guards them.
+func (a *analyzer) checkMapPlace(es []entry, id int, field bool, text func(*access) string) {
+	norm := compat.Make[entry](len(es))
+	for i, e := range es {
+		base, _, _, _ := syncedSplit(e.x.place)
+		x := pu.New(*e.x)
+		x.place = vpath{root: root{kind: rLocal, v: mapVar}, path: compat.Sprintfb("$%d", compat.ArgI(int64(id)))}
+		// Locks: package-level ones, and those of the struct the map is a
+		// field of, relative to it.
+		holder, isField := splitField(base)
+		var ls, vs lockset
+		for _, l := range e.x.locks {
+			var np vpath
+			if field && isField && l.place.root == holder.root && prefixOf(holder.path, l.place.path) && !strings.ContainsAny(strings.SliceFrom(l.place.path, len(holder.path)), "*%$#") {
+				np = vpath{root: root{kind: rLocal, v: mapVar}, path: strings.SliceFrom(l.place.path, len(holder.path))}
+			} else if _, ok := globalLock(l); ok {
+				np = l.place
+			} else {
+				continue
+			}
+			ls = ls.with(np, l.excl)
+			if e.x.vvalid.find(l.place) >= 0 {
+				vs = vs.with(np, l.excl)
+			}
+		}
+		x.locks, x.vvalid = ls, vs
+		norm[i] = entry{x, e.g}
+	}
+	a.checkPlaces(norm, func(l lock) (string, bool) {
+		if l.place.root.kind == rLocal && l.place.root.v == mapVar {
+			return compat.Concat("rel:", l.place.path), true
+		}
+		return globalLock(l)
+	}, text)
 }
 
 // splitField splits the place of a map at its last field: the struct that
