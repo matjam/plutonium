@@ -674,7 +674,7 @@ func init() {
 		}),
 		pu.New(Entry{
 			Code: BadCSignature, Name: "BadCSignature",
-			Text: "Functions marked //pu:extern or //pu:export are called with the C calling convention. Their parameters and results must be types C has: integers, floats, bools, pointers, and structs and arrays of those. Strings, slices, interfaces and func values have no C equivalent, and variadic functions are not supported.\nPass a pointer and a length instead of a string or slice.",
+			Text: "Functions marked //pu:extern or //pu:export are called with the C calling convention. Their parameters and results must be types C has: integers, floats, bools, pointers, and structs and arrays of those. Strings, slices, interfaces, func values, maps, channels, rings and unions have no C equivalent, and variadic functions are not supported. Neither do owned, shared, synced and weak references: C cannot keep a count, drop an owner or check a generation, so a reference C kept or returned would be one no count knows about. This holds inside structs passed by value too.\nPass a pointer and a length instead of a string or slice, and unsafe.Pointer(b) instead of a box, keeping the box on the Plutonium side while C may use the address.",
 			Fix:  pu.New(Fix{Intro: "Pass a pointer and a length", Code: "//pu:extern write\nfunc write(fd int32, buf *byte, n uint64) int64\n\nwrite(1, unsafe.SliceData(b), uint64(len(b)))"}),
 			Spec: pspec("20.4", "Assembly and C"),
 		}),

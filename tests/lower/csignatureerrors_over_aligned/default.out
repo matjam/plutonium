@@ -2,9 +2,14 @@ $DIR/main.p:10:1: //pu:extern function f: parameter 1: aligned[int64, 16] is ali
     Functions marked //pu:extern or //pu:export are called with the C calling
     convention. Their parameters and results must be types C has: integers,
     floats, bools, pointers, and structs and arrays of those. Strings, slices,
-    interfaces and func values have no C equivalent, and variadic functions are
-    not supported.
-    Pass a pointer and a length instead of a string or slice.
+    interfaces, func values, maps, channels, rings and unions have no C
+    equivalent, and variadic functions are not supported. Neither do owned,
+    shared, synced and weak references: C cannot keep a count, drop an owner or
+    check a generation, so a reference C kept or returned would be one no count
+    knows about. This holds inside structs passed by value too.
+    Pass a pointer and a length instead of a string or slice, and
+    unsafe.Pointer(b) instead of a box, keeping the box on the Plutonium side
+    while C may use the address.
     Pass a pointer and a length:
         //pu:extern write
         func write(fd int32, buf *byte, n uint64) int64

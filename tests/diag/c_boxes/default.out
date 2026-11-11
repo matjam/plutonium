@@ -1,0 +1,43 @@
+$DIR/main.p:14:1: //pu:extern function takeOwned: parameter 1: owned[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+    Functions marked //pu:extern or //pu:export are called with the C calling
+    convention. Their parameters and results must be types C has: integers,
+    floats, bools, pointers, and structs and arrays of those. Strings, slices,
+    interfaces, func values, maps, channels, rings and unions have no C
+    equivalent, and variadic functions are not supported. Neither do owned,
+    shared, synced and weak references: C cannot keep a count, drop an owner or
+    check a generation, so a reference C kept or returned would be one no count
+    knows about. This holds inside structs passed by value too.
+    Pass a pointer and a length instead of a string or slice, and
+    unsafe.Pointer(b) instead of a box, keeping the box on the Plutonium side
+    while C may use the address.
+    Pass a pointer and a length:
+        //pu:extern write
+        func write(fd int32, buf *byte, n uint64) int64
+
+        write(1, unsafe.SliceData(b), uint64(len(b)))
+    (see "Assembly and C" in the Plutonium spec, section 20.4)
+    (run "pluto explain E2511" for a longer explanation)
+
+$DIR/main.p:17:1: //pu:extern function giveShared: result: shared[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+    (explained above; run "pluto explain E2511" for more)
+
+$DIR/main.p:20:1: //pu:extern function takeSynced: parameter 1: synced[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+    (explained above; run "pluto explain E2511" for more)
+
+$DIR/main.p:23:1: //pu:extern function takeWeak: parameter 1: weak[shared[main.Node]] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+    (explained above; run "pluto explain E2511" for more)
+
+$DIR/main.p:26:1: //pu:extern function takeHolder: parameter 1: field b: owned[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+    (explained above; run "pluto explain E2511" for more)
+
+$DIR/main.p:29:1: //pu:extern function takeCounted: parameter 1: field s: shared[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+    (explained above; run "pluto explain E2511" for more)
+
+$DIR/main.p:32:1: //pu:extern function takeRing: parameter 1: ring ring[int32, 4] has no C equivalent; pass a pointer to it
+    (explained above; run "pluto explain E2511" for more)
+
+$DIR/main.p:35:1: //pu:export function box: parameter 1: owned[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+    (explained above; run "pluto explain E2511" for more)
+
+$DIR/main.p:38:1: //pu:export function counted: result: field s: shared[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+    (explained above; run "pluto explain E2511" for more)

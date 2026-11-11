@@ -338,10 +338,13 @@ func (l *Lowerer) cCheckType(T types2.Type, top bool) error {
 	case *types2.Wrapper:
 		switch {
 		case u.IsBox():
+			// C cannot keep a count, drop an owner or check a generation
+			// (language spec section 20.4).
+			return fmt.Errorf("%s has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side", T)
 		case u.Kind() == types2.WrapAligned && u.N() > 8:
 			return fmt.Errorf("%s is aligned to more than 8 bytes, which C calls do not support", T)
 		case u.Kind() == types2.WrapRing:
-			return l.cCheckType(u.Elem(), false)
+			return fmt.Errorf("ring %s has no C equivalent; pass a pointer to it", T)
 		default:
 			return l.cCheckType(u.Elem(), top)
 		}

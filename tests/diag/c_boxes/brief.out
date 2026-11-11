@@ -1,0 +1,9 @@
+$DIR/main.p:14:1: //pu:extern function takeOwned: parameter 1: owned[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+$DIR/main.p:17:1: //pu:extern function giveShared: result: shared[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+$DIR/main.p:20:1: //pu:extern function takeSynced: parameter 1: synced[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+$DIR/main.p:23:1: //pu:extern function takeWeak: parameter 1: weak[shared[main.Node]] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+$DIR/main.p:26:1: //pu:extern function takeHolder: parameter 1: field b: owned[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+$DIR/main.p:29:1: //pu:extern function takeCounted: parameter 1: field s: shared[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+$DIR/main.p:32:1: //pu:extern function takeRing: parameter 1: ring ring[int32, 4] has no C equivalent; pass a pointer to it
+$DIR/main.p:35:1: //pu:export function box: parameter 1: owned[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
+$DIR/main.p:38:1: //pu:export function counted: result: field s: shared[main.Node] has no C equivalent; pass unsafe.Pointer(b) and keep the box on the Plutonium side
