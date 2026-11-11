@@ -647,10 +647,17 @@ func (t *MapTable[K, V]) grow() {
 // rebuild moves the entries into a new table of size slots. If walks are
 // running, the old table keeps its references and is retired until they
 // end; otherwise the references move and the old table is freed.
+//
+// The hash function can be the program's, and it can panic. The entries
+// are placed in the new table while t still holds the old one, which the
+// placing does not change, so a panic leaves t as it was (spec section
+// 17.2); the new table is then lost.
 func (t *MapTable[K, V]) rebuild(size int) {
-	oldSlots, oldMeta, oldSize := t.slots, t.meta, t.size
+	oldSlots, oldMeta, oldSize, oldLimit := t.slots, t.meta, t.size, t.limit
 	keep := t.iters != 0
 	t.alloc(size)
+	slots, meta := t.slots, t.meta
+	t.slots, t.meta, t.size, t.limit = oldSlots, oldMeta, oldSize, oldLimit
 	mask := size - 1
 	for i := 0; i < oldSize; i++ {
 		m := oldMeta[i]
@@ -659,17 +666,22 @@ func (t *MapTable[K, V]) rebuild(size int) {
 		}
 		src := &oldSlots[i]
 		j := int(t.hash(src.key)) & mask
-		for t.meta[j] != mapEmpty {
+		for meta[j] != mapEmpty {
 			j = (j + 1) & mask
 		}
-		dst := &t.slots[j]
-		MoveValues(dst, src, 1)
-		if keep {
-			RetainValues(&dst.key, 1)
-			RetainValues(&dst.val, 1)
-		}
-		t.meta[j] = m
+		MoveValues(&slots[j], src, 1)
+		meta[j] = m
 	}
+	// Every entry is placed: the new table becomes t's.
+	if keep {
+		for j := 0; j < size; j++ {
+			if meta[j]&mapFull != 0 {
+				RetainValues(&slots[j].key, 1)
+				RetainValues(&slots[j].val, 1)
+			}
+		}
+	}
+	t.slots, t.meta, t.size, t.limit = slots, meta, size, size/4*3
 	t.used = t.n
 	if oldSlots == nil {
 		return
