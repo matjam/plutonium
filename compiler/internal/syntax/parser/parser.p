@@ -1022,7 +1022,17 @@ func (p *parser) parseParamDecl(name *ast.Ident, typeSetsOK bool) (f field) {
 		case token.IDENT, token.MUL, token.ARROW, token.FUNC, token.CHAN, token.MAP, token.STRUCT, token.PACKED, token.ENUM, token.INTERFACE, token.LPAREN:
 			// name type, or name "owner" constraint (a type parameter
 			// that admits owners)
-			f.owner, f.typ = p.parseOwnerType(p.parseType)
+			typ := p.parseType
+			if typeSetsOK {
+				// A constraint may begin with "~": [T owner ~int].
+				typ = func() ast.Expr {
+					if p.tok == token.TILDE {
+						return p.embeddedElem(nil)
+					}
+					return p.parseType()
+				}
+			}
+			f.owner, f.typ = p.parseOwnerType(typ)
 
 		case token.LBRACK:
 			// name "[" type1, ..., typeN "]" or name "[" n "]" type
@@ -3065,6 +3075,10 @@ func (p *parser) parseOwnerType(typ func() ast.Expr) (token.Pos, ast.Expr) {
 	p.next()
 	switch p.tok {
 	case token.IDENT, token.LBRACK, token.STRUCT, token.PACKED, token.ENUM, token.MUL, token.FUNC, token.INTERFACE, token.MAP, token.CHAN, token.ARROW, token.LPAREN:
+		return pos, typ()
+	case token.TILDE:
+		// Only a type parameter's constraint begins with "~"; in a type
+		// definition typ reports it.
 		return pos, typ()
 	}
 	return token.NoPos, p.parseQualifiedIdent(pu.New(ast.Ident{NamePos: pos, Name: "owner"}))

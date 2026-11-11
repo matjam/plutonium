@@ -26,3 +26,12 @@ type Vec[T owner any]   owner struct {
 type Pair[K comparable, V owner any] owner struct { k K; v V }
 
 func Move[T, U owner any](a T, b U) (T, U) { return a, b }
+
+// "owner" names a type parameter unless a constraint follows it (section 4.6).
+func Id[owner any](x owner) owner { return x }
+
+type Named[owner,  T any] struct { a owner; b T }
+
+type Both[owner owner any] owner struct { v owner }
+
+func Tilde[T owner   ~int | ~uint](x T) T { return x }

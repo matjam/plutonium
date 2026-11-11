@@ -1,0 +1,5 @@
+$DIR/test.p:5:10: undefined: owner
+    owner is not declared in any scope that reaches line 5. Did you mean owned
+    (a builtin)? Names are case-sensitive.
+    (see "Declarations and scope" in the Plutonium spec, section 10)
+    (run "pluto explain E0075" for a longer explanation)
