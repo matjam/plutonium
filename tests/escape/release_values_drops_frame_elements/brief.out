@@ -1,1 +1,2 @@
+$DIR/main.p:17:22: main.(*O).Drop keeps o past the call, but the owner it points to is destroyed when Drop returns
 $DIR/main.p:23:2: cannot pass &buf to (*O).Drop, which keeps it after returning

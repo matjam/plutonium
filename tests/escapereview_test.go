@@ -21,14 +21,9 @@ import (
 // rejected, so that the list stays true.
 
 // knownEscapeGaps are the programs not rejected yet, with the reason.
-var knownEscapeGaps = map[string]string{
-	// The elements' Drop keeps its receiver, which is in the vec's heap
-	// buffer: a free the generation checks find, not an escape. vec now
-	// drops with clear, and the one escape error is in vec.p (AppendSeq's
-	// local x), not in main.p. rt.ReleaseValues has its drop effect
-	// (item 180).
-	"review3/o14_drop_in_vec_of_owners_local": "the Drop of a heap element keeps it; the escape error is in vec.p",
-}
+// review3/o14 left it when a Drop that keeps its receiver became E3002 at
+// the Drop itself (item 180).
+var knownEscapeGaps = map[string]string{}
 
 // rejectedBeforeEscape are the programs a check that runs before the
 // escape analysis rejects (the lowering's closure and scope rules), with

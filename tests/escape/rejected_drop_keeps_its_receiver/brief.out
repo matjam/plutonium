@@ -1,0 +1,4 @@
+$DIR/main.p:14:22: main.(*O).Drop keeps o past the call, but the owner it points to is destroyed when Drop returns
+$DIR/main.p:20:22: main.(*P).Drop keeps p past the call, but the owner it points to is destroyed when Drop returns
+$PLUTOROOT/pluto/vec/vec.p:380:1: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
+$DIR/main.p:28:1: cannot pass &p to (*P).Drop (called when p is dropped), which keeps it after returning

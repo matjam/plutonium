@@ -1,3 +1,17 @@
+$DIR/main.p:12:22: main.(*O).Drop keeps o past the call, but the owner it points to is destroyed when Drop returns
+    A Drop method's receiver points to the owner being dropped: its fields are
+    dropped and its memory released when Drop returns (language spec section
+    18.6, What dropping does). Keeping o, or a part of the owner, in package
+    memory, the heap, a channel or a task leaves a view of memory that is gone.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Copy the values Drop needs to keep out of the owner, rather than keeping a
+    pointer into it
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)
+
 $PLUTOROOT/pluto/vec/vec.p:380:1: cannot pass &x to main.(*O).Drop (called when x is dropped), which keeps it after returning
     &x is a pointer to x. x is a local variable of (*Vec).AppendSeq (declared at
     vec.p:377). main.(*O).Drop (called when x is dropped) stores o in package

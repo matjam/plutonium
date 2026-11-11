@@ -1,1 +1,2 @@
+$DIR/main.p:5:25: main.(*Conn).Drop keeps c past the call, but the owner it points to is destroyed when Drop returns
 $DIR/main.p:10:1: cannot pass &r to (*Conn).Drop (called when r is dropped), which keeps it after returning

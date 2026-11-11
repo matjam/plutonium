@@ -99,6 +99,6 @@ func Run(prog *load.Program, opts sched.Options) (*eir.Program, *sched.Result, e
 // Diagnostics turns findings into errors, with the messages of
 // internal/escape2/report, after the errors of the directives it reads.
 func Diagnostics(prog *load.Program, p *eir.Program, res *sched.Result) error {
-	l := pu.New(diag.List(compat.Append(directiveErrors(prog), report.Diagnostics(prog, p, res)...)))
+	l := pu.New(diag.List(compat.Append(compat.Append(directiveErrors(prog), dropKeepErrors(prog, p, res)...), report.Diagnostics(prog, p, res)...)))
 	return l.Err()
 }

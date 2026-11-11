@@ -1,1 +1,2 @@
+$DIR/main.p:13:3: main.(*O).Drop keeps o past the call, but the owner it points to is destroyed when Drop returns
 $DIR/main.p:22:1: cannot pass &arr to (*O).Drop (called when arr is dropped), which keeps it after returning

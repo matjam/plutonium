@@ -1,1 +1,2 @@
+$DIR/main.p:11:22: main.(*O).Drop keeps o past the call, but the owner it points to is destroyed when Drop returns
 $DIR/main.p:17:20: cannot pass &mk() to (*O).Drop (called when mk() is dropped), which keeps it after returning
