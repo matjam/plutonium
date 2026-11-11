@@ -121,7 +121,9 @@ func direct(a alloc.Allocator) { p:=a.Alloc(0,1); a.Free(p,0,1) }
 func saved(a alloc.Allocator) { f:=a.Alloc; _=f(0,1) }
 func uninvoked(a alloc.Allocator) { _=a.Alloc }
 func pinned(p *int) *int { return rt.Pinned(p) }
-func arch() { x86.Pause() }
+func arch() { x86.Hlt() }
+//pu:export sample_twice
+func exported(x int32) int32 { return x * 2 }
 //pu:noescape
 //pu:extern foreign
 func foreign(p *int)
@@ -130,7 +132,7 @@ func (Fake) Alloc() {}
 func unrelated() { var f Fake; f.Alloc() }
 `)
 	auditGolden(t, "categories", out)
-	for _, reason := range []string{"unsafe.Pointer", "unsafe.Sizeof (layout query)", "unsafe.Alignof (layout query)", "unsafe.Offsetof (layout query)", "unsafe.Add", "unsafe.Slice", "unsafe.String", "unsafe.SliceData", "unsafe.StringData", "unsafe.Drop", "pluto/alloc.New", "pluto/alloc.Free", "pluto/alloc.Raw", "direct Allocator.Alloc", "direct Allocator.Free", "may invoke direct Allocator.Alloc", "pluto/rt.Pinned", "pluto/arch/x86.Pause", "function without a body", "//pu:noescape", "//pu:extern"} {
+	for _, reason := range []string{"unsafe.Pointer", "unsafe.Sizeof (layout query)", "unsafe.Alignof (layout query)", "unsafe.Offsetof (layout query)", "unsafe.Add", "unsafe.Slice", "unsafe.String", "unsafe.SliceData", "unsafe.StringData", "unsafe.Drop", "pluto/alloc.New", "pluto/alloc.Free", "pluto/alloc.Raw", "direct Allocator.Alloc", "direct Allocator.Free", "may invoke direct Allocator.Alloc", "pluto/rt.Pinned", "pluto/arch/x86.Hlt", "function without a body", "//pu:noescape", "//pu:extern", "//pu:export"} {
 		if !strings.Contains(out, reason) {
 			t.Errorf("missing %q:\n%s", reason, out)
 		}
@@ -142,17 +144,22 @@ func unrelated() { var f Fake; f.Alloc() }
 	}
 }
 
-// The calls that open and close regions are not unsafe code (language spec
-// section 18.12): they cannot make an access invalid.
+// The calls that open and close regions, and Pause, Cpuid, Rdtsc and
+// Rdtscp, are not unsafe code (language spec section 18.12, D56): they
+// cannot make an access invalid.
 func TestRegionCallsAreSafe(t *testing.T) {
 	t.Parallel()
 	out := auditReport(t, `package sample
 import "pluto/arch/x86"
 func regions() { f := x86.SaveFlagsCli(); x86.Cli(); x86.Sti(); x86.RestoreFlags(f) }
+func counters() uint64 { x86.Pause(); a, _, _, _ := x86.Cpuid(0, 0); t, _ := x86.Rdtscp(); return uint64(a) + t + x86.Rdtsc() }
 func halted() { x86.Hlt() }
 `)
 	if strings.Contains(out, "main.regions") {
 		t.Errorf("a function that only opens and closes regions is reported:\n%s", out)
+	}
+	if strings.Contains(out, "main.counters") {
+		t.Errorf("a function that only uses the safe intrinsics is reported:\n%s", out)
 	}
 	if !strings.Contains(out, "unsafe main.halted") || !strings.Contains(out, "pluto/arch/x86.Hlt") {
 		t.Errorf("x86.Hlt is no longer unsafe:\n%s", out)

@@ -227,11 +227,8 @@ func (g *graph) unsafeCall(info *types2.Info, e ast.Expr) string {
 				return compat.Concat("unsafe.", n)
 			}
 		case p == "pluto/arch/x86":
-			switch n {
-			case "Cli", "Sti", "SaveFlagsCli", "RestoreFlags":
-				// Not unsafe code (spec section 18.12): they cannot make an
-				// access invalid, and the race analysis follows them as
-				// regions (section 19.3).
+			if safeIntrinsic(p, n) {
+				// Not unsafe code (spec section 18.12).
 				return ""
 			}
 			return compat.Concat(p, ".", n)

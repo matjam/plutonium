@@ -120,16 +120,18 @@ func WriteSelected(w io.Writer, prog *load.Program, selected []*load.Package) er
 	return err
 }
 
-// regionCall reports whether a bodyless declaration is one of the calls that
-// open and close regions: they cannot make an access invalid, and the race
-// analysis follows them, so they are not unsafe code (language spec section
-// 18.12).
-func regionCall(pkg, name string) bool {
+// safeIntrinsic reports whether a bodyless declaration is one of the x86
+// intrinsics that are not unsafe code (language spec section 18.12, D56).
+// Cli, Sti, SaveFlagsCli and RestoreFlags open and close regions: they
+// cannot make an access invalid, and the race analysis follows them. Pause,
+// Cpuid, Rdtsc and Rdtscp touch no memory or processor state a program
+// relies on.
+func safeIntrinsic(pkg, name string) bool {
 	if pkg != "pluto/arch/x86" {
 		return false
 	}
 	switch name {
-	case "Cli", "Sti", "SaveFlagsCli", "RestoreFlags":
+	case "Cli", "Sti", "SaveFlagsCli", "RestoreFlags", "Pause", "Cpuid", "Rdtsc", "Rdtscp":
 		return true
 	}
 	return false
@@ -156,13 +158,13 @@ func newGraph(prog *load.Program) *graph {
 					f := pu.New(function{pkg: pkg, name: functionName(o), pos: d.Pos(), body: d, obj: o, sig: o.Type().(*types2.Signature)})
 					g.decls[o] = f
 					g.functions = compat.Append(g.functions, f)
-					if d.Body == nil && !regionCall(pkg.Path, d.Name.Name) {
+					if d.Body == nil && !safeIntrinsic(pkg.Path, d.Name.Name) {
 						f.unsafe = compat.Append(f.unsafe, site{d.Pos(), "function without a body"})
 					}
 					if d.Doc != nil {
 						for _, c := range d.Doc.List {
 							n, _, ok := directive.Split(c.Text)
-							if ok && (n == "noescape" || n == "resultholds" || n == "nochecks" || n == "extern") {
+							if ok && (n == "noescape" || n == "resultholds" || n == "nochecks" || n == "extern" || n == "export") {
 								f.unsafe = compat.Append(f.unsafe, site{c.Pos(), compat.Concat("//pu:", n)})
 							}
 						}

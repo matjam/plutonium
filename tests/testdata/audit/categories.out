@@ -34,8 +34,10 @@ package main
   unsafe main.pinned ./main.p:13:1
     ./main.p:13:35: pluto/rt.Pinned
   unsafe main.arch ./main.p:14:1
-    ./main.p:14:15: pluto/arch/x86.Pause
-  unsafe main.foreign ./main.p:17:1
-    ./main.p:15:1: //pu:noescape
-    ./main.p:16:1: //pu:extern
-    ./main.p:17:1: function without a body
+    ./main.p:14:15: pluto/arch/x86.Hlt
+  unsafe main.exported ./main.p:16:1
+    ./main.p:15:1: //pu:export
+  unsafe main.foreign ./main.p:19:1
+    ./main.p:17:1: //pu:noescape
+    ./main.p:18:1: //pu:extern
+    ./main.p:19:1: function without a body
