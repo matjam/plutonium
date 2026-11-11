@@ -789,10 +789,8 @@ known: 215: the wait check of non-migrating regions is not implemented, so the c
 == 19-concurrency.md 19.3 | // first lets a pointer into items escape its lock.
 
 == 19-concurrency.md 19.3 | type Config struct{ port int }
-known: 218: the race check has no rule for sync.Once: the writes inside f hold cfgOnce's own mutex, so the read of cfg after cfgOnce.Do is still E3503
 
 == 19-concurrency.md 19.3 | type Limits struct{ max int }
-known: 218: the race check has no rule for sync.Once, so its E3502 names the write inside limOnce.Do and not the write in reload
 
 == 19-concurrency.md 19.3 | type Logger owner struct {
 

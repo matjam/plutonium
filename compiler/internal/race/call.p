@@ -158,6 +158,9 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	}
 	nres := t.sig.Results().Len()
 	switch {
+	case t.static != nil && isOnceDo(t.static) && len(args) == 2 && len(e.Args) == 1:
+		w.onceDo(e, t, args[1])
+		return nil
 	case t.static != nil && w.frame != nil && t.static.lit != nil && t.static.unit == w.fn.unit && w.a.scoped.Lits[t.static.lit] == nil:
 		// A literal of the frame being checked, called where it is
 		// written: its uses of the frame are not in its summary.
@@ -559,6 +562,42 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 	}
 	vals()
 	return one(nil)
+}
+
+// onceDo follows o.Do(f) (spec section 19.3, Lazy initialization). f runs
+// holding o's own lock, so the writes it makes have o in their guard set.
+// Once Do has returned, o counts as held in read mode for the rest of the
+// function and in the functions it calls, as a held lock does: a read there
+// needs no other lock, and a write there does not hold o, so data written
+// both inside f and outside has an empty guard set (E3502). An entry of a
+// party holds nothing, so a read with no returned Do on some path is E3503.
+// A Once the walk cannot name gives f's writes and later reads nothing.
+func (w *walker) onceDo(e *ast.CallExpr, t callTarget, f origins) {
+	ps := t.recv.derefOr("*", w.unknownFor(t.recvExpr))
+	var o *vpath
+	if len(ps) == 1 && ps[0].root.kind != rUnknown && !strings.ContainsAny(ps[0].path, "#%") {
+		o = pu.New(ps[0])
+	}
+	w.parkPoint() // Do may wait for another task's f
+	if o != nil {
+		w.st.locks = w.st.locks.with(*o, true)
+	}
+	sig, _ := w.typeOf(e.Args[0]).Underlying().(*types2.Signature)
+	if sig != nil {
+		w.callValue(f, nil, e.Pos(), sig, exprText(e.Args[0]))
+	}
+	if o != nil {
+		w.st.locks = w.st.locks.without(*o).with(*o, false)
+	}
+}
+
+// isOnceDo reports whether f is sync.Once.Do.
+func isOnceDo(f *function) bool {
+	if f == nil || f.obj == nil || f.obj.Name() != "Do" {
+		return false
+	}
+	n := recvNamed(f.obj)
+	return n != nil && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "pluto/sync" && n.Obj().Name() == "Once"
 }
 
 // lockOp reports whether a call locks or unlocks a mutex, and returns the

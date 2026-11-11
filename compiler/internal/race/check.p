@@ -65,6 +65,22 @@ func (a *analyzer) check() {
 	queue := compat.Append([]*spawn(nil), prog.spawns...)
 	seen := map[string]bool{}
 	tw := newWalker(a, a.program)
+	// A function marked //pu:export may be called by C code at any time,
+	// before any Do there has returned: it is an entry of a party, with
+	// nothing held (section 19.3, Lazy initialization). Its accesses are
+	// counted with the main task's.
+	for _, f := range a.exportedFuncs() {
+		tw.sum = pu.New(summary{})
+		base := &state{pub: map[ast.Node]bool{}, spawned: true}
+		tw.apply(f, compat.Make[origins](len(f.params)), f.decl.Pos(), f.name, base, nil)
+		for _, x := range a.expandAll(tw.sum) {
+			if x.cpu == nil {
+				mainG.accesses = compat.Append(mainG.accesses, x)
+			}
+		}
+		cross = compat.Append(cross, tw.sum.cross...)
+		queue = compat.Append(queue, tw.sum.spawns...)
+	}
 	for len(queue) > 0 && len(groups) < maxGroups {
 		sp := queue[0]
 		queue = queue[1:]
@@ -435,6 +451,25 @@ func (a *analyzer) userStart(sp *spawn) (token.Pos, string) {
 
 func (a *analyzer) inStd(p token.Pos) bool {
 	return strings.HasPrefix(a.fset.Position(p).Filename, load.StdPrefix)
+}
+
+// exportedFuncs returns the functions of the program's own packages marked
+// //pu:export, in source order.
+func (a *analyzer) exportedFuncs() []*function {
+	var out []*function
+	for _, f := range a.funcs {
+		if f.decl == nil || f.decl.Doc == nil || f.decl.Body == nil || a.inStd(f.decl.Pos()) || f.sig.TypeParams() != nil {
+			continue
+		}
+		for _, c := range f.decl.Doc.List {
+			if strings.HasPrefix(c.Text, "//pu:export") {
+				out = compat.Append(out, f)
+				break
+			}
+		}
+	}
+	sort.SortFunc(out, func(x, y *function) bool { return x.decl.Pos() < y.decl.Pos() })
+	return out
 }
 
 // rootFunc returns the function a task runs, from its origin.

@@ -71,8 +71,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - `vec`, `hash`, `strings` and `bytes` may not restore their invariants before every check that can panic (17.2,
   18.12). Item 165.
 - A closure region does not yet run drop glue for every captured variable with cleanup (11.5, 18.8). Item 169.
-- `Once.Do` does not release its lock when `f` ends its task with `rt.ExitTask`, so later calls of `Do` on that
-  Once wait for good; F.5 says the next `Do` runs its own function. Item 218.
 - A large owner lent to an ordinary interface does not yet give a data word that points at the variable (7.9,
   abi.md 5). Item 171.
 - An owner declared in a for clause may not move between iterations and drop once (12.10, 18.6). Item 174.
@@ -86,9 +84,9 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - `[owner any]` may not parse as a type parameter named `owner` (4.6). Item 164.
 - Conformance checks for `alloc.Default()`, the arena window, the panic buffer, F.3 and F.6 names and debug
   allocator tags are not all tested. Item 167.
-- Data written only inside `once.Do` and read after `Do` is still E3503: the race check has no rule for
-  `sync.Once`, so it infers the Once's own lock as the guard instead of following lazy initialization, and it
-  does not reject a write outside the Once's function as such (19.3, Lazy initialization). Item 218.
+- The parameters of an exported function are entries of the race check, but views they carry are not followed
+  to what they point at, so a race on memory reached only through such a parameter is not found (19.3, Lazy
+  initialization, Parties). Item 218.
 - `rt.Yield` inside a non-migrating region compiles and does not panic, so a task can resume on another processor
   while it holds a view of per-CPU data (19.3, Switching tasks in a non-migrating region). Item 229.
 - A function started by `time.AfterFunc` counts as started once, so two runs after a `Reset` may race on what it

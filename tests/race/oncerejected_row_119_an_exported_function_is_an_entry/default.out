@@ -1,0 +1,17 @@
+$DIR/main.p:16:9: cfg is read here without holding once, which guards it
+    Every write to cfg that another task may run at the same time holds once:
+    main.p:11 in load (the task started by task worker at main.p:26). So the
+    compiler infers that once guards cfg, and every read must hold it too: a
+    read without it may run while a write is half done.
+    Here the main task reads it at main.p:16 in get with no lock held.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Hold the lock while reading:
+        once.Lock()
+        v := cfg
+        once.Unlock()
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3503" for a longer explanation)

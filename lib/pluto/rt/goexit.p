@@ -69,6 +69,14 @@ func CatchAllocFree(a Allocator, p unsafe.Pointer, size, align uintptr) bool {
 	return takeGoexit()
 }
 
+// Panicking reports whether the running task is running its deferred calls
+// for a panic. sync.Once uses it to keep its lock when the function passed
+// to Do panics, and to release it when that function ends the task.
+func Panicking() bool {
+	t := current()
+	return t != nil && t.panicking != nil
+}
+
 // ResumeAllocFreeExit ends the task with the ExitTask that CatchAllocFree
 // caught, once the allocator that called it has finished its own cleanup.
 // The compiler takes a call of it to end with Goexit only when some

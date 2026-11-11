@@ -85,13 +85,28 @@ func (o *Once) Do(f func()) {
 	}
 }
 
+// doSlow runs f under o's lock and sets done only after f returns. A panic
+// in f keeps the lock while the panicking task runs its deferred calls, so
+// no other Do returns before the program ends. An f that ends its task with
+// rt.ExitTask leaves the Once not done and unlocked, so the next Do calls
+// its own function.
 func (o *Once) doSlow(f func()) {
 	o.m.Lock()
+	defer o.unlockAfter(rt.Panicking())
 	if o.done == 0 {
 		f()
 		atomic.StoreUint32(&o.done, 1)
 	}
-	o.m.Unlock()
+}
+
+// unlockAfter releases o's lock when doSlow ends, unless it ends for a panic
+// that started inside it. wasPanicking says doSlow was called by a deferred
+// call running for a panic: a panic in f then goes straight to the panic
+// handler, so this runs only when f returns or ends the task.
+func (o *Once) unlockAfter(wasPanicking bool) {
+	if wasPanicking || !rt.Panicking() {
+		o.m.Unlock()
+	}
 }
 
 // A Cond is a condition variable: a point at which tasks wait for, or
