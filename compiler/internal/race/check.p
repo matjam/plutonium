@@ -758,12 +758,66 @@ func (a *analyzer) checkGlobals(groups []*group) {
 	}
 	sort.SortFunc(vars, func(a, b *types2.Var) bool { return a.Pos() < b.Pos() })
 	for _, v := range vars {
-		rel := globalLock
+		base := globalLock
 		if a.oneStatic(v) {
-			rel = staticLock(v)
+			base = staticLock(v)
 		}
-		a.checkPlaces(byVar[v], rel, func(x *access) string { return a.placeText(x.place) })
+		rel := func(l lock) (string, bool) {
+			if l.place.root.kind == rLocal && l.place.root.v == objectVar {
+				return compat.Concat("obj:", l.place.path), true
+			}
+			return base(l)
+		}
+		a.checkPlaces(objectLocks(byVar[v], base), rel, func(x *access) string { return a.placeText(x.place) })
 	}
+}
+
+// objectVar stands for "the object the access is in" in relative lock
+// places (objectLocks).
+var objectVar = types2.NewVar(token.NoPos, nil, "the object", nil)
+
+// objectLocks names, in each access through a pointer, the locks held of
+// the object the access is in relative to that object: a lock and a datum
+// of the same struct are of the same object however it is reached
+// (section 19.3, Rule 3), so two accesses of a field of one object
+// holding the object's own mutex hold one lock, and accesses of two
+// objects do not meet. A lock base already names is left as it is.
+// The object must be the one the variable itself points to (def* for a
+// package variable def): a lock reached through a pointer loaded from
+// memory (g.p.mu) is not a name (section 19.3, Locks and names, row 23).
+func objectLocks(es []entry, base func(lock) (string, bool)) []entry {
+	out := es
+	cloned := false
+	for i, e := range es {
+		ob := objectBase(e.x.place)
+		if !hasDeref(ob.path) || strings.Contains(ob.path, "#") || len(steps(ob.path)) != 1 {
+			continue
+		}
+		rewrite := func(ls lockset) (lockset, bool) {
+			var ns lockset
+			changed := false
+			for _, l := range ls {
+				if _, ok := base(l); !ok && l.place.root == ob.root && prefixOf(ob.path, l.place.path) && !hasDeref(strings.SliceFrom(l.place.path, len(ob.path))) {
+					l = lock{place: vpath{root: root{kind: rLocal, v: objectVar}, path: strings.SliceFrom(l.place.path, len(ob.path))}, excl: l.excl}
+					changed = true
+				}
+				ns = compat.Append(ns, l)
+			}
+			return ns, changed
+		}
+		ls, c1 := rewrite(e.x.locks)
+		vs, c2 := rewrite(e.x.vvalid)
+		if !c1 && !c2 {
+			continue
+		}
+		if !cloned {
+			out, cloned = compat.Clone(es), true
+		}
+		x := pu.New(*e.x)
+		x.locks, x.vvalid = ls, vs
+		out[i] = entry{x, e.g}
+	}
+	return out
 }
 
 // checkUnsendableGlobals reports a package variable whose type is not

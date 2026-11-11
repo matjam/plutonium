@@ -147,6 +147,10 @@ type function struct {
 	body   *ast.BlockStmt
 	sig    *types2.Signature
 	params []*types2.Var // receiver first
+	// caps are the variables of enclosing functions a literal uses. In
+	// its walk, the value of caps[k] is that of a parameter numbered
+	// len(params)+k, which the caller supplies (capArgs).
+	caps   []*types2.Var
 	pkg    *load.Package
 	unit   *unit
 
@@ -421,11 +425,44 @@ func (a *analyzer) collectLits(u *unit, outer *function, body ast.Node) {
 			sum:  pu.New(summary{}),
 		})
 		fn.params = sigParams(sig)
+		fn.caps = a.litCaps(lit)
 		a.lits[lit] = fn
 		a.collectLits(u, fn, lit.Body)
 		u.fns = compat.Append(u.fns, fn)
 		return false
 	})
+}
+
+// litCaps returns the variables declared outside lit, other than package
+// variables, that its body uses, in the order of their first use.
+func (a *analyzer) litCaps(lit *ast.FuncLit) []*types2.Var {
+	var out []*types2.Var
+	seen := map[*types2.Var]bool{}
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		id, ok := n.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		v, ok := a.objOf(id).(*types2.Var)
+		if !ok || isGlobal(v) || v.IsField() || seen[v] || (v.Pos() >= lit.Pos() && v.Pos() < lit.End()) {
+			return true
+		}
+		seen[v] = true
+		out = compat.Append(out, v)
+		return true
+	})
+	return out
+}
+
+// capIdx returns the parameter number of captured variable v in f's walk,
+// or -1.
+func (f *function) capIdx(v *types2.Var) int {
+	for k, c := range f.caps {
+		if c == v {
+			return len(f.params) + k
+		}
+	}
+	return -1
 }
 
 // scanValues finds the functions and literals used as values, the
@@ -461,6 +498,15 @@ func (a *analyzer) scanValues() {
 					switch n := n.(type) {
 					case *ast.CallExpr:
 						called[ast.Unparen(stripIndex(n.Fun))] = true
+						if len(n.Args) == 1 && onceDoCall(p.Info.Selections, n) {
+							// Do calls its argument there and keeps it
+							// nowhere (onceDo): it is not a value that
+							// other calls may reach.
+							switch arg := ast.Unparen(n.Args[0]).(type) {
+							case *ast.FuncLit, *ast.SelectorExpr:
+								called[arg] = true
+							}
+						}
 					case *ast.Ident:
 						if called[n] {
 							return true
@@ -490,6 +536,24 @@ func (a *analyzer) scanValues() {
 			}
 		}
 	}
+}
+
+// onceDoCall reports whether call e is o.Do(f) for a sync.Once o.
+func onceDoCall(sels map[*ast.SelectorExpr]*types2.Selection, e *ast.CallExpr) bool {
+	se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	sel := sels[se]
+	if sel == nil || sel.Kind() != types2.MethodVal {
+		return false
+	}
+	fn, ok := sel.Obj().(*types2.Func)
+	if !ok || fn.Name() != "Do" {
+		return false
+	}
+	n := recvNamed(fn)
+	return n != nil && n.Obj().Pkg() != nil && n.Obj().Pkg().Path() == "pluto/sync" && n.Obj().Name() == "Once"
 }
 
 func stripIndex(e ast.Expr) ast.Expr {

@@ -1,1 +1,2 @@
 $DIR/main.p:12:4: a pointer to the per-CPU variable ticks is kept in a variable of the enclosing function, which outlives the call, outside the region it was taken in
+$DIR/main.p:14:3: a pointer to the per-CPU variable ticks is used outside the region it was taken in

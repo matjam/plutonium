@@ -289,6 +289,7 @@ type walker struct {
 	inner      map[ast.Node]map[string]*innerSet
 	innerBad   map[ast.Node]bool // allocations inner does not describe
 	hasLit     int               // 0 unknown, 1 the body has a function literal, 2 not
+	doArg      ast.Expr          // the method value passed to the Once Do being walked: Do calls it there (onceDo)
 	lockedHere map[vpath]bool    // mutexes this function locks
 
 	// The check of scoped tasks (scope.go): the check, and the party whose
@@ -1405,6 +1406,10 @@ func (w *walker) taskStmt(st *ast.TaskStmt) {
 		w.cross(pu.New(crossing{pos: st.Pos(), what: what, typ: T, vals: a, expr: e}))
 	}
 	all = compat.Append(all, args...)
+	if t.static != nil && t.static.lit != nil {
+		// What the literal captures the task reaches too.
+		all = w.capArgs(t.static, all)
+	}
 	for _, a := range all {
 		w.publishAt(a, st.Pos(), "passed to a new task")
 	}
@@ -1848,7 +1853,7 @@ func (w *walker) value1(e ast.Expr) origins {
 			if w.frame != nil {
 				w.frame.noteVar(w, obj, e)
 			}
-			return w.u.vars[obj]
+			return w.varValue(obj)
 		case *types2.Func:
 			if f := w.a.funcs[obj.Origin()]; f != nil {
 				return compat.Clone(origins{f.asValue()})
@@ -2202,12 +2207,75 @@ func (w *walker) fieldValue(ps places, e *ast.SelectorExpr) origins {
 	return w.placeValue(ps.ps)
 }
 
+// varValue returns the origins of the value of local v. In the walk of a
+// literal's own summary, a variable of an enclosing function holds what the
+// caller supplies for it (capArgs): the variables are shared by every
+// function of the unit, so their origins name the parameters of whichever
+// function set them.
+func (w *walker) varValue(v *types2.Var) origins {
+	if w.frame == nil && w.inlined == 0 && w.fn != nil && w.fn.lit != nil {
+		if k := w.fn.capIdx(v); k >= 0 {
+			return compat.Clone(origins{{vp: vpath{root: root{kind: rParam, idx: k}}}})
+		}
+	}
+	return w.u.vars[v]
+}
+
+// capArgs returns args, the arguments of a call of f, followed by the
+// values of the variables f captures as this walk sees them; a value the
+// walk cannot see is left empty, unknown memory (apply).
+func (w *walker) capArgs(f *function, args []origins) []origins {
+	if f == nil || len(f.caps) == 0 {
+		return args
+	}
+	if w.fn == nil || w.fn.unit != f.unit {
+		// Called through a func value from another unit: the captured
+		// variables are the creating function's, which this walk cannot
+		// see.
+		return args
+	}
+	out := compat.Make[origins](len(f.params) + len(f.caps))
+	copy(out, args)
+	for k, v := range f.caps {
+		if w.declares(v) {
+			out[len(f.params)+k] = w.varValue(v)
+		}
+	}
+	return out
+}
+
+// declares reports whether v is a variable of the function being walked
+// or one it captures, so that this walk sees its value.
+func (w *walker) declares(v *types2.Var) bool {
+	if w.fn.lit != nil && w.fn.capIdx(v) >= 0 {
+		return true
+	}
+	var body ast.Node
+	switch {
+	case w.fn.lit != nil:
+		body = w.fn.lit
+	case w.fn.decl != nil:
+		body = w.fn.decl
+	default:
+		return false
+	}
+	if v.Pos() < body.Pos() || v.Pos() >= body.End() {
+		return false
+	}
+	for _, g := range w.u.fns {
+		if g != w.fn && g.lit != nil && g.lit.Pos() > body.Pos() && g.lit.End() <= body.End() && v.Pos() >= g.lit.Pos() && v.Pos() < g.lit.End() {
+			return false // a variable of a literal inside this function
+		}
+	}
+	return true
+}
+
 // placeValue returns the origins of the values stored at places ps.
 func (w *walker) placeValue(ps []vpath) origins {
 	var out origins
 	for _, p := range ps {
 		if p.root.kind == rLocal && localPath(p.path) {
-			v := w.u.vars[p.root.v]
+			v := w.varValue(p.root.v)
 			for _, s := range steps(p.path) {
 				if strings.HasPrefix(s, ".") {
 					v = v.field(strings.SliceFrom(s, 1))
@@ -2500,7 +2568,11 @@ func (w *walker) methodValue(e *ast.SelectorExpr, sel *types2.Selection) origins
 		if f == nil {
 			continue
 		}
-		w.apply(f, compat.Clone([]origins{recv}), e.Pos(), exprText(e), free, nil)
+		if w.doArg != ast.Expr(e) {
+			// The value may be called anywhere, with no lock held. Passed
+			// to a Once's Do, it is called there and nowhere else.
+			w.apply(f, compat.Clone([]origins{recv}), e.Pos(), exprText(e), free, nil)
+		}
 		out.add(f.asValue())
 	}
 	return out

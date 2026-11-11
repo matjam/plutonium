@@ -1,0 +1,77 @@
+$DIR/main.p:25:2: def.next is written here with no lock that guards it, while another task may use it
+    def.next is written at main.p:25 in (*slab).Take by the task started by task
+    worker at main.p:42 with no lock held, and the task started by task worker
+    at main.p:43 writes it at main.p:25 in (*slab).Take. Two tasks may run these
+    at the same time, one of them writing, which is a data race: the other may
+    see a value half written, or lose an update.
+    The compiler infers which lock guards shared data from the locks held where
+    it is written: a lock that every write holds. Here no one lock is held at
+    every write.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Hold one sync.Mutex at every access, writes and reads (a sync.RWMutex's
+    RLock is enough for reads):
+        mu.Lock()
+        def.next = v
+        mu.Unlock()
+    Or, for a number, use an atomic type from pluto/sync/atomic, such as
+    atomic.Int64, and its methods at every access.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3502" for a longer explanation)
+
+$DIR/main.p:32:10: def (holding a *slab) is a view of slab that may change while another task uses it, so it cannot be loaded once tasks may run
+    Loading def here gives this task def (holding a *slab), a *slab that other
+    tasks may reach too: every task that loads it can reach the same slab. A
+    slab is changed through a pointer at main.p:25 (its field next, in
+    (*slab).Take) without a lock of the same slab held, so the compiler cannot
+    tell that this one stays the same while the other task uses it.
+    A view may cross to another task only if what it points to cannot change
+    while both may use it, or every change is synchronized: a package variable
+    that is not written once tasks run, a struct whose fields are never changed
+    once it is shared or are used only under a lock of the same struct or
+    atomically, memory of a pluto/sync type, or the object of a synced[T].
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Pass a copy of the value instead of a pointer to it, or move an owner (such
+    as a vec.Vec) to the task so that only it has the memory.
+    To share changing data between tasks, put it in a synced[T] and hold a
+    sync.Mutex in it at every access, or use a package variable guarded by a
+    lock.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3501" for a longer explanation)
+
+$DIR/main.p:44:2: def (holding a *slab) is a view of slab that may change while another task uses it, so def cannot be passed to a new task
+    The argument def of task use gives another task def (holding a *slab), a
+    *slab: after this, both tasks can reach the same slab. A slab is changed
+    through a pointer at main.p:25 (its field next, in (*slab).Take) without a
+    lock of the same slab held, so the compiler cannot tell that this one stays
+    the same while the other task uses it.
+    A view may cross to another task only if what it points to cannot change
+    while both may use it, or every change is synchronized: a package variable
+    that is not written once tasks run, a struct whose fields are never changed
+    once it is shared or are used only under a lock of the same struct or
+    atomically, memory of a pluto/sync type, or the object of a synced[T].
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Pass a copy of the value instead of a pointer to it, or move an owner (such
+    as a vec.Vec) to the task so that only it has the memory.
+    To share changing data between tasks, put it in a synced[T] and hold a
+    sync.Mutex in it at every access, or use a package variable guarded by a
+    lock.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3501" for a longer explanation)
+
+$DIR/main.p:44:11: def (holding a *slab) is a view of slab that may change while another task uses it, so it cannot be loaded once tasks may run
+    (explained above; run "pluto explain E3501" for more)
+
+$DIR/main.p:45:2: def (holding a *slab) is a view of slab that may change while another task uses it, so def cannot be passed to a new task
+    (explained above; run "pluto explain E3501" for more)

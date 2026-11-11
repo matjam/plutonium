@@ -67,10 +67,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   `s.mu` (19.3, Locks and names). Item 232.
 - Maps are grouped by type, so two objects that each guard a map field with their own mutex are E3502 (19.3, Maps
   kept in place). Item 192.
-- The type rule ties a field to a lock of the same object only when both are reached from one variable, so a
-  field read through an interface or parameter receiver (an allocator's `Alloc`, say) holds no lock of its
-  object, and a struct that guards its own fields this way is E3501 where a view of it crosses. Keep such state
-  in package variables under a package lock (19.3, Rule 3). No item.
 
 ## 4. Smaller notes
 

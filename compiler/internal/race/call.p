@@ -128,7 +128,12 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	if t.ring != nil {
 		return w.ringCall(e, t)
 	}
+	savedDoArg := w.doArg
+	if t.static != nil && t.hasRecv && isOnceDo(t.static) && len(e.Args) == 1 {
+		w.doArg = ast.Unparen(e.Args[0])
+	}
 	args := w.args(e, t.sig)
+	w.doArg = savedDoArg
 	if fn := w.calledFunc(e); fn != nil {
 		w.freeCall(e, fn)
 		w.rtIntrinsic(e, fn, args)
@@ -603,7 +608,10 @@ func (w *walker) onceDo(e *ast.CallExpr, t callTarget, f origins) {
 		w.st.locks = w.st.locks.with(*o, true)
 	}
 	sig, _ := w.typeOf(e.Args[0]).Underlying().(*types2.Signature)
-	if sig != nil {
+	if se, ok := ast.Unparen(e.Args[0]).(*ast.SelectorExpr); ok && w.a.selections[se] != nil && w.a.selections[se].Kind() == types2.MethodVal {
+		// A method value: the call is on its receiver, as x.m() is.
+		w.methodCall(se.X, se.Sel.Name, nil, e.Pos())
+	} else if sig != nil {
 		w.callValue(f, nil, e.Pos(), sig, exprText(e.Args[0]))
 	}
 	if o != nil {
@@ -1029,6 +1037,7 @@ type applyOpts struct {
 func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, base *state, opts *applyOpts) ([]origins, *state) {
 	after := base.clone()
 	unknown := f == nil || f.bodyless
+	args = w.capArgs(f, args)
 	for _, a := range args {
 		// The callee may store in what the argument points to.
 		for _, o := range a {
