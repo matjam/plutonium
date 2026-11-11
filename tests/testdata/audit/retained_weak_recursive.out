@@ -76,31 +76,31 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1091:3: call pluto/rt.pause
+      pluto/rt/sched_linux.p:1101:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1092:6: call pluto/rt.load32
+      pluto/rt/sched_linux.p:1102:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1096:6: call pluto/rt.xchg32
+      pluto/rt/sched_linux.p:1106:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1097:3: call pluto/rt.futexsleep
+      pluto/rt/sched_linux.p:1107:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
-      pluto/rt/sched_linux.p:1105:3: call pluto/rt.futexwakeup
+      pluto/rt/sched_linux.p:1115:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
@@ -204,7 +204,7 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:575:14: call pluto/rt.runqsteal
-      pluto/rt/sched_linux.p:859:3: call pluto/rt.store32
+      pluto/rt/sched_linux.p:869:3: call pluto/rt.store32
     calls pluto/rt.store64
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
@@ -212,7 +212,7 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:592:3: call pluto/rt.pidleput
-      pluto/rt/sched_linux.p:763:2: call pluto/rt.store64
+      pluto/rt/sched_linux.p:773:2: call pluto/rt.store64
     calls pluto/rt.syscall3
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
@@ -238,7 +238,7 @@ package main
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:528:3: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:109:9: call pluto/rt.nanotime
-      pluto/rt/sched_linux.p:1138:2: call pluto/rt.clockGettime
+      pluto/rt/sched_linux.p:1148:2: call pluto/rt.clockGettime
     calls pluto/rt.schedWake
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
@@ -257,6 +257,16 @@ package main
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:378:3: call pluto/rt.schedFreeTask
+    calls pluto/rt.reportTask
+      ./main.p:14:37: call main.recursiveB
+      ./main.p:15:54: may call pluto/rt.waitShutdown
+      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
     calls pluto/rt.newThread
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
@@ -267,28 +277,6 @@ package main
       pluto/rt/sched_linux.p:632:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:646:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:672:3: call pluto/rt.newThread
-    calls pluto/rt.printUint
-      ./main.p:14:37: call main.recursiveB
-      ./main.p:15:54: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:738:2: call pluto/rt.printUint
-    calls pluto/rt.TraceTask
-      ./main.p:14:37: call main.recursiveB
-      ./main.p:15:54: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:742:2: call pluto/rt.TraceTask
   safe main.recursiveB ./main.p:15:1
     calls main.*E.Drop
       ./main.p:15:54: may drop main.*E.Drop
@@ -326,27 +314,27 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1091:3: call pluto/rt.pause
+      pluto/rt/sched_linux.p:1101:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1092:6: call pluto/rt.load32
+      pluto/rt/sched_linux.p:1102:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1096:6: call pluto/rt.xchg32
+      pluto/rt/sched_linux.p:1106:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1097:3: call pluto/rt.futexsleep
+      pluto/rt/sched_linux.p:1107:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
-      pluto/rt/sched_linux.p:1105:3: call pluto/rt.futexwakeup
+      pluto/rt/sched_linux.p:1115:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:225:2: call pluto/rt.cancelAppTimers
@@ -435,14 +423,14 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:575:14: call pluto/rt.runqsteal
-      pluto/rt/sched_linux.p:859:3: call pluto/rt.store32
+      pluto/rt/sched_linux.p:869:3: call pluto/rt.store32
     calls pluto/rt.store64
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:592:3: call pluto/rt.pidleput
-      pluto/rt/sched_linux.p:763:2: call pluto/rt.store64
+      pluto/rt/sched_linux.p:773:2: call pluto/rt.store64
     calls pluto/rt.syscall3
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
@@ -465,7 +453,7 @@ package main
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:528:3: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:109:9: call pluto/rt.nanotime
-      pluto/rt/sched_linux.p:1138:2: call pluto/rt.clockGettime
+      pluto/rt/sched_linux.p:1148:2: call pluto/rt.clockGettime
     calls pluto/rt.schedWake
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
@@ -482,6 +470,15 @@ package main
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:378:3: call pluto/rt.schedFreeTask
+    calls pluto/rt.reportTask
+      ./main.p:15:54: may call pluto/rt.waitShutdown
+      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
     calls pluto/rt.newThread
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
@@ -491,26 +488,6 @@ package main
       pluto/rt/sched_linux.p:632:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:646:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:672:3: call pluto/rt.newThread
-    calls pluto/rt.printUint
-      ./main.p:15:54: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:738:2: call pluto/rt.printUint
-    calls pluto/rt.TraceTask
-      ./main.p:15:54: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:742:2: call pluto/rt.TraceTask
   safe main.reach ./main.p:16:1
     calls main.*E.Drop
       ./main.p:16:16: call main.recursiveA
@@ -570,35 +547,35 @@ package main
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1091:3: call pluto/rt.pause
+      pluto/rt/sched_linux.p:1101:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1092:6: call pluto/rt.load32
+      pluto/rt/sched_linux.p:1102:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1096:6: call pluto/rt.xchg32
+      pluto/rt/sched_linux.p:1106:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1097:3: call pluto/rt.futexsleep
+      pluto/rt/sched_linux.p:1107:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
       ./main.p:15:54: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
-      pluto/rt/sched_linux.p:1105:3: call pluto/rt.futexwakeup
+      pluto/rt/sched_linux.p:1115:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
@@ -717,7 +694,7 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:575:14: call pluto/rt.runqsteal
-      pluto/rt/sched_linux.p:859:3: call pluto/rt.store32
+      pluto/rt/sched_linux.p:869:3: call pluto/rt.store32
     calls pluto/rt.store64
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
@@ -726,7 +703,7 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:592:3: call pluto/rt.pidleput
-      pluto/rt/sched_linux.p:763:2: call pluto/rt.store64
+      pluto/rt/sched_linux.p:773:2: call pluto/rt.store64
     calls pluto/rt.syscall3
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
@@ -755,7 +732,7 @@ package main
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:528:3: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:109:9: call pluto/rt.nanotime
-      pluto/rt/sched_linux.p:1138:2: call pluto/rt.clockGettime
+      pluto/rt/sched_linux.p:1148:2: call pluto/rt.clockGettime
     calls pluto/rt.schedWake
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
@@ -776,6 +753,17 @@ package main
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:378:3: call pluto/rt.schedFreeTask
+    calls pluto/rt.reportTask
+      ./main.p:16:16: call main.recursiveA
+      ./main.p:14:37: call main.recursiveB
+      ./main.p:15:54: may call pluto/rt.waitShutdown
+      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
     calls pluto/rt.newThread
       ./main.p:16:16: call main.recursiveA
       ./main.p:14:37: call main.recursiveB
@@ -787,30 +775,6 @@ package main
       pluto/rt/sched_linux.p:632:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:646:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:672:3: call pluto/rt.newThread
-    calls pluto/rt.printUint
-      ./main.p:16:16: call main.recursiveA
-      ./main.p:14:37: call main.recursiveB
-      ./main.p:15:54: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:738:2: call pluto/rt.printUint
-    calls pluto/rt.TraceTask
-      ./main.p:16:16: call main.recursiveA
-      ./main.p:14:37: call main.recursiveB
-      ./main.p:15:54: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:742:2: call pluto/rt.TraceTask
   safe main.Maker[T].Discard ./main.p:18:1
     calls main.*E.Drop
       ./main.p:18:32: may drop main.*E.Drop
@@ -848,27 +812,27 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1091:3: call pluto/rt.pause
+      pluto/rt/sched_linux.p:1101:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1092:6: call pluto/rt.load32
+      pluto/rt/sched_linux.p:1102:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1096:6: call pluto/rt.xchg32
+      pluto/rt/sched_linux.p:1106:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1097:3: call pluto/rt.futexsleep
+      pluto/rt/sched_linux.p:1107:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
-      pluto/rt/sched_linux.p:1105:3: call pluto/rt.futexwakeup
+      pluto/rt/sched_linux.p:1115:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:225:2: call pluto/rt.cancelAppTimers
@@ -957,14 +921,14 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:575:14: call pluto/rt.runqsteal
-      pluto/rt/sched_linux.p:859:3: call pluto/rt.store32
+      pluto/rt/sched_linux.p:869:3: call pluto/rt.store32
     calls pluto/rt.store64
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:592:3: call pluto/rt.pidleput
-      pluto/rt/sched_linux.p:763:2: call pluto/rt.store64
+      pluto/rt/sched_linux.p:773:2: call pluto/rt.store64
     calls pluto/rt.syscall3
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:234:3: call pluto/rt.park
@@ -987,7 +951,7 @@ package main
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:528:3: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:109:9: call pluto/rt.nanotime
-      pluto/rt/sched_linux.p:1138:2: call pluto/rt.clockGettime
+      pluto/rt/sched_linux.p:1148:2: call pluto/rt.clockGettime
     calls pluto/rt.schedWake
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
@@ -1004,6 +968,15 @@ package main
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:378:3: call pluto/rt.schedFreeTask
+    calls pluto/rt.reportTask
+      ./main.p:18:32: may call pluto/rt.waitShutdown
+      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
     calls pluto/rt.newThread
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
@@ -1013,26 +986,6 @@ package main
       pluto/rt/sched_linux.p:632:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:646:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:672:3: call pluto/rt.newThread
-    calls pluto/rt.printUint
-      ./main.p:18:32: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:738:2: call pluto/rt.printUint
-    calls pluto/rt.TraceTask
-      ./main.p:18:32: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:742:2: call pluto/rt.TraceTask
   safe main.method ./main.p:20:1
     calls main.*E.Drop
       ./main.p:20:47: call main.Maker[T].Discard
@@ -1081,31 +1034,31 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1091:3: call pluto/rt.pause
+      pluto/rt/sched_linux.p:1101:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1092:6: call pluto/rt.load32
+      pluto/rt/sched_linux.p:1102:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1096:6: call pluto/rt.xchg32
+      pluto/rt/sched_linux.p:1106:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1097:3: call pluto/rt.futexsleep
+      pluto/rt/sched_linux.p:1107:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
-      pluto/rt/sched_linux.p:1105:3: call pluto/rt.futexwakeup
+      pluto/rt/sched_linux.p:1115:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1209,7 +1162,7 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:575:14: call pluto/rt.runqsteal
-      pluto/rt/sched_linux.p:859:3: call pluto/rt.store32
+      pluto/rt/sched_linux.p:869:3: call pluto/rt.store32
     calls pluto/rt.store64
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1217,7 +1170,7 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:592:3: call pluto/rt.pidleput
-      pluto/rt/sched_linux.p:763:2: call pluto/rt.store64
+      pluto/rt/sched_linux.p:773:2: call pluto/rt.store64
     calls pluto/rt.syscall3
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1243,7 +1196,7 @@ package main
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:528:3: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:109:9: call pluto/rt.nanotime
-      pluto/rt/sched_linux.p:1138:2: call pluto/rt.clockGettime
+      pluto/rt/sched_linux.p:1148:2: call pluto/rt.clockGettime
     calls pluto/rt.schedWake
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1262,6 +1215,16 @@ package main
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:378:3: call pluto/rt.schedFreeTask
+    calls pluto/rt.reportTask
+      ./main.p:20:47: call main.Maker[T].Discard
+      ./main.p:18:32: may call pluto/rt.waitShutdown
+      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
     calls pluto/rt.newThread
       ./main.p:20:47: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1272,28 +1235,6 @@ package main
       pluto/rt/sched_linux.p:632:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:646:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:672:3: call pluto/rt.newThread
-    calls pluto/rt.printUint
-      ./main.p:20:47: call main.Maker[T].Discard
-      ./main.p:18:32: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:738:2: call pluto/rt.printUint
-    calls pluto/rt.TraceTask
-      ./main.p:20:47: call main.Maker[T].Discard
-      ./main.p:18:32: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:742:2: call pluto/rt.TraceTask
   safe main.promoted ./main.p:21:1
     calls main.*E.Drop
       ./main.p:21:59: call main.Maker[T].Discard
@@ -1342,31 +1283,31 @@ package main
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1091:3: call pluto/rt.pause
+      pluto/rt/sched_linux.p:1101:3: call pluto/rt.pause
     calls pluto/rt.load32
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1092:6: call pluto/rt.load32
+      pluto/rt/sched_linux.p:1102:6: call pluto/rt.load32
     calls pluto/rt.xchg32
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1096:6: call pluto/rt.xchg32
+      pluto/rt/sched_linux.p:1106:6: call pluto/rt.xchg32
     calls pluto/rt.futexsleep
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:214:2: call pluto/rt.*Lock.Lock
       pluto/rt/sched.p:805:2: call pluto/rt.lockAcquire
-      pluto/rt/sched_linux.p:1097:3: call pluto/rt.futexsleep
+      pluto/rt/sched_linux.p:1107:3: call pluto/rt.futexsleep
     calls pluto/rt.futexwakeup
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
       pluto/rt/shutdown.p:217:3: call pluto/rt.*Lock.Unlock
       pluto/rt/sched.p:825:2: call pluto/rt.lockRelease
-      pluto/rt/sched_linux.p:1105:3: call pluto/rt.futexwakeup
+      pluto/rt/sched_linux.p:1115:3: call pluto/rt.futexwakeup
     calls pluto/rt.*Timer.stopLocked
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1470,7 +1411,7 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:575:14: call pluto/rt.runqsteal
-      pluto/rt/sched_linux.p:859:3: call pluto/rt.store32
+      pluto/rt/sched_linux.p:869:3: call pluto/rt.store32
     calls pluto/rt.store64
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1478,7 +1419,7 @@ package main
       pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:592:3: call pluto/rt.pidleput
-      pluto/rt/sched_linux.p:763:2: call pluto/rt.store64
+      pluto/rt/sched_linux.p:773:2: call pluto/rt.store64
     calls pluto/rt.syscall3
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1504,7 +1445,7 @@ package main
       pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
       pluto/rt/sched_linux.p:528:3: call pluto/rt.runTimersOf
       pluto/rt/timer_linux.p:109:9: call pluto/rt.nanotime
-      pluto/rt/sched_linux.p:1138:2: call pluto/rt.clockGettime
+      pluto/rt/sched_linux.p:1148:2: call pluto/rt.clockGettime
     calls pluto/rt.schedWake
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1523,6 +1464,16 @@ package main
       pluto/rt/sched.p:347:2: call pluto/rt.finishSwitch
       pluto/rt/sched.p:361:3: call pluto/rt.afterSwitch
       pluto/rt/sched.p:378:3: call pluto/rt.schedFreeTask
+    calls pluto/rt.reportTask
+      ./main.p:21:59: call main.Maker[T].Discard
+      ./main.p:18:32: may call pluto/rt.waitShutdown
+      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
+      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
+      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
+      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
+      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
+      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
+      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
     calls pluto/rt.newThread
       ./main.p:21:59: call main.Maker[T].Discard
       ./main.p:18:32: may call pluto/rt.waitShutdown
@@ -1533,25 +1484,3 @@ package main
       pluto/rt/sched_linux.p:632:4: call pluto/rt.wakep
       pluto/rt/sched_linux.p:646:2: call pluto/rt.startm
       pluto/rt/sched_linux.p:672:3: call pluto/rt.newThread
-    calls pluto/rt.printUint
-      ./main.p:21:59: call main.Maker[T].Discard
-      ./main.p:18:32: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:738:2: call pluto/rt.printUint
-    calls pluto/rt.TraceTask
-      ./main.p:21:59: call main.Maker[T].Discard
-      ./main.p:18:32: may call pluto/rt.waitShutdown
-      pluto/rt/shutdown.p:223:3: may call pluto/rt.m0Main
-      pluto/rt/sched_linux.p:248:17: call pluto/rt.schedLoop
-      pluto/rt/sched_linux.p:318:8: call pluto/rt.findRunnable
-      pluto/rt/sched_linux.p:524:4: call pluto/rt.stopm
-      pluto/rt/sched_linux.p:686:2: call pluto/rt.checkDead
-      pluto/rt/sched_linux.p:707:2: call pluto/rt.reportParked
-      pluto/rt/sched_linux.p:727:2: call pluto/rt.reportTask
-      pluto/rt/sched_linux.p:742:2: call pluto/rt.TraceTask

@@ -49,8 +49,11 @@ func Traceback(pc, sp, bp uintptr) {
 // can use it for every task. t must be switched out (parked, runnable or
 // yielded), and its stack must stay as it is meanwhile. A task that was
 // preempted asynchronously has the preemption stub's frame at the top,
-// where the walk stops; one that has not run yet has no frames. Like
-// Panic.PrintTrace, it is generic in the type of w.
+// where the walk stops; one that has not run yet has no frames. A task
+// that parked in a deferred call running for a panic is traced as the
+// panic report would trace a panic there: from the deferred call on to
+// where the first panic happened. Like Panic.PrintTrace, it is generic in
+// the type of w.
 func TraceTask[W Writer](t *Task, w W) {
 	sp := t.ctx.sp
 	if sp == 0 {
@@ -58,7 +61,7 @@ func TraceTask[W Writer](t *Task, w W) {
 	}
 	bp := *(*uintptr)(unsafe.Pointer(sp + 48))
 	pc := *(*uintptr)(unsafe.Pointer(sp + 56))
-	traceback(w, pc, sp+64, bp, false, true, nil)
+	traceback(w, pc, sp+64, bp, false, true, t.panicking)
 }
 
 // traceback prints to w the stack walked from pc, sp and bp. exact says pc

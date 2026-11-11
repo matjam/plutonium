@@ -739,6 +739,16 @@ func reportTask(t *Task) {
 	printString(" [")
 	printString(t.waitReason.String())
 	printString("]:\n")
+	if p := t.panicking; p != nil {
+		// The task waits in a deferred call that runs for a panic, such
+		// as a deferred s.Wait(): name the panic so that the report does
+		// not lose it (language spec sections 19.1 and 19.4). TraceTask
+		// goes on from the deferred call to where the panic happened.
+		printString("panicking: ")
+		m := (*strWords)(unsafe.Pointer(&p.Message))
+		writeBytes(Console{}, unsafe.Pointer(m.p), m.n)
+		printString("\n")
+	}
 	TraceTask(t, Console{})
 }
 

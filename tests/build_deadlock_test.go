@@ -4,6 +4,7 @@ package tests
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -149,6 +150,44 @@ task 5 [sync.Cond.Wait]:
 `
 		if status != 2 || got != want {
 			t.Errorf("O%d: status %d, output:\n%s\nwant status 2, output:\n%s", level, status, got, want)
+		}
+	}
+}
+
+// TestDeadlockPanicking checks that a task waiting for good in a deferred
+// call that runs for a panic is reported with the panic (language spec
+// sections 19.1 and 19.4, debugging.md section 5): a panicking: line with
+// the message, then a trace that goes on from the deferred call to where
+// the panic happened. A task that is not panicking has no such line.
+func TestDeadlockPanicking(t *testing.T) {
+	t.Parallel()
+	src := `package main
+
+import "pluto/sync"
+
+func main() {
+	release := make(chan int)
+	var s sync.Scope
+	defer s.Wait()
+	s.Task(func() {
+		<-release
+	})
+	panic("lost key")
+}
+`
+	for _, level := range []int{0, 2} {
+		prog := buildConc(t, src, optFlag(level))
+		got, status := runExeEnv(t, prog)
+		got = libLine.ReplaceAllString(got, "($1:N)")
+		const want = `fatal error: all tasks are asleep - deadlock!
+
+task 1 [sync.Scope.Wait]:
+panicking: lost key
+    pluto/sync.(*Scope).Wait (pluto/sync/scope.p:N)
+    main.main (./main.p:12)
+`
+		if status != 2 || !strings.HasPrefix(got, want) || strings.Count(got, "panicking:") != 1 || !strings.Contains(got, "[chan receive]:\n") || strings.Contains(got, "pluto/rt.") {
+			t.Errorf("O%d: status %d, output:\n%s\nwant status 2, output starting:\n%s", level, status, got, want)
 		}
 	}
 }

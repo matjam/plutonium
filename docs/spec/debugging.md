@@ -310,8 +310,17 @@ prints the numbers and reasons without frames. Tests: `testdata/trace/deadlockch
 
 A task that was running deferred calls for a panic when the deadlock came (a deferred `s.Wait()`,
 language spec section 19.4) has a line after its reason that names the panic, `panicking: ` and its
-message, then the trace of the panic, as the panic report would have printed it. This line is planned
-(roadmap item 205).
+message, then the trace of the panic, as the panic report would have printed it: the task's frames from
+the deferred call on to where the panic happened.
+
+```
+task 1 [sync.Scope.Wait]:
+panicking: lost key
+    pluto/sync.(*Scope).Wait (pluto/sync/scope.p:47)
+    main.main (./main.p:12)
+```
+
+Test: `TestDeadlockPanicking` in `tests/build_deadlock_test.go`.
 
 When the task that runs `main` ended with `rt.ExitTask` and no task is left, or all wait for good, the
 program also ends with a fatal error, one that says `main` called `rt.ExitTask`, and status 2 (language spec

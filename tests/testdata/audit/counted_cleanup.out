@@ -27,10 +27,10 @@ package main
       ./main.p:18:18: may drop main.*E.Drop
     calls pluto/rt.addMapCount
       ./main.p:18:18: may drop pluto/rt.*MapIter[K, V].Drop
-      pluto/rt/map.p:755:5: call pluto/rt.addMapCount
+      pluto/rt/map.p:767:5: call pluto/rt.addMapCount
     calls pluto/rt.*MapTable[K, V].freeRetired
       ./main.p:18:18: may drop pluto/rt.*MapIter[K, V].Drop
-      pluto/rt/map.p:756:3: call pluto/rt.*MapTable[K, V].freeRetired
+      pluto/rt/map.p:768:3: call pluto/rt.*MapTable[K, V].freeRetired
     calls pluto/rt.freeMapTable
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
       pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
@@ -38,13 +38,13 @@ package main
     calls pluto/rt.getg
       ./main.p:18:18: may drop pluto/alloc.*Restore.Drop
       pluto/alloc/alloc.p:55:3: call pluto/rt.UseAllocator
-      pluto/rt/rt.p:964:7: call pluto/rt.current
+      pluto/rt/rt.p:969:7: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.*MapTable[K, V].retireTable
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
       pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
       pluto/rt/map.p:502:4: call pluto/rt.*MapTable[K, V].retire
-      pluto/rt/map.p:686:37: call pluto/rt.*MapTable[K, V].retireTable
+      pluto/rt/map.p:698:37: call pluto/rt.*MapTable[K, V].retireTable
     calls pluto/rt.printString
       ./main.p:18:18: may drop pluto/rt.*MapTable[K, V].Drop
       pluto/rt/map.p:519:35: call pluto/rt.*MapTable[K, V].Free
