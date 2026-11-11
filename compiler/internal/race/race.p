@@ -261,6 +261,7 @@ type analyzer struct {
 	initLits     map[ast.Node]bool        // composite literals whose address a package initializer stores: static object candidates
 	statics      map[ast.Node]bool        // the static objects: initLits that no code moves, drops or overwrites once tasks run
 	freedTypes   map[string]*writeSite    // the struct types of objects freed, dropped or moved once tasks run (the free condition)
+	arenaTypes   []types2.Type            // the types allocated by alloc.New, Owned, Shared, Synced and the arenas' New and Slice (bulkFreed)
 	plainWrites  plainSites               // the plain writes of package variables once tasks run (plainWritten)
 	guardedW     map[string]bool          // the shared writes of package variables that a guard set guards (writeKey)
 	converted    map[string]types2.Type              // types converted to interfaces
@@ -335,6 +336,9 @@ func newAnalyzer(prog *load.Program) *analyzer {
 			}
 			if tps == nil || inst.TypeArgs == nil {
 				continue
+			}
+			if f, ok := p.Info.Uses[id].(*types2.Func); ok && arenaAllocFunc(f) {
+				a.arenaTypes = compat.Append(a.arenaTypes, inst.TypeArgs.At(0))
 			}
 			for i := 0; i < tps.Len() && i < inst.TypeArgs.Len(); i++ {
 				a.tpArgs[tps.At(i)] = compat.Append(a.tpArgs[tps.At(i)], inst.TypeArgs.At(i))

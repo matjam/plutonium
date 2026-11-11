@@ -194,8 +194,12 @@ func (a *analyzer) finishShared(groups []*group) {
 	for n := range a.initLits {
 		a.statics[n] = true
 	}
+	var bulk *writeSite
 	for _, g := range groups {
 		for _, x := range g.accesses {
+			if x.write && isAllocMem(x.place) && bulk == nil {
+				bulk = pu.New(writeSite{pos: x.pos, fn: a.funcAt(x.pos), expr: "an object of the type"})
+			}
 			if !x.write || (!x.free && !strings.HasSuffix(x.place.path, "*")) {
 				continue
 			}
@@ -210,6 +214,58 @@ func (a *analyzer) finishShared(groups []*group) {
 			a.unstatic(x)
 		}
 	}
+	if bulk != nil {
+		a.bulkFreed(bulk)
+	}
+}
+
+// bulkFreed records that an allocator's Reset, Release or Drop once tasks
+// run frees objects of every type the program may allocate from an
+// allocator (section 19.3, Frees are writes): the compiler does not tell
+// which allocator an object came from, so every such type counts.
+func (a *analyzer) bulkFreed(site *writeSite) {
+	seen := map[types2.Type]bool{}
+	var note func(T types2.Type, depth int)
+	note = func(T types2.Type, depth int) {
+		if T == nil || seen[T] || depth > 4 {
+			return
+		}
+		seen[T] = true
+		if tp, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+			for _, arg := range a.tpArgs[tp] {
+				note(arg, depth+1)
+			}
+			return
+		}
+		if _, ok := a.freedTypes[typeKey(T)]; !ok {
+			a.noteFreed(T, site, 0)
+		}
+	}
+	for _, T := range a.arenaTypes {
+		note(T, 0)
+	}
+}
+
+// arenaAllocFunc reports whether f allocates an object of its type argument
+// from an allocator it is given: alloc.New, Owned, Shared and Synced, and
+// the New and Slice methods of pluto/arena's arenas.
+func arenaAllocFunc(f *types2.Func) bool {
+	if f.Pkg() == nil {
+		return false
+	}
+	switch f.Pkg().Path() {
+	case "pluto/alloc":
+		switch f.Name() {
+		case "New", "Owned", "Shared", "Synced":
+			return true
+		}
+	case "pluto/arena":
+		switch f.Name() {
+		case "New", "Slice":
+			return true
+		}
+	}
+	return false
 }
 
 // unstatic drops the static objects that write x may free, move or
