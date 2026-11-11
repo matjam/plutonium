@@ -280,6 +280,15 @@ type walker struct {
 	gotos      map[string]bool
 	depth      int               // nested applications of func-valued arguments
 	created    map[ast.Node]bool // allocations made by this function
+	// linked maps an allocation made here to those made here whose
+	// unpublished memory holds a pointer to it: it is published when any
+	// of them is (isPub).
+	linked     map[ast.Node][]ast.Node
+	// inner maps an allocation made here and a field path in it to the
+	// allocations made here that were stored there (innerFields).
+	inner      map[ast.Node]map[string]*innerSet
+	innerBad   map[ast.Node]bool // allocations inner does not describe
+	hasLit     int               // 0 unknown, 1 the body has a function literal, 2 not
 	lockedHere map[vpath]bool    // mutexes this function locks
 
 	// The check of scoped tasks (scope.go): the check, and the party whose
@@ -1150,6 +1159,7 @@ func (w *walker) readWrite(e ast.Expr, pos token.Pos) {
 // store records that val is stored at places ps: in a local variable, its
 // origins grow; anywhere else, what val points to is published.
 func (w *walker) store(ps []vpath, val origins, pos token.Pos, T types2.Type) {
+	w.noteInterior(val)
 	for _, p := range ps {
 		if p.root.kind == rGlobal && !strings.ContainsAny(p.path, "*%$&#") && w.quiet == 0 {
 			w.a.noteGlobalStore(p, val, T)
@@ -1158,6 +1168,17 @@ func (w *walker) store(ps []vpath, val origins, pos token.Pos, T types2.Type) {
 			w.cpuCarry(p.root.v, val, pos)
 			w.setVar(p.root.v, val.tagged2(fieldTag(p.path)))
 			continue
+		}
+		if w.initializing(p, w.st) {
+			w.noteInner(p, val)
+			// Stored in memory this function allocated and has not
+			// published: what it points to is published with that memory,
+			// not before (section 19.3, Crossings). Through a pointer
+			// field the memory is any allocation on the way.
+			for _, n := range w.innerChain(p) {
+				w.link(n, val)
+			}
+			val = w.link(p.root.node, val)
 		}
 		w.publishAt(val, pos, "stored where it outlives the region")
 	}
@@ -1219,6 +1240,57 @@ func (w *walker) publish(val origins) {
 	}
 }
 
+// link records that the allocations made here that val points to are
+// held in the unpublished memory of allocation n, and returns the rest of
+// val, which is published as before.
+func (w *walker) link(n ast.Node, val origins) origins {
+	var rest origins
+	for _, o := range val {
+		if o.vp.root.kind != rFresh || o.vp.path != "&" || !w.created[o.vp.root.node] {
+			rest = origins(compat.Append(rest, o))
+			continue
+		}
+		c := o.vp.root.node
+		if w.linked == nil {
+			w.linked = map[ast.Node][]ast.Node{}
+		}
+		dup := false
+		for _, m := range w.linked[c] {
+			dup = dup || m == n
+		}
+		if !dup {
+			w.linked[c] = compat.Append(w.linked[c], n)
+		}
+	}
+	return rest
+}
+
+// isPub reports whether allocation n made here is published in state st:
+// itself, or an allocation whose memory holds a pointer to it.
+func (w *walker) isPub(n ast.Node, st *state) bool {
+	if st.pub[n] {
+		return true
+	}
+	if len(w.linked[n]) == 0 {
+		return false
+	}
+	seen := map[ast.Node]bool{n: true}
+	work := compat.Clone(w.linked[n])
+	for len(work) > 0 {
+		m := work[len(work)-1]
+		work = work[:len(work)-1]
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		if st.pub[m] {
+			return true
+		}
+		work = compat.Append(work, w.linked[m]...)
+	}
+	return false
+}
+
 // isNil reports whether e is the predeclared nil.
 func isNil(a *analyzer, e ast.Expr) bool {
 	id, ok := ast.Unparen(e).(*ast.Ident)
@@ -1234,7 +1306,7 @@ func isNil(a *analyzer, e ast.Expr) bool {
 func (w *walker) noteFreshResult(i int, v origins) {
 	fresh := len(v) > 0 && !w.st.pubAll
 	for _, o := range v {
-		if o.vp.root.kind != rFresh || o.vp.path != "&" || !w.created[o.vp.root.node] || w.st.pub[o.vp.root.node] {
+		if o.vp.root.kind != rFresh || o.vp.path != "&" || !w.created[o.vp.root.node] || w.isPub(o.vp.root.node, w.st) {
 			fresh = false
 		}
 	}
@@ -1468,7 +1540,148 @@ func (w *walker) initializing(p vpath, st *state) bool {
 		// The object of a box allocated here.
 		path = strings.SliceFrom(path, stepEnd(path, 0))
 	}
-	return w.created[n] && !st.pub[n] && !strings.ContainsAny(path, "*%$#")
+	if !w.created[n] || w.isPub(n, st) || strings.ContainsAny(path, "%$#") {
+		return false
+	}
+	i := strings.IndexByte(path, '*')
+	if i < 0 {
+		return true
+	}
+	// Through a pointer field: initializing when every allocation stored
+	// in that field is one made here and not published, and the rest of
+	// the path is initializing in it (section 19.3, Crossings).
+	set := w.innerOf(n, strings.Slice(path, 0, i))
+	if set == nil {
+		return false
+	}
+	for _, m := range set.nodes {
+		if !w.initializing(vpath{root: root{kind: rFresh, node: m}, path: strings.SliceFrom(path, i)}, st) {
+			return false
+		}
+	}
+	return true
+}
+
+// innerChain returns the allocations other than p's root that a place p
+// for which initializing holds may lie in.
+func (w *walker) innerChain(p vpath) []ast.Node {
+	path := p.path
+	if path != "" && (path[0] == '$' || path[0] == '*') {
+		path = strings.SliceFrom(path, stepEnd(path, 0))
+	}
+	i := strings.IndexByte(path, '*')
+	if i < 0 {
+		return nil
+	}
+	set := w.innerOf(p.root.node, strings.Slice(path, 0, i))
+	if set == nil {
+		return nil
+	}
+	var out []ast.Node
+	for _, m := range set.nodes {
+		out = compat.Append(out, m)
+		out = compat.Append(out, w.innerChain(vpath{root: root{kind: rFresh, node: m}, path: strings.SliceFrom(path, i)})...)
+	}
+	return out
+}
+
+// innerSet is what is stored in one field of an allocation made here.
+type innerSet struct {
+	nodes []ast.Node // the allocations made here stored in it
+	bad   bool       // something else was stored in it
+}
+
+// noteInner records that val is stored at p, a place in memory this
+// function allocated and has not published. The record holds every store
+// the walk sees, so it covers the field's value at any later point: the
+// walk of a loop sees its body before it records.
+func (w *walker) noteInner(p vpath, val origins) {
+	path := p.path
+	if path != "" && (path[0] == '$' || path[0] == '*') {
+		path = strings.SliceFrom(path, stepEnd(path, 0))
+	}
+	n := p.root.node
+	if i := strings.IndexByte(path, '*'); i >= 0 {
+		// In an allocation stored in a field of n.
+		if set := w.innerOf(n, strings.Slice(path, 0, i)); set != nil {
+			for _, m := range set.nodes {
+				w.noteInner(vpath{root: root{kind: rFresh, node: m}, path: strings.SliceFrom(path, i)}, val)
+			}
+		}
+		return
+	}
+	if w.inner == nil {
+		w.inner = map[ast.Node]map[string]*innerSet{}
+	}
+	if w.inner[n] == nil {
+		w.inner[n] = map[string]*innerSet{}
+	}
+	set := w.inner[n][path]
+	if set == nil {
+		set = pu.New(innerSet{})
+		w.inner[n][path] = set
+	}
+	for _, o := range val {
+		if o.vp.root.kind != rFresh || o.vp.path != "&" || !w.created[o.vp.root.node] {
+			set.bad = true
+			continue
+		}
+		dup := false
+		for _, m := range set.nodes {
+			dup = dup || m == o.vp.root.node
+		}
+		if !dup {
+			set.nodes = compat.Append(set.nodes, o.vp.root.node)
+		}
+	}
+}
+
+// noteInterior marks the allocations made here that val points into, not
+// at: a store through that pointer is one the walk does not record.
+func (w *walker) noteInterior(val origins) {
+	for _, o := range val {
+		if o.vp.root.kind == rFresh && o.vp.path != "&" {
+			w.markInnerBad(o.vp.root.node)
+		}
+	}
+}
+
+func (w *walker) markInnerBad(n ast.Node) {
+	if w.innerBad == nil {
+		w.innerBad = map[ast.Node]bool{}
+	}
+	w.innerBad[n] = true
+}
+
+// innerOf returns what was stored in field path of allocation n, or nil
+// when the walk cannot tell: a call was passed n, a function literal may
+// store in it, or something else was stored there.
+func (w *walker) innerOf(n ast.Node, path string) *innerSet {
+	if w.innerBad[n] || w.bodyHasLit() {
+		return nil
+	}
+	set := w.inner[n][path]
+	if set == nil || set.bad || len(set.nodes) == 0 {
+		return nil
+	}
+	return set
+}
+
+func (w *walker) bodyHasLit() bool {
+	if w.hasLit == 0 {
+		w.hasLit = 2
+		if w.fn == nil || w.fn.body == nil {
+			w.hasLit = 1
+		} else {
+			ast.Inspect(w.fn.body, func(x ast.Node) bool {
+				if _, ok := x.(*ast.FuncLit); ok {
+					w.hasLit = 1
+				}
+				return w.hasLit == 2
+			})
+		}
+	}
+	return w.hasLit == 1
 }
 
 // unknownFor returns the root of memory reached through x when the

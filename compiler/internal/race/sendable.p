@@ -169,7 +169,7 @@ func (w *walker) noteViewWrite(lhs ast.Expr, ps []vpath, T types2.Type) {
 		case rLocal:
 			through = through || loads
 		case rFresh:
-			if !loads && w.created[p.root.node] && !w.st.pub[p.root.node] && !w.st.pubAll {
+			if !loads && w.created[p.root.node] && !w.isPub(p.root.node, w.st) && !w.st.pubAll {
 				continue // initialising memory this function just allocated
 			}
 			through = true

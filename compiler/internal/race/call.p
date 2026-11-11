@@ -1029,6 +1029,14 @@ type applyOpts struct {
 func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, base *state, opts *applyOpts) ([]origins, *state) {
 	after := base.clone()
 	unknown := f == nil || f.bodyless
+	for _, a := range args {
+		// The callee may store in what the argument points to.
+		for _, o := range a {
+			if o.vp.root.kind == rFresh {
+				w.markInnerBad(o.vp.root.node)
+			}
+		}
+	}
 	for i, a := range args {
 		if !unknown && !f.sum.pubParams.has(i) {
 			continue

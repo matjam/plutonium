@@ -192,9 +192,8 @@ func main() int64 {
 	case "live":
 		a := alloc.New[node]()
 		a.val = 7
-		second := alloc.New[node]()
-		second.val = 42
-		a.next = second
+		a.next = alloc.New[node]()
+		a.next.val = 42
 		probeLock.Lock()
 		probe = a
 		probeLock.Unlock()
