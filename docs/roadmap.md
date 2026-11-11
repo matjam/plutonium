@@ -1510,8 +1510,12 @@ compiler (2026-10-11).
     (`compiler/internal/lower/stmt.p`, `compiler/internal/escape2/eir/stmt.p`). Tests:
     `tests/moves/rejected_type_switch_moves_only_in_some_clauses`, `accepted_type_switch_moves_only_in_some_clauses`,
     `rejected_assertion_lends_and_conversion_moves` and `accepted_assertion_lends_and_conversion_moves`.
-149. **Follow comma-ok `ok` through direct tests** (planned; sections 11.13, 18.5, D47, finding C3): the move
-    analysis knows `ok` on the branches of a direct test, and the E3302 message suggests `if !ok`.
+149. **Follow comma-ok `ok` through direct tests** (done; sections 11.13, 18.5, D47, finding C3): the move
+    analysis knows `ok` on the branches of a direct test, and the E3302 message suggests `if !ok`. Done: a
+    moving comma-ok assertion records an `okFact` on its `ok`; `if ok`, `if !ok` and their `else` branches
+    see the operand moved or as it was, while the move that emptied it still stands. Tests:
+    `tests/moves/rejected_ok_of_a_moving_assertion_not_tested_directly`,
+    `accepted_ok_of_a_moving_assertion_tested_directly` and the hint in `tests/diag/owning_iface`.
 150. **An enum is not an integer type** (done, `f4200cfa`; sections 7.12, 11.24, D48, finding C4): `Shade(color)` and
     the other enum-to-enum conversions are E2313; update the catalog text. Constant, comma-ok and plain
     forms are all E2313, and the message shows the conversion through the integer type. Tests:

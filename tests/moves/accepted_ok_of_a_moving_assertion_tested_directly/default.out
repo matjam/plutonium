@@ -1,0 +1,8 @@
+got 1
+drop 1
+use -1
+use 2
+drop 2
+got 3
+drop 3
+end

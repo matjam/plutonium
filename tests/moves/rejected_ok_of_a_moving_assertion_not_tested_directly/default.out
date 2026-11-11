@@ -1,0 +1,79 @@
+$DIR/main.p:22:7: x may have been moved at line 19, so it cannot be used here
+    Thing is an owner type: its values own what they hold and release it when
+    they are dropped. x is moved out by the type assertion x.(owned[Buf]) at
+    line 19 on some paths to this point and not on others. On those paths x
+    holds nothing afterwards, and the compiler cannot let a value be used where
+    it may already belong to someone else.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use x before line 19, or give it a new value on the path that moves it:
+        x = ...
+    Or test the ok result of the assertion at line 19 directly: where it is
+    false, x still holds its value:
+        if !ok {
+            // use x
+        }
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3302" for a longer explanation)
+
+$DIR/main.p:32:6: x may have been moved at line 30, so it cannot be used here
+    Thing is an owner type: its values own what they hold and release it when
+    they are dropped. x is moved out by the type assertion x.(owned[Buf]) at
+    line 30 on some paths to this point and not on others. On those paths x
+    holds nothing afterwards, and the compiler cannot let a value be used where
+    it may already belong to someone else.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use x before line 30, or give it a new value on the path that moves it:
+        x = ...
+    Or test the ok result of the assertion at line 30 directly: where it is
+    false, x still holds its value:
+        if !ok {
+            // use x
+        }
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3302" for a longer explanation)
+
+$DIR/main.p:40:6: x may have been moved at line 37, so it cannot be used here
+    Thing is an owner type: its values own what they hold and release it when
+    they are dropped. x is moved out by the type assertion x.(owned[Buf]) at
+    line 37 on some paths to this point and not on others. On those paths x
+    holds nothing afterwards, and the compiler cannot let a value be used where
+    it may already belong to someone else.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use x before line 37, or give it a new value on the path that moves it:
+        x = ...
+    Or test the ok result of the assertion at line 37 directly: where it is
+    false, x still holds its value:
+        if !ok {
+            // use x
+        }
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3302" for a longer explanation)
+
+$DIR/main.p:48:7: x may have been moved at line 45, so it cannot be used here
+    Thing is an owner type: its values own what they hold and release it when
+    they are dropped. x is moved out by the type assertion x.(owned[Buf]) at
+    line 45 on some paths to this point and not on others. On those paths x
+    holds nothing afterwards, and the compiler cannot let a value be used where
+    it may already belong to someone else.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use x before line 45, or give it a new value on the path that moves it:
+        x = ...
+    Or test the ok result of the assertion at line 45 directly: where it is
+    false, x still holds its value:
+        if !ok {
+            // use x
+        }
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3302" for a longer explanation)

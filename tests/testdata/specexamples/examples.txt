@@ -192,7 +192,6 @@ pre:
 	var ok bool
 
 == 11-expressions.md 11.13 | c, ok := r.(Conn)
-known: 149: the move check does not follow ok through if !ok, so line 3 reports r moved (E3301), and line 11 reports E3301, not E3302
 pre:
 	type Res owner interface{}
 	type Conn owner struct{ fd int32 }

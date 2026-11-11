@@ -43,6 +43,11 @@ $DIR/main.p:42:10: r may have been moved at line 39, so it cannot be used here
     one.
     Use r before line 39, or give it a new value on the path that moves it:
         r = ...
+    Or test the ok result of the assertion at line 39 directly: where it is
+    false, r still holds its value:
+        if !ok {
+            // use r
+        }
     (see "Moves" in the Plutonium spec, section 18.5)
     (run "pluto explain E3302" for a longer explanation)
 

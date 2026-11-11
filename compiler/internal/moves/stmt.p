@@ -78,8 +78,10 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 		f.endUnit(u, st, nil)
 	case *ast.AssignStmt:
 		u := f.beginUnit()
+		fact := f.okAssert(st)
 		f.assignStmt(st)
 		f.endUnit(u, st, st.Lhs)
+		f.noteOk(st, fact)
 	case *ast.OrStmt:
 		f.orStmt(st)
 	case *ast.IncDecStmt:
@@ -88,22 +90,16 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 	case *ast.BlockStmt:
 		f.block(st)
 	case *ast.IfStmt:
-		before := f.env.clone()
 		f.stmt(st.Init, "")
 		f.exprUnit(st.Cond)
 		entry := f.env.clone()
+		// A direct test of the ok of a moving comma-ok assertion says
+		// whether the owner was moved out (D47).
+		f.applyOk(st.Cond, true)
 		f.block(st.Body)
 		after := f.env
 		f.env = entry
-		if v := f.assertFailed(st); v != nil && f.env != nil {
-			// if x, ok := i.(T); ok {...} else {...}: the assertion moved
-			// the owner out of i only where ok is true.
-			if s, ok := before[v]; ok {
-				f.env[v] = s
-			} else {
-				delete(f.env, v)
-			}
-		}
+		f.applyOk(st.Cond, false)
 		f.stmt(st.Else, "")
 		f.env = join(after, f.env)
 	case *ast.ForStmt:
@@ -952,26 +948,119 @@ func (f *fn) switchLends(cc *ast.CaseClause) bool {
 	return !tv.IsNil() && tv.Type != nil && types2.IsInterface(tv.Type) && !isOwner(tv.Type)
 }
 
-// assertFailed returns the owning interface variable that the init of an
-// if statement "if v, ok := x.(T); ok" asserts out of, or nil: on the else
-// path the assertion failed, and x still holds its value.
-func (f *fn) assertFailed(st *ast.IfStmt) *types2.Var {
-	as, ok := st.Init.(*ast.AssignStmt)
-	if !ok || len(as.Lhs) != 2 || len(as.Rhs) != 1 {
+// okAssert returns, for the comma-ok assertion v, ok := x.(T) or
+// v, ok = x.(T) that moves an owner out of the interface variable x, what
+// x holds before it, or nil.
+func (f *fn) okAssert(st *ast.AssignStmt) *okFact {
+	if f.env == nil || len(st.Lhs) != 2 || len(st.Rhs) != 1 {
 		return nil
 	}
-	ta, ok := ast.Unparen(as.Rhs[0]).(*ast.TypeAssertExpr)
-	if !ok || !f.c.info.AssertMoves[ta] && !f.assertMoves(ta.X, f.c.typeOf(ta.Type)) {
+	ta, ok := ast.Unparen(st.Rhs[0]).(*ast.TypeAssertExpr)
+	if !ok || ta.Type == nil || !f.assertMoves(ta.X, f.c.typeOf(ta.Type)) {
 		return nil
 	}
-	okID, ok := as.Lhs[1].(*ast.Ident)
-	cond, ok2 := ast.Unparen(st.Cond).(*ast.Ident)
-	if !ok || !ok2 || f.c.objOf(okID) == nil || f.c.objOf(okID) != f.c.objOf(cond) {
-		return nil
-	}
-	x, ok := ast.Unparen(ta.X).(*ast.Ident)
+	id, ok := ast.Unparen(ta.X).(*ast.Ident)
 	if !ok {
 		return nil
 	}
-	return f.varOf(x)
+	x := f.varOf(id)
+	if x == nil || f.captured(x) {
+		return nil
+	}
+	s, had := f.env[x]
+	return pu.New(okFact{x: x, before: s, had: had})
+}
+
+// okVar returns the local variable an ok result or test names, or nil
+// when it is blank or something other than the walk may change it.
+func (f *fn) okVar(e ast.Expr) *types2.Var {
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	if !ok || id.Name == "_" {
+		return nil
+	}
+	v, _ := f.c.objOf(id).(*types2.Var)
+	if v == nil || !f.vars[v] || f.noFacts[v] {
+		return nil
+	}
+	return v
+}
+
+// noteOk ends what was known through the variables st assigns, and
+// records, for a moving comma-ok assertion, that its ok says whether x
+// was moved out. Elsewhere x is possibly moved (D47).
+func (f *fn) noteOk(st *ast.AssignStmt, fact *okFact) {
+	if f.env == nil {
+		return
+	}
+	for _, l := range st.Lhs {
+		f.dropOk(l)
+	}
+	if fact == nil {
+		return
+	}
+	s := f.env[fact.x]
+	if s.st != moved || s.mv == nil || s.mv.kind != mvAssert {
+		return
+	}
+	fact.mv = s.mv
+	s.st = maybe
+	f.setState(fact.x, s)
+	if v := f.okVar(st.Lhs[1]); v != nil && v != fact.x {
+		o := f.env[v]
+		o.ok = fact
+		f.setState(v, o)
+	}
+}
+
+// dropOk forgets what a test of the variable e names would say.
+func (f *fn) dropOk(e ast.Expr) {
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	if !ok || f.env == nil {
+		return
+	}
+	if v, _ := f.c.objOf(id).(*types2.Var); v != nil {
+		if s, ok := f.env[v]; ok && s.ok != nil {
+			s.ok = nil
+			f.setState(v, s)
+		}
+	}
+}
+
+// applyOk applies what the condition cond being want says about the
+// variables comma-ok assertions moved out of: cond is ok, !ok, or a chain
+// of && (when true) or || (when false) with such operands (D47).
+func (f *fn) applyOk(cond ast.Expr, want bool) {
+	if f.env == nil {
+		return
+	}
+	switch e := ast.Unparen(cond).(type) {
+	case *ast.Ident:
+		v := f.okVar(e)
+		if v == nil {
+			return
+		}
+		fact := f.env[v].ok
+		if fact == nil {
+			return
+		}
+		s := f.env[fact.x]
+		if s.st == live || s.mv != fact.mv {
+			return
+		}
+		if want {
+			s.st = moved
+		} else {
+			s.st, s.mv, s.z, s.bz = fact.before.st, fact.before.mv, fact.before.z, fact.before.bz
+		}
+		f.setState(fact.x, s)
+	case *ast.UnaryExpr:
+		if e.Op == token.NOT {
+			f.applyOk(e.X, !want)
+		}
+	case *ast.BinaryExpr:
+		if e.Op == token.LAND && want || e.Op == token.LOR && !want {
+			f.applyOk(e.X, want)
+			f.applyOk(e.Y, want)
+		}
+	}
 }

@@ -322,6 +322,21 @@ type vstate struct {
 	// registered on some path here: the literal runs when the function
 	// returns, so the variable must hold a value then (section 18.5).
 	dl *deferMark
+	// ok, for the ok result of a comma-ok assertion that moves an owner
+	// out of an interface variable, says what a direct test of it tells
+	// about that variable (D47).
+	ok *okFact
+}
+
+// An okFact records the comma-ok assertion v, ok := x.(T) that moved an
+// owner out of the interface variable x: where ok is true x holds nothing,
+// where it is false x holds what it held before (before, had), as long as
+// mv is still the move that left x empty (section 11.13, D47).
+type okFact struct {
+	x      *types2.Var
+	mv     *move
+	before vstate
+	had    bool
 }
 
 // A deferMark records the use of an owner by a deferred function literal.
@@ -343,7 +358,7 @@ const (
 
 // plain reports whether s says nothing beyond live.
 func (s vstate) plain() bool {
-	return s.st == live && s.z == nil && s.bz == nil && !s.dd && len(s.views) == 0 && s.pin == nil && s.hpin == nil && s.dl == nil
+	return s.st == live && s.z == nil && s.bz == nil && !s.dd && len(s.views) == 0 && s.pin == nil && s.hpin == nil && s.dl == nil && s.ok == nil
 }
 
 // An env maps the variables that do not hold a value, or of which more is
@@ -423,6 +438,9 @@ func joinState(sa, sb vstate) vstate {
 	if out.dl == nil {
 		out.dl = sb.dl
 	}
+	if sa.ok == sb.ok {
+		out.ok = sa.ok
+	}
 	return out
 }
 
@@ -433,7 +451,7 @@ func envEqual(a, b env) bool {
 	for k, v := range a {
 		u, ok := b[k]
 		if !ok || u.st != v.st || u.dd != v.dd || !u.z.equal(v.z) || !u.bz.equal(v.bz) ||
-			!viewsEqual(u.views, v.views) || (u.pin == nil) != (v.pin == nil) || (u.hpin == nil) != (v.hpin == nil) || u.hpin != nil && u.hpin.stored != v.hpin.stored || (u.dl == nil) != (v.dl == nil) {
+			!viewsEqual(u.views, v.views) || (u.pin == nil) != (v.pin == nil) || (u.hpin == nil) != (v.hpin == nil) || u.hpin != nil && u.hpin.stored != v.hpin.stored || (u.dl == nil) != (v.dl == nil) || (u.ok == nil) != (v.ok == nil) {
 			return false
 		}
 	}

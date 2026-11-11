@@ -316,6 +316,11 @@ func (c *checker) useDiag(id *ast.Ident, v *types2.Var, s vstate) *diag.Diagnost
 		d := c.newDiag(id.Pos(), diag.UseMaybeMoved, "%s may have been moved at line %d, so it cannot be used here", pu.Box(name), at)
 		d.Text = compat.Sprintfb("%s %s is %s at line %d on some paths to this point and not on others. On those paths %s holds nothing afterwards, and the compiler cannot let a value be used where it may already belong to someone else.", compat.ArgS(c.ownerIntro(T)), compat.ArgS(name), compat.ArgS(c.howMoved(mv)), compat.ArgI(int64(at)), compat.ArgS(name))
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before line %d, or give it a new value on the path that moves it", compat.ArgS(name), compat.ArgI(int64(at))), Code: compat.Sprintfb("%s = %s", compat.ArgS(name), compat.ArgS(c.newValue(T)))})
+		if mv.kind == mvAssert {
+			// D47: a direct test of the assertion's ok tells where the
+			// owner is still in place.
+			d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or test the ok result of the assertion at line %d directly: where it is false, %s still holds its value", compat.ArgI(int64(at)), compat.ArgS(name)), Code: compat.Sprintfb("if !ok {\n\t// use %s\n}", compat.ArgS(name))})})
+		}
 		return d
 	}
 	d := c.newDiag(id.Pos(), diag.UseAfterMove, "%s was %s at line %d, so it can no longer be used here", pu.Box(name), pu.Box(c.howMoved(mv)), at)
