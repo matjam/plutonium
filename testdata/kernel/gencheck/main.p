@@ -59,21 +59,30 @@ func onPanic(p *rt.Panic) {
 
 var heap aligned[[8 << 20]byte, 4096]
 
-type bumpPages struct{ next uintptr }
+// bumpPages hands out the heap's pages in order, from heapNext. Every
+// party allocates through the default allocator, so heapLock guards
+// heapNext.
+type bumpPages struct{}
 
-func (b *bumpPages) AllocPages(n uintptr) unsafe.Pointer {
+var (
+	heapNext uintptr
+	heapLock rt.Lock
+)
+
+func (bumpPages) AllocPages(n uintptr) unsafe.Pointer {
 	base := uintptr(unsafe.Pointer(&heap))
-	if b.next+n*alloc.PageSize > uintptr(len(heap)) {
+	heapLock.Lock()
+	if heapNext+n*alloc.PageSize > uintptr(len(heap)) {
+		heapLock.Unlock()
 		return nil
 	}
-	p := unsafe.Pointer(base + b.next)
-	b.next += n * alloc.PageSize
+	p := unsafe.Pointer(base + heapNext)
+	heapNext += n * alloc.PageSize
+	heapLock.Unlock()
 	return p
 }
 
-func (b *bumpPages) FreePages(p unsafe.Pointer, n uintptr) {}
-
-var pages bumpPages
+func (bumpPages) FreePages(p unsafe.Pointer, n uintptr) {}
 
 var metadata aligned[[4 << 20]byte, 4096]
 
@@ -176,15 +185,16 @@ func main() int64 {
 	idt[0x40] = x86.InterruptGate(check, 0x08, 0)
 	idtr = x86.NewDescriptorTablePointer(uintptr(unsafe.Pointer(&idt)), len(idt)*16)
 	x86.Lidt(&idtr)
-	alloc.SetDefault(alloc.NewSlab(&pages))
+	alloc.SetDefault(alloc.NewSlab(bumpPages{}))
 
 	println("scenario", scenario)
 	switch scenario {
 	case "live":
 		a := alloc.New[node]()
 		a.val = 7
-		a.next = alloc.New[node]()
-		a.next.val = 42
+		second := alloc.New[node]()
+		second.val = 42
+		a.next = second
 		probeLock.Lock()
 		probe = a
 		probeLock.Unlock()
