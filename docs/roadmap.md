@@ -918,10 +918,12 @@ compiler (2026-10-11).
     followed in its result rather than pinned. Tests: `tests/moves/rejected_free_through_a_copy_of_a_counted_reference`,
     `rejected_free_through_an_interface_in_a_field`, `rejected_block_end_while_a_view_is_kept_in_the_heap`,
     `rejected_free_after_an_owned_element_is_stored` and `accepted_frees_twins_of_item_237`.
-204. **Type-parameter conversions to an interface in generic code** (planned; sections 18.3, A.3, D75,
+204. **Type-parameter conversions to an interface in generic code** (done; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end
-    (E3313, E3314), checked once for the generic body.
+    (E3313, E3314), checked once for the generic body. Both halves were in place; this adds the tests:
+    `tests/moves/rejected_owner_type_parameter_converted_to_an_interface` (a new value, a move and the
+    end of the block) and `accepted_owner_type_parameter_converted_to_an_interface`.
 208. **Generic code takes the strictest rule any type argument needs** (planned; sections 18.3, 8.7, A,
     D81, finding G1 of audit G; extends item 204): the view half of item 204 applies to every type
     parameter, `[T any]` included, so `x := any(t); t = z; use(x)` is E3313 in a generic body; a `T` local

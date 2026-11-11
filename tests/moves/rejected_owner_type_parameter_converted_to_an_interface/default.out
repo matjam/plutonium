@@ -1,0 +1,41 @@
+$DIR/main.p:18:6: i holds a view of t (t, line 16), which was given a new value at line 17, so i can no longer be used here
+    i looks at memory that t owns, without owning it: the view was made by t at
+    line 16. A view of an owner held in a local variable may be used only while
+    the variable keeps the value the view was made from. At line 17 t was given
+    a new value, so the view may look at memory that was released, or at a value
+    that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use i before line 17, or give t its new value only after the last use of i
+    Or make the view again after line 17:
+        i = t
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:25:6: i holds a view of t (t, line 23), which was moved into consume (its parameter takes a T by value) at line 24, so i can no longer be used here
+    i looks at memory that t owns, without owning it: the view was made by t at
+    line 23. A view of an owner held in a local variable may be used only while
+    the variable keeps the value the view was made from. At line 24 t was moved
+    into consume (its parameter takes a T by value), so the view may look at
+    memory that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use i before line 24, or move t only after the last use of i
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:35:6: i holds a view of u (u, line 33), which was dropped at the end of its block at line 34, so i can no longer be used here
+    i looks at memory that u owns, without owning it: the view was made by u at
+    line 33. A view of an owner held in a local variable may be used only while
+    the variable keeps the value the view was made from. At line 34 u was
+    dropped at the end of its block, so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare u in a block that encloses every use of i, or use i only inside the
+    block of u
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
