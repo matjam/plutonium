@@ -41,10 +41,13 @@ type ArgFacts struct {
 
 // Into is a destination of a store: the argument expression, and whether
 // the pointers land in the memory it points to itself (Direct) rather than
-// in memory loaded through it.
+// in memory loaded through it. Loaded says what is stored was loaded
+// through the argument (its elements, what it points to), not the
+// argument's own pointers.
 type Into struct {
 	Arg    ast.Expr
 	Direct bool
+	Loaded bool
 }
 
 // A Callee is one function a call that names no declared function (a

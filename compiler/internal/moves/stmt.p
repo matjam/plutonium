@@ -475,7 +475,7 @@ func (f *fn) rangeStmt(st *ast.RangeStmt, label string) {
 			}
 		}
 		if st.Value != nil && mayView(f.c.typeOf(st.Value)) {
-			f.storeViews(st.Value, whole(f.viewsOf(st.X))) // views.go
+			f.storeViews(st.Value, loadedViews(whole(f.viewsOf(st.X)))) // views.go
 		}
 	}, func() {
 		f.block(st.Body)

@@ -487,7 +487,7 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int, passed []*summary.S
 			dst = sl[j].exprs[0]
 			direct = sl[j].exact && ps.Loads(st.Dst.Path()) == 0 && !st.Dst.Deep() && !st.Dst.GE()
 		}
-		af.Into = compat.Append(af.Into, moves.Into{Arg: dst, Direct: direct})
+		af.Into = compat.Append(af.Into, moves.Into{Arg: dst, Direct: direct, Loaded: !self(st.Src)})
 	}
 	for _, r := range sum.Res {
 		for _, rk := range r.From {

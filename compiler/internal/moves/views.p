@@ -63,6 +63,11 @@ type view struct {
 	// channel variable (refView). Only such a view of a map or channel
 	// ends when the variable is given a new value; &m stays valid.
 	lent bool
+	// loaded: the value holding the view was loaded through a view (an
+	// element of a slice, what a pointer points to), so it may point to
+	// what the owner holds but is not the view itself. Storing it does
+	// not keep the view (heapPin's stored).
+	loaded bool
 }
 
 // A pinMark records that a view of an owner went where the walk cannot
@@ -80,7 +85,11 @@ type pinMark struct {
 }
 
 func (w view) key() string {
-	return compat.Concat(strconv.Itoa(int(w.pos)), "|", w.of.Name(), strconv.Itoa(int(w.of.Pos())), "|", pathKey(w.at))
+	k := compat.Concat(strconv.Itoa(int(w.pos)), "|", w.of.Name(), strconv.Itoa(int(w.of.Pos())), "|", pathKey(w.at))
+	if w.loaded {
+		k = compat.Concat(k, "|loaded")
+	}
+	return k
 }
 
 // sortViews orders views by key, so that equal sets compare equal.
@@ -417,12 +426,12 @@ func (f *fn) viewsOf(e ast.Expr) []view {
 		if types2.MapOf(f.c.typeOf(x.X)) != nil {
 			return nil
 		}
-		return f.viewsOf(x.X)
+		return loadedViews(f.viewsOf(x.X))
 	case *ast.StarExpr:
 		if !mayView(f.c.typeOf(x)) {
 			return nil
 		}
-		return f.viewsOf(x.X)
+		return loadedViews(f.viewsOf(x.X))
 	case *ast.TypeAssertExpr:
 		if from, to := f.c.typeOf(x.X), f.c.typeOf(x); types2.IsInterface(from) && isOwner(from) && to != nil && types2.IsInterface(to) && !isOwner(to) {
 			return compat.Append(f.viewsOf(x.X), f.lentViews(x.X)...)
@@ -653,6 +662,15 @@ func (f *fn) viewsTo(e ast.Expr, T types2.Type) []view {
 	}
 	if lentIface(T) && lendsRef(f.c.typeOf(e)) {
 		out = compat.Append(out, f.refView(e)...)
+	}
+	return out
+}
+
+// loadedViews returns vs marked as reaching a value loaded through them.
+func loadedViews(vs []view) []view {
+	out := compat.Clone(vs)
+	for i := range out {
+		out[i].loaded = true
 	}
 	return out
 }
@@ -1100,7 +1118,10 @@ func (f *fn) storeViews(lhs ast.Expr, vs []view) {
 
 // addViews records that the views vs may have been stored by call
 // somewhere in the memory that its argument dst points to.
-func (f *fn) addViews(call *ast.CallExpr, dst ast.Expr, direct bool, vs []view) {
+//
+// stored says the views themselves may be stored, not only what was
+// loaded through them (heapPin).
+func (f *fn) addViews(call *ast.CallExpr, dst ast.Expr, direct, stored bool, vs []view) {
 	if len(vs) == 0 || f.env == nil {
 		return
 	}
@@ -1131,13 +1152,13 @@ func (f *fn) addViews(call *ast.CallExpr, dst ast.Expr, direct bool, vs []view) 
 	}
 	if place == nil {
 		f.pin(vs, call.Pos(), how)
-		f.heapPin(vs, call.Pos(), how, true)
+		f.heapPin(vs, call.Pos(), how, stored)
 		return
 	}
 	v, _, box, ok := f.placePath(place)
 	if !ok || box || f.captured(v) || f.kept[v] {
 		f.pin(vs, call.Pos(), how)
-		f.heapPin(vs, call.Pos(), how, true)
+		f.heapPin(vs, call.Pos(), how, stored)
 		return
 	}
 	s := f.env[v]
@@ -1168,10 +1189,11 @@ func (f *fn) pin(vs []view, where token.Pos, how string) {
 func (f *fn) heapPin(vs []view, where token.Pos, how string, stored bool) {
 	for _, w := range vs {
 		s, ok := f.env[w.of]
-		if ok && s.hpin != nil && (s.hpin.stored || !stored) || !w.inHeap {
+		kept := stored && !w.loaded
+		if ok && s.hpin != nil && (s.hpin.stored || !kept) || !w.inHeap {
 			continue
 		}
-		s.hpin = pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how, stored: stored})
+		s.hpin = pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how, stored: kept})
 		f.setState(w.of, s)
 	}
 }
@@ -1227,7 +1249,7 @@ func (f *fn) callStores(args []argView) {
 			if in.Arg == a.key {
 				continue // stored back into what it came from, which holds it already
 			}
-			f.addViews(a.call, in.Arg, in.Direct, a.views)
+			f.addViews(a.call, in.Arg, in.Direct, !in.Loaded && !viaUnsafe, a.views)
 		}
 	}
 }
