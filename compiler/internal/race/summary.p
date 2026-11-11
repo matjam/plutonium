@@ -310,7 +310,10 @@ type crossing struct {
 	via  []frame
 	fn   string // the function where the value crosses
 	load bool   // a load of a view from shared memory (loadcross.go)
-	name string // what is loaded, for a load
+	name string // what is loaded, for a load; the parameter, for export
+	// export: a parameter of a function marked //pu:export, which C code
+	// may call with any view
+	export bool
 }
 
 func (c *crossing) key() string {

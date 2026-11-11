@@ -57,9 +57,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   bytes; a nested `be` integer-backed field off a byte boundary (7.14). Item 238.
 - Conformance checks for `alloc.Default()`, the arena window, the panic buffer, F.3 and F.6 names and debug
   allocator tags are not all tested. Item 167.
-- The parameters of an exported function are entries of the race check, but views they carry are not followed
-  to what they point at, so a race on memory reached only through such a parameter is not found (19.3, Lazy
-  initialization, Parties). Item 218.
 - `rt.Yield` inside a non-migrating region compiles and does not panic, so a task can resume on another processor
   while it holds a view of per-CPU data (19.3, Switching tasks in a non-migrating region). Item 229.
 - A function started by `time.AfterFunc` counts as started once, so two runs after a `Reset` may race on what it

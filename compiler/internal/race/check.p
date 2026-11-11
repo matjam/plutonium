@@ -80,6 +80,21 @@ func (a *analyzer) check() {
 		}
 		cross = compat.Append(cross, tw.sum.cross...)
 		queue = compat.Append(queue, tw.sum.spawns...)
+		// A view the caller passes points to memory the compiler cannot
+		// see: C code may pass the same object to calls on several
+		// threads, or one other tasks use, so it crosses to the call and
+		// its type decides (section 19.3, Crossings; Whatever the check
+		// cannot follow).
+		for _, prm := range f.params {
+			if prm == nil {
+				continue
+			}
+			name := prm.Name()
+			if name == "" || name == "_" {
+				name = "unnamed"
+			}
+			cross = compat.Append(cross, pu.New(crossing{pos: prm.Pos(), what: compat.Concat("the parameter ", name, " of the exported function ", f.name), typ: prm.Type(), fn: f.name, export: true, name: name}))
+		}
 	}
 	for len(queue) > 0 && len(groups) < maxGroups {
 		sp := queue[0]
@@ -1444,7 +1459,9 @@ func (a *analyzer) sendError(c *crossing, p *problem) *diag.Diagnostic {
 		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so %s cannot be %s", pu.Box(p.part), pu.Box(elem), pu.Box(exprText(c.expr)), pu.Box(crossVerb(c)))
 	}
 	b := pu.Alloc[compat.Builder]()
-	if c.load {
+	if c.export {
+		compat.Fprintfb(b, "C code may call %s at any time, from any thread, and pass it %s, a %s: the compiler cannot see which %s it points to, so other calls and other tasks may reach the same %s.", compat.ArgS(c.fn), compat.ArgS(p.part), compat.ArgS(types2.TypeString(p.typ, a.qualifier)), compat.ArgS(elem), compat.ArgS(elem))
+	} else if c.load {
 		compat.Fprintfb(b, "Loading %s here gives this task %s, a %s that other tasks may reach too: every task that loads it can reach the same %s.", compat.ArgS(c.name), compat.ArgS(p.part), compat.ArgS(types2.TypeString(p.typ, a.qualifier)), compat.ArgS(elem))
 	} else {
 		compat.Fprintfb(b, "%s gives another task %s, a %s: after this, both tasks can reach the same %s.", compat.ArgS(capitalize(c.what)), compat.ArgS(p.part), compat.ArgS(types2.TypeString(p.typ, a.qualifier)), compat.ArgS(elem))
@@ -1496,6 +1513,9 @@ func (a *analyzer) sharedError(c *crossing, p *problem) *diag.Diagnostic {
 }
 
 func crossVerb(c *crossing) string {
+	if c.export {
+		return "passed in by C code"
+	}
 	if c.load {
 		return "loaded once tasks may run"
 	}

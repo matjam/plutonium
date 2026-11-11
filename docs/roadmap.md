@@ -1247,7 +1247,7 @@ compiler (2026-10-11).
     (preemption count; in kernel mode RFLAGS.IF) after the prologue of every function marked
     `//pu:blocking`, and before each call of one without a body, panicking with "blocking with preemption
     disabled".
-218. **Lazy initialization through `sync.Once`** (done, `5681d379`, except views carried by an exported function's parameters; phase 1; sections 19.3 (Lazy initialization), 19.7, F.5,
+218. **Lazy initialization through `sync.Once`** (done, `5681d379`, `HASH218`; phase 1; sections 19.3 (Lazy initialization), 19.7, F.5,
     memory-model.md 3.4 and 4.1, D105, the "Once and Cond" section of the
     [rulings](verification/2026-11-09-spec-rulings.md)): data written only during a call of a function
     passed to `Do` of one Once (a package-level Once for package variables, a Once field for the fields of

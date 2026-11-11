@@ -586,6 +586,11 @@ func (a *analyzer) mayStartTasks() bool {
 			}
 		}
 	}
+	// C code may call an exported function at any time: it is an entry
+	// of a party (check), so what it reaches is analysed too.
+	for _, f := range a.exportedFuncs() {
+		add(f.unit)
+	}
 	spawns := false
 	seenHandler := map[*function]bool{}
 	drain := func() {
