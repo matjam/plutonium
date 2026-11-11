@@ -268,6 +268,10 @@ type analyzer struct {
 	convSites    map[string]*convSite                // one conversion of each type that can reach another task
 	typeIDs      []types2.Type                       // referent types of synced[T], and map types, numbered for paths
 	crossMaps    map[int]bool                        // map type numbers a crossing value reaches (checkMaps)
+	// arenaVars: for each function that starts scoped tasks, the variables
+	// it sets to an object of an arena's New or Slice, and that arena
+	// (allocmem.go).
+	arenaVars map[*function]map[*types2.Var][]vpath
 	tpArgs       map[*types2.TypeParam][]types2.Type // the type arguments each type parameter is instantiated with
 	typeAcc      map[string][]*typeAccess            // uses of each field of objects, for the type rule
 	typeSeen     map[typeSeenKey]bool

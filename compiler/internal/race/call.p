@@ -192,6 +192,13 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 				}
 			}
 		}
+		if w.frame != nil && nres > 0 {
+			if _, ok := w.a.arenaCallRecv(e); ok {
+				// An object of an arena's New or Slice: new memory, named by
+				// the call, which is the arena's memory (noteAllocMem).
+				res[0] = compat.Clone(origins{{vp: w.alloc(e).addr()}})
+			}
+		}
 		return res
 	case t.method != "":
 		var res []origins

@@ -1,0 +1,13 @@
+$PLUTOROOT/pluto/arena/chunked.p:308:19: cannot free the memory allocated from a here: the task started at main.p:18 may still be using it
+    The task started at main.p:18 reads the memory allocated from a at
+    main.p:18, and s waits for it where its block ends, at main.p:21, so the
+    task could use the memory allocated from a after it has moved or been freed.
+    Go keeps the variables a goroutine uses alive with its garbage collector,
+    however long the goroutine runs. Plutonium has none: a variable lives in its
+    function's frame until its block ends. A sync.Scope waits for the tasks it
+    started before its block ends, so they may use the function's variables, and
+    the compiler checks that nothing they use ends or moves first.
+    Wait for the task first:
+        s.Wait()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3404" for a longer explanation)

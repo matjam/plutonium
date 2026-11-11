@@ -71,7 +71,7 @@ func passive(x *frameAcc) string {
 	switch {
 	case x.move:
 		return "is moved"
-	case x.free:
+	case x.free || bulkFree(x):
 		return "is freed"
 	case x.write || x.wrote:
 		return "is written"
@@ -83,7 +83,7 @@ func verb(x *frameAcc) string {
 	switch {
 	case x.move:
 		return "moves"
-	case x.free:
+	case x.free || bulkFree(x):
 		return "frees"
 	case x.write || x.wrote:
 		return "writes"
@@ -112,6 +112,11 @@ func element(p vpath) bool {
 	return len(ss) > 0 && (ss[len(ss)-1] == "[]" || ss[len(ss)-1] == "%")
 }
 
+// bulkFree reports whether x is a Reset, Release or Drop of an allocator,
+// which frees every object it takes back (section 19.3, Frees are writes):
+// only those write an allocator's memory (allocmem.p).
+func bulkFree(x *frameAcc) bool { return x.write && isAllocMem(x.place) }
+
 // report reports a race.
 func (fc *frameCheck) report(c conflictRec) {
 	x, y, p, q := c.x, c.y, c.p, c.q
@@ -129,10 +134,12 @@ func (fc *frameCheck) report(c conflictRec) {
 	}
 	var d *diag.Diagnostic
 	switch {
-	case p.task == nil && x.move:
+	case p.task == nil && (x.move || bulkFree(x)):
 		what := "move"
 		if x.drop {
 			what = "drop"
+		} else if !x.move {
+			what = "free"
 		}
 		d = diag.New(fc.a.pos(x.pos), diag.ScopeMoveInUse, "cannot %s %s here: %s may still be using it", pu.Box(what), pu.Box(place), pu.Box(fc.partyName(q, false)))
 		d.Text = compat.Sprintfb("%s %s %s at %s, and %s, so the task could use %s after it has moved or been freed.",

@@ -783,7 +783,7 @@ compiler (2026-10-11).
     where the compiler cannot tell which. A `Slice` of length zero records no entry. The count check after
     the entries panics only for an allocation still live then, or an entry recorded while they ran.
     Item 212 widens the race check and E3313 to every object the arena takes back, of every type.
-212. **Arena frees of every type** (in progress, `208b5343`: generic allocations for E3501 only; sections 19.3 (Frees are writes), 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
+212. **Arena frees of every type** (done, `208b5343`, `HASH212`; sections 19.3 (Frees are writes), 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
     and 4.1, D86 and D93, findings H1 and H8 of audit H; extends items 168 and 209): a `Reset`, `Release`
     or `Drop` of an arena is a free, and so a write, of every object it takes back, of every type, for
     E3501, E3404 and the E3313 events, not only of objects whose type has drop glue. `Release` counts

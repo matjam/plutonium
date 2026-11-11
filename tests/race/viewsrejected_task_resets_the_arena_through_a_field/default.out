@@ -1,5 +1,5 @@
 $DIR/main.p:27:10: the memory allocated from a is read here while the task started at main.p:21 may write it
-    The task started at main.p:21 writes the memory allocated from a at
+    The task started at main.p:21 frees the memory allocated from a at
     pluto/arena/fixed.p:200, in (*Fixed).Reset called at main.p:24, and s waits
     for it at main.p:28. Meanwhile the memory allocated from a is read at
     main.p:27 in main, so the two may run at the same time, one of them writing:

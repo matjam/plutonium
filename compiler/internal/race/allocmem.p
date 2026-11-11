@@ -2,6 +2,7 @@ package race
 
 import (
 	"compiler/compat"
+	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
@@ -97,6 +98,16 @@ func (w *walker) noteRecycle() {
 // allocator or holds its address in a field of allocator type.
 func (fc *frameCheck) noteAllocMem(w *walker, x *frameAcc) {
 	r := x.place.root
+	if r.kind == rFresh {
+		// An object of an arena's New or Slice (call): the arena's memory
+		// (section 19.3, Frees are writes).
+		if c, ok := r.node.(ast.Expr); ok {
+			if R, ok := fc.a.arenaCallRecv(c); ok {
+				fc.add(w.party, pu.New(frameAcc{place: allocMem(R), locks: x.locks, pos: x.pos, via: x.via, typ: x.typ, run: x.run, wrote: x.write}))
+			}
+		}
+		return
+	}
 	if r.kind != rLocal && r.kind != rUnknown || r.v == nil {
 		return
 	}
@@ -157,6 +168,11 @@ func (fc *frameCheck) allocatorsOf(w *walker, r root) []vpath {
 	if r.kind == rLocal && fc.a.userAllocator(v.Type()) {
 		out = compat.Append(out, vpath{root: r})
 	}
+	if r.kind == rLocal || r.kind == rUnknown {
+		// An object of the arena's New or Slice is the arena's memory
+		// (section 19.3, Frees are writes).
+		out = compat.Append(out, fc.a.arenaObjects(fc.starter)[v]...)
+	}
 	for _, o := range w.u.vars[v] {
 		if o.tag == "" || !strings.HasSuffix(o.vp.path, "&") {
 			continue
@@ -196,6 +212,107 @@ func (fc *frameCheck) allocatorsOf(w *walker, r root) []vpath {
 		}
 	}
 	return out
+}
+
+// arenaObjects returns, for the variables of f (and of the literals in it)
+// set from a call of an arena's New or Slice, the places of the arenas the
+// calls allocate from: the receiver variable, or what a pointer receiver
+// variable points to.
+func (a *analyzer) arenaObjects(f *function) map[*types2.Var][]vpath {
+	if f == nil || f.body == nil {
+		return nil
+	}
+	if m, ok := a.arenaVars[f]; ok {
+		return m
+	}
+	if a.arenaVars == nil {
+		a.arenaVars = map[*function]map[*types2.Var][]vpath{}
+	}
+	m := map[*types2.Var][]vpath{}
+	a.arenaVars[f] = m
+	ast.Inspect(f.body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || len(as.Lhs) != len(as.Rhs) {
+			return true
+		}
+		for i, r := range as.Rhs {
+			id, ok := ast.Unparen(as.Lhs[i]).(*ast.Ident)
+			if !ok {
+				continue
+			}
+			v, ok := a.objOf(id).(*types2.Var)
+			if !ok {
+				continue
+			}
+			if R, ok := a.arenaCallRecv(r); ok {
+				m[v] = compat.Append(m[v], R)
+			}
+		}
+		return true
+	})
+	return m
+}
+
+// arenaCallRecv returns the arena a call of New or Slice of pluto/arena
+// allocates from, when its receiver is a variable.
+func (a *analyzer) arenaCallRecv(e ast.Expr) (vpath, bool) {
+	c, ok := ast.Unparen(e).(*ast.CallExpr)
+	if !ok {
+		return vpath{}, false
+	}
+	sel, ok := ast.Unparen(stripIndex(c.Fun)).(*ast.SelectorExpr)
+	if !ok {
+		return vpath{}, false
+	}
+	s := a.selections[sel]
+	if s == nil || s.Kind() != types2.MethodVal {
+		return vpath{}, false
+	}
+	fn, ok := s.Obj().(*types2.Func)
+	if !ok || !arenaAllocFunc(fn) || fn.Pkg().Path() != "pluto/arena" {
+		return vpath{}, false
+	}
+	// The receiver: a variable, or a field of one reached by selections
+	// of struct fields (h.a, or h.a where h is a pointer), named as a lock
+	// is.
+	path := ""
+	x := ast.Unparen(sel.X)
+	for {
+		fs, ok := x.(*ast.SelectorExpr)
+		if !ok {
+			break
+		}
+		s := a.selections[fs]
+		if s == nil || s.Kind() != types2.FieldVal || len(s.Index()) != 1 {
+			return vpath{}, false
+		}
+		step := compat.Concat(".", fs.Sel.Name)
+		if pointerElem(a.typeOf(fs.X)) != nil {
+			step = compat.Concat("*", step)
+		}
+		path = compat.Concat(step, path)
+		x = ast.Unparen(fs.X)
+	}
+	id, ok := x.(*ast.Ident)
+	if !ok {
+		return vpath{}, false
+	}
+	v, ok := a.objOf(id).(*types2.Var)
+	if !ok {
+		return vpath{}, false
+	}
+	rt := root{kind: rLocal, v: v}
+	if isGlobal(v) {
+		rt = root{kind: rGlobal, v: v}
+	}
+	T := a.typeOf(sel.X)
+	if a.userAllocator(T) {
+		return vpath{root: rt, path: path}, true
+	}
+	if el := pointerElem(T); el != nil && a.userAllocator(el) {
+		return vpath{root: rt, path: compat.Concat(path, "*")}, true
+	}
+	return vpath{}, false
 }
 
 // fieldTypeAt returns the type of the field that tag, a path of field

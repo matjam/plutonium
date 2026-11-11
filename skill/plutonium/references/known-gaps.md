@@ -37,10 +37,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 
 - E2584, the race check and E3313 do not yet follow a `Reset`, `Release` or `Drop` of a Fixed or Chunked arena into
   the drops its entries would run (18.9, 19.3, 20.10). Item 209.
-- A `Reset`, `Release` or `Drop` of an arena once tasks run frees, for E3501, only objects of the types the
-  program allocates with the generic calls of `pluto/alloc` and `pluto/arena` (`New`, `Owned`, `Shared`,
-  `Synced`, `Slice`); memory from `Raw` or from a container's allocator is not followed, and E3404 and the
-  E3313 events do not yet count the bulk free (19.3, 18.3, memory-model.md 3.8). Item 212.
 - Waiting (a channel operation, `Lock`, `Wait`, `rt.Park`) inside a non-migrating region, reached through calls with
   one known target, compiles; it should be a compile error, and today it panics with "blocking with preemption
   disabled" at run time only when it parks (19.3). Items 210 and 215.
