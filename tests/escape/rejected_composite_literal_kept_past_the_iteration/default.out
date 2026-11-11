@@ -10,6 +10,9 @@ $DIR/main.p:7:3: cannot keep &T{...} in p after this iteration: the loop at line
     allocated behind the program's back.
     Use &T{...} before the iteration ends, or keep a copy of the value instead
     of a view of it.
+    Or allocate the T in each iteration with new, and keep its owner, an
+    owned[T]:
+        p := new(T{...})
     (see "Loop iterations reuse their storage" in the Plutonium spec, section
     18.4)
     (run "pluto explain E3006" for a longer explanation)

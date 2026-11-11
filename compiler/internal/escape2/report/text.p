@@ -654,9 +654,19 @@ func (r *reporter) loopDiag(d *diag.Diagnostic, e *viewErr, x string, add func(s
 		compat.Sprintfb("When the next iteration starts, %s would see that iteration's value, not this one's.", compat.ArgS(holder))))
 	if e.callee != "" {
 		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Change %s so it does not keep the view, or pass a copy of the value instead of a view of it.", compat.ArgS(e.callee))})
-		return
+	} else {
+		d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before the iteration ends, or keep a copy of the value instead of a view of it.", compat.ArgS(x))})
 	}
-	d.Fix = pu.New(diag.Fix{Intro: compat.Sprintfb("Use %s before the iteration ends, or keep a copy of the value instead of a view of it.", compat.ArgS(x))})
+	if l.kind == lkLit && l.typ != nil {
+		// Each iteration then makes its own object, whose owner may be
+		// kept (sections 18.4 and 11.3).
+		T := typeText(l.typ, q)
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: compat.Sprintfb("Or allocate the %s in each iteration with new, and keep its owner, an owned[%s]", compat.ArgS(T), compat.ArgS(T)), Code: compat.Sprintfb("p := new(%s{...})", compat.ArgS(T))})})
+	} else if l.kind == lkSliceLit || l.kind == lkVarargs {
+		// The array is refilled by the next iteration; an owner keeps the
+		// values instead (section 18.4).
+		d.More = compat.Clone([]*diag.Fix{pu.New(diag.Fix{Intro: "Or keep the values in an owner such as a vec.Vec, which makes its own memory."})})
+	}
 }
 
 // regionLoopDiag explains a closure that a call in a loop returns, kept past

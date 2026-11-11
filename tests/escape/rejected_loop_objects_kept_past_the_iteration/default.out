@@ -1,0 +1,70 @@
+$DIR/main.p:22:3: cannot keep p in keep after this iteration: the loop at line 17 makes it in the same memory in every iteration
+    A composite literal whose address is taken (at main.p:18) is made in
+    literal's frame, as a local variable would be.
+    Every iteration of the loop at line 17 reuses that memory. When the next
+    iteration starts, keep would see that iteration's value, not this one's.
+    Go gives each iteration of a loop its own variables, so a function literal
+    made in one iteration keeps that iteration's values. Plutonium keeps
+    variables in the function's frame, which has room for one copy of each;
+    giving every iteration its own copy would need memory for each iteration,
+    allocated behind the program's back.
+    Use p before the iteration ends, or keep a copy of the value instead of a
+    view of it.
+    Or allocate the T in each iteration with new, and keep its owner, an
+    owned[T]:
+        p := new(T{...})
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
+    (run "pluto explain E3006" for a longer explanation)
+
+$DIR/main.p:33:3: cannot keep s in keep after this iteration: the loop at line 28 makes it in the same memory in every iteration
+    A slice literal (at main.p:29) keeps its elements in an array in
+    sliceLiteral's frame, and the slice looks at that array.
+    Every iteration of the loop at line 28 reuses that memory. When the next
+    iteration starts, keep would see that iteration's value, not this one's.
+    Go gives each iteration of a loop its own variables, so a function literal
+    made in one iteration keeps that iteration's values. Plutonium keeps
+    variables in the function's frame, which has room for one copy of each;
+    giving every iteration its own copy would need memory for each iteration,
+    allocated behind the program's back.
+    Use s before the iteration ends, or keep a copy of the value instead of a
+    view of it.
+    Or keep the values in an owner such as a vec.Vec, which makes its own
+    memory.
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
+    (run "pluto explain E3006" for a longer explanation)
+
+$DIR/main.p:44:3: cannot keep s in keep after this iteration: the loop at line 39 makes it in the same memory in every iteration
+    A call with variadic arguments (at main.p:40) passes them in an array in
+    variadic's frame, and the function gets a slice of that array.
+    Every iteration of the loop at line 39 reuses that memory. When the next
+    iteration starts, keep would see that iteration's value, not this one's.
+    Go gives each iteration of a loop its own variables, so a function literal
+    made in one iteration keeps that iteration's values. Plutonium keeps
+    variables in the function's frame, which has room for one copy of each;
+    giving every iteration its own copy would need memory for each iteration,
+    allocated behind the program's back.
+    Use s before the iteration ends, or keep a copy of the value instead of a
+    view of it.
+    Or keep the values in an owner such as a vec.Vec, which makes its own
+    memory.
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
+    (run "pluto explain E3006" for a longer explanation)
+
+$DIR/main.p:56:3: cannot keep f in keep after this iteration: the loop at line 50 makes it in the same memory in every iteration
+    A method value (at main.p:52) is a record in methodValue's frame that holds
+    its receiver, and calling it calls the method on that receiver.
+    Every iteration of the loop at line 50 reuses that memory. When the next
+    iteration starts, keep would see that iteration's value, not this one's.
+    Go gives each iteration of a loop its own variables, so a function literal
+    made in one iteration keeps that iteration's values. Plutonium keeps
+    variables in the function's frame, which has room for one copy of each;
+    giving every iteration its own copy would need memory for each iteration,
+    allocated behind the program's back.
+    Use f before the iteration ends, or keep a copy of the value instead of a
+    view of it.
+    (see "Loop iterations reuse their storage" in the Plutonium spec, section
+    18.4)
+    (run "pluto explain E3006" for a longer explanation)

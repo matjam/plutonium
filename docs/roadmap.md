@@ -828,10 +828,14 @@ compiler (2026-10-11).
     the statement. Built to 18.8 and D76: the elements are released when the function returns, after its
     deferred calls, or when the same expression refills the array. Tests: `TestVariadicArrayRelease`
     (`tests/build_variadic_release_test.go`).
-206. **Frame storage in loops** (planned; sections 18.4, 11.3, 11.15, A.3, D76, finding F3 of audit F;
-    extends item 160): E3006 for a view of an `&T{...}` object, a slice literal's array, a variadic array,
-    a method value's receiver or a deferred call's saved arguments kept where the next iteration can see
-    it, with `new(T{...})` as the fix in the message.
+206. **Frame storage in loops** (done; sections 18.4, 11.3, 11.15, A.3, D76, finding F3 of audit F;
+    extends item 160): E3006 for a view of an `&T{...}` object, a slice literal's array, a variadic array
+    or a method value's receiver kept where the next iteration can see it. The message for an `&T{...}`
+    gives `new(T{...})` as a fix, and for a slice literal or a variadic array an owner such as a `vec.Vec`
+    (`loopDiag` in `compiler/internal/escape2/report/text.p`). A deferred call's saved arguments cannot be
+    kept past an iteration, since `defer` in a loop body is already E2530 (D18). Tests:
+    `tests/escape/rejected_loop_objects_kept_past_the_iteration` and
+    `accepted_loop_objects_made_with_new_or_copied`.
 207. **Codes for a `//pu:stack` size out of range and for implementation limits** (planned; sections 20.3,
     21.4, 21.1, D78, findings F12 and F15 of audit F): assign a code to each and add catalog entries; the
     spec names them only as compile errors until then.

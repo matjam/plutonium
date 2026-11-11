@@ -11,6 +11,9 @@ $DIR/main.p:8:3: cannot pass &T{...} to put, which keeps it after this iteration
     allocated behind the program's back.
     Change put so it does not keep the view, or pass a copy of the value instead
     of a view of it.
+    Or allocate the T in each iteration with new, and keep its owner, an
+    owned[T]:
+        p := new(T{...})
     (see "Loop iterations reuse their storage" in the Plutonium spec, section
     18.4)
     (run "pluto explain E3006" for a longer explanation)
