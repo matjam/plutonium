@@ -16,13 +16,10 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - The conversion checks of 11.12 and 11.24 (slicing a type parameter with a string in its type set, packed types and
   byte arrays, `string(c)`, owner conversions) are not all enforced. Item 166.
 - The race check does not yet treat frees, drops and moves as writes (19.3, 19.4). Item 168.
-- A map or channel lent to an ordinary interface is not ended by the events of 18.3; a call through a copy of a counted
-  reference in a field or parameter does not end views obtained through a local reference; a call of an unknown func
-  value or of a function without a body is taken to free nothing; a free through a pointer a call returned is not
-  found; a call that frees what a local owner holds is not E3314 for a view of that memory kept where the walk cannot
-  follow; a method called through an ordinary interface held in a field is taken to free nothing of the owner holding
-  the field (E3313, E3314, 18.3, 7.9, 7.19).
-  Item 237.
+- A call through a copy of a counted reference in a field or parameter does not end views obtained through a local
+  reference; a method called through an ordinary interface held in a field is taken to free nothing of the owner
+  holding the field; a view of what a local owner holds kept where the walk cannot follow is not checked at the
+  owner's drop at the end of its block (E3313, E3314, 18.3, 7.9, 7.19). Item 237.
 - A deferred call that drops or writes what a scoped task uses, and that can run before the task is joined, is not
   E3404 or E3402 yet (19.4). Item 201.
 - A conversion to an interface of a value whose type contains a type parameter, in generic code, is not yet a frame copy for every

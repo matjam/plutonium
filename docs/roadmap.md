@@ -882,6 +882,16 @@ compiler (2026-10-11).
     the variables `Int`, `String` and the like return stay usable. The limits are item 237's.
     Tests:
     `tests/moves/staleviews_call_that_may_free` and `accepted_views_across_calls_that_free_nothing`.
+    Closed later: a free through a call's result (`42de5711`); a call of an unknown func value or of a function
+    without a body or contract entry is the worst case, with the runtime's scheduler hooks other than
+    `schedFreeTask` known to free nothing (`630edb01`); an arena reset or released through a pointer or a
+    function given it (`bf013a88`); a call through an owner's address ends the views of other locals that its
+    fields hold (`c009a291`); a map or channel lent to an interface ends at a new value of its variable
+    (`05157463`); a view asserted out of an interface parameter under C2 (`1186999b`); a free while a view of
+    the owner's heap memory is stored where the walk cannot follow is E3314 (`19e3a8ec`). Tests:
+    `tests/moves/staleviews_free_through_*`, `staleviews_arena_reclaimed_through_a_call`,
+    `staleviews_map_lent_to_an_interface`, `staleviews_view_asserted_out_of_an_interface_parameter`,
+    `rejected_free_while_a_view_is_kept_in_the_heap` and their `accepted_` twins.
 199. **One-word owners lent to an interface end at the D3 events** (done, `2343726a`; sections 18.3, 18.5, 7.9,
     11.13, 12.9, A.3, D71, findings E1, E5 and E7 of audit E; extends items 170, 171 and 148): an ordinary
     interface holding a box, a map, a channel, a `weak` reference, an owner defined from a pointer or a
@@ -894,15 +904,13 @@ compiler (2026-10-11).
     views by owners and counted boxes only (item 237). Tests: `tests/moves/staleviews_one_word_owner_lent_to_an_interface` and
     `accepted_large_owner_lent_to_an_interface_across_a_call`.
 237. **The freeing events items 170 and 199 leave** (planned; sections 18.3, 7.9, 7.19; moved from items 170
-    and 199): a map or channel held in a local and lent to an ordinary interface is not ended by the events
-    of section 18.3; a call through a copy of a counted reference held in a field or parameter does not end
-    the views obtained through a local reference of the same type; a call of a func value whose candidates
-    are not known, or of a function without a body other than the primitives `frees.p` names, is taken to
-    free nothing; a free through a pointer that a call returned is not found (the summaries take a call's
-    result to hold nothing of its arguments); a call that frees what a local owner holds is not E3314 for a
-    view of that memory kept where the walk cannot follow, as the owner's drop at the end of its block is
-    not; a method called through an ordinary interface that a field of the
-    input holds is taken to free nothing of the input's memory, even when the interface points back into it.
+    and 199): a call through a copy of a counted reference held in a field or parameter does not end the
+    views obtained through a local reference of the same type; a method called through an ordinary
+    interface that a field of the input holds is taken to free nothing of the input's memory, even when the
+    interface points back into it; a view of what a local owner holds kept where the walk cannot follow is
+    not checked at the owner's drop at the end of its block, or when only memory loaded through the view
+    was kept. The map and channel case, unknown and bodyless callees, frees through a call's result and
+    E3314 at a free went to item 170's closing line.
 204. **Type-parameter conversions to an interface in generic code** (planned; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end
@@ -946,6 +954,9 @@ compiler (2026-10-11).
     `clear`, the elements are in the heap, where a kept receiver is the generation checks' case, and the
     one escape error the program gets is in `vec.p` (`AppendSeq`'s local), not in `main.p`. Tests:
     `tests/escape/release_values_drops_frame_elements` and `accepted_release_values_keeping_no_frame_address`.
+    Closed later (`36e91cc0`): a `Drop` that keeps its receiver is E3002 at the `Drop` itself, for every owner
+    (section 18.6), so o14 left `knownEscapeGaps`. Tests: `tests/escape/rejected_drop_keeps_its_receiver` and
+    `accepted_drop_keeps_a_copy`.
 196. **Allocators the race check does not follow** (planned; sections 19.4, 18.9; moved from item 140): an
     allocator reached other than through the variable itself or a field holding its address (one behind
     a parameter or a heap pointer, `alloc.Use` windows), and bulk calls seen by the race checks outside
