@@ -49,10 +49,13 @@ import (
 // The other way round, a pin or view that only the freeing call made is
 // not ended.
 
-// findFrees computes c.frees, after findKeeps.
+// findFrees computes c.frees and c.reclaims, after findKeeps.
 func (c *checker) findFrees(funcs []keepFunc) {
 	c.frees = c.summarize(funcs, func(s *keepScan, body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
 		s.frees(body, found, edge)
+	})
+	c.reclaims = c.summarize(funcs, func(s *keepScan, body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
+		s.reclaims(body, found, edge)
 	})
 }
 
@@ -96,6 +99,99 @@ func (c *checker) summarize(funcs []keepFunc, scan func(s *keepScan, body *ast.B
 		}
 	}
 	return sum
+}
+
+// reclaims finds, in body, the calls that may reset or release a checked
+// arena reached from an input (section 18.9): Reset or Release with the
+// arena, or a pointer to it, as the receiver; a call of a function that
+// reclaims through what it is given (edge); and a call whose callees are
+// not known, or of a function without a body, given something whose type
+// may lead to an arena (reachesArena: the worst case, as in freeCall).
+func (s *keepScan) reclaims(body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
+	ast.Inspect(body, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		tv := s.c.types[call.Fun]
+		if tv.IsType() || tv.IsBuiltin() {
+			return true
+		}
+		site := keepSite{pos: call.Pos(), text: exprText(call)}
+		prim := s.c.reclaimPrimitive(call)
+		targets, known := s.c.keepTargets(call)
+		worst := !known || s.c.bodyless(call)
+		s.c.callArgs(call, func(key, val ast.Expr, j int) {
+			own, held := s.addrSets(val)
+			if lentIface(s.c.typeOf(val)) {
+				held = 0 // as in freeCall
+			}
+			bits := own | held
+			if bits == 0 {
+				return
+			}
+			if j == 0 && prim || worst && reachesArena(s.c.typeOf(val)) {
+				for i := 0; i < maxInputs; i++ {
+					if bits&bit(i) != 0 {
+						found(i, site)
+					}
+				}
+			}
+			for _, t := range targets {
+				for i := 0; i < maxInputs; i++ {
+					if bits&bit(i) != 0 {
+						edge(t.node, j+t.shift, i)
+					}
+				}
+			}
+		})
+		return true
+	})
+}
+
+// reclaimPrimitive reports whether call is Reset or Release of a checked
+// arena, which reclaims through its receiver.
+func (c *checker) reclaimPrimitive(call *ast.CallExpr) bool {
+	se := funSelector(call.Fun)
+	if se == nil || se.Sel.Name != "Reset" && se.Sel.Name != "Release" {
+		return false
+	}
+	sel := c.selections[se]
+	if sel == nil || sel.Kind() != types2.MethodVal {
+		return false
+	}
+	T := sel.Recv()
+	if p := pointerElem(T); p != nil {
+		T = p
+	}
+	return isCheckedArena(T)
+}
+
+// calleeReclaims returns the call by which a callee of call may reset or
+// release a checked arena reached from its argument key, or false.
+func (c *checker) calleeReclaims(call *ast.CallExpr, key ast.Expr) (keepSite, bool) {
+	prim := c.reclaimPrimitive(call)
+	targets, known := c.keepTargets(call)
+	worst := !known || c.bodyless(call)
+	var site keepSite
+	found := false
+	c.callArgs(call, func(k, val ast.Expr, j int) {
+		if k != key || found {
+			return
+		}
+		if j == 0 && prim || worst && reachesArena(c.typeOf(val)) {
+			site, found = keepSite{pos: call.Pos(), text: exprText(call)}, true
+			return
+		}
+		for _, t := range targets {
+			fs := c.reclaims[t.node]
+			if j+t.shift < len(fs) && fs[j+t.shift].valid() {
+				site, found = fs[j+t.shift], true
+				return
+			}
+		}
+	})
+	return site, found
 }
 
 // A keepFunc is a function findKeeps scanned, for findFrees: its node, the
@@ -473,6 +569,16 @@ var schedHooks = map[string]bool{
 // A function value leads to nothing of the caller's here.
 func reachesFreeing(T types2.Type) bool {
 	return reaches(T, true, bounds, map[types2.Type]bool{})
+}
+
+// reachesArena reports whether a value of type T may lead to a checked
+// arena: one, an interface or type parameter, or a pointer, slice, map,
+// channel, array, struct, union or wrapper that leads to one. An
+// unsafe.Pointer does not: making an arena of one is outside the checks
+// (section 18.12), and the drop functions an arena runs are given its
+// allocations that way.
+func reachesArena(T types2.Type) bool {
+	return reaches(T, false, isCheckedArena, map[types2.Type]bool{})
 }
 
 // reaches reports whether a value of type T may lead to one whose type

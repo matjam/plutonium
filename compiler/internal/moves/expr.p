@@ -238,6 +238,8 @@ func (f *fn) call(e *ast.CallExpr, kind moveKind) {
 	// The views the callee may free through (frees.p).
 	freed := f.freeArgs(e)
 	defer f.freeViews(e, freed)
+	// The local arenas the callee may reset or release (frees.p).
+	reclaimed := f.reclaimArgs(e)
 	name := exprText(e.Fun)
 	if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
 		if sel := f.c.selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
@@ -256,7 +258,7 @@ func (f *fn) call(e *ast.CallExpr, kind moveKind) {
 		return
 	}
 	f.args(e, sig, name, kind)
-	f.reclaim(e) // views.go
+	f.reclaim(e, reclaimed) // views.go
 }
 
 // args walks a call's arguments, moving owners into parameters that take

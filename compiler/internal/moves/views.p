@@ -1220,22 +1220,24 @@ func (f *fn) staleWhere(v *types2.Var, mv move, which func(w view) bool) {
 // value, in a function without goto, those are the views made after that
 // statement in the text; otherwise every allocation is taken as reclaimed.
 // The arena's own storage stays, so views of it (&a) do not go stale.
-func (f *fn) reclaim(call *ast.CallExpr) {
+//
+// A call given a local arena some other way (a pointer to it, pa.Reset(),
+// or a function that resets or releases what it is given, wipe(&a)) is
+// found by reclaimArgs before the call is walked: every allocation of
+// those arenas is taken as reclaimed.
+func (f *fn) reclaim(call *ast.CallExpr, others []reclaimArg) {
 	if f.env == nil {
 		return
 	}
+	for _, r := range others {
+		mv := move{kind: mvReclaim, pos: call.Pos(), to: r.how}
+		f.staleWhere(r.a, mv, func(w view) bool { return w.inHeap })
+	}
+	a := f.reclaimDirect(call)
+	if a == nil {
+		return
+	}
 	se := funSelector(call.Fun)
-	if se == nil || se.Sel.Name != "Reset" && se.Sel.Name != "Release" {
-		return
-	}
-	id, ok := ast.Unparen(se.X).(*ast.Ident)
-	if !ok {
-		return
-	}
-	a := f.varOf(id)
-	if a == nil || !f.vars[a] || !isCheckedArena(a.Type()) {
-		return
-	}
 	since := token.NoPos
 	if se.Sel.Name == "Release" && len(call.Args) == 1 {
 		if mid, ok := ast.Unparen(call.Args[0]).(*ast.Ident); ok {
@@ -1244,6 +1246,66 @@ func (f *fn) reclaim(call *ast.CallExpr) {
 	}
 	mv := move{kind: mvReclaim, pos: call.Pos(), to: exprText(call)}
 	f.staleWhere(a, mv, func(w view) bool { return w.inHeap && w.pos > since })
+}
+
+// reclaimDirect returns the local checked arena a when call is a.Reset()
+// or a.Release(m), or nil.
+func (f *fn) reclaimDirect(call *ast.CallExpr) *types2.Var {
+	se := funSelector(call.Fun)
+	if se == nil || se.Sel.Name != "Reset" && se.Sel.Name != "Release" {
+		return nil
+	}
+	id, ok := ast.Unparen(se.X).(*ast.Ident)
+	if !ok {
+		return nil
+	}
+	a := f.varOf(id)
+	if a == nil || !f.vars[a] || !isCheckedArena(a.Type()) {
+		return nil
+	}
+	return a
+}
+
+// A reclaimArg is a local checked arena a call may reset or release
+// through one of its arguments, and how, for messages.
+type reclaimArg struct {
+	a   *types2.Var
+	how string
+}
+
+// reclaimArgs returns the local checked arenas that the arguments of call
+// lead to and that the callee may reset or release through them
+// (c.reclaims), other than a.Reset() and a.Release(m) themselves.
+func (f *fn) reclaimArgs(call *ast.CallExpr) []reclaimArg {
+	if f.env == nil || f.reclaimDirect(call) != nil {
+		return nil
+	}
+	tv := f.c.types[call.Fun]
+	if tv.IsType() || tv.IsBuiltin() || f.c.scoped.Tasks[call] != nil || f.isImplicitDrop(call) {
+		return nil
+	}
+	var out []reclaimArg
+	f.eachArg(call, func(key, val ast.Expr, T types2.Type) {
+		site, ok := f.c.calleeReclaims(call, key)
+		if !ok {
+			return
+		}
+		how := exprText(call)
+		if site.pos != call.Pos() {
+			at := f.c.fset.Position(site.pos)
+			where := compat.Concat("line ", strconv.Itoa(at.Line))
+			if at.Filename != f.c.fset.Position(call.Pos()).Filename {
+				where = compat.Concat(strings.SliceFrom(at.Filename, strings.LastIndexByte(at.Filename, '/')+1), ":", strconv.Itoa(at.Line))
+			}
+			how = compat.Concat(how, " (", site.text, ", ", where, ")")
+		}
+		for _, w := range f.viewsTo(val, T) {
+			if w.of != nil && f.vars[w.of] && isCheckedArena(w.of.Type()) {
+				out = compat.Append(out, reclaimArg{a: w.of, how: how})
+			}
+		}
+	})
+	return out
 }
 
 // markPos returns where the a.Mark() call is that alone gives the local
