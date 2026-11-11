@@ -49,11 +49,18 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		}
 	}
 	if w.frame != nil {
-		// x.Drop() or a method with a value receiver moves x.
+		// x.Drop() or a method with a value receiver moves x. A deferred
+		// x.Drop() drops x where it runs (section 19.4, Deferred calls).
 		if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
-			if id, ok := ast.Unparen(se.X).(*ast.Ident); ok && w.a.moves != nil && w.a.moves.Moves[id] {
+			if id, ok := ast.Unparen(se.X).(*ast.Ident); ok && w.a.moves != nil && (w.a.moves.Moves[id] || w.a.moves.DeferredDrops[e]) {
 				if v, ok := w.a.objOf(id).(*types2.Var); ok && !isGlobal(v) {
 					w.frame.note(w, pu.New(frameAcc{place: vpath{root: root{kind: rLocal, v: v}}, write: true, move: true, drop: se.Sel.Name == "Drop", pos: id.Pos(), typ: v.Type(), locks: w.st.locks}))
+					if w.a.moves.DeferredDrops[e] {
+						if w.frame.dropCalls == nil {
+							w.frame.dropCalls = map[token.Pos]*types2.Var{}
+						}
+						w.frame.dropCalls[e.Pos()] = v
+					}
 				}
 			}
 		}

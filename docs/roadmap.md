@@ -848,11 +848,14 @@ compiler (2026-10-11).
 168. **Frees count as writes in the race check** (done, `70b8df4b`; sections 19.3 (Frees are writes), 19.4, D59, finding D1): dropping,
     freeing or moving an object, or writing an owner that holds it, is a write of the whole object for E3501
     and E3404.
-201. **Deferred calls in a scoped interval** (planned; section 19.4, A.3, D73, finding E4 of audit E; extends
+201. **Deferred calls in a scoped interval** (done; section 19.4, A.3, D73, finding E4 of audit E; extends
     item 168): a deferred call armed on a path that then reaches a point of a scoped task's interval, or a
     return before its join, counts as a statement of that interval for E3402 and E3404, in every build
     mode. A deferred `s.Wait()` joins the tasks started after its `defer` statement for the calls deferred
-    before it.
+    before it. Done: the race check already ran deferred calls at each exit; a deferred `x.Drop()` is now
+    a drop of `x` there (`compiler/internal/race/call.p`), and the callee's own reads of `x` are part of
+    that drop, not separate accesses (`dropCalls` in `scope.p`). Tests:
+    `tests/race/scoperejected_a_deferred_drop_before_the_join` and `scopeaccepted_a_deferred_drop_after_the_join`.
 205. **The deadlock report names a panic in progress** (planned; sections 19.1, 19.4, debugging.md 5,
     D79, finding F9 of audit F; extends item 201): a task running deferred calls for a panic when the
     program deadlocks, as a deferred `s.Wait()` can, is listed with a `panicking:` line, the panic's

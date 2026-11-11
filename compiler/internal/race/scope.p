@@ -207,6 +207,9 @@ type frameCheck struct {
 	edges    []frameEdge
 	varIDs   map[*types2.Var]int
 	vars     []*types2.Var
+	// dropCalls holds the deferred x.Drop() calls, by position, with x:
+	// the callee's uses of x are part of the drop (section 19.4).
+	dropCalls map[token.Pos]*types2.Var
 }
 
 // checkScopes runs the check for every function that starts scoped tasks.
@@ -471,6 +474,9 @@ func (w *walker) running(pos token.Pos) runSet {
 // note records a use of memory by the party being walked.
 func (fc *frameCheck) note(w *walker, x *frameAcc) {
 	if !fc.record || w.quiet > 0 || w.st.dead {
+		return
+	}
+	if !x.move && x.via.IsValid() && x.place.root.kind == rLocal && fc.dropCalls[x.via] == x.place.root.v && x.place.root.v != nil {
 		return
 	}
 	if !x.via.IsValid() && w.inlinedAt.IsValid() {

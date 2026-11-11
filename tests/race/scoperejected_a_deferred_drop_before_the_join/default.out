@@ -1,0 +1,26 @@
+$DIR/main.p:15:8: cannot drop w here: the task started at main.p:17 may still be using it
+    The task started at main.p:17 reads w.data at pluto/vec/vec.p:147, in
+    (*Vec).Push called at main.p:17, and s waits for it at main.p:18, so the
+    task could use w after it has moved or been freed.
+    Go keeps the variables a goroutine uses alive with its garbage collector,
+    however long the goroutine runs. Plutonium has none: a variable lives in its
+    function's frame until its block ends. A sync.Scope waits for the tasks it
+    started before its block ends, so they may use the function's variables, and
+    the compiler checks that nothing they use ends or moves first.
+    Wait for the task first:
+        s.Wait()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3404" for a longer explanation)
+
+$DIR/main.p:24:8: cannot drop b here: the task started at main.p:26 may still be using it
+    The task started at main.p:26 writes b.n at main.p:26, and s waits for it at
+    main.p:30, so the task could use b after it has moved or been freed.
+    Go keeps the variables a goroutine uses alive with its garbage collector,
+    however long the goroutine runs. Plutonium has none: a variable lives in its
+    function's frame until its block ends. A sync.Scope waits for the tasks it
+    started before its block ends, so they may use the function's variables, and
+    the compiler checks that nothing they use ends or moves first.
+    Wait for the task first:
+        s.Wait()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3404" for a longer explanation)

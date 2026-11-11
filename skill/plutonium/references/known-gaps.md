@@ -14,8 +14,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   (20.4). Item 157.
 - The conversion checks of 11.12 and 11.24 (slicing a type parameter with a string in its type set, packed types and
   byte arrays, `string(c)`, owner conversions) are not all enforced. Item 166.
-- A deferred call that drops or writes what a scoped task uses, and that can run before the task is joined, is not
-  E3404 or E3402 yet (19.4). Item 201.
 - A `//pu:stack` size outside 64K to 64G, and a program over an implementation limit, have no code yet (20.3, 21.4).
   Item 207.
 - A closure passed through a func value or an interface may not yet count as kept for the closure region errors (11.5).

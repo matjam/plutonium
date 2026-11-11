@@ -820,7 +820,6 @@ main:
 	process(items[:], results[:])
 
 == 19-concurrency.md 19.4 | func fill() {
-known: 201: E3404 does not yet count a deferred call that can run before the join, so the deferred w.Drop() is not reported
 
 == 19-concurrency.md 19.4 | for i := range in {
 pre:
