@@ -257,13 +257,13 @@ type analyzer struct {
 	viewWrites   map[string]*writeSite
 	globalWrites map[*types2.Var]map[string]*writeSite
 	addrGlobals  map[*types2.Var]bool
-	gstores      map[*types2.Var][]gstore // the values stored in each package variable (loadCrossings)
-	initLits     map[ast.Node]bool        // composite literals whose address a package initializer stores: static object candidates
-	statics      map[ast.Node]bool        // the static objects: initLits that no code moves, drops or overwrites once tasks run
-	freedTypes   map[string]*writeSite    // the struct types of objects freed, dropped or moved once tasks run (the free condition)
-	arenaTypes   []types2.Type            // the types allocated by alloc.New, Owned, Shared, Synced and the arenas' New and Slice (bulkFreed)
-	plainWrites  plainSites               // the plain writes of package variables once tasks run (plainWritten)
-	guardedW     map[string]bool          // the shared writes of package variables that a guard set guards (writeKey)
+	gstores      map[*types2.Var][]gstore            // the values stored in each package variable (loadCrossings)
+	initLits     map[ast.Node]bool                   // composite literals whose address a package initializer stores: static object candidates
+	statics      map[ast.Node]bool                   // the static objects: initLits that no code moves, drops or overwrites once tasks run
+	freedTypes   map[string]*writeSite               // the struct types of objects freed, dropped or moved once tasks run (the free condition)
+	arenaTypes   []types2.Type                       // the types allocated by alloc.New, Owned, Shared, Synced and the arenas' New and Slice (bulkFreed)
+	plainWrites  plainSites                          // the plain writes of package variables once tasks run (plainWritten)
+	guardedW     map[string]bool                     // the shared writes of package variables that a guard set guards (writeKey)
 	converted    map[string]types2.Type              // types converted to interfaces
 	convSites    map[string]*convSite                // one conversion of each type that can reach another task
 	typeIDs      []types2.Type                       // referent types of synced[T], and map types, numbered for paths
