@@ -230,6 +230,10 @@ func (c *checker) heapPinnedDiag(v *types2.Var, p *pinMark, mv move) *diag.Diagn
 	d := c.newDiag(mv.pos, diag.LostView, "%s %s here, but a view of what it holds (%s, line %d) was %s at line %d, where the compiler cannot check its uses", pu.Box(owner), pu.Box(c.lostVerb(mv)), pu.Box(p.text), c.line(p.pos), pu.Box(p.how), c.line(p.where))
 	d.Text = compat.Sprintfb("An owner may move to another task only when no other alias of the memory it holds is left behind (language spec section 8.8). The view of %s made by %s at line %d went into memory the compiler does not follow, so this task could still use it while the task that receives %s does.", compat.ArgS(owner), compat.ArgS(p.text), compat.ArgI(int64(c.line(p.pos))), compat.ArgS(owner))
 	d.Fix = pu.New(diag.Fix{Intro: "Keep the view in a local variable or a field of one, where the compiler follows it, or do not hand it to a call that keeps it"})
+	if mv.kind == mvFree {
+		d.Text = compat.Sprintfb("A call that may free what an owner holds ends every view of that memory (language spec section 18.3). The view of %s made by %s at line %d went into memory the compiler does not follow, so it cannot check that the view is not used after line %d.", compat.ArgS(owner), compat.ArgS(p.text), compat.ArgI(int64(c.line(p.pos))), compat.ArgI(int64(c.line(mv.pos))))
+		d.Fix = pu.New(diag.Fix{Intro: "Keep the view in a local variable or a field of one, where the compiler follows it, or do not make that call while the view is kept"})
+	}
 	return d
 }
 

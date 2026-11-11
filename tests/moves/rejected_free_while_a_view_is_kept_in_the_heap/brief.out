@@ -1,0 +1,2 @@
+$DIR/main.p:19:2: v is passed to v.Push(2), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) here, but a view of what it holds (v.Slice(), line 18) was passed to save, which may keep it at line 18, where the compiler cannot check its uses
+$DIR/main.p:18:2: cannot pass v.Slice() to save, which keeps it after returning

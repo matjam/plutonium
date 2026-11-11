@@ -400,7 +400,7 @@ func joinState(sa, sb vstate) vstate {
 		out.pin = sb.pin
 	}
 	out.hpin = sa.hpin
-	if out.hpin == nil {
+	if out.hpin == nil || !out.hpin.stored && sb.hpin != nil && sb.hpin.stored {
 		out.hpin = sb.hpin
 	}
 	out.dl = sa.dl
@@ -417,7 +417,7 @@ func envEqual(a, b env) bool {
 	for k, v := range a {
 		u, ok := b[k]
 		if !ok || u.st != v.st || u.dd != v.dd || !u.z.equal(v.z) || !u.bz.equal(v.bz) ||
-			!viewsEqual(u.views, v.views) || (u.pin == nil) != (v.pin == nil) || (u.hpin == nil) != (v.hpin == nil) || (u.dl == nil) != (v.dl == nil) {
+			!viewsEqual(u.views, v.views) || (u.pin == nil) != (v.pin == nil) || (u.hpin == nil) != (v.hpin == nil) || u.hpin != nil && u.hpin.stored != v.hpin.stored || (u.dl == nil) != (v.dl == nil) {
 			return false
 		}
 	}

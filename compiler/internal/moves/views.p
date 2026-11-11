@@ -72,6 +72,10 @@ type pinMark struct {
 	text  string    // the expression that made it
 	where token.Pos // where it went
 	how   string    // how: "stored in *q"
+	// stored is set when the view itself went there, not only memory a
+	// callee loads through it. Only such a view makes a later free an
+	// error (section 18.3).
+	stored bool
 	lent   bool // the view is lent (view.lent)
 }
 
@@ -1127,11 +1131,13 @@ func (f *fn) addViews(call *ast.CallExpr, dst ast.Expr, direct bool, vs []view) 
 	}
 	if place == nil {
 		f.pin(vs, call.Pos(), how)
+		f.heapPin(vs, call.Pos(), how, true)
 		return
 	}
 	v, _, box, ok := f.placePath(place)
 	if !ok || box || f.captured(v) || f.kept[v] {
 		f.pin(vs, call.Pos(), how)
+		f.heapPin(vs, call.Pos(), how, true)
 		return
 	}
 	s := f.env[v]
@@ -1156,13 +1162,16 @@ func (f *fn) pin(vs []view, where token.Pos, how string) {
 // the heap. Moving such an owner is no error, since a move does not
 // release that memory, but moving it to another task is: the kept view
 // would let this task use memory the other task now owns (section 8.8).
-func (f *fn) heapPin(vs []view, where token.Pos, how string) {
+//
+// stored says the view itself was kept, not only memory loaded through
+// it; a later free of such an owner is E3314 too (frees.p, freedPart).
+func (f *fn) heapPin(vs []view, where token.Pos, how string, stored bool) {
 	for _, w := range vs {
 		s, ok := f.env[w.of]
-		if ok && s.hpin != nil || !w.inHeap {
+		if ok && s.hpin != nil && (s.hpin.stored || !stored) || !w.inHeap {
 			continue
 		}
-		s.hpin = pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how})
+		s.hpin = pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how, stored: stored})
 		f.setState(w.of, s)
 	}
 }
@@ -1200,15 +1209,19 @@ func (f *fn) callStores(args []argView) {
 				w.inHeap = true
 				held = compat.Append(held, w)
 			}
-			f.heapPin(held, a.call.Pos(), f.c.keepHow(a.call, site))
+			f.heapPin(held, a.call.Pos(), f.c.keepHow(a.call, site), false)
 		}
+		// A view kept through an unsafe.Pointer is the unsafe code's to
+		// check: it does not make a later free an error.
+		b, viaUnsafe := f.c.typeOf(a.key).Underlying().(*types2.Basic)
+		viaUnsafe = viaUnsafe && b.Kind() == types2.UnsafePointer
 		if af == nil {
 			f.pin(a.views, a.call.Pos(), how)
-			f.heapPin(a.views, a.call.Pos(), how)
+			f.heapPin(a.views, a.call.Pos(), how, !viaUnsafe)
 			continue
 		}
 		if af.Self {
-			f.heapPin(a.views, a.call.Pos(), how)
+			f.heapPin(a.views, a.call.Pos(), how, !viaUnsafe)
 		}
 		for _, in := range af.Into {
 			if in.Arg == a.key {

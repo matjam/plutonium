@@ -883,8 +883,13 @@ func (f *fn) freedPart(v *types2.Var, path Path, mv move) {
 		return
 	}
 	// A view of what v holds on the heap kept where the walk cannot follow
-	// (hpin) is not checked here, as at the end of v's block: a drop
-	// releases the same memory (item 237).
+	// (hpin, when the view itself was stored) can no longer be checked:
+	// the call may free that memory, so it is E3314 (section 18.3). The
+	// end of v's block is not checked so: the drop there releases the same
+	// memory (item 237).
+	if p := f.env[v].hpin; p != nil && p.stored && mv.kind == mvFree && f.report {
+		f.c.report(f.c.heapPinnedDiag(v, p, mv))
+	}
 	f.staleWhere(v, mv, func(w view) bool { return !w.itself && overlap(w.part, path) })
 }
 
