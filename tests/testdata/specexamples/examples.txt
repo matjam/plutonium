@@ -460,7 +460,6 @@ pre:
 	type Dev struct{ state State }
 
 == 12-statements.md 12.9 | type Resource owner interface{ Read(p []byte) (int, error) }
-known: 148: after the type switch r is moved (E3301), not possibly moved (E3302), though only the owned[File] clause moves it
 pre:
 	type File owner struct{ fd int }
 	func (f *File) Read(p []byte) (int, error) { return 0, nil }

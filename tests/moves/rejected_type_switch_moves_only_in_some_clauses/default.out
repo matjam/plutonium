@@ -1,0 +1,74 @@
+$DIR/main.p:30:6: r may have been moved at line 24, so it cannot be used here
+    Res is an owner type: its values own what they hold and release it when they
+    are dropped. r is moved out by the type assertion switch r.(type) at line 24
+    on some paths to this point and not on others. On those paths r holds
+    nothing afterwards, and the compiler cannot let a value be used where it may
+    already belong to someone else.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use r before line 24, or give it a new value on the path that moves it:
+        r = ...
+    Or test the ok result of the assertion at line 24 directly: where it is
+    false, r still holds its value:
+        if !ok {
+            // use r
+        }
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3302" for a longer explanation)
+
+$DIR/main.p:39:6: r may have been moved at line 35, so it cannot be used here
+    Res is an owner type: its values own what they hold and release it when they
+    are dropped. r is moved out by the type assertion switch r.(type) at line 35
+    on some paths to this point and not on others. On those paths r holds
+    nothing afterwards, and the compiler cannot let a value be used where it may
+    already belong to someone else.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use r before line 35, or give it a new value on the path that moves it:
+        r = ...
+    Or test the ok result of the assertion at line 35 directly: where it is
+    false, r still holds its value:
+        if !ok {
+            // use r
+        }
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3302" for a longer explanation)
+
+$DIR/main.p:48:3: v holds a view of r (r, line 45), which was given a new value at line 47, so v can no longer be used here
+    v looks at memory that r owns, without owning it: the view was made by r at
+    line 45. A view of an owner held in a local variable may be used only while
+    the variable keeps the value the view was made from. At line 47 r was given
+    a new value, so the view may look at memory that was released, or at a value
+    that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use v before line 47, or give r its new value only after the last use of v
+    Or make the view again after line 47:
+        v = r
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:52:6: r may have been moved at line 45, so it cannot be used here
+    Res is an owner type: its values own what they hold and release it when they
+    are dropped. r is moved out by the type assertion switch r.(type) at line 45
+    on some paths to this point and not on others. On those paths r holds
+    nothing afterwards, and the compiler cannot let a value be used where it may
+    already belong to someone else.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    Use r before line 45, or give it a new value on the path that moves it:
+        r = ...
+    Or test the ok result of the assertion at line 45 directly: where it is
+    false, r still holds its value:
+        if !ok {
+            // use r
+        }
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3302" for a longer explanation)

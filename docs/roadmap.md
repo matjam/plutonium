@@ -1500,10 +1500,16 @@ compiler (2026-10-11).
     grows, `vec.Fixed` is bounded; `fmt.Appendf` replaces `Bprintf`; `make([]T, ...)` is E2014 (fix
     `vec.Make`). Item 83 removes the name from the predeclared scope.
 
-148. **Moves through type switches, assertions and conversions** (planned; sections 7.9, 11.13, 11.26, 12.9,
+148. **Moves through type switches, assertions and conversions** (done; sections 7.9, 11.13, 11.26, 12.9,
     18.5, D44, findings C2 and A3 of the [rulings](verification/2026-11-09-spec-rulings.md)): a clause or assertion naming an ordinary interface lends
     instead of moving; the operand is possibly moved after a switch where another clause moved it; a
-    moving conversion moves at the enclosing call or assignment.
+    moving conversion moves at the enclosing call or assignment. Done: the move checker records the
+    lending clauses (`SwitchLends`); a lending clause's binding is a view of the operand, and the operand
+    is possibly moved (E3302) after the switch when only some clauses move it. Lowering clears the operand
+    only in a moving clause, and an unmatched value stays in it to be dropped with it
+    (`compiler/internal/lower/stmt.p`, `compiler/internal/escape2/eir/stmt.p`). Tests:
+    `tests/moves/rejected_type_switch_moves_only_in_some_clauses`, `accepted_type_switch_moves_only_in_some_clauses`,
+    `rejected_assertion_lends_and_conversion_moves` and `accepted_assertion_lends_and_conversion_moves`.
 149. **Follow comma-ok `ok` through direct tests** (planned; sections 11.13, 18.5, D47, finding C3): the move
     analysis knows `ok` on the branches of a direct test, and the E3302 message suggests `if !ok`.
 150. **An enum is not an integer type** (done, `f4200cfa`; sections 7.12, 11.24, D48, finding C4): `Shade(color)` and

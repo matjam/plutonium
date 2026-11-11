@@ -875,18 +875,10 @@ func (fb *fnb) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	iv := fb.expr(x)
 	if !union && fb.b.moves.SwitchMoves[st] {
 		// The owner moves out of x into the binding of the clause that
-		// runs; with no default clause, an unmatched value is dropped.
+		// runs, but for a clause whose binding lends from x; where no
+		// clause matches, x keeps it (language spec section 12.9).
 		copied := fb.newObj(Object{Kind: ObjTemp, Type: I, Name: "switched"})
 		fb.store(fb.addr(copied), iv, I)
-		hasDefault := false
-		for _, c := range st.Body.List {
-			if c.(*ast.CaseClause).List == nil {
-				hasDefault = true
-			}
-		}
-		if !hasDefault {
-			fb.switchDrop = pu.New(switchDrop{obj: copied, T: I})
-		}
 	}
 	done := fb.newBlock()
 	clauses := st.Body.List
@@ -910,10 +902,6 @@ func (fb *fnb) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 			fb.seal(next)
 			fb.startBlock(next)
 		}
-	}
-	if d := fb.switchDrop; d != nil {
-		fb.switchDrop = nil
-		fb.dropAt(fb.addr(d.obj), d.T, st.Pos())
 	}
 	fb.jump(defaultBody)
 	fb.targets = compat.Append(fb.targets, pu.New(jumpTarget{label: label, breakTo: done, depth: len(fb.scopes)}))
@@ -946,11 +934,6 @@ func (fb *fnb) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	fb.targets = fb.targets[:len(fb.targets)-1]
 	fb.seal(done)
 	fb.startBlock(done)
-}
-
-type switchDrop struct {
-	obj ObjID
-	T   types2.Type
 }
 
 // A staticClause is the one clause internal/lower builds of a type switch

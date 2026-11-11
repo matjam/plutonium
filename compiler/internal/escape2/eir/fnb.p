@@ -50,10 +50,9 @@ type fnb struct {
 	labels  map[*types2.Label]*labelInfo
 	targets []*jumpTarget // the enclosing loops, switches and selects
 
-	curStmt    ast.Stmt    // the statement being built
-	bodyNode   ast.Node    // the body of the declaration or literal, for goto
-	frameSlots []dropSlot  // owners the function holds as a whole: its owner parameters
-	switchDrop *switchDrop // the value a type switch drops when no clause takes it
+	curStmt    ast.Stmt   // the statement being built
+	bodyNode   ast.Node   // the body of the declaration or literal, for goto
+	frameSlots []dropSlot // owners the function holds as a whole: its owner parameters
 
 	dropRecv        bool     // a Drop method, whose receiver its drop glue destroys
 	drops           int      // drops emitted, for the exit check at a statement's end

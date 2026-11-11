@@ -903,12 +903,13 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 	iv := s.materialize(s.expr(x))
 	moves := s.l.moves != nil && s.l.moves.SwitchMoves[st]
 	if moves {
-		// The owner moves out of x into the binding of whichever clause
-		// runs (language spec section 7.9): x holds nothing afterwards.
+		// The owner moves out of x into the binding of the clause that
+		// runs, and x is cleared there, except in a clause whose binding
+		// lends from x. Where no clause matches, x keeps the value
+		// (language spec section 12.9).
 		copied := s.temp(I, "switched")
 		s.storeTo(copied, iv, I)
 		iv = aggValue(copied, I)
-		s.zero(s.lv(x).ptr, s.l.sizeof(I))
 	}
 	tab, data := s.ifaceParts(iv)
 
@@ -949,10 +950,6 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 			s.startBlock(next)
 		}
 	}
-	if moves && defaultBody == done {
-		// No clause took the value: drop it here.
-		s.dropAt(iv.v, I)
-	}
 	s.endPlain(defaultBody)
 
 	s.targets = compat.Append(s.targets, pu.New(target{label: label, breakTo: done, isSwitch: true, depth: len(s.cleanups)}))
@@ -961,6 +958,9 @@ func (s *fnState) typeSwitchStmt(st *ast.TypeSwitchStmt, label *types2.Label) {
 		s.seal(bodies[i])
 		s.startBlock(bodies[i])
 		clause := s.pushCleanup(cc, true)
+		if moves && !s.l.moves.SwitchLends[cc] {
+			s.zero(s.lv(x).ptr, s.l.sizeof(I))
+		}
 		if v, ok := s.info.Implicits[cc].(*types2.Var); ok {
 			T := s.subst(v.Type())
 			addr := s.declareVar(v)

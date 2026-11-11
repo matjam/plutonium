@@ -1,0 +1,41 @@
+$DIR/main.p:21:2: w holds a view of r (r, line 19), which was moved into use (its parameter takes a Res by value) at line 20, so w can no longer be used here
+    w looks at memory that r owns, without owning it: the view was made by r at
+    line 19. A view of an owner held in a local variable may be used only while
+    the variable keeps the value the view was made from. At line 20 r was moved
+    into use (its parameter takes a Res by value), so the view may look at
+    memory that was released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use w before line 20, or move r only after the last use of w
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:28:10: f was converted to Res at line 27, so it can no longer be used here
+    owned[File] is an owner type: its values own what they hold and release it
+    when they are dropped. Assigning an owner moves it instead of copying it, so
+    that what it owns has exactly one owner. Since line 27, f holds nothing.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    If this is the last use of f, move it before line 27, where f still holds
+    its value.
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3301" for a longer explanation)
+
+$DIR/main.p:35:10: f was moved to r at line 34, so it can no longer be used here
+    owned[File] is an owner type: its values own what they hold and release it
+    when they are dropped. Assigning an owner moves it instead of copying it, so
+    that what it owns has exactly one owner. Since line 34, r owns it and f
+    holds nothing.
+    Go copies such values freely and its garbage collector frees what they refer
+    to when nothing refers to it any more. Plutonium has no garbage collector:
+    an owner frees what it owns when it is dropped, so there must be exactly
+    one.
+    If r only needs to look at the value, give it a pointer instead:
+        r := &f
+    If this is the last use of f, move it before line 34, where f still holds
+    its value.
+    (see "Moves" in the Plutonium spec, section 18.5)
+    (run "pluto explain E3301" for a longer explanation)

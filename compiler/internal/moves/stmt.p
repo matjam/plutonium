@@ -139,9 +139,27 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 			x = a.X.(*ast.TypeAssertExpr).X
 		}
 		_, binds := st.Assign.(*ast.AssignStmt)
-		if binds && f.assertMoves(x, f.c.typeOf(x)) {
-			// The binding takes the owner in every clause.
-			if f.assertOut(x, compat.Concat("switch ", exprText(x), ".(type)"), "type", true) && f.report {
+		moving := binds && f.assertMoves(x, f.c.typeOf(x))
+		// perClause: the binding takes the owner out of the variable x in
+		// each clause that runs, except in one whose single case names an
+		// ordinary interface type, and nothing moves where no clause
+		// matches (section 12.9). An owner union's switch is exhaustive and
+		// moves in every clause.
+		var xid *ast.Ident
+		var xv *types2.Var
+		to := compat.Concat("switch ", exprText(x), ".(type)")
+		if moving && types2.UnionVariants(f.c.typeOf(x)) == nil {
+			if id, ok := ast.Unparen(x).(*ast.Ident); ok {
+				xid, xv = id, f.varOf(id)
+			}
+		}
+		if xv != nil {
+			f.use(xid, xv)
+			if f.report {
+				f.c.info.SwitchMoves[st] = true
+			}
+		} else if moving {
+			if f.assertOut(x, to, "type", true) && f.report {
 				f.c.info.SwitchMoves[st] = true
 			}
 		} else {
@@ -150,8 +168,17 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 		f.clauses(label, st.Body.List, func(c ast.Stmt) []ast.Stmt {
 			cc := c.(*ast.CaseClause)
 			for _, e := range cc.List {
-				if !binds || !f.assertMoves(x, f.c.typeOf(x)) {
+				if !moving {
 					f.assertTo(x, f.c.typeOf(e), e.Pos())
+				}
+			}
+			if xv != nil {
+				if f.switchLends(cc) {
+					if f.report {
+						f.c.info.SwitchLends[cc] = true
+					}
+				} else {
+					f.moveOut(xid, xv, move{kind: mvAssert, to: to})
 				}
 			}
 			if v, ok := f.c.implicits[cc].(*types2.Var); ok {
@@ -911,6 +938,18 @@ func (f *fn) deferExit() {
 	for _, v := range vs {
 		f.c.report(f.c.deferUseDiag(v, f.env[v]))
 	}
+}
+
+// switchLends reports whether the clause cc of a type switch on an owning
+// interface has a single case that names an ordinary interface type: its
+// binding lends from the switch's variable, which keeps the value (section
+// 12.9).
+func (f *fn) switchLends(cc *ast.CaseClause) bool {
+	if len(cc.List) != 1 {
+		return false
+	}
+	tv := f.c.types[cc.List[0]]
+	return !tv.IsNil() && tv.Type != nil && types2.IsInterface(tv.Type) && !isOwner(tv.Type)
 }
 
 // assertFailed returns the owning interface variable that the init of an

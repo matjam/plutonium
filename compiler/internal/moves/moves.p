@@ -44,9 +44,13 @@ type Info struct {
 	// owner out of the owning interface variable x: x is cleared where the
 	// assertion succeeds. SwitchMoves are the type switches with a binding
 	// on an owning interface variable, which move it into the binding in
-	// every clause (language spec section 7.9).
+	// every clause but those in SwitchLends, whose single case names an
+	// ordinary interface type: there the binding lends from the variable,
+	// which keeps the value, as it does where no clause matches (language
+	// spec section 12.9).
 	AssertMoves map[*ast.TypeAssertExpr]bool
 	SwitchMoves map[*ast.TypeSwitchStmt]bool
+	SwitchLends map[*ast.CaseClause]bool
 
 	// What is known to hold nothing (empty.go), so that lowering drops
 	// neither a variable that was moved away on every path, nor one that
@@ -94,6 +98,7 @@ func AnalyzeWith(prog *load.Program, calls *Calls) (*Info, error) {
 		calls: calls,
 		info: pu.New(Info{Moves: map[*ast.Ident]bool{}, Temps: map[ast.Expr]bool{}, DeferredDrops: map[*ast.CallExpr]bool{},
 			AssertMoves: map[*ast.TypeAssertExpr]bool{}, SwitchMoves: map[*ast.TypeSwitchStmt]bool{},
+			SwitchLends: map[*ast.CaseClause]bool{},
 			Empty: map[ast.Node]Known{}, AtStmt: map[ast.Stmt]Known{}, EmptyResults: map[*ast.ReturnStmt]VarSet{},
 			Fresh: map[ast.Expr]bool{}}),
 		fset:       prog.Fset,

@@ -10,7 +10,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - Four view-tracking cases of 18.3: a view stored into memory a local owner's method returned, a pointer to caller
   memory that loses its tie when the owner moves, a view kept in a moved local owner then stored in a package
   variable, a view of a table a map walk retired. Item 179.
-- A type switch, assertion or conversion on an ordinary interface does not yet move or lend as 18.5 says. Item 148.
 - `owned`, `shared`, `synced` and `weak` by value in `//pu:extern` or `//pu:export` signatures are not E2511 yet
   (20.4). Item 157.
 - The conversion checks of 11.12 and 11.24 (slicing a type parameter with a string in its type set, packed types and

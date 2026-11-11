@@ -1,0 +1,21 @@
+write 0
+still 1
+use 1
+drop 1
+pipe 2
+drop pipe 2
+use 9
+drop pipe 9
+file 3
+drop 3
+use 7
+drop 7
+other 4
+drop pipe 4
+use 7
+drop 7
+use 5
+drop pipe 5
+file 6
+drop 6
+end

@@ -1,0 +1,10 @@
+write 1
+use 1
+drop 1
+before 2
+use 2
+drop 2
+before 3
+use 3
+drop 3
+end
