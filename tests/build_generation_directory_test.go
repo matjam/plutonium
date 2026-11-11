@@ -4,6 +4,7 @@ package tests
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -50,6 +51,9 @@ println(b[150001])
 		}
 	}
 }
+
+// unhide turns unsafe.Add(x, 0) back into x.
+var unhide = regexp.MustCompile(`unsafe\.Add\(([^\n]*), 0\)`)
 
 func TestGenerationDirectoryComposition(t *testing.T) {
 	t.Parallel()
@@ -125,7 +129,7 @@ a.Free(p, 200000, 65536)`, "0\npanic: alloc: Free of memory that was already fre
 a := arena.NewChunkedUnsafe(200000)
 ra := &a; _ = ra
 m := a.Mark()
-p := (*byte)(a.Alloc(150000, 65536))
+p := (*byte)(unsafe.Add(a.Alloc(150000, 65536), 0))
 *p = 33
 println(uintptr(unsafe.Pointer(p))%65536)
 ra.Release(m)
@@ -169,7 +173,7 @@ println(b[150001])`, "41\npanic: runtime error: use of memory from an arena", 2}
 a := arena.NewChunkedUnsafe()
 ra := &a; _ = ra
 m := a.Mark()
-p := (*[200000]byte)(a.Alloc(200000, 16))
+p := (*[200000]byte)(unsafe.Add(a.Alloc(200000, 16), 0))
 ra.Release(m)
 println(*(*uint16)(unsafe.Add(unsafe.Pointer(p), 99999)))`, "use of memory from an arena", 2},
 		{"released bulk copy", "", `
@@ -291,7 +295,7 @@ println(*(*byte)(p))`, "17 18\n17\n", 0},
 outer := arena.NewChunkedUnsafe()
 ro := &outer; _ = ro
 inner := arena.NewChunkedUnsafe(256, &outer)
-p := (*byte)(inner.Alloc(200000, 16))
+p := (*byte)(unsafe.Add(inner.Alloc(200000, 16), 0))
 *p = 19
 ro.Reset()
 println(*p)`, "use of memory from an arena", 2},
@@ -312,11 +316,11 @@ println(*(*byte)(q))`, "31\npanic: runtime error: use of freed memory", 2},
 outer := arena.NewChunkedUnsafe()
 ro := &outer; _ = ro
 left := arena.NewChunkedUnsafe(256, &outer)
-p := (*byte)(left.Alloc(1, 16))
+p := (*byte)(unsafe.Add(left.Alloc(1, 16), 0))
 *p = 21
 m := outer.Mark()
 right := arena.NewChunkedUnsafe(256, &outer)
-q := (*byte)(right.Alloc(1, 16))
+q := (*byte)(unsafe.Add(right.Alloc(1, 16), 0))
 *q = 22
 ro.Release(m)
 println(*p)
@@ -490,12 +494,18 @@ var _ unsafe.Pointer
 var _ = strings.Repeat
 ` + c.decl + "\nfunc main() {\n" + c.body + "\n}"
 				// A case that resets or releases a local arena through ra or
-				// ro reaches the run time check; on the arena itself the
-				// stale use is a compile error (E3313, section 18.9).
+				// ro makes its stale pointers through unsafe.Add, which the
+				// move checker does not follow, so it reaches the run time
+				// check. With plain pointers the stale use is a compile
+				// error, through ra or ro and on the arena itself (E3313,
+				// section 18.9).
 				if strings.Contains(src, "_ = ra") || strings.Contains(src, "_ = ro") {
-					direct := strings.NewReplacer("ra.Release", "a.Release", "ro.Reset", "outer.Reset", "ro.Release", "outer.Release").Replace(src)
-					if out := buildFails(t, direct); !strings.Contains(out, "E3313") || !strings.Contains(out, "reclaimed by") {
-						t.Fatalf("direct reclaim: output %q; want E3313", out)
+					plain := unhide.ReplaceAllString(src, "$1")
+					direct := strings.NewReplacer("ra.Release", "a.Release", "ro.Reset", "outer.Reset", "ro.Release", "outer.Release").Replace(plain)
+					for _, prog := range []string{plain, direct} {
+						if out := buildFails(t, prog); !strings.Contains(out, "E3313") || !strings.Contains(out, "reclaimed by") {
+							t.Fatalf("plain pointers: output %q; want E3313", out)
+						}
 					}
 				}
 				out, status := runGenCheck(t, src, level)

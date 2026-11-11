@@ -20,12 +20,14 @@ func TestSafeArenaFree(t *testing.T) {
  a.Free(unsafe.Pointer(q),8,8)
  r:=a.New[int](); *r=9
  println(*p,*r)`
-					// The stale Free resets through pa, which the move checker
-					// does not follow, so the run time check sees it; a Reset
-					// of a itself is a compile error (E3313, section 18.9).
-					staleBody := func(reset string) string {
+					// The stale Free uses p made through unsafe.Add, which the
+					// move checker does not follow, so the run time check sees
+					// it; with a plain p, a Reset of a, or through pa, is a
+					// compile error (E3313, section 18.9).
+					const plain, hidden = "a.New[int]()", "(*int)(unsafe.Add(unsafe.Pointer(a.New[int]()),0))"
+					staleBody := func(reset, newP string) string {
 						return `pa:=&a; _=pa
- p:=a.New[int](); *p=7
+ p:=` + newP + `; *p=7
  ` + reset + `
  q:=a.New[int](); *q=9
  a.Free(unsafe.Pointer(p),8,8)
@@ -35,9 +37,11 @@ func TestSafeArenaFree(t *testing.T) {
 						return "package main\nimport (\"pluto/arena\";\"unsafe\")\nfunc main(){a:=" + constructor + "\n" + body + "\n}\n"
 					}
 					if stale {
-						body = staleBody("pa.Reset()")
-						if out := buildFails(t, src(staleBody("a.Reset()"))); !strings.Contains(out, "E3313") || !strings.Contains(out, "reclaimed by a.Reset()") {
-							t.Fatalf("direct Reset: output %q; want E3313 for p after a.Reset()", out)
+						body = staleBody("pa.Reset()", hidden)
+						for _, reset := range []string{"a.Reset()", "pa.Reset()"} {
+							if out := buildFails(t, src(staleBody(reset, plain))); !strings.Contains(out, "E3313") || !strings.Contains(out, "reclaimed by "+reset) {
+								t.Fatalf("plain p: output %q; want E3313 for p after %s", out, reset)
+							}
 						}
 					}
 					source := src(body)

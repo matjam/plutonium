@@ -22,13 +22,16 @@ func runNormalShutdown(t *testing.T, source string, opt int) (string, int) {
 func TestNormalShutdownValues(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct{ name, source, want string }{
+		// Drop keeps the address of the static it drops as a uintptr:
+		// keeping p itself is E3002 (section 18.6, What dropping does).
 		{"staticReceiver", `package main
+import "unsafe"
 type item owner struct{id int}
-var published *item
+var published uintptr
 type observer owner struct{live bool}
-func(o *observer)Drop(){if o.live{println("static",published==&last,published.id==0);o.live=false}}
+func(o *observer)Drop(){if o.live{println("static",published==uintptr(unsafe.Pointer(&last)),(*item)(unsafe.Pointer(published)).id==0);o.live=false}}
 var first=observer{live:true}
-func(p *item)Drop(){if p.id!=0{println("drop",p.id);published=p}}
+func(p *item)Drop(){if p.id!=0{println("drop",p.id);published=uintptr(unsafe.Pointer(p))}}
 var last=item{id:2}
 func main(){}
 `, "drop 2\nstatic true true\n"},

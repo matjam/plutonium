@@ -424,19 +424,20 @@ func main() {
 		name, body, want string
 		status           int
 	}{
-		// Through pa the move checker does not see which arena is reset,
-		// so the misuse reaches the run time check. TestArenaStaleViews
-		// has the same programs on a itself, rejected at compile time.
+		// The stale pointers are made through unsafe.Add or unsafe.Slice,
+		// which the move checker does not follow, so the misuse reaches the
+		// run time check. TestArenaStaleViews has the plain programs,
+		// rejected at compile time.
 		{"view after reset", `
 	pa := &a
-	p := a.New[node]()
+	p := (*node)(unsafe.Add(unsafe.Pointer(a.New[node]()), 0))
 	p.val = 7
 	pa.Reset() // here
 	println(p.val)`, reset, 2},
 		{"view after release", `
 	pa := &a
 	m := a.Mark()
-	p := a.New[node]()
+	p := (*node)(unsafe.Add(unsafe.Pointer(a.New[node]()), 0))
 	p.val = 7
 	pa.Release(m) // here
 	q := a.New[node]() // reuses p's memory
@@ -445,7 +446,7 @@ func main() {
 		{"slice in a chunk of its own", `
 	pa := &a
 	m := a.Mark()
-	s := a.Slice[int](3000)
+	s := unsafe.Slice(unsafe.SliceData(a.Slice[int](3000)), 3000)
 	pa.Release(m) // here
 	_ = a.Slice[int](3000)
 	s[2999] = 1`, reset, 2},
@@ -476,7 +477,7 @@ func main() {
 	println(errs.At(0).Error())`, reset, 2},
 		{"free of the latest allocation", `
 	pa := &a
-	p := (*node)(a.Alloc(16, 8))
+	p := (*node)(unsafe.Add(a.Alloc(16, 8), 0))
 	a.Free(unsafe.Pointer(p), 16, 8)
 	p.val = 1
 	println("after free", p.val)
@@ -538,7 +539,8 @@ func main() {
 }
 
 // TestArenaStaleViews checks that a view of a local arena.Chunked used after
-// a Reset or Release of that arena by name is rejected at compile time
+// a Reset or Release of that arena, by name or through a pointer to it, is
+// rejected at compile time
 // (E3313, section 18.9), with the use and the reclaiming call named.
 func TestArenaStaleViews(t *testing.T) {
 	t.Parallel()
@@ -560,6 +562,18 @@ func main() {
 	p.val = 7
 	a.Reset() // here
 	println(p.val) // use`, "p", "a.Reset()"},
+		{"view after reset through a pointer", `
+	pa := &a
+	p := a.New[node]()
+	p.val = 7
+	pa.Reset() // here
+	println(p.val) // use`, "p", "pa.Reset()"},
+		{"view after release through a pointer", `
+	pa := &a
+	m := a.Mark()
+	s := a.Slice[int](3000)
+	pa.Release(m) // here
+	s[2999] = 1 // use`, "s", "pa.Release(m)"},
 		{"view after release", `
 	m := a.Mark()
 	p := a.New[node]()
