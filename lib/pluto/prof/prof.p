@@ -75,44 +75,60 @@ func StopCPUProfile(name string) error {
 // The allocation profiler.
 
 // allocSampler is the allocator the allocation profiler installs as the
-// default, in front of the one it replaces.
-type allocSampler struct {
-	parent rt.Allocator
-	rate   uint64
-	bytes  uint64 // allocated so far (atomic)
-	on     bool
-	start  time.Time
-	tab    rt.ProfTable
-}
+// default, in front of the one it replaces. It has no state of its own:
+// every task allocates through it, so its state is in package variables
+// that a lock or atomic operations guard.
+type allocSampler struct{}
 
-var sampler allocSampler
+// The allocation profiler's state. samplerMu guards samplerParent and
+// samplerTab, since a thread may still be allocating through the sampler
+// when a later StartAllocProfile sets them again; each run has a table of
+// its own. samplerRate and samplerBytes are atomic. Only StartAllocProfile
+// and StopAllocProfile use samplerOn and samplerStart.
+var (
+	samplerMu     rt.Lock
+	samplerParent rt.Allocator
+	samplerTab    *rt.ProfTable
+	samplerRate   uint64
+	samplerBytes  uint64 // allocated so far
+	samplerOn     bool
+	samplerStart  time.Time
+)
 
-func (s *allocSampler) Alloc(size, align uintptr) unsafe.Pointer {
-	n := atomic.AddUint64(&s.bytes, uint64(size))
-	if hits := n/s.rate - (n-uint64(size))/s.rate; hits != 0 {
-		s.sample(size, hits)
+func (s allocSampler) Alloc(size, align uintptr) unsafe.Pointer {
+	n := atomic.AddUint64(&samplerBytes, uint64(size))
+	rate := atomic.LoadUint64(&samplerRate)
+	if hits := n/rate - (n-uint64(size))/rate; hits != 0 {
+		s.sample(size, hits, rate)
 	}
-	return s.parent.Alloc(size, align)
+	samplerMu.Lock()
+	p := samplerParent.Alloc(size, align)
+	samplerMu.Unlock()
+	return p
 }
 
-func (s *allocSampler) Free(p unsafe.Pointer, size, align uintptr) {
-	s.parent.Free(p, size, align)
+func (allocSampler) Free(p unsafe.Pointer, size, align uintptr) {
+	samplerMu.Lock()
+	samplerParent.Free(p, size, align)
+	samplerMu.Unlock()
 }
 
 // sample records the stack of an allocation of size bytes that crossed hits
 // multiples of the rate.
 //
 //pu:noinline
-func (s *allocSampler) sample(size uintptr, hits uint64) {
+func (allocSampler) sample(size uintptr, hits, rate uint64) {
 	var stk [maxFrames]uintptr
 	n := rt.CallerPCs(1, stk[:])
 	k := ownFrames(stk[:n])
-	b := int64(hits * s.rate)
+	b := int64(hits * rate)
 	objs := b / int64(max(size, 1))
 	if objs < 1 {
 		objs = 1
 	}
-	s.tab.Add(stk[k:n], objs, b)
+	samplerMu.Lock()
+	samplerTab.Add(stk[k:n], objs, b)
+	samplerMu.Unlock()
 }
 
 // ownFrames reports how many leading pcs of stk are in this package (the
@@ -136,7 +152,7 @@ func ownFrames(stk []uintptr) int {
 // StartAllocProfile starts the allocation profiler, sampling once every
 // rate bytes allocated (512 KiB if rate is 0).
 func StartAllocProfile(rate int) error {
-	if sampler.on {
+	if samplerOn {
 		return errors.New("prof: the allocation profiler is already running")
 	}
 	if rate <= 0 {
@@ -147,13 +163,19 @@ func StartAllocProfile(rate int) error {
 		return errors.New("prof: no memory for the allocation profiler")
 	}
 	rt.IndexFuncs()
-	rt.InitProfTable(&sampler.tab, mem, tableBytes)
-	sampler.parent = rt.DefaultAllocator()
-	sampler.rate = uint64(rate)
-	sampler.bytes = 0
-	sampler.start = time.Now()
-	sampler.on = true
-	rt.SetDefaultAllocator(&sampler)
+	// The table's header is at the start of its memory.
+	hdr := (unsafe.Sizeof(rt.ProfTable{}) + 63) &^ 63
+	tab := (*rt.ProfTable)(mem)
+	rt.InitProfTable(tab, unsafe.Add(mem, hdr), tableBytes-hdr)
+	samplerMu.Lock()
+	samplerTab = tab
+	samplerParent = rt.DefaultAllocator()
+	samplerMu.Unlock()
+	atomic.StoreUint64(&samplerRate, uint64(rate))
+	atomic.StoreUint64(&samplerBytes, 0)
+	samplerStart = time.Now()
+	samplerOn = true
+	rt.SetDefaultAllocator(allocSampler{})
 	return nil
 }
 
@@ -162,18 +184,18 @@ func StartAllocProfile(rate int) error {
 // sampler's table is not freed, as other threads may still be finishing
 // an allocation through it.
 func StopAllocProfile(name string) error {
-	if !sampler.on {
+	if !samplerOn {
 		return errors.New("prof: the allocation profiler is not running")
 	}
-	rt.SetDefaultAllocator(sampler.parent)
-	sampler.on = false
+	rt.SetDefaultAllocator(samplerParent)
+	samplerOn = false
 	p := profile{
 		types:      [2][2]string{{"alloc_objects", "count"}, {"alloc_space", "bytes"}},
 		periodType: [2]string{"space", "bytes"},
-		period:     int64(sampler.rate),
-		start:      sampler.start,
+		period:     int64(atomic.LoadUint64(&samplerRate)),
+		start:      samplerStart,
 	}
-	return p.write(name, &sampler.tab)
+	return p.write(name, samplerTab)
 }
 
 // Writing a profile.
