@@ -5,7 +5,6 @@ import (
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
-	"compiler/pu"
 	"pluto/strconv"
 	"pluto/strings"
 )
@@ -39,16 +38,25 @@ import (
 //     any number of calls, to a fixed point, as keeps.p does.
 //
 // A call of a func value whose candidates are not known, or of a function
-// without a body (other than those named above), is taken to free nothing,
-// and a call's result is taken to hold nothing of its arguments (the
-// direct scan): a free through a pointer that a call returned is not
-// found. The other way round, a pin or view that only the freeing call
-// made, or a view of another variable that the owner passed by address
-// holds, is not ended.
+// without a body (other than those named above), is taken to free nothing.
+// A call's result holds what the escape analysis says it may derive from
+// (keepScan.sets), so a free through a pointer a call returned is found.
+// The other way round, a pin or view that only the freeing call made, or a
+// view of another variable that the owner passed by address holds, is not
+// ended.
 
 // findFrees computes c.frees, after findKeeps.
 func (c *checker) findFrees(funcs []keepFunc) {
-	c.frees = map[ast.Node][]keepSite{}
+	c.frees = c.summarize(funcs, func(s *keepScan, body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
+		s.frees(body, found, edge)
+	})
+}
+
+// summarize computes, for each function of funcs and each of its inputs,
+// the first site scan finds in its body through that input, followed
+// through the calls that pass the input on (edge) to a fixed point.
+func (c *checker) summarize(funcs []keepFunc, scan func(s *keepScan, body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int))) map[ast.Node][]keepSite {
+	sum := map[ast.Node][]keepSite{}
 	into := map[ast.Node][]keepEdge{}
 	type pending struct {
 		fn ast.Node
@@ -56,16 +64,15 @@ func (c *checker) findFrees(funcs []keepFunc) {
 	}
 	var work []pending
 	for _, sc := range funcs {
-		c.frees[sc.node] = compat.Make[keepSite](sc.n)
+		sum[sc.node] = compat.Make[keepSite](sc.n)
 	}
 	for _, sc := range funcs {
 		node := sc.node
-		// What the locals hold, without following call results: a free
-		// through a pointer a call returned is not found (item 237).
-		ds := pu.New(keepScan{c: c, inputs: sc.scan.inputs, own: map[*types2.Var]uint64{}, held: map[*types2.Var]uint64{}, direct: true})
-		ds.taint(sc.body)
-		ds.frees(sc.body, func(in int, site keepSite) {
-			if fs := c.frees[node]; in < len(fs) && !fs[in].valid() {
+		// What the locals hold, call results included: q := id(p) holds
+		// what p points to when the escape analysis says the result may
+		// derive from p.
+		scan(sc.scan, sc.body, func(in int, site keepSite) {
+			if fs := sum[node]; in < len(fs) && !fs[in].valid() {
 				fs[in] = site
 				work = compat.Append(work, pending{fn: node, j: in})
 			}
@@ -76,14 +83,15 @@ func (c *checker) findFrees(funcs []keepFunc) {
 	for len(work) > 0 {
 		w := work[len(work)-1]
 		work = work[:len(work)-1]
-		site := c.frees[w.fn][w.j]
+		site := sum[w.fn][w.j]
 		for _, e := range into[w.fn] {
-			if fs := c.frees[e.from]; e.j == w.j && e.in < len(fs) && !fs[e.in].valid() {
+			if fs := sum[e.from]; e.j == w.j && e.in < len(fs) && !fs[e.in].valid() {
 				fs[e.in] = site
 				work = compat.Append(work, pending{fn: e.from, j: e.in})
 			}
 		}
 	}
+	return sum
 }
 
 // A keepFunc is a function findKeeps scanned, for findFrees: its node, the

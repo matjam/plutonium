@@ -1,0 +1,2 @@
+$DIR/main.p:30:10: s holds a view of x (x.v.Slice(), line 28), which was passed to g(&x), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 29, so s can no longer be used here
+$DIR/main.p:36:11: k holds a view of y (&y.n, line 34), which was passed to id(&y).Reset(), which may free what it looks at or move it out (t.v = ..., line 16) at line 35, so k can no longer be used here
