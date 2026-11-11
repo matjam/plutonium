@@ -1233,7 +1233,7 @@ compiler (2026-10-11).
     236). Spec
     example: the `type Config struct{ port int }` and `type Limits struct{ max int }` blocks of 19.3,
     which now start their tasks from `main`.
-219. **`sync.Cond.Wait` in the guard inference** (planned, phase 1; sections 19.3 (Held sets; Views loaded under a lock), 19.7, F.5,
+219. **`sync.Cond.Wait` in the guard inference** (done, `14dd6d35`; sections 19.3 (Held sets; Views loaded under a lock), 19.7, F.5,
     memory-model.md 3.4, D106, the "Once and Cond" section of the rulings; with item 197): `c.Wait(l)`
     counts as `l.Unlock()` then `l.Lock()` when the compiler names the lock (`&mu`, `&s.mu`, or a pointer
     named by where it came from); a `Wait` whose lock it cannot name is the compile error of item 220
@@ -1241,7 +1241,7 @@ compiler (2026-10-11).
     view to be valid (19.3, Views loaded under a lock): a lock of the guard set held at the load stays held
     with no ending event to the use, so a view kept across `Wait`, or across `Unlock` and `Lock`, is E3501. Spec
     examples: the `type Job struct{ id int }` and "second keeps a pointer" blocks of 19.3.
-220. **A release of a lock the task does not hold** (planned, phase 1, race-check soundness; sections
+220. **A release of a lock the task does not hold** (done, `bf49bf83`; sections
     19.3 (Locks and names; Held sets; Releasing a lock), 19.7, 18.12, 17.1, 20.10, F.5, A, memory-model.md 4.1, D108, the "Releasing a lock" section of
     the [rulings](verification/2026-11-09-spec-rulings.md)): every `Unlock`, `RUnlock` and `c.Wait(l)`
     must release a lock the calling task holds on every path, for writing (`Unlock`, `Wait`) or reading
@@ -1257,7 +1257,7 @@ compiler (2026-10-11).
     that another task may also use is E3502 naming the assignment. The bodies of the lock methods and `Cond.Wait` are exempt (18.12). Library, with item 197:
     `Cond.Wait(l)` makes its checks that may panic before it unlocks `l`. Spec example: the "finish
     releases a lock that another task took" block of 19.3.
-221. **The guard set of every shared write** (planned, phase 1, wrong acceptance; section 19.3 (The guard
+221. **The guard set of every shared write** (done, `8272a1b9`; section 19.3 (The guard
     set; Rule 1), D111, finding K6 of audit K): the guard set of a datum is the intersection of the
     write-mode locks over all its shared writes, with "atomic" as a lock of its own, not the intersection
     over the writes that conflict with each other. A shared write with an empty guard set is E3502. Today
@@ -1285,7 +1285,7 @@ compiler (2026-10-11).
     finding K4 of audit K; with items 156 and 214): the start of sharing is the first statement that may
     start a task, install a handler, or enable interrupts (`x86.Sti`, `x86.StiHlt`, `x86.RestoreFlags`),
     itself or through calls. Accesses before it do not count.
-225. **Copying a lock** (planned, phase 1; sections 19.3 (Copying a lock), F.5, A, D115, finding K14 of
+225. **Copying a lock** (done, `58c8137c`; sections 19.3 (Copying a lock), F.5, A, D115, finding K14 of
     audit K): a copy from a place of a value whose type holds a `sync.Mutex`, `sync.RWMutex`, `sync.Once`,
     `sync.WaitGroup` or `sync.Cond` (and `rt.Lock` outside `pluto/rt`), directly or through fields and
     array elements, is a compile error, which needs a code: assignments, arguments, results, sends, range
@@ -1331,7 +1331,7 @@ compiler (2026-10-11).
     func values with unknown callers) as a call with no returned `Do` (M3, rows 118, 119); when the body may
     release a lock, count every access of the iterator without it (G3, row 121); record locks held at calls
     of copies of a func parameter (G7).
-233. **The only writer's views** (planned, phase 1; section 19.3 (Views loaded under a lock; rule 2 case
+233. **The only writer's views** (done, `7d33940b`; section 19.3 (Views loaded under a lock; rule 2 case
     4), D121, finding L6 of audit L): a view loaded by the only writer of a datum, not repeated, is valid
     with no lock. Check what the race check does today and add a test for spec row 90.
 234. **Smaller race-check fixes of audit L** (planned, phase 1; section 19.3, D122, findings L7, L11 and L13
@@ -1346,7 +1346,7 @@ compiler (2026-10-11).
     check does not start from that region, and the wait check does not start from regions in code a
     handler may reach (E2584 reports those waits once). `compiler/internal/race/region.p` already puts a
     handler body in `regIRQ`; check the rest and add tests for spec rows 110 to 115.
-236. **A deferred call counts at every point after its `defer`** (planned, phase 1; sections 19.3 (Held
+236. **A deferred call counts at every point after its `defer`** (done, `887b5d74`; sections 19.3 (Held
     sets; Views loaded under a lock; Lazy initialization; The start of sharing), 17.2, 17.3, D128, finding
     N2 of audit N): a deferred call runs where its function leaves, which may be a callee that ends the
     task with `rt.ExitTask` or a panic, so its accesses, views, regions and returned `Do`s use what holds
@@ -1684,7 +1684,7 @@ compiler (2026-10-11).
     the debug allocator registers generation tags.
 190. **Alternate signal stacks for worker threads** (planned; sections 17.1, 21.7; moved from item 41): a
     per-thread alternate signal stack, so a fault on a worker thread's stack can still be reported.
-197. **`sync.Cond` as a value** (planned, phase 1 with item 219; sections 19.3, F.5, A, D106; from item 51):
+197. **`sync.Cond` as a value** (done, `7f743567`; sections 19.3, F.5, A, D106; from item 51):
     `NewCond` returns a `*Cond` from `alloc.New` that the caller frees with `alloc.Free`
     (`lib/pluto/sync/waitgroup.p:108`). Decided (D106): `Cond` becomes a value whose zero value is ready,
     with no `L` field and no `NewCond`, and `Wait(l Locker)` unlocks `l`, parks, and locks `l` again.
