@@ -1551,9 +1551,12 @@ compiler (2026-10-11).
     drop does not copy `x` and is not a use at the exit, so a later move is allowed and the drop then
     finds nothing to drop. Tests: `tests/moves/accepted_deferred_drop_then_moved` and the run test in
     `testdata/lib/drops.p`.
-176. **Region rules for closures** (planned; section 11.5, D68, findings D6 and D14): check that a closure passed
+176. **Region rules for closures** (done; section 11.5, D68, findings D6 and D14): check that a closure passed
     through a func value or an interface counts as kept, and that storing it in the same frame or passing it
-    to `s.Task` is allowed.
+    to `s.Task` is allowed. The analysis already did this; the item adds the tests:
+    `tests/escape/rejected_closure_kept_through_a_func_value_or_an_interface` (a func value, an interface,
+    and a func value given to `s.Task`, which D68 does not allow: only a literal written as its argument) and
+    `accepted_closure_stored_in_the_frame_or_given_to_a_scoped_task`.
 181. **False escape errors in heavy unit-test builds of `types2`** (done, `de6b2994`, `9cd50379`, `6b4acfd4`;
     section 18.3): the checked test builds of `sched`, `summary`, `solve`, `escape2` and `eir` were rejected
     at `compiler/internal/types2/conversions.p:89` and `:97` and `unify.p:735`. The conversions errors came

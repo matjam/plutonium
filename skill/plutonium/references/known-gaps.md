@@ -16,8 +16,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   byte arrays, `string(c)`, owner conversions) are not all enforced. Item 166.
 - A `//pu:stack` size outside 64K to 64G, and a program over an implementation limit, have no code yet (20.3, 21.4).
   Item 207.
-- A closure passed through a func value or an interface may not yet count as kept for the closure region errors (11.5).
-  Item 176.
 - A `%w` wrapper of an error in a field of a local owner is not yet tested to be bounded by the owner (16.5).
   Item 177.
 - The race check does not follow an allocator behind a parameter, a heap pointer or an `alloc.Use` window, or bulk
