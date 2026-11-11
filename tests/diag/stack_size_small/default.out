@@ -1,0 +1,10 @@
+$DIR/main.p:5:1: //pu:stack: size 4K is smaller than 64K
+    //pu:stack takes a size in bytes, with an optional K, M or G suffix, from
+    64K to 64G. A smaller stack leaves too little room for the runtime and the
+    guard region, and a larger one does not fit the address space the runtime
+    reserves. The range is a limit the language fixes.
+    Use a size in range:
+        //pu:stack 256M
+        func main() { ... }
+    (see "Implementation limits" in the Plutonium spec, section 21.4)
+    (run "pluto explain E2561" for a longer explanation)

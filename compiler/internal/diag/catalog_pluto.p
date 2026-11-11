@@ -753,9 +753,15 @@ func init() {
 		}),
 		pu.New(Entry{
 			Code: StackDirective, Name: "StackDirective",
-			Text: "//pu:stack sets the size of the stack a hosted program runs on: the runtime reserves that much address space before main starts. It belongs on func main in package main, and takes a size in bytes, with an optional K, M or G suffix, from 64K to 64G. A freestanding program sets up its own stack, so the directive has nothing to act on there.",
-			Fix:  pu.New(Fix{Intro: "Put it on main", Code: "//pu:stack 256M\nfunc main() { ... }"}),
+			Text: "//pu:stack sets the size of the stack a hosted program runs on: the runtime reserves that much address space before main starts. A freestanding program sets up its own stack, so the directive has nothing to act on there.",
+			Fix:  pu.New(Fix{Intro: "Remove the directive and set up the stack in the program's start code"}),
 			Spec: pspec("20.3", "Directives"),
+		}),
+		pu.New(Entry{
+			Code: StackSize, Name: "StackSize",
+			Text: "//pu:stack takes a size in bytes, with an optional K, M or G suffix, from 64K to 64G. A smaller stack leaves too little room for the runtime and the guard region, and a larger one does not fit the address space the runtime reserves. The range is a limit the language fixes.",
+			Fix:  pu.New(Fix{Intro: "Use a size in range", Code: "//pu:stack 256M\nfunc main() { ... }"}),
+			Spec: pspec("21.4", "Implementation limits"),
 		}),
 		pu.New(Entry{
 			Code: InterruptDecl, Name: "InterruptDecl",

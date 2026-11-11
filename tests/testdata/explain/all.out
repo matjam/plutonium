@@ -4211,17 +4211,28 @@ See "Per-CPU variables" in the Plutonium spec, section 20.9.
 E2560: StackDirective
 
 //pu:stack sets the size of the stack a hosted program runs on: the runtime
-reserves that much address space before main starts. It belongs on func main in
-package main, and takes a size in bytes, with an optional K, M or G suffix, from
-64K to 64G. A freestanding program sets up its own stack, so the directive has
-nothing to act on there.
+reserves that much address space before main starts. A freestanding program sets
+up its own stack, so the directive has nothing to act on there.
 
-Put it on main:
+Remove the directive and set up the stack in the program's start code:
+
+
+
+See "Directives" in the Plutonium spec, section 20.3.
+
+E2561: StackSize
+
+//pu:stack takes a size in bytes, with an optional K, M or G suffix, from 64K to
+64G. A smaller stack leaves too little room for the runtime and the guard
+region, and a larger one does not fit the address space the runtime reserves.
+The range is a limit the language fixes.
+
+Use a size in range:
 
     //pu:stack 256M
     func main() { ... }
 
-See "Directives" in the Plutonium spec, section 20.3.
+See "Implementation limits" in the Plutonium spec, section 21.4.
 
 E2570: InterruptDecl
 
@@ -6576,3 +6587,18 @@ E9001: InternalError
 The compiler failed on a program that passed type checking. This is a bug in the
 compiler, not in your program. Please report it with the smallest program that
 shows it. Changing the code near the position shown may work around it.
+
+E9002: ImplementationLimit
+
+The program goes past a limit of this compiler. The parser accepts expressions,
+statements and types nested up to 100000 levels deep, and the type checker up to
+its own nesting limit, which is lower when its stack runs short. The message
+names the limit. The program is not wrong, but this compiler cannot build it as
+written.
+
+Split the deep expression or type into named parts:
+
+    a := f(g(x))
+    b := h(a)
+
+See "Implementation limits" in the Plutonium spec, section 21.4.

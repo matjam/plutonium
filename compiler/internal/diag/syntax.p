@@ -160,6 +160,8 @@ func syntaxCode(msg string) Code {
 		return CheckerCode(typerr.SharedDefault)
 	case has("interface method must have no type parameters"):
 		return IfaceMethodTParams
+	case strings.HasPrefix(msg, "nested too deeply"):
+		return CheckerCode(typerr.ImplementationLimit)
 	case strings.HasPrefix(msg, "go starts no task"):
 		return GoStatement
 	case strings.HasPrefix(msg, "the operand of or"):

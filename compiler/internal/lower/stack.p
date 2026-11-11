@@ -33,8 +33,8 @@ func isStackDirective(d string) bool { return d == "stack" || strings.HasPrefix(
 
 // mainStackSize returns the stack size main's //pu:stack directive asks for,
 // rounded up to whole pages, or 0 if it has none. It reports a malformed
-// directive, and one in a freestanding build, which has no runtime to
-// reserve the stack.
+// directive (E2603), a size outside 64K to 64G (E2561), and a directive in a
+// freestanding build, which has no runtime to reserve the stack (E2560).
 func (l *Lowerer) mainStackSize(mainFn *types2.Func) uint64 {
 	d := l.decls[mainFn]
 	if d == nil || d.decl.Doc == nil {
@@ -49,9 +49,13 @@ func (l *Lowerer) mainStackSize(mainFn *types2.Func) uint64 {
 			l.errorf(c.Pos(), diag.StackDirective, "//pu:stack is not supported in freestanding builds (the program sets up its own stack)")
 			return 0
 		}
-		size, err := parseStackSize(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(dir), "stack")))
+		size, err, outside := parseStackSize(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(dir), "stack")))
 		if err != "" {
-			l.errorf(c.Pos(), diag.StackDirective, "//pu:stack: %s", pu.Box(err))
+			code := diag.DirectiveArgument
+			if outside {
+				code = diag.StackSize
+			}
+			l.errorf(c.Pos(), code, "//pu:stack: %s", pu.Box(err))
 			return 0
 		}
 		return size
@@ -62,10 +66,10 @@ func (l *Lowerer) mainStackSize(mainFn *types2.Func) uint64 {
 // parseStackSize parses the size of a //pu:stack directive: a decimal number
 // of bytes with an optional K, M or G suffix (powers of 1024), between 64K
 // and 64G. It returns the size rounded up to a whole page, or an error
-// message.
-func parseStackSize(s string) (uint64, string) {
+// message and whether the error is a well-formed size outside that range.
+func parseStackSize(s string) (uint64, string, bool) {
 	if s == "" {
-		return 0, "missing size (for example //pu:stack 256M)"
+		return 0, "missing size (for example //pu:stack 256M)", false
 	}
 	mult := uint64(1)
 	switch s[len(s)-1] {
@@ -82,16 +86,16 @@ func parseStackSize(s string) (uint64, string) {
 	}
 	n, err := strconv.ParseUint(digits, 10, 64)
 	if err != nil {
-		return 0, compat.Concat("invalid size ", strconv.Quote(s), " (want a number of bytes with an optional K, M or G suffix)")
+		return 0, compat.Concat("invalid size ", strconv.Quote(s), " (want a number of bytes with an optional K, M or G suffix)"), false
 	}
 	if n > maxMainStack/mult || n*mult > maxMainStack {
-		return 0, compat.Concat("size ", s, " is larger than 64G")
+		return 0, compat.Concat("size ", s, " is larger than 64G"), true
 	}
 	size := n * mult
 	if size < minMainStack {
-		return 0, compat.Concat("size ", s, " is smaller than 64K")
+		return 0, compat.Concat("size ", s, " is smaller than 64K"), true
 	}
-	return (size + pageSize - 1) &^ (pageSize - 1), ""
+	return (size + pageSize - 1) &^ (pageSize - 1), "", false
 }
 
 // checkStackDirective reports a //pu:stack directive on a function other
@@ -107,7 +111,7 @@ func (s *fnState) checkStackDirective(doc *ast.CommentGroup) {
 		}
 		mainFn, _ := s.l.prog.Main.Types.Scope().Lookup("main").(*types2.Func)
 		if mainFn == nil || s.f.Name != funcSymName(mainFn, nil) {
-			s.l.errorf(c.Pos(), diag.StackDirective, "//pu:stack applies only to func main in package main")
+			s.l.errorf(c.Pos(), diag.MisplacedDirective, "//pu:stack applies only to func main in package main")
 		}
 	}
 }

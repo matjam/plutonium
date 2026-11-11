@@ -3,6 +3,7 @@
 package diag
 
 import (
+	typerr "compiler/internal/types2/errors"
 	"compiler/pu"
 )
 
@@ -141,6 +142,12 @@ func init() {
 		pu.New(Entry{
 			Code: InternalError, Name: "InternalError",
 			Text: "The compiler failed on a program that passed type checking. This is a bug in the compiler, not in your program. Please report it with the smallest program that shows it. Changing the code near the position shown may work around it.",
+		}),
+		pu.New(Entry{
+			Code: CheckerCode(typerr.ImplementationLimit), Name: "ImplementationLimit",
+			Text: "The program goes past a limit of this compiler. The parser accepts expressions, statements and types nested up to 100000 levels deep, and the type checker up to its own nesting limit, which is lower when its stack runs short. The message names the limit. The program is not wrong, but this compiler cannot build it as written.",
+			Fix:  pu.New(Fix{Intro: "Split the deep expression or type into named parts", Code: "a := f(g(x))\nb := h(a)"}),
+			Spec: pspec("21.4", "Implementation limits"),
 		}),
 	)
 }

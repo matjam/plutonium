@@ -333,3 +333,15 @@ const (
 	// statement.
 	OrPostStmt
 )
+
+// Implementation limits (language spec section 21.4). E9000-E9999 are the
+// codes of the implementation itself; E9001 is an internal error
+// (compiler/internal/diag/codes.p).
+const (
+	_ Code = 9001 + iota
+
+	// ImplementationLimit: a program past one of the compiler's
+	// documented limits, such as the depth of nested expressions and
+	// types.
+	ImplementationLimit
+)

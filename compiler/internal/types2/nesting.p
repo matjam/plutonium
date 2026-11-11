@@ -30,7 +30,7 @@ func (check *Checker) enter(e ast.Expr) bool {
 	if tooDeep {
 		if !check.nestingAt {
 			check.nestingAt = true
-			check.errorf(e, UnsupportedFeature, "expression or type nested too deeply (%d levels) for the type checker", check.nesting)
+			check.errorf(e, ImplementationLimit, "expression or type nested too deeply: the type checker's limit is %d levels of nesting", check.nesting)
 		}
 		return false
 	}

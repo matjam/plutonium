@@ -140,7 +140,7 @@ const maxNestLev int = 1e5
 func incNestLev(p *parser) *parser {
 	p.nestLev++
 	if p.nestLev > maxNestLev {
-		p.error(p.pos, "exceeded max nesting depth")
+		p.error(p.pos, "nested too deeply: the parser's limit is 100000 levels of nesting")
 		p.bail()
 	}
 	return p

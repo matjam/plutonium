@@ -109,29 +109,32 @@ func firstLineOf(s string) string {
 // directives stop the build.
 func TestMainStackErrors(t *testing.T) {
 	t.Parallel()
-	cases := []struct{ name, src, want string }{
-		{"missing size", "package main\n\n//pu:stack\nfunc main() {}\n", "//pu:stack: missing size"},
-		{"bad size", "package main\n\n//pu:stack lots\nfunc main() {}\n", `//pu:stack: invalid size "lots"`},
-		{"bad suffix", "package main\n\n//pu:stack 12T\nfunc main() {}\n", `invalid size "12T"`},
-		{"too small", "package main\n\n//pu:stack 4K\nfunc main() {}\n", "smaller than 64K"},
-		{"too large", "package main\n\n//pu:stack 65G\nfunc main() {}\n", "larger than 64G"},
-		{"overflowing", "package main\n\n//pu:stack 99999999999999999G\nfunc main() {}\n", "larger than 64G"},
-		{"not main", "package main\n\n//pu:stack 1M\nfunc f() {}\n\nfunc main() { f() }\n", "//pu:stack applies only to func main"},
+	// Each form has its own code (spec 20.3): E2603 for a missing or
+	// malformed size, E2561 for one outside 64K to 64G, E2602 on a
+	// function other than main.
+	cases := []struct{ name, src, want, code string }{
+		{"missing size", "package main\n\n//pu:stack\nfunc main() {}\n", "//pu:stack: missing size", "E2603"},
+		{"bad size", "package main\n\n//pu:stack lots\nfunc main() {}\n", `//pu:stack: invalid size "lots"`, "E2603"},
+		{"bad suffix", "package main\n\n//pu:stack 12T\nfunc main() {}\n", `invalid size "12T"`, "E2603"},
+		{"too small", "package main\n\n//pu:stack 4K\nfunc main() {}\n", "smaller than 64K", "E2561"},
+		{"too large", "package main\n\n//pu:stack 65G\nfunc main() {}\n", "larger than 64G", "E2561"},
+		{"overflowing", "package main\n\n//pu:stack 99999999999999999G\nfunc main() {}\n", "larger than 64G", "E2561"},
+		{"not main", "package main\n\n//pu:stack 1M\nfunc f() {}\n\nfunc main() { f() }\n", "//pu:stack applies only to func main", "E2602"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			errs := buildFails(t, c.src, "--brief")
-			if !strings.Contains(errs, c.want) {
-				t.Fatalf("got errors %q, want %q", errs, c.want)
+			errs := buildFails(t, c.src)
+			if !strings.Contains(errs, c.want) || !strings.Contains(errs, "pluto explain "+c.code) {
+				t.Fatalf("got errors %q, want %q with code %s", errs, c.want, c.code)
 			}
 		})
 	}
 	t.Run("freestanding", func(t *testing.T) {
 		t.Parallel()
 		src := "package main\n\n//pu:stack 1M\nfunc main() {}\n"
-		errs := buildFails(t, src, "--mode", "freestanding", "--gencheck=false", "--brief")
-		if !strings.Contains(errs, "not supported in freestanding builds") {
+		errs := buildFails(t, src, "--mode", "freestanding", "--gencheck=false")
+		if !strings.Contains(errs, "not supported in freestanding builds") || !strings.Contains(errs, "pluto explain E2560") {
 			t.Fatalf("got errors %q, want the freestanding error", errs)
 		}
 	})

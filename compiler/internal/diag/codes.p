@@ -50,7 +50,8 @@ const (
 	PerCPUInit          Code = "E2550" // a per-CPU variable with a non-constant initialiser
 	PerCPUMode          Code = "E2551" // //pu:percpu outside kernel mode
 	PerCPUSection       Code = "E2552" // //pu:percpu with //pu:section
-	StackDirective      Code = "E2560" // a malformed //pu:stack, or one not on main in a hosted build
+	StackDirective      Code = "E2560" // //pu:stack in a freestanding build
+	StackSize           Code = "E2561" // a //pu:stack size outside 64K to 64G
 	InterruptDecl       Code = "E2570" // a //pu:interrupt function that cannot be a handler
 	InterruptSig        Code = "E2571" // a handler with the wrong parameters or results
 	GateArg             Code = "E2572" // x86.InterruptGate or x86.TrapGate of something other than a handler of its form
@@ -188,4 +189,6 @@ const (
 // Errors in the compiler itself.
 const (
 	InternalError Code = "E9001" // a bug in the compiler
+	// E9002 is typerr.ImplementationLimit: a program past one of the
+	// compiler's documented limits (spec section 21.4).
 )

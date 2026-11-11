@@ -254,6 +254,7 @@ E2550  PerCPUInit
 E2551  PerCPUMode
 E2552  PerCPUSection
 E2560  StackDirective
+E2561  StackSize
 E2570  InterruptDecl
 E2571  InterruptSig
 E2572  GateArg
@@ -359,3 +360,4 @@ E5006  LinkFailed
 E5007  PerCPUNotAtZero
 E5008  ToolNotFound
 E9001  InternalError
+E9002  ImplementationLimit
