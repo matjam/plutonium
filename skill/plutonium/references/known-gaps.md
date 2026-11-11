@@ -7,17 +7,13 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 
 ## 1. Programs the compiler accepts that the specification rejects
 
-- Four view-tracking cases of 18.3: a view stored into memory a local owner's method returned, a pointer to caller
-  memory that loses its tie when the owner moves, a view kept in a moved local owner then stored in a package
-  variable, a view of a table a map walk retired. Item 179.
+- A view of a table a map walk retired may outlive the walk while the map lives (18.3). Item 179.
 - `owned`, `shared`, `synced` and `weak` by value in `//pu:extern` or `//pu:export` signatures are not E2511 yet
   (20.4). Item 157.
 - The conversion checks of 11.12 and 11.24 (slicing a type parameter with a string in its type set, packed types and
   byte arrays, `string(c)`, owner conversions) are not all enforced. Item 166.
 - A `//pu:stack` size outside 64K to 64G, and a program over an implementation limit, have no code yet (20.3, 21.4).
   Item 207.
-- A `%w` wrapper of an error in a field of a local owner is not yet tested to be bounded by the owner (16.5).
-  Item 177.
 - The race check does not follow an allocator behind a parameter, a heap pointer or an `alloc.Use` window, or bulk
   calls outside scoped tasks (19.4). Item 196.
 - A range-over-func body whose iterator calls `yield` from a scoped task still counts as part of the enclosing
@@ -45,9 +41,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   12.4). Item 216.
 - In kernel mode, `rt.Park` does not yet panic when interrupts are disabled, so a wait with interrupts disabled and
   no lock held is not caught at run time (19.3, abi.md 12.4). Item 213.
-- A closure region does not yet run drop glue for every captured variable with cleanup (11.5, 18.8). Item 169.
-- A large owner lent to an ordinary interface does not yet give a data word that points at the variable (7.9,
-  abi.md 5). Item 171.
 
 ## 3. Checks that are missing or too strict
 

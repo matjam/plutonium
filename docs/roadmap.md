@@ -860,9 +860,12 @@ compiler (2026-10-11).
     D79, finding F9 of audit F; extends item 201): a task running deferred calls for a panic when the
     program deadlocks, as a deferred `s.Wait()` can, is listed with a `panicking:` line, the panic's
     message and its trace.
-169. **Closure regions own captured variables** (planned; sections 11.5, 18.8, abi.md 4.1, D60, finding D2):
-    the region's drop function runs owner drop glue for every captured variable with cleanup, and copies
-    parameters into the region on entry.
+169. **Closure regions own captured variables** (done, `4563a229`; sections 11.5, 18.8, abi.md 4.1, D60,
+    finding D2): the region's drop function runs owner drop glue for every captured variable with cleanup,
+    and copies parameters into the region on entry. A flag word per owner variable (`regionVar`,
+    `holdInRegion` in `compiler/internal/lower/regions.p`) says whether the region holds its value; a
+    declaration that runs again drops the last value, and a move out clears the flag. Test:
+    `testdata/plutonium/closureregion.p`, at O0 and O2.
 170. **E3313 at calls that may free** (done, `7acbe902`; sections 18.3, 7.17, 7.18, 7.19, D61, finding D3 and
     candidates 7.17 to 7.19): the move checker's summaries (`compiler/internal/moves/frees.p`, over every
     package, to a fixed point like `keeps.p`) record through which inputs a function may free memory or
@@ -946,7 +949,14 @@ compiler (2026-10-11).
     range variable, which the rule now rejects. Tests: `tests/moves/rejected_view_of_a_type_parameter_value`
     and `accepted_view_of_a_type_parameter_of_values`, `rejected_generic_store_may_free`,
     `accepted_generic_store_of_values_frees_nothing` and `accepted_generic_swap_frees_nothing`; `tests/escape/review2_programs_u12_generic_union_switch` gets the
-    E3314 its `[T any]` binding stored in a package variable now needs.
+    E3314 its `[T any]` binding stored in a package variable now needs. Follow-up (`2d0a294e`): a method of
+    a box such as `shared[vec.Vec[int]]` called through an interface is lowered with the box's type
+    arguments (`derefType` in `compiler/internal/lower/iface.p` looks through boxes); it made the compiler
+    panic. Tests: `testdata/plutonium/boxifacemethod.p`,
+    `tests/moves/rejected_view_of_a_box_method_reassigned_through_an_interface` and
+    `accepted_view_of_a_box_method_used_before_reassignment`. A view of what a plain `*T` parameter points
+    at, kept past a call that frees it, stays a run-time check (generation checks, section 18.3), not a
+    compile error.
 173. **Range loops hold a count** (done, `47a958a4`; section 12.10, D64, finding D7): the range temporary over a counted
     value holds its own count until the loop ends. Maps, arrays and channels already did; a range over a
     string now holds an owned count (`rangeString` in `compiler/internal/lower/stmt.p`). Tests:
@@ -955,24 +965,32 @@ compiler (2026-10-11).
     clause moves between iterations and is dropped once. The checker and lowering already did this; the
     item adds the tests: `tests/moves/accepted_owner_in_a_for_clause_moves_between_iterations` (a run test
     of the drops) and `rejected_owner_in_a_for_clause_moved_and_not_replaced`.
-177. **A `%w` wrapper of a field error is bounded by the object** (planned, check only; sections 16.5, 16.7
+177. **A `%w` wrapper of a field error is bounded by the object** (done, `55ef406c`; sections 16.5, 16.7
     rule 4, 18.3, D69, finding B5): `fmt.Errorf("...: %w", err)` of an error in a field of an owner keeps a
-    pointer into the owner. The analysis already bounds `Errorf`'s result by its `%w` operand for a frame
-    `ErrorBuf` (`tests/testdata/escape/review4/e03_errorbuf_wrapped_by_errorf.p`, `e04_errorbuf_joined.p`).
-    Add tests for a wrapper of a field error of a local owner: used after the owner is moved or dropped is
-    E3313, returned past the owner is E3001, and stored in the heap is E3002. Fix the analysis if one is
-    accepted.
+    pointer into the owner. A `//pu:resultholds` function's escapes of the input now make each result hold
+    it, unless a result holds it already (`holdInResults` in `compiler/internal/escape2/solve/solve.p`), and
+    `Errorf` builds its wrapper in two such helpers (`lib/pluto/fmt/errorf.p`). Used after the owner is
+    moved or dropped is E3313, returned past it E3001, stored in a package variable E3002. Tests:
+    `testdata/plutonium/errorfwrap.p`,
+    `tests/escape/rejected_errorf_wrapper_of_a_field_error_outliving_its_owner`,
+    `accepted_errorf_wrapper_of_a_field_error_used_while_its_owner_lives` and
+    `tests/moves/rejected_errorf_wrapper_of_a_field_error_used_after_its_owner_ends`.
 178. **A consuming method used as a method value is an error** (done, `4fd02203`; sections 11.9, 18.5, G26
     decision (a); moved from items 20 and 75): `done := c.Close` for a method with an owner value
     receiver is error E3315 (ConsumingMethodValue), promoted methods included. The method expression
     `Conn.Close` and the call `c.Close()` still work. Tests: `tests/moves/rejected_method_value_of_a_consuming_method`
     and `accepted_consuming_method_called_or_named_by_type`.
-179. **The view-tracking cases item 138 left** (planned; section 18.3; moved from item 138): heap or caller
-    memory a method of a local owner returns is taken to be the owner's, so a view of the owner stored
-    into unrelated memory reached that way is not caught, and a pointer to caller memory so treated loses
-    its tie to the caller when the owner moves. A view kept in a local owner that is moved and then
-    stored in a package variable is not caught. A view of a table a map walk retired may outlive the walk
-    while the map lives.
+179. **The view-tracking cases item 138 left** (part done, `1a0eda0a`; section 18.3; moved from item 138):
+    done: a view of a local owner stored through a pointer, a box or a captured variable pins what the
+    owner holds on the heap, so a view stored into memory a method of the owner returned makes a later
+    free E3314 (`storeViews` in `compiler/internal/moves/views.p`); a pointer to caller memory a method
+    returns is bounded by the owner, so a use after the owner moves is E3313; a view kept in a moved
+    local owner then stored in a package variable is E3002. Tests:
+    `tests/moves/rejected_view_stored_through_a_method_result_pointer_then_its_owner_freed`,
+    `rejected_caller_pointer_returned_by_a_method_of_a_moved_owner`,
+    `tests/escape/rejected_view_kept_in_a_moved_owner_stored_in_a_package_variable`, each with an
+    accepted twin. Left: a view of a table a map walk retired may outlive the walk while the map lives;
+    no program that reaches it has been found yet.
 180. **The escape contract of `rt.ReleaseValues` and `ZeroValues`** (done, `10086fdc`; sections 18.3, 18.6;
     found by the third adversarial review, program `review3/o14_drop_in_vec_of_owners_local`): the
     escape analysis adds, after `rt.ReleaseValues(p, n)`, the drop of a `T` at `p`, so a `Drop` that keeps
@@ -1545,8 +1563,14 @@ compiler (2026-10-11).
     only for untyped integer or rune constants and `rune` constants; owner conversions need a valid conversion
     of the underlying types.
 
-171. **Lending a large owner to an ordinary interface** (planned; sections 7.9, abi.md 5, D61, finding D3): the
-    data word points at the variable, and the interface value is a view bounded by it.
+171. **Lending a large owner to an ordinary interface** (done, `05d3b420`; sections 7.9, abi.md 5, D61, finding
+    D3): the data word points at the variable, and the interface value is a view bounded by it
+    (`lendsPlace` in `compiler/internal/lower/iface.p`). A temporary owner lent this way is of its
+    statement in the escape analysis (`lendTemp` in `compiler/internal/escape2/eir/expr.p`), so keeping
+    the interface past the statement is E3009; a variadic array that holds it is of the statement too.
+    Tests: `testdata/plutonium/lentowner.p` (O0 and O2),
+    `tests/escape/rejected_temporary_owner_lent_to_an_interface_past_its_statement` and
+    `accepted_temporary_owner_lent_to_an_interface_within_its_statement`.
 172. **E3303 for assertions and switches on places** (done, `1c3dd4f4`; sections 11.13, 12.9, 7.13, D63, finding
     D5): a moving assertion or bound type switch on a field, element or `*p` is E3303, and the fix shows
     `take(&x.f)`. Tests: `tests/moves/rejected_moving_assertion_out_of_a_place` and
