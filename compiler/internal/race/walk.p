@@ -641,6 +641,7 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 		w.taskStmt(st)
 	case *ast.SendStmt:
 		w.value(st.Chan)
+		w.chanUse(st.Chan, st.Arrow)
 		v := w.value(st.Value)
 		var elem types2.Type
 		if ch, ok := w.typeOf(st.Chan).Underlying().(*types2.Chan); ok {
@@ -787,6 +788,9 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 		}
 	}
 	_, isChan := underlying(xt).(*types2.Chan)
+	if isChan {
+		w.chanUse(st.X, st.X.Pos())
+	}
 	w.loop(label, func() *state {
 		if isChan {
 			w.parkPoint() // each iteration waits for a value
@@ -1509,6 +1513,22 @@ func (a *analyzer) runtimeVar(v *types2.Var) bool {
 	return p == "pluto/rt" || strings.HasPrefix(p, "pluto/rt/")
 }
 
+// chanUse records a send, receive or close on the channel e holds: an
+// atomic access of the memory that holds the channel, which conflicts only
+// with a plain write of it (section 19.3, Accesses).
+func (w *walker) chanUse(e ast.Expr, pos token.Pos) {
+	ps, ok := w.place(e)
+	if !ok || ps.sync {
+		return
+	}
+	T := w.typeOf(e)
+	w.syncing = true
+	for _, p := range ps.ps {
+		w.access(p, false, true, pos, T, false, "")
+	}
+	w.syncing = false
+}
+
 // syncUse records a use of a lock or other synchronised value through its
 // methods: an atomic access, which conflicts only with plain writes of it.
 func (w *walker) syncUse(ps []vpath, pos token.Pos) {
@@ -1741,6 +1761,7 @@ func (w *walker) value1(e ast.Expr) origins {
 			return w.addrOf(e.X)
 		case token.ARROW:
 			w.value(e.X)
+			w.chanUse(e.X, e.Pos())
 			w.parkPoint()
 			return nil
 		}

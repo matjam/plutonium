@@ -1353,11 +1353,12 @@ compiler (2026-10-11).
 230. **`AfterFunc` functions are repeated parties** (planned, phase 1; sections 19.3 (Parties), 19.6, D117,
     finding L2 of audit L): the race check counts a function started by `time.AfterFunc` as a repeated
     party at every call site. Spec rows 77 and 78.
-231. **`pluto/sync` calls and channel operations are atomic accesses** (in progress, `2a85915e`: not channel operations; phase 1; section 19.3
+231. **`pluto/sync` calls and channel operations are atomic accesses** (done, `2a85915e`, `HASH231`; phase 1; section 19.3
     (Accesses; rule 2 case 3), D118, finding L3 of audit L): collect each such call as an atomic write of
     the value's memory that conflicts only with a plain write of that memory (a new value, or a free, move
     or overwrite of what holds it); add the case 3 condition that crossing sync memory is not freed, moved
-    or overwritten while shared. Spec rows 79 to 81.
+    or overwritten while shared. Spec rows 79 to 81. A send, a receive, `close` and a `range` over a channel
+    are atomic accesses of the memory that holds the channel; tests for rows 102 and 105.
 232. **A range body holds the iterator's locks at `yield`** (planned, phase 1; sections 19.3 (Part of the
     enclosing function; Lazy initialization), 12.11, D119, finding L4 of audit L): summaries record the
     locks held at every call of each func parameter, with modes; a range body on the caller's task adds

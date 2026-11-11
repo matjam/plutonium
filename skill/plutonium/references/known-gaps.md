@@ -68,8 +68,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   while it holds a view of per-CPU data (19.3, Switching tasks in a non-migrating region). Item 229.
 - A function started by `time.AfterFunc` counts as started once, so two runs after a `Reset` may race on what it
   writes without an error (19.3, Parties). Item 230.
-- A channel operation is not collected as an atomic write of the channel's object, so it does not conflict with
-  a plain write that frees or overwrites the channel (19.3, Accesses). Item 231.
 - A range body does not get the locks its iterator holds at `yield`, so a locked iterator is E3502 or E3501 as a
   range loop while the same literal passed to it compiles; a `Do` before a call does not count in the callee
   (19.3, Part of the enclosing function). This includes the method shape `range sc.All()`, whose closure locks

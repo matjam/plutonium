@@ -545,6 +545,12 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 			return one(v)
 		}
 		return one(nil)
+	case "close":
+		vals()
+		if len(e.Args) == 1 {
+			w.chanUse(e.Args[0], e.Pos())
+		}
+		return one(nil)
 	case "panic":
 		vals()
 		w.st = pu.New(state{dead: true})

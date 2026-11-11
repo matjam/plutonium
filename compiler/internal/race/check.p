@@ -1330,7 +1330,10 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 	} else {
 		b.WriteString(". Two tasks may run these at the same time, one of them writing, which is a data race: the other may see a value half written, or lose an update.")
 	}
-	if other.x.sync {
+	_, chanOp := underlying(other.x.typ).(*types2.Chan)
+	if other.x.sync && chanOp {
+		b.WriteString("\nThe use there is a channel operation, which synchronizes only with other operations on the channel: no lock orders it with a write that frees, moves or overwrites the channel, whatever locks the write holds.")
+	} else if other.x.sync {
 		b.WriteString("\nThe use there is a call of a pluto/sync method, which synchronizes only with other such calls: no lock orders it with a write that frees, moves or overwrites the value, whatever locks the write holds.")
 	} else {
 		b.WriteString("\nThe compiler infers which lock guards shared data from the locks held where it is written: a lock that every write holds. Here no one lock is held at every write.")
