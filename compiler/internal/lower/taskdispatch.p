@@ -177,6 +177,7 @@ func (s *fnState) ifaceTaskCall(iv value, I types2.Type, fn *types2.Func, sig *t
 	}
 	d := s.l.ifaceDispatcher(I, idx, fn, sig)
 	tab, data := s.ifaceParts(iv)
+	s.callNilCheck(tab, token.NoPos)
 	code := s.loadStatic(ssa.TPtr, s.offPtr(tab, int64(itabHeader+8*idx)))
 	return s.callDispatcher(d, code, data, args)
 }
@@ -184,6 +185,7 @@ func (s *fnState) ifaceTaskCall(iv value, I types2.Type, fn *types2.Func, sig *t
 // funcTaskCall calls func value f, of signature sig, through the
 // signature's dispatcher, which takes over the counted arguments.
 func (s *fnState) funcTaskCall(f *ssa.Value, sig *types2.Signature, args []value) []value {
+	s.callNilCheck(f, token.NoPos)
 	return s.callDispatcher(s.l.funcDispatcher(sig), s.load(ssa.TPtr, f), f, args)
 }
 

@@ -918,6 +918,7 @@ func (s *fnState) ifaceCall(iv value, I types2.Type, fn *types2.Func, sig *types
 		return nil
 	}
 	tab, data := s.ifaceParts(iv)
+	s.callNilCheck(tab, pos)
 	code := s.loadStatic(ssa.TPtr, s.offPtr(tab, int64(itabHeader+8*idx)))
 	adapterSig := adapterSignature(sig)
 	recv := scalarValue(data, types2.Typ[types2.UnsafePointer])

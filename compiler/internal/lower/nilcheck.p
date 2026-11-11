@@ -23,6 +23,12 @@ import (
 // past the region, the pointer is compared with nil there, and the program
 // panics on the path where it is. Repeated checks of one pointer fold away
 // (opt.Prove).
+//
+// A freestanding build outside kernel mode has no such region: its target
+// may map address zero, and it may have no handler to turn a fault into a
+// panic. There every dereference not proved non-nil is checked, and so is
+// the pointer of a call through a func value or an interface
+// (explicitNil).
 
 // nilGuardSize is the size of the unmapped region at address zero that
 // the runtime reports a fault in as a nil dereference (rt.describeFault).
@@ -54,7 +60,7 @@ func (s *fnState) nilGuard(lv lvalue) lvalue {
 	if lv.nilBase == nil {
 		return lv
 	}
-	if lv.nilOff+s.l.sizeof(s.subst(unwrap(lv.T))) > nilGuardSize {
+	if s.explicitNil() || lv.nilOff+s.l.sizeof(s.subst(unwrap(lv.T))) > nilGuardSize {
 		s.nilCheck(lv.nilBase, lv.nilPos)
 	}
 	lv.nilBase = nil
@@ -71,4 +77,20 @@ func (s *fnState) nilCheck(p *ssa.Value, pos token.Pos) {
 	s.panicUnless(ok, pos, func() {
 		s.callRuntimeNoReturn("panicNil")
 	})
+}
+
+// explicitNil reports whether every dereference is checked for nil
+// explicitly: in a freestanding build outside kernel mode, where no fault
+// reports one (language spec section 17.5).
+func (s *fnState) explicitNil() bool {
+	return s.l.cfg.Freestanding && !s.l.cfg.Kernel
+}
+
+// callNilCheck checks p, the closure of a func value or the method table of
+// an interface value that is about to be called through, where no fault
+// reports a nil one (explicitNil).
+func (s *fnState) callNilCheck(p *ssa.Value, pos token.Pos) {
+	if s.explicitNil() && mayBeNil(p) {
+		s.nilCheck(p, pos)
+	}
 }

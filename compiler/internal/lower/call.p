@@ -130,6 +130,7 @@ func (s *fnState) callResults(e *ast.CallExpr) []value {
 	}
 	sig := s.typeOf(e.Fun).Underlying().(*types2.Signature)
 	args := s.callArgs(e, sig, nil)
+	s.callNilCheck(fv, e.Pos())
 	code := s.load(ssa.TPtr, fv)
 	site := pu.New(callSite{desc: types2.ExprString(e.Fun), fsig: sig, lit: litSym, hook: hookVar(s.info, e.Fun)})
 	return s.emitCall(callee{code: code, ctx: fv, site: site}, sig, nil, args, e.Pos())

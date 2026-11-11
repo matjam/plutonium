@@ -182,6 +182,7 @@ func (s *fnState) rangeContainer(st *ast.RangeStmt, label *types2.Label) {
 
 // closureCallee returns the callee for a call through the func value fv.
 func (s *fnState) closureCallee(fv *ssa.Value) callee {
+	s.callNilCheck(fv, token.NoPos)
 	return callee{code: s.load(ssa.TPtr, fv), ctx: fv}
 }
 

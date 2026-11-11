@@ -101,3 +101,80 @@ func main() {
 		}
 	}
 }
+
+// TestNilChecksFreestanding checks that a freestanding build outside kernel
+// mode checks every dereference it cannot prove non-nil, and every call
+// through a func value or an interface (language spec section 17.5), since
+// no fault reports a nil pointer there. A kernel arranges the unmapped page
+// at address zero, so it checks only what a hosted build does.
+func TestNilChecksFreestanding(t *testing.T) {
+	t.Parallel()
+	const src = `package main
+
+type small struct {
+	a, b int
+}
+
+type I interface{ M() int }
+
+type V struct{ n int }
+
+func (v V) M() int { return v.n }
+
+//pu:noinline
+func near(p *small) int { return p.a + p.b }
+
+//pu:noinline
+func store(p *int) { *p = 1 }
+
+//pu:noinline
+func callFunc(f func() int) int { return f() }
+
+//pu:noinline
+func callIface(i I) int { return i.M() }
+
+//pu:noinline
+func local() int {
+	var s small
+	p := &s
+	return p.a
+}
+
+func main() {
+	var s small
+	var n int
+	store(&n)
+	_ = near(&s) + callFunc(func() int { return 1 }) + callIface(V{2}) + local()
+}
+`
+	listings := map[string]string{}
+	for _, c := range []struct {
+		mode string
+		fn   string
+		want int
+	}{
+		{"freestanding", "main.near", 1},      // two fields of one pointer, one check
+		{"freestanding", "main.store", 1},     // a store
+		{"freestanding", "main.callFunc", 1},  // a call through a func value
+		{"freestanding", "main.callIface", 1}, // a call through an interface
+		{"freestanding", "main.local", 0},     // the address of a local is not nil
+		{"kernel", "main.near", 0},
+		{"kernel", "main.store", 0},
+		{"kernel", "main.callFunc", 0},
+		{"kernel", "main.callIface", 0},
+	} {
+		listing, ok := listings[c.mode]
+		if !ok {
+			var errs string
+			listing, errs = modeCompile(t, src, 2, c.mode, true)
+			if errs != "" {
+				t.Fatalf("%s: build failed:\n%s", c.mode, errs)
+			}
+			listings[c.mode] = listing
+		}
+		got := strings.Count(funcListing(t, listing, c.fn), "pluto/rt.panicNil")
+		if got != c.want {
+			t.Errorf("%s %s: %d nil checks, want %d", c.mode, c.fn, got, c.want)
+		}
+	}
+}
