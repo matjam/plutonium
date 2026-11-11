@@ -9,6 +9,10 @@
 //     fault handler turns into a panic with rt.PanicFault.
 //   - nested: the panic handler itself panics, which goes to the
 //     runtime's last resort: interrupts off and halt, saying nothing.
+//   - print: an interrupt raised by the int instruction, which masking
+//     does not hold off, arrives in the middle of a print statement. The
+//     handler's print finds its own processor holding the console lock and
+//     drops its output (spec section 13.12).
 //
 // The handler prints over the serial port and leaves QEMU through the
 // isa-debug-exit device with status 3.
@@ -17,6 +21,7 @@ package main
 import (
 	"pluto/arch/x86"
 	"pluto/rt"
+	"pluto/sync/atomic"
 	"unsafe"
 )
 
@@ -43,7 +48,7 @@ func (serial) Write(b []byte) (int, error) {
 }
 
 func serialWrite(p unsafe.Pointer, n int) {
-	serial{}.Write(unsafe.Slice((*byte)(p), n))
+	serial{}.Write(unsafe.Slice((*byte)(trapInPrint(p)), n))
 }
 
 //pu:panic
@@ -115,6 +120,38 @@ func main() int64 {
 		println(get([]int{1, 2, 3}, 5))
 	case "fault":
 		softInt()
+	case "print":
+		idt[0x80] = x86.InterruptGate(printTrap, 0x08, 0)
+		armed.Store(true)
+		println("outer statement", 7)
+		println("handler ran", printTraps.Load())
+		panic("kernel print")
 	}
 	return 0
+}
+
+// armed says the next console write raises the print scenario's
+// interrupt. It is set once printTrap is in the table, so earlier prints do
+// not raise it, and cleared by the write that raises it. The handler's own
+// print comes through trapInPrint too, so it is atomic.
+var armed atomic.Bool
+
+// printTraps counts the runs of printTrap; it is atomic because the
+// handler is a party in the data race rules.
+var printTraps atomic.Int64
+
+// trapInPrint raises interrupt 0x80 at the first console write after the
+// print scenario arms it: in the middle of a print statement, which holds the
+// console lock.
+func trapInPrint(p unsafe.Pointer) unsafe.Pointer {
+	if armed.CompareAndSwap(true, false) {
+		softInt()
+	}
+	return p
+}
+
+//pu:interrupt
+func printTrap(f *x86.InterruptFrame) {
+	printTraps.Add(1)
+	println("handler output", 1)
 }

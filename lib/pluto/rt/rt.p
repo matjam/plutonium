@@ -692,8 +692,12 @@ func printString(s string) {
 // Nothing here allocates. The lock is a runtime Lock, which in kernel mode
 // also masks interrupts on the processor that holds it, so an interrupt
 // handler may print: it cannot find the lock held by the code it
-// interrupted. The console write happens with the lock held, so a console
-// must not wait for another task or for a lock of its own.
+// interrupted. An exception or nonmaskable interrupt is not masked, so its
+// handler can find the lock held by its own processor; the statement it
+// interrupted cannot finish until the handler returns, so the handler's
+// statement drops its output instead of waiting (language spec section
+// 13.12). The console write happens with the lock held, so a console must
+// not wait for another task or for a lock of its own.
 //
 // The functions the panic machinery uses (printString and the others
 // above) take no lock and bypass the buffer, so that a panic can always
@@ -707,23 +711,24 @@ var (
 	stmtBuf  [stmtBufSize]byte
 	stmtLen  int
 	// stmtOwner is 0, or one more than the selfID of the processor holding
-	// stmtLock; stmtNest counts the print statements that processor began
-	// while it was already in one (freestanding builds only, see printBegin).
+	// stmtLock; stmtDrop counts the print statements that processor began
+	// while it was already in one, whose output is dropped (freestanding
+	// builds only, see printBegin). Only the processor holding the lock
+	// reads or changes stmtDrop.
 	stmtOwner uint64
-	stmtNest  int
+	stmtDrop  int
 )
 
 // printBegin starts a print statement whose pieces the stmt functions
 // append to.
 func printBegin() {
 	if printReentrant && loadUint64(&stmtOwner) == selfID()+1 {
-		// A handler of a fault, an interrupt that does not mask others, or
-		// a panic prints in the middle of a statement of the code it
-		// interrupted, which holds the lock for good as far as the handler
-		// is concerned. Write what that statement has so far and print
-		// alongside it, without the lock.
-		stmtFlush()
-		stmtNest++
+		// A handler of an exception, a nonmaskable interrupt, or a panic
+		// prints in the middle of a statement of the code it interrupted,
+		// which holds the lock for good as far as the handler is
+		// concerned. Its statement drops its output (spec section 13.12)
+		// and leaves the interrupted statement's buffer alone.
+		stmtDrop++
 		return
 	}
 	stmtLock.Lock()
@@ -738,11 +743,11 @@ func printBegin() {
 //
 //pu:noinline
 func printEnd() {
-	stmtFlush()
-	if stmtNest > 0 {
-		stmtNest--
+	if printReentrant && stmtDrop > 0 {
+		stmtDrop--
 		return
 	}
+	stmtFlush()
 	if printReentrant {
 		casUint64(&stmtOwner, selfID()+1, 0)
 	}
@@ -761,7 +766,7 @@ func stmtFlush() {
 // buffer first when they do not fit, and writing them directly when they
 // would not fit in an empty buffer.
 func stmtBytes(p unsafe.Pointer, n int) {
-	if n <= 0 {
+	if n <= 0 || printReentrant && stmtDrop > 0 {
 		return
 	}
 	if n > stmtBufSize-stmtLen {

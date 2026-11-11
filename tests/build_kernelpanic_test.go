@@ -20,6 +20,9 @@ import (
 // per-CPU block, the message, the fault and the stack trace. When the
 // handler itself panics, the runtime's last resort halts the processor
 // without a word, so QEMU keeps running, silent, until the test stops it.
+// In the print scenario an interrupt that masking does not hold off
+// arrives in the middle of a print statement, and its handler's print
+// drops its output instead of waiting (spec section 13.12).
 func TestKernelPanic(t *testing.T) {
 	t.Parallel()
 	qemu := needQEMU(t)
@@ -37,25 +40,32 @@ func TestKernelPanic(t *testing.T) {
 		{"explicit", `scenario explicit
 kernel panic on cpu 2
 panic: kernel explicit
-    main\.main \(FILE:113\)
+    main\.main \(FILE:118\)
 `, false},
 		{"bounds", `scenario bounds
 kernel panic on cpu 2
 panic: runtime error: index out of range \[5\] with length 3
-    main\.get \(FILE:92\)
-    main\.main \(FILE:115\)
+    main\.get \(FILE:97\)
+    main\.main \(FILE:120\)
 `, false},
 		{"fault", `scenario fault
 kernel panic on cpu 2
 panic: runtime error: unexpected fault address 0x40000000
 \[fault addr=0x40000000 pc=0xffffffff80[0-9a-f]+\]
-    main\.soft \(FILE:72\)
+    main\.soft \(FILE:77\)
 fault at the bad address: true
+`, false},
+		{"print", `scenario print
+outer statement 7
+handler ran 1
+kernel panic on cpu 2
+panic: kernel print
+    main\.main \(FILE:128\)
 `, false},
 		{"nested", `scenario nested
 kernel panic on cpu 2
 panic: kernel nested
-    main\.main \(FILE:113\)
+    main\.main \(FILE:118\)
 `, true},
 	}
 	for _, c := range cases {
