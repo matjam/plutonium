@@ -126,10 +126,14 @@ type regionLayout struct {
 }
 
 // A regionCounted is counted storage in a region: a variable, or a method
-// value's copy of its receiver.
+// value's copy of its receiver. An owner variable has a flag word at
+// flag, set while the region holds its value (flagged): a declaration or
+// a parameter that never ran gives the region nothing to drop.
 type regionCounted struct {
-	off int64
-	T   types2.Type
+	off     int64
+	T       types2.Type
+	flag    int64
+	flagged bool
 }
 
 // A regionLocal is a region a function reserved in its frame, zeroed on
@@ -220,8 +224,11 @@ func (s *fnState) regionAlloc(p ssa.Part) *ssa.Value {
 }
 
 // regionVar places a variable of type T in the region. The region holds
-// its strings, released by the region's drop function.
-func (s *fnState) regionVar(T types2.Type) *ssa.Value {
+// its strings, released by the region's drop function. For a T with drop
+// glue (an owner) it also places a flag word, returned as flag: the
+// region owns the variable and its drop function drops it while the flag
+// is set (holdInRegion; spec section 11.5).
+func (s *fnState) regionVar(T types2.Type) (addr, flag *ssa.Value) {
 	p := ssa.Part{Size: s.l.sizeof(T), Align: s.l.alignof(T)}
 	for _, lf := range s.l.leaves(T) {
 		p.Leaves = compat.Append(p.Leaves, ssa.Leaf{Off: lf.off, Type: lf.t})
@@ -229,11 +236,28 @@ func (s *fnState) regionVar(T types2.Type) *ssa.Value {
 	if p.Leaves != nil {
 		s.l.appendPads(&p.Pads, T, 0)
 	}
-	addr := s.regionAlloc(p)
+	addr = s.regionAlloc(p)
+	if s.l.needsDrop(T) {
+		off := s.region.parts[len(s.region.parts)-1].Off
+		flag = s.regionAlloc(ssa.Part{Size: 8, Align: 8, Leaves: compat.Clone([]ssa.Leaf{{Off: 0, Type: ssa.TI64}})})
+		fo := s.region.parts[len(s.region.parts)-1].Off
+		s.region.counted = compat.Append(s.region.counted, regionCounted{off: off, T: T, flag: fo, flagged: true})
+		return addr, flag
+	}
 	if s.l.counted(T) {
 		s.regionCountedAt(0, T)
 	}
-	return addr
+	return addr, nil
+}
+
+// holdInRegion records that the region now holds the value of the owner
+// variable v, whose flag regionVar made: its drop function drops it.
+func (s *fnState) holdInRegion(v *types2.Var, flag *ssa.Value) {
+	if flag == nil {
+		return
+	}
+	s.store(ssa.TI64, flag, s.constInt(ssa.TI64, 1))
+	s.regionFlags[v] = flag
 }
 
 // regionCountedAt records that the last part placed in the region holds a
@@ -825,6 +849,16 @@ func (goSelf *goClosure_queueDrop_1) Call(s *fnState) {
 	}
 	s.beginCleanupGoexit()
 	for _, c := range goSelf.rl.counted {
+		if c.flagged {
+			// An owner the region holds only while its flag is set.
+			flag := s.offPtr(p, c.flag)
+			s.ifThen(s.newValue(ssa.OpNe, ssa.TBool, s.load(ssa.TI64, flag), s.constInt(ssa.TI64, 0)), func() {
+				s.store(ssa.TI64, flag, s.constInt(ssa.TI64, 0))
+				s.destroyAt(s.offPtr(p, c.off), c.T)
+				s.zero(s.offPtr(p, c.off), s.l.sizeof(c.T))
+			})
+			continue
+		}
 		s.destroyAt(s.offPtr(p, c.off), c.T)
 		s.zero(s.offPtr(p, c.off), s.l.sizeof(c.T))
 	}

@@ -232,6 +232,10 @@ func (s *fnState) movedOut(lv lvalue, obj *types2.Var) value {
 	s.checkScopeMove(lv.ptr, lv.T)
 	v := s.materialize(s.loadLV(lv))
 	s.zero(lv.ptr, s.l.sizeof(unwrap(lv.T)))
+	if flag := s.regionFlags[obj]; obj != nil && flag != nil {
+		// The region no longer holds the value (regions.go).
+		s.store(ssa.TI64, flag, s.constInt(ssa.TI64, 0))
+	}
 	if obj != nil && s.ownedVars[obj] {
 		return s.heldAfterMove(v)
 	}

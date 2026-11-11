@@ -299,6 +299,21 @@ func (s *fnState) varLV(obj *types2.Var, at ast.Node) lvalue {
 // its scope, to be destroyed when the scope ends, and cleared here, so that
 // the scope never destroys a value it was not given (scope.go).
 func (s *fnState) declareVar(obj *types2.Var) *ssa.Value {
+	if T := s.subst(obj.Type()); s.regionVars[obj] && s.l.needsDrop(T) {
+		// Captured by a closure this function returns: the region owns
+		// the variable and drops it, when the call runs again and when
+		// the caller's frame returns, not the scope (spec section 11.5).
+		// A declaration that runs again (in a loop) drops what the last
+		// run left.
+		addr, flag := s.regionVar(T)
+		s.vars[obj] = addr
+		s.ifThen(s.newValue(ssa.OpNe, ssa.TBool, s.load(ssa.TI64, flag), s.constInt(ssa.TI64, 0)), func() {
+			s.dropAt(addr, T)
+		})
+		s.zero(addr, s.l.sizeof(T))
+		s.holdInRegion(obj, flag)
+		return addr
+	}
 	addr := s.declareView(obj)
 	if T := s.subst(obj.Type()); s.l.needsDrop(T) {
 		s.zero(addr, s.l.sizeof(T))
@@ -315,7 +330,7 @@ func (s *fnState) declareView(obj *types2.Var) *ssa.Value {
 		// Captured by a closure this function returns (regions.go). The
 		// region holds its strings; a declaration that runs again (in a
 		// loop) releases what the last run left.
-		addr := s.regionVar(T)
+		addr, _ := s.regionVar(T)
 		s.vars[obj] = addr
 		if s.l.counted(T) {
 			s.releaseAt(addr, T)

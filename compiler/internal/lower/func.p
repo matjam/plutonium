@@ -39,6 +39,7 @@ type fnState struct {
 	region       *regionLayout
 	regionNodes  map[ast.Node]bool
 	regionVars   map[*types2.Var]bool
+	regionFlags  map[*types2.Var]*ssa.Value // the flags of the owners the region holds
 	regionCalls  map[*ast.CallExpr]bool
 	callAt       *ast.CallExpr // the call whose arguments were just lowered
 	regionLocals []regionLocal // the regions this function reserved
@@ -401,6 +402,7 @@ func (l *Lowerer) newFnState(job *funcJob) *fnState {
 
 		regionNodes: map[ast.Node]bool{},
 		regionVars:  map[*types2.Var]bool{},
+		regionFlags: map[*types2.Var]*ssa.Value{},
 		regionCalls: map[*ast.CallExpr]bool{},
 	})
 	if job.pkg != nil {
@@ -572,12 +574,13 @@ func (s *fnState) bindParams() {
 			if v != nil && s.regionVars[v] {
 				// The caller's copy does not outlive the caller: the
 				// region keeps a copy, and references, of its own.
-				addr := s.regionVar(p.typ)
+				addr, flag := s.regionVar(p.typ)
 				s.move(addr, ptr, s.l.sizeof(p.typ))
 				if s.l.counted(p.typ) && !adopt {
 					s.retainAt(addr, p.typ)
 				}
 				s.vars[v] = addr
+				s.holdInRegion(v, flag)
 				continue
 			}
 			if v != nil {
@@ -597,7 +600,7 @@ func (s *fnState) bindParams() {
 		if v != nil && s.regionVars[v] {
 			// Captured by a closure the function returns: the region keeps
 			// the parameter, and references of its own (regions.go).
-			addr := s.regionVar(p.typ)
+			addr, flag := s.regionVar(p.typ)
 			for _, lf := range p.leaves {
 				s.store(lf.t, s.offPtr(addr, lf.off), s.abiToMemory(p.typ, nextArg(lf.t)))
 			}
@@ -605,6 +608,7 @@ func (s *fnState) bindParams() {
 				s.retainAt(addr, p.typ)
 			}
 			s.vars[v] = addr
+			s.holdInRegion(v, flag)
 			continue
 		}
 		addr := s.temp(p.typ, varName(v))
@@ -637,7 +641,9 @@ func (s *fnState) bindParams() {
 	// destroyed, whose fields the drop glue destroys after it.
 	dropRecv := s.job.decl != nil && s.job.decl.Recv != nil && s.job.decl.Name.Name == "Drop"
 	for i, v := range paramVars {
-		if v == nil || (i == 0 && sig.recv != nil && dropRecv) {
+		if v == nil || (i == 0 && sig.recv != nil && dropRecv) || s.regionFlags[v] != nil {
+			// A parameter a returned closure captures belongs to the
+			// region, which drops it (regions.go).
 			continue
 		}
 		if T := s.subst(v.Type()); s.l.needsDrop(T) {
@@ -651,7 +657,7 @@ func (s *fnState) bindParams() {
 	for i, p := range s.abi.results {
 		var addr *ssa.Value
 		if v := sig.results[i]; v != nil && s.regionVars[v] {
-			addr = s.regionVar(p.typ)
+			addr, _ = s.regionVar(p.typ)
 			s.resultRegion[i] = true
 		} else {
 			addr = s.temp(p.typ, "result")
