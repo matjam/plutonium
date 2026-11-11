@@ -36,12 +36,8 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   Item 177.
 - The race check does not follow an allocator behind a parameter, a heap pointer or an `alloc.Use` window, or bulk
   calls outside scoped tasks (19.4). Item 196.
-- The race check does not yet treat a task's or handler's load of a pointer or other view from a package variable, a
-  per-CPU variable, a `synced` object or a map as a crossing, so `p = &*b; task reader(); b = new(Node)` compiles
-  (19.3, Crossings; rules 1 and 2). A package variable holding a `shared[T]` used by two tasks is not yet E2010. A
-  pointer into a guarded package-level `vec.Vec` used after the `Unlock`, a static object that code moves with
-  `take` while tasks read it, and a handler's load before the first task are not yet E3501 either, and memory
-  owned by a static or type-rule object is not yet counted as part of its field. Item 214.
+- A load of a view from a per-CPU variable is not yet a crossing, and a package variable holding a `shared[T]` used
+  by two tasks is not yet E2010 (19.3, Crossings; 8.8). Item 214.
 - A view kept across `c.Wait(&mu)` of a `sync.Cond`, or across a helper that waits on one, is not yet E3501
   (19.3, Views loaded under a lock). Items 214 and 222.
 - A range-over-func body whose iterator calls `yield` from a scoped task still counts as part of the enclosing

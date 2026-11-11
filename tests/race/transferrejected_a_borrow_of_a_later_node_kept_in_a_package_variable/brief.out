@@ -1,1 +1,2 @@
 $DIR/main.p:52:2: the field head of l is a view of node that may change while another task uses it, so l cannot be passed to a new task
+$DIR/main.p:53:2: keep is a view of node that may change while another task uses it, so it cannot be loaded once tasks may run

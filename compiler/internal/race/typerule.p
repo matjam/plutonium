@@ -43,10 +43,44 @@ type typeSeenKey struct {
 
 // recordType records a use of field key of the object place p is in.
 // Initialising uses of memory nobody else can reach yet are left out.
+//
+// A use through a package variable is recorded from the accesses of each
+// party instead (recordGlobalTypes): there it has every lock the party
+// holds, where a function's own walk or a call it makes knows only the
+// locks taken since the function's start (section 19.3: a lock held
+// around a call counts as held inside the callee). A use past a cut is
+// kept out of the parties' accesses (putAccess), so it is recorded here,
+// with the fewer locks known here.
 func (a *analyzer) recordType(key string, p vpath, write, atomic bool, locks lockset, pos token.Pos, fn string, initializing bool) {
-	if initializing || p.root.kind == rLocal || p.root.kind == rParam {
+	if initializing || p.root.kind == rParam {
 		return
 	}
+	if p.root.kind == rLocal && !strings.ContainsAny(p.path, "*%#") {
+		// The local's own memory. Memory a local points to that the
+		// walk cannot name (a pointer it lost track of) may be shared,
+		// so a use of it counts.
+		return
+	}
+	if p.root.kind == rGlobal && !strings.Contains(p.path, "#") {
+		return
+	}
+	a.recordTypeAt(key, p, write, atomic, locks, pos, fn)
+}
+
+// recordGlobalTypes records the uses of fields of objects reached through
+// package variables by every party once tasks may run, with the locks the
+// party holds at each.
+func (a *analyzer) recordGlobalTypes(groups []*group) {
+	for _, g := range groups {
+		for _, x := range g.accesses {
+			if x.tkey != "" && x.place.root.kind == rGlobal {
+				a.recordTypeAt(x.tkey, x.place, x.write, x.atomic, x.locks, x.pos, a.funcAt(x.pos))
+			}
+		}
+	}
+}
+
+func (a *analyzer) recordTypeAt(key string, p vpath, write, atomic bool, locks lockset, pos token.Pos, fn string) {
 	if len(locks) == 0 && p.root.kind != rGlobal {
 		// Nothing about the place itself goes into the record: skip
 		// working out its object when it is already known.

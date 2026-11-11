@@ -101,9 +101,15 @@ func (a *analyzer) check() {
 			queue = compat.Append(queue, tw.sum.spawns...)
 		}
 	}
-	written := a.writtenAfterInit(groups)
-	a.checkCrossings(cross, written)
+	a.recordGlobalTypes(groups)
+	written := a.writtenAfterInit(groups, false)
+	a.finishShared(groups)
+	a.checkCrossings(cross, written, nil)
+	a.guardedW = map[string]bool{}
 	a.checkGlobals(groups)
+	loads := a.loadCrossings(groups)
+	a.checkCrossings(loads, written, a.writtenAfterInit(groups, true))
+	cross = compat.Append(cross, loads...)
 	a.checkSynced(groups)
 	a.checkMaps(groups, cross)
 	sortedCPU(cpuUses)
@@ -224,7 +230,7 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 		if acc.place.root.kind == rParam || !x.a.shareable(acc.place) {
 			continue
 		}
-		x.emit(pu.New(access{
+		na := pu.New(access{
 			typ:    acc.typ,
 			tkey:   acc.tkey,
 			place:  acc.place,
@@ -235,7 +241,13 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 			pre:    pre && acc.pre,
 			cpu:    acc.cpu,
 			free:   acc.free,
-		}))
+			view:   acc.view,
+		})
+		if acc.hasValid {
+			na.hasValid, na.vvalid = true, compose(locks, substRel(acc.rel, env), substLocks(acc.vvalid, env))
+			na.vpre = pre && acc.vpre
+		}
+		x.emit(na)
 	}
 	for _, ce := range s.edges {
 		var args []origins
@@ -440,7 +452,12 @@ func (a *analyzer) rootFunc(o origin) *function {
 
 // writtenAfterInit returns a function that reports where a package
 // variable's place is written once tasks may run, or NoPos.
-func (a *analyzer) writtenAfterInit(groups []*group) func(vpath) token.Pos {
+//
+// With unguarded set, the writes a guard set guards do not count: a view
+// of them that a party loads is valid only while it holds a lock of the
+// guard set, which its uses are checked for (section 19.3, Rule 2 case 4,
+// Views loaded under a lock).
+func (a *analyzer) writtenAfterInit(groups []*group, unguarded bool) func(vpath) token.Pos {
 	type wsite struct {
 		place vpath
 		pos   token.Pos
@@ -448,7 +465,7 @@ func (a *analyzer) writtenAfterInit(groups []*group) func(vpath) token.Pos {
 	byVar := map[*types2.Var][]wsite{}
 	for _, g := range groups {
 		for _, x := range g.accesses {
-			if x.write && x.place.root.kind == rGlobal {
+			if x.write && x.place.root.kind == rGlobal && !(unguarded && a.guardedW[writeKey(x)]) {
 				byVar[x.place.root.v] = compat.Append(byVar[x.place.root.v], wsite{x.place, x.pos})
 			}
 		}
@@ -465,13 +482,35 @@ func (a *analyzer) writtenAfterInit(groups []*group) func(vpath) token.Pos {
 
 // checkCrossings applies the sendable rule to every value that crosses to
 // another task.
-func (a *analyzer) checkCrossings(cross []*crossing, written func(vpath) token.Pos) {
+//
+// For a load, guarded is what written is for the writes a guard set does
+// not guard: a view loaded from a package variable, of memory in it or
+// that it owns, is judged by it, as each use of the view is an access of
+// that memory, which the guard rule and the rule for views loaded under a
+// lock check.
+func (a *analyzer) checkCrossings(cross []*crossing, written, guarded func(vpath) token.Pos) {
 	for _, c := range cross {
 		part := "it"
 		if c.expr != nil {
 			part = exprText(c.expr)
+		} else if c.name != "" {
+			part = c.name
 		}
-		p := a.sendable(c.typ, c.vals, part, written)
+		vals := a.resolveVals(c.vals)
+		if c.load {
+			// What a view loaded through a pointer, or from a synced
+			// object or a map, points to is not known: its type decides.
+			for _, o := range c.vals {
+				if o.vp.root.kind != rGlobal || strings.ContainsAny(o.vp.path, "*%$#@") {
+					vals = nil
+				}
+			}
+		}
+		wr := written
+		if c.load && guarded != nil && len(vals) > 0 && sameOrigins(vals, c.vals) {
+			wr = guarded
+		}
+		p := a.sendable(c.typ, vals, part, wr)
 		if p == nil {
 			continue
 		}
@@ -481,6 +520,11 @@ func (a *analyzer) checkCrossings(cross []*crossing, written func(vpath) token.P
 		}
 		a.add(compat.Sprintfb("send|%d", compat.ArgI(int64(c.pos))), a.sendError(c, p))
 	}
+}
+
+// writeKey names a write by its position and place.
+func writeKey(x *access) string {
+	return compat.Concat(itoa(int(x.pos)), "|", x.place.key())
 }
 
 // An entry is an access by one group.
@@ -561,7 +605,43 @@ func (a *analyzer) checkGlobals(groups []*group) {
 	}
 	sort.SortFunc(vars, func(a, b *types2.Var) bool { return a.Pos() < b.Pos() })
 	for _, v := range vars {
-		a.checkPlaces(byVar[v], globalLock, func(x *access) string { return a.placeText(x.place) })
+		rel := globalLock
+		if a.oneStatic(v) {
+			rel = staticLock(v)
+		}
+		a.checkPlaces(byVar[v], rel, func(x *access) string { return a.placeText(x.place) })
+	}
+}
+
+// oneStatic reports whether package variable v holds one static object
+// and nothing else: what v points to is then one object for the whole
+// program.
+func (a *analyzer) oneStatic(v *types2.Var) bool {
+	if !a.staticVar(vpath{root: root{kind: rGlobal, v: v}}) {
+		return false
+	}
+	var n ast.Node
+	for _, s := range a.gstores[v] {
+		for _, o := range s.vals {
+			if n != nil && o.vp.root.node != n {
+				return false
+			}
+			n = o.vp.root.node
+		}
+	}
+	return n != nil
+}
+
+// staticLock names, besides the locks globalLock names, the locks of the
+// static object package variable v points to: a lock and a datum of that
+// object are of the same object (section 19.3, Rule 2).
+func staticLock(v *types2.Var) func(lock) (string, bool) {
+	return func(l lock) (string, bool) {
+		p := l.place
+		if p.root.kind == rGlobal && p.root.v == v && strings.HasPrefix(p.path, "*") && !strings.ContainsAny(strings.SliceFrom(p.path, 1), "*%$#&") {
+			return p.key(), true
+		}
+		return globalLock(l)
 	}
 }
 
@@ -599,15 +679,22 @@ func (a *analyzer) checkSynced(groups []*group) {
 			// package-level ones.
 			base, _, _, _ := syncedSplit(e.x.place)
 			prefix := compat.Concat(base.path, compat.Sprintfb("$%d", compat.ArgI(int64(id))))
-			var ls lockset
+			var ls, vs lockset
 			for _, l := range e.x.locks {
+				var np vpath
 				if l.place.root == base.root && prefixOf(prefix, l.place.path) {
-					ls = ls.with(vpath{root: root{kind: rLocal, v: syncedVar}, path: compat.Concat(compat.Sprintfb("$%d", compat.ArgI(int64(id))), strings.SliceFrom(l.place.path, len(prefix)))}, l.excl)
+					np = vpath{root: root{kind: rLocal, v: syncedVar}, path: compat.Concat(compat.Sprintfb("$%d", compat.ArgI(int64(id))), strings.SliceFrom(l.place.path, len(prefix)))}
 				} else if _, ok := globalLock(l); ok {
-					ls = ls.with(l.place, l.excl)
+					np = l.place
+				} else {
+					continue
+				}
+				ls = ls.with(np, l.excl)
+				if e.x.vvalid.find(l.place) >= 0 {
+					vs = vs.with(np, l.excl)
 				}
 			}
-			x.locks = ls
+			x.locks, x.vvalid = ls, vs
 			norm[i] = entry{x, e.g}
 		}
 		a.checkPlaces(norm, func(l lock) (string, bool) {
@@ -708,15 +795,22 @@ func (a *analyzer) checkMaps(groups []*group, cross []*crossing) {
 			// Locks: package-level ones, and those of the struct the map
 			// is a field of, relative to it.
 			holder, field := splitField(base)
-			var ls lockset
+			var ls, vs lockset
 			for _, l := range e.x.locks {
+				var np vpath
 				if field && l.place.root == holder.root && prefixOf(holder.path, l.place.path) && !strings.ContainsAny(strings.SliceFrom(l.place.path, len(holder.path)), "*%$#") {
-					ls = ls.with(vpath{root: root{kind: rLocal, v: mapVar}, path: strings.SliceFrom(l.place.path, len(holder.path))}, l.excl)
+					np = vpath{root: root{kind: rLocal, v: mapVar}, path: strings.SliceFrom(l.place.path, len(holder.path))}
 				} else if _, ok := globalLock(l); ok {
-					ls = ls.with(l.place, l.excl)
+					np = l.place
+				} else {
+					continue
+				}
+				ls = ls.with(np, l.excl)
+				if e.x.vvalid.find(l.place) >= 0 {
+					vs = vs.with(np, l.excl)
 				}
 			}
-			x.locks = ls
+			x.locks, x.vvalid = ls, vs
 			norm[i] = entry{x, e.g}
 		}
 		T := a.typeIDs[id]
@@ -786,6 +880,11 @@ func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text f
 		return g
 	}
 	for i, p := range es {
+		if shared[i] && len(guardSet(i)) > 0 && a.guardedW != nil {
+			a.guardedW[writeKey(p.x)] = true
+		}
+	}
+	for i, p := range es {
 		if !shared[i] || len(guardSet(i)) > 0 {
 			continue
 		}
@@ -838,8 +937,37 @@ func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text f
 		a.add(compat.Concat("nolock|", text(p.x)), d)
 		return
 	}
+	// An access through a view loaded from shared memory needs a lock of
+	// the guard set held from the load to it with no ending event
+	// (section 19.3, Views loaded under a lock). A view loaded before the
+	// start of sharing was not loaded by a crossing load.
+	ended := map[int]bool{}
 	for i, p := range es {
+		if !p.x.hasValid || p.x.vpre {
+			continue
+		}
+		vg := guards(pu.New(access{locks: p.x.vvalid, atomic: p.x.atomic}), p.x.write, rel)
+		var g map[string]bool
 		if p.x.write {
+			if shared[i] && len(guardSet(i)) > 0 && len(intersect(vg, guardSet(i))) == 0 {
+				g = guardSet(i)
+			}
+		} else {
+			for _, j := range conf[i] {
+				if es[j].x.write && len(guardSet(j)) > 0 && len(intersect(vg, guardSet(j))) == 0 {
+					g = guardSet(j)
+					break
+				}
+			}
+		}
+		if g == nil {
+			continue
+		}
+		ended[i] = true
+		a.add(compat.Sprintfb("viewend|%d", compat.ArgI(int64(p.x.pos))), a.viewEndedError(p, es, g, rel, text))
+	}
+	for i, p := range es {
+		if p.x.write || ended[i] {
 			continue
 		}
 		// The read needs a lock of the guard set of each datum a write it
@@ -1012,6 +1140,27 @@ func exprLine(place string) string {
 	return compat.Concat(place, " = v")
 }
 
+// viewEndedError reports an access through a view that is not valid
+// there: no lock of the guard set g stayed held from the load of the view
+// to the access.
+func (a *analyzer) viewEndedError(p entry, es []entry, g map[string]bool, rel func(lock) (string, bool), text func(*access) string) *diag.Diagnostic {
+	place := text(p.x)
+	var names []string
+	for k := range g {
+		names = compat.Append(names, a.lockText(k, rel, es))
+	}
+	sort.Strings(names)
+	guard := compat.Join(names, " or ")
+	verb := "read"
+	if p.x.write {
+		verb = "written"
+	}
+	d := diag.New(a.pos(p.x.pos), diag.RaceSendView, "%s is %s here through a view that is not valid here: %s, which guards it, was not held from the load of the view to here", pu.Box(place), pu.Box(verb), pu.Box(guard))
+	d.Text = compat.Sprintf("%s is %s at %s through a view loaded from shared memory. A view loaded from memory a lock guards stays valid only while a lock held at the load stays held: an Unlock, an RUnlock or a Wait of it, or a call that may release it, ends the view, even if the lock is taken again. Once the lock is released another task may change, move or free what the view points to.", pu.Box(capitalize(place)), pu.Box(verb), pu.Box(a.where(p.x)))
+	d.Fix = pu.New(diag.Fix{Intro: "Keep the lock held from the load of the view to its last use, or load the view again after taking the lock"})
+	return d
+}
+
 func (a *analyzer) unguardedError(p entry, writes []entry, g map[string]bool, rel func(lock) (string, bool), text func(*access) string) *diag.Diagnostic {
 	place := text(p.x)
 	var names []string
@@ -1069,19 +1218,25 @@ func (a *analyzer) unguardedError(p entry, writes []entry, g map[string]bool, re
 func (a *analyzer) sendError(c *crossing, p *problem) *diag.Diagnostic {
 	elem := types2.TypeString(p.elem, a.qualifier)
 	var d *diag.Diagnostic
-	if c.expr != nil && p.part == exprText(c.expr) {
+	if c.expr == nil || p.part == exprText(c.expr) {
 		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so it cannot be %s", pu.Box(p.part), pu.Box(elem), pu.Box(crossVerb(c)))
 	} else {
 		d = diag.New(a.pos(c.pos), diag.RaceSendView, "%s is a view of %s that may change while another task uses it, so %s cannot be %s", pu.Box(p.part), pu.Box(elem), pu.Box(exprText(c.expr)), pu.Box(crossVerb(c)))
 	}
 	b := pu.Alloc[compat.Builder]()
-	compat.Fprintfb(b, "%s gives another task %s, a %s: after this, both tasks can reach the same %s.", compat.ArgS(capitalize(c.what)), compat.ArgS(p.part), compat.ArgS(types2.TypeString(p.typ, a.qualifier)), compat.ArgS(elem))
+	if c.load {
+		compat.Fprintfb(b, "Loading %s here gives this task %s, a %s that other tasks may reach too: every task that loads it can reach the same %s.", compat.ArgS(c.name), compat.ArgS(p.part), compat.ArgS(types2.TypeString(p.typ, a.qualifier)), compat.ArgS(elem))
+	} else {
+		compat.Fprintfb(b, "%s gives another task %s, a %s: after this, both tasks can reach the same %s.", compat.ArgS(capitalize(c.what)), compat.ArgS(p.part), compat.ArgS(types2.TypeString(p.typ, a.qualifier)), compat.ArgS(elem))
+	}
 	if p.glob != nil {
 		compat.Fprintfb(b, " It points to the package variable %s, which is written at %s while tasks run.", compat.ArgS(p.glob.Name()), compat.ArgS(a.short(p.gpos)))
 	}
 	switch {
 	case p.why != "":
 		compat.Fprintfb(b, " %s is not safe to use from two tasks at once. %s", compat.ArgS(elem), compat.ArgS(p.why))
+	case p.write != nil && p.write.expr == "an object of the type":
+		compat.Fprintfb(b, " A %s is freed, dropped, moved or overwritten at %s (in %s) once tasks may run, so the compiler cannot tell that this one is not.", compat.ArgS(elem), compat.ArgS(a.short(p.write.pos)), compat.ArgS(p.write.fn))
 	case p.write != nil:
 		compat.Fprintfb(b, " A %s is changed through a pointer at %s (%s, in %s) without a lock of the same %s held, so the compiler cannot tell that this one stays the same while the other task uses it.", compat.ArgS(elem), compat.ArgS(a.short(p.write.pos)), compat.ArgS(p.write.expr), compat.ArgS(p.write.fn), compat.ArgS(elem))
 	case p.glob == nil:
@@ -1119,6 +1274,9 @@ func (a *analyzer) sharedError(c *crossing, p *problem) *diag.Diagnostic {
 }
 
 func crossVerb(c *crossing) string {
+	if c.load {
+		return "loaded once tasks may run"
+	}
 	if strings.HasPrefix(c.what, "the value sent") {
 		return "sent on a channel"
 	}

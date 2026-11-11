@@ -1,0 +1,16 @@
+$DIR/main.p:28:6: items.data[i] is read here through a view that is not valid here: mu, which guards it, was not held from the load of the view to here
+    Items.data[i] is read at main.p:28 in main through a view loaded from shared
+    memory. A view loaded from memory a lock guards stays valid only while a
+    lock held at the load stays held: an Unlock, an RUnlock or a Wait of it, or
+    a call that may release it, ends the view, even if the lock is taken again.
+    Once the lock is released another task may change, move or free what the
+    view points to.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Keep the lock held from the load of the view to its last use, or load the
+    view again after taking the lock
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3501" for a longer explanation)

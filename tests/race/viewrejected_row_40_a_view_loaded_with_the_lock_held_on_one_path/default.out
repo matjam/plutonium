@@ -1,0 +1,57 @@
+$PLUTOROOT/pluto/vec/vec.p:131:42: items.data is read here without holding mu, which guards it
+    Every write to items.data that another task may run at the same time holds
+    mu: pluto/vec/vec.p:428 in (*Vec).realloc (the task started by task grow at
+    main.p:34). So the compiler infers that mu guards items.data, and every read
+    must hold it too: a read without it may run while a write is half done.
+    Here the main task reads it at pluto/vec/vec.p:131 in (*Vec).Ptr with no
+    lock held.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Hold the lock while reading:
+        mu.Lock()
+        v := items.data
+        mu.Unlock()
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3503" for a longer explanation)
+
+$DIR/main.p:25:10: items.data[i] is read here through a view that is not valid here: mu, which guards it, was not held from the load of the view to here
+    Items.data[i] is read at main.p:25 in peek through a view loaded from shared
+    memory. A view loaded from memory a lock guards stays valid only while a
+    lock held at the load stays held: an Unlock, an RUnlock or a Wait of it, or
+    a call that may release it, ends the view, even if the lock is taken again.
+    Once the lock is released another task may change, move or free what the
+    view points to.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Keep the lock held from the load of the view to its last use, or load the
+    view again after taking the lock
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3501" for a longer explanation)
+
+$DIR/main.p:27:3: mu.Unlock() releases mu, which is not held here: it is not held on every path to here
+    A lock is released where the code that releases it does not hold it. Every
+    Unlock or RUnlock of a sync.Mutex, a sync.RWMutex or an rt.Lock, and every
+    Wait(l) of a sync.Cond, must release a lock held on every path to the call,
+    in write mode for Unlock and Wait and in read mode for RUnlock. A lock the
+    compiler cannot name cannot be shown held: one reached through an interface
+    such as sync.Locker, a func value or a method value, a pointer loaded from
+    memory, or an array element with a variable index. A task, a scoped task and
+    an interrupt handler start with no lock held, so none of them can release a
+    lock that another party took.
+    Release the lock in the function that took it, on every path, and name it
+    the same way at both calls: copy a pointer into a local once (l :=
+    &locks[i]) and use the local for both. To let another task end the work,
+    send it a message on a channel instead of handing it a locked lock.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3504" for a longer explanation)

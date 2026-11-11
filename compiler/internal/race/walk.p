@@ -24,6 +24,129 @@ type state struct {
 	// load that a dependent per-CPU store depends on was made (dep.go). The
 	// map is never changed once it is shared: setSnap copies it.
 	snaps map[int]lockset
+	// views are the locals holding a view loaded from shared memory, each
+	// with the locks this function took that are held from the load to
+	// here with no ending event (section 19.3, Views loaded under a lock).
+	// The map is never changed once it is shared: setView copies it.
+	views map[*types2.Var]lockset
+	// vpre are the locals of views whose load was made before any task
+	// was started since entry: not a crossing load once the function is
+	// the program before the start of sharing. Shared like views.
+	vpre map[*types2.Var]bool
+}
+
+// setView records the locks under which the view in local v was loaded,
+// or, with ok false, that v holds no such view.
+func (s *state) setView(v *types2.Var, held lockset, ok bool) {
+	if _, had := s.views[v]; !had && !ok {
+		return
+	}
+	m := make(map[*types2.Var]lockset, len(s.views)+1)
+	for k, l := range s.views {
+		m[k] = l
+	}
+	if ok {
+		m[v] = held
+	} else {
+		delete(m, v)
+	}
+	s.views = m
+	if pre := ok && !s.spawned; pre != s.vpre[v] {
+		n := make(map[*types2.Var]bool, len(s.vpre)+1)
+		for k := range s.vpre {
+			n[k] = true
+		}
+		if pre {
+			n[v] = true
+		} else {
+			delete(n, v)
+		}
+		s.vpre = n
+	}
+}
+
+// endViews ends the views loaded under lock p (all locks when p is nil):
+// an Unlock or a Wait of it, or a call that may release it.
+func (s *state) endViews(p *vpath) {
+	if len(s.views) == 0 {
+		return
+	}
+	m := make(map[*types2.Var]lockset, len(s.views))
+	for k, l := range s.views {
+		if p == nil {
+			m[k] = nil
+		} else {
+			m[k] = l.without(*p)
+		}
+	}
+	s.views = m
+}
+
+// joinViews returns the views after either of two paths: a lock counts
+// for a view only when it was held without an ending event on both.
+func joinViews(a, b map[*types2.Var]lockset) map[*types2.Var]lockset {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	out := make(map[*types2.Var]lockset, len(a)+len(b))
+	for k, v := range a {
+		if w, ok := b[k]; ok {
+			v = v.meet(w)
+		}
+		out[k] = v
+	}
+	for k, v := range b {
+		if _, ok := a[k]; !ok {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// joinPre returns the views loaded before any task was started after
+// either of two paths: on each path that holds the view.
+func joinPre(a, b *state) map[*types2.Var]bool {
+	if len(a.vpre) == 0 && len(b.vpre) == 0 {
+		return nil
+	}
+	out := map[*types2.Var]bool{}
+	for _, x := range []*state{a, b} {
+		y := b
+		if x == b {
+			y = a
+		}
+		for v := range x.vpre {
+			if _, held := y.views[v]; !held || y.vpre[v] {
+				out[v] = true
+			}
+		}
+	}
+	return out
+}
+
+func samePre(a, b map[*types2.Var]bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if !b[k] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameViews(a, b map[*types2.Var]lockset) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		w, ok := b[k]
+		if !ok || !v.equal(w) {
+			return false
+		}
+	}
+	return true
 }
 
 // setSnap records the regions held at load n.
@@ -109,6 +232,8 @@ func join(a, b *state) *state {
 	out.pubAll = a.pubAll || b.pubAll
 	out.running = a.running.union(b.running)
 	out.snaps = joinSnaps(a.snaps, b.snaps, out.locks)
+	out.views = joinViews(a.views, b.views)
+	out.vpre = joinPre(a, b)
 	for k := range b.pub {
 		out.pub[k] = true
 	}
@@ -119,7 +244,7 @@ func (s *state) equal(t *state) bool {
 	if s.dead || t.dead {
 		return s.dead == t.dead
 	}
-	if !s.locks.equal(t.locks) || !s.rel.equal(t.rel) || s.spawned != t.spawned || s.pubAll != t.pubAll || len(s.pub) != len(t.pub) || !s.running.equal(t.running) || !sameSnaps(s.snaps, t.snaps) {
+	if !s.locks.equal(t.locks) || !s.rel.equal(t.rel) || s.spawned != t.spawned || s.pubAll != t.pubAll || len(s.pub) != len(t.pub) || !s.running.equal(t.running) || !sameSnaps(s.snaps, t.snaps) || !sameViews(s.views, t.views) || !samePre(s.vpre, t.vpre) {
 		return false
 	}
 	for k := range s.pub {
@@ -169,6 +294,26 @@ type walker struct {
 	conc      bool // a summary: the code walked runs in several scoped tasks at once
 	noPark    int  // inside the communication of a select: the select decided whether to wait
 	freeing   int  // the writes recorded free or drop the memory (free.go)
+	viewLoad  bool // the read recorded loads a view (loadCrossings)
+	// vvalid, when set, holds the locks of the view the accesses recorded
+	// are made through (viewOf).
+	vvalid *lockset
+	vpre   bool // the view of vvalid was loaded before any task was started (state.vpre)
+	// viewPre is set by identView: whether the view it found was loaded
+	// before any task was started.
+	viewPre bool
+	// The arguments of deferred calls, evaluated at the defer statement:
+	// their values, and for each view among them the variable that
+	// follows its locks (state.views). deferCall is the deferred call
+	// being applied where the function returns.
+	deferVals map[ast.Expr]origins
+	deferVars map[ast.Expr]*types2.Var
+	deferCall *ast.CallExpr
+	// callHeld holds, for each call that may return a view, the locks it
+	// is valid under (applyOpts.held). pendingView, when set, holds the
+	// locks of the view the value being assigned holds (exprView).
+	callHeld    map[*ast.CallExpr]lockset
+	pendingView *lockset
 }
 
 func newWalker(a *analyzer, fn *function) *walker {
@@ -204,7 +349,12 @@ func (w *walker) runInits() {
 				continue
 			}
 			p := vpath{root: root{kind: rGlobal, v: v}}
-			w.store([]vpath{p}, vals[i], init.Rhs.Pos())
+			for _, o := range vals[i] {
+				if _, ok := o.vp.root.node.(*ast.CompositeLit); ok && o.vp.root.kind == rFresh && o.vp.path == "&" && o.tag == "" {
+					w.a.initLits[o.vp.root.node] = true
+				}
+			}
+			w.store([]vpath{p}, vals[i], init.Rhs.Pos(), v.Type())
 			w.access(p, true, false, init.Rhs.Pos(), v.Type(), false, "")
 		}
 	}
@@ -304,6 +454,9 @@ func (w *walker) finish() {
 // deferred applies a deferred call where the function returns. A deferred
 // lock is not counted as held: it may not have been deferred on this path.
 func (w *walker) deferred(c *ast.CallExpr) {
+	saved := w.deferCall
+	w.deferCall = c
+	defer func() { w.deferCall = saved }()
 	if op, recv := w.lockOp(c); op != "" {
 		if op == "unlock" {
 			w.unlock(recv)
@@ -454,10 +607,33 @@ func (w *walker) stmt(st ast.Stmt, label string) {
 		w.returnStmt(st)
 	case *ast.DeferStmt:
 		w.defers = compat.Append(w.defers, pu.New(pendingDefer{call: st.Call, at: w.st.clone()}))
-		// The arguments are evaluated now.
+		// The arguments are evaluated now; the call uses their values
+		// when it runs. A view among them is used then, so it stays valid
+		// only while its lock stays held (section 19.3, Views loaded
+		// under a lock): it is followed as a local would be.
 		if op, _ := w.lockOp(st.Call); op == "" {
 			for _, arg := range st.Call.Args {
-				w.value(arg)
+				iv := w.identView(arg)
+				v := w.value(arg)
+				if w.deferVals == nil {
+					w.deferVals = map[ast.Expr]origins{}
+					w.deferVars = map[ast.Expr]*types2.Var{}
+				}
+				w.deferVals[arg] = v
+				T := w.typeOf(arg)
+				if iv == nil && !(w.a.holdsView(T, 0) && w.loadedView(v)) {
+					continue
+				}
+				dv := w.deferVars[arg]
+				if dv == nil {
+					dv = types2.NewVar(arg.Pos(), nil, "a deferred argument", T)
+					w.deferVars[arg] = dv
+				}
+				held := w.st.locks
+				if iv != nil {
+					held = *iv
+				}
+				w.st.setView(dv, held, true)
 			}
 		}
 	case *ast.TaskStmt:
@@ -626,6 +802,7 @@ func (w *walker) rangeStmt(st *ast.RangeStmt, label string) {
 				if id, ok := kv.e.(*ast.Ident); ok {
 					if v, ok := w.a.defs[id].(*types2.Var); ok {
 						w.setVar(v, kv.v)
+						w.st.setView(v, w.st.locks, w.a.holdsView(v.Type(), 0) && w.loadedView(kv.v))
 					}
 				}
 				continue
@@ -776,12 +953,16 @@ func (w *walker) declStmt(st *ast.DeclStmt) {
 		case len(vs.Values) == len(vs.Names):
 			for i, name := range vs.Names {
 				w.conv(vs.Values[i], w.typeOf(name))
-				w.assignTo(name, w.value(vs.Values[i]), vs.Values[i].Pos())
+				val := w.value(vs.Values[i])
+				w.pendingView = w.exprView(vs.Values[i])
+				w.assignTo(name, val, vs.Values[i].Pos())
 			}
 		case len(vs.Values) == 1:
 			vals := w.multi(vs.Values[0], len(vs.Names))
+			view := w.exprView(vs.Values[0])
 			for i, name := range vs.Names {
 				if i < len(vals) {
+					w.pendingView = view
 					w.assignTo(name, vals[i], vs.Values[0].Pos())
 				}
 			}
@@ -803,25 +984,66 @@ func (w *walker) assignStmt(st *ast.AssignStmt) {
 	}
 	if len(st.Lhs) == len(st.Rhs) {
 		vals := compat.Make[origins](len(st.Rhs))
+		views := compat.Make[*lockset](len(st.Rhs))
 		for i, r := range st.Rhs {
 			vals[i] = w.value(r)
+			views[i] = w.exprView(r)
 			w.conv(r, w.typeOf(st.Lhs[i]))
 		}
 		for i, l := range st.Lhs {
+			w.pendingView = views[i]
 			w.assignTo(l, vals[i], st.Pos())
 		}
 		return
 	}
 	vals := w.multi(st.Rhs[0], len(st.Lhs))
+	view := w.exprView(st.Rhs[0])
 	for i, l := range st.Lhs {
 		if i < len(vals) {
+			w.pendingView = view
 			w.assignTo(l, vals[i], st.Pos())
 		}
 	}
 }
 
+// noteCallView records the locks a view call e returns is valid under.
+func (w *walker) noteCallView(e *ast.CallExpr, held *lockset) {
+	if held == nil {
+		if w.callHeld != nil {
+			delete(w.callHeld, e)
+		}
+		return
+	}
+	if w.callHeld == nil {
+		w.callHeld = map[*ast.CallExpr]lockset{}
+	}
+	w.callHeld[e] = *held
+}
+
+// exprView returns, for an expression just evaluated, the locks of the
+// view its value holds when that view was loaded before (identView) or
+// returned by a call (section 19.3, Views loaded under a lock), or nil
+// when its value holds no view, or one it loads itself.
+func (w *walker) exprView(e ast.Expr) *lockset {
+	e = ast.Unparen(e)
+	switch n := e.(type) {
+	case *ast.Ident:
+		return w.identView(n)
+	case *ast.CallExpr:
+		if len(n.Args) == 1 && w.a.types[n.Fun].IsType() {
+			return w.exprView(n.Args[0])
+		}
+		if held, ok := w.callHeld[n]; ok {
+			return pu.New(held)
+		}
+	}
+	return nil
+}
+
 // assignTo writes val to lhs.
 func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
+	pv := w.pendingView
+	w.pendingView = nil
 	lhs = ast.Unparen(lhs)
 	if id, ok := lhs.(*ast.Ident); ok {
 		if id.Name == "_" {
@@ -838,6 +1060,11 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 			}
 			w.cpuCarry(v, val, id.Pos())
 			w.setVar(v, val)
+			held := w.st.locks
+			if pv != nil {
+				held = held.meet(*pv)
+			}
+			w.st.setView(v, held, w.a.holdsView(v.Type(), 0) && w.loadedView(val))
 			return
 		}
 	}
@@ -857,9 +1084,11 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 		return
 	}
 	T := w.typeOf(lhs)
+	w.useView(lhs)
 	for _, p := range ps.ps {
 		w.access(p, true, false, lhs.Pos(), T, ps.sync, ps.key)
 	}
+	w.vvalid = nil
 	if !ps.sync && !isMap {
 		// The value it replaces is dropped.
 		w.dropWrite(ps.ps, T, lhs.Pos())
@@ -868,7 +1097,7 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 		// A map element is a copy: no view can see it change.
 		w.noteViewWrite(lhs, ps.ps, T)
 	}
-	w.store(ps.ps, val, pos)
+	w.store(ps.ps, val, pos, T)
 }
 
 // isMapIndex reports whether e indexes a map.
@@ -902,10 +1131,12 @@ func (w *walker) readWrite(e ast.Expr, pos token.Pos) {
 		return
 	}
 	T := w.typeOf(e)
+	w.useView(e)
 	for _, p := range ps.ps {
 		w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
 		w.access(p, true, false, e.Pos(), T, ps.sync, ps.key)
 	}
+	w.vvalid = nil
 	if !ps.sync && !w.isMapIndex(e) {
 		w.noteViewWrite(e, ps.ps, T)
 	}
@@ -913,8 +1144,11 @@ func (w *walker) readWrite(e ast.Expr, pos token.Pos) {
 
 // store records that val is stored at places ps: in a local variable, its
 // origins grow; anywhere else, what val points to is published.
-func (w *walker) store(ps []vpath, val origins, pos token.Pos) {
+func (w *walker) store(ps []vpath, val origins, pos token.Pos, T types2.Type) {
 	for _, p := range ps {
+		if p.root.kind == rGlobal && !strings.ContainsAny(p.path, "*%$&#") && w.quiet == 0 {
+			w.a.noteGlobalStore(p, val, T)
+		}
 		if p.root.kind == rLocal && localPath(p.path) {
 			w.cpuCarry(p.root.v, val, pos)
 			w.setVar(p.root.v, val.tagged2(fieldTag(p.path)))
@@ -1192,14 +1426,20 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 	}
 	init := w.initializing(p, w.st)
 	if key != "" {
-		w.a.recordType(key, p, write, atomic, w.st.locks, pos, w.fn.name, init)
+		// A use in main before it starts a task is before the start of
+		// sharing: the type rule asks only what changes once an object is
+		// shared (section 19.3, Rule 3).
+		w.a.recordType(key, p, write, atomic, w.st.locks, pos, w.fn.name, init || (w.isMain() && !w.st.spawned))
 	}
 	if init || !w.a.shareable(p) {
 		// Memory this function allocated and has not handed to anyone:
 		// no other task can reach it yet.
 		return
 	}
-	x := pu.New(access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T, free: w.freeing > 0})
+	x := pu.New(access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T, free: w.freeing > 0, view: w.viewLoad && !write})
+	if w.vvalid != nil {
+		x.hasValid, x.vvalid, x.vpre = true, *w.vvalid, w.vpre
+	}
 	if !write && !atomic && isSyncType(T) {
 		// Reading a whole synchronised value copies it, as any read does.
 		x.atomic = false
@@ -1361,7 +1601,9 @@ func (w *walker) value1(e ast.Expr) origins {
 			if isGlobal(obj) {
 				p := vpath{root: root{kind: rGlobal, v: obj}}
 				w.cpuSite(e, obj)
+				w.viewLoad = w.a.holdsView(obj.Type(), 0)
 				w.access(p, false, false, e.Pos(), obj.Type(), false, "")
+				w.viewLoad = false
 				return compat.Clone(origins{{vp: p}})
 			}
 			if w.frame != nil {
@@ -1392,9 +1634,12 @@ func (w *walker) value1(e ast.Expr) origins {
 		case types2.FieldVal:
 			if ps, ok := w.place(e); ok {
 				T := w.typeOf(e)
+				w.viewLoad = !w.ownedField(e) && w.a.holdsView(T, 0)
+				w.useView(e)
 				for _, p := range ps.ps {
 					w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
 				}
+				w.viewLoad, w.vvalid = false, nil
 				return w.fieldValue(ps, e)
 			}
 			// A field of a value that is not addressable.
@@ -1440,9 +1685,12 @@ func (w *walker) value1(e ast.Expr) origins {
 		}
 		if ps, ok := w.place(e); ok {
 			T := w.typeOf(e)
+			w.viewLoad = w.a.holdsView(T, 0)
+			w.useView(e)
 			for _, p := range ps.ps {
 				w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
 			}
+			w.viewLoad, w.vvalid = false, nil
 			return w.placeValue(ps.ps)
 		}
 		v := w.value(x)
@@ -1474,9 +1722,12 @@ func (w *walker) value1(e ast.Expr) origins {
 	case *ast.StarExpr:
 		ps, _ := w.place(e)
 		T := w.typeOf(e)
+		w.viewLoad = w.a.holdsView(T, 0)
+		w.useView(e)
 		for _, p := range ps.ps {
 			w.access(p, false, false, e.Pos(), T, ps.sync, ps.key)
 		}
+		w.viewLoad, w.vvalid = false, nil
 		return w.placeValue(ps.ps)
 	case *ast.UnaryExpr:
 		switch e.Op {
@@ -1512,6 +1763,180 @@ func (w *walker) value1(e ast.Expr) origins {
 		return nil
 	}
 	panic(pu.Box(compat.Sprintf("race: unsupported expression %T", e)))
+}
+
+// ownedField reports whether the field e selects is a view field that
+// owns what it points to (ownedview.go): loading it is a use of memory the
+// object owns, not a crossing of a view (section 19.3, case 4 of rule 2).
+func (w *walker) ownedField(e *ast.SelectorExpr) bool {
+	sel := w.a.selections[e]
+	if sel == nil {
+		return false
+	}
+	idx := sel.Index()
+	T := w.typeOf(e.X)
+	for _, i := range idx[:len(idx)-1] {
+		if f := fieldOf(T, i); f != nil {
+			T = f.Type()
+		}
+	}
+	if el := pointerElem(T); el != nil {
+		T = el
+	}
+	return w.a.ownsField(T, fieldOf(T, idx[len(idx)-1]))
+}
+
+// holdsView reports whether a value of type T holds a view: a pointer, a
+// slice, an interface, a func value, or an aggregate that holds one.
+// Memory an owner owns is not counted: it moves with the owner.
+func (a *analyzer) holdsView(T types2.Type, depth int) bool {
+	if T == nil || depth > 8 {
+		return false
+	}
+	switch u := underlying(T).(type) {
+	case *types2.Pointer, *types2.Slice, *types2.Interface, *types2.Signature:
+		return true
+	case *types2.Basic:
+		return u.Kind() == types2.UnsafePointer
+	case *types2.Array:
+		return a.holdsView(u.Elem(), depth+1)
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			f := u.Field(i)
+			if a.ownsField(T, f) {
+				continue
+			}
+			if a.holdsView(f.Type(), depth+1) {
+				return true
+			}
+		}
+	case *types2.Wrapper:
+		if u.Kind() == types2.WrapVolatile || u.Kind() == types2.WrapAligned {
+			return a.holdsView(u.Elem(), depth+1)
+		}
+	}
+	return false
+}
+
+// viewOf returns, when the memory e uses is reached through a view held in
+// a local that was loaded from shared memory, the locks held from the
+// load to here with no ending event (section 19.3, Views loaded under a
+// lock). The view is the operand of the outermost dereference in e: a
+// view loaded on the way, as in p.next.v, is loaded here.
+func (w *walker) useView(e ast.Expr) {
+	w.vvalid = w.viewOf(e)
+	w.vpre = w.vvalid != nil && w.viewPre
+}
+
+func (w *walker) viewOf(e ast.Expr) *lockset {
+	for {
+		var x ast.Expr
+		switch n := ast.Unparen(e).(type) {
+		case *ast.StarExpr:
+			x = n.X
+		case *ast.SelectorExpr:
+			if pointerElem(w.typeOf(n.X)) == nil {
+				e = n.X
+				continue
+			}
+			x = n.X
+		case *ast.IndexExpr:
+			switch underlying(w.typeOf(n.X)).(type) {
+			case *types2.Array:
+				e = n.X
+				continue
+			case *types2.Slice, *types2.Pointer:
+				x = n.X
+			default:
+				return nil
+			}
+		default:
+			return nil
+		}
+		return w.identView(x)
+	}
+}
+
+// identView returns, when e is a local holding a view loaded from shared
+// memory, the locks held from the load to here with no ending event.
+func (w *walker) identView(e ast.Expr) *lockset {
+	w.viewPre = false
+	if dv := w.deferVars[e]; dv != nil && w.deferCall != nil {
+		if held, ok := w.st.views[dv]; ok {
+			w.viewPre = w.st.vpre[dv]
+			m := held.meet(w.st.locks)
+			return pu.New(m)
+		}
+		return nil
+	}
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	if !ok {
+		return nil
+	}
+	v, ok := w.a.objOf(id).(*types2.Var)
+	if !ok || isGlobal(v) {
+		return nil
+	}
+	held, ok := w.st.views[v]
+	if !ok {
+		return nil
+	}
+	w.viewPre = w.st.vpre[v]
+	m := held.meet(w.st.locks)
+	return pu.New(m)
+}
+
+// argViews returns, for each argument of call e (receiver first), the
+// locks of the view it passes (identView), or nil when it passes none.
+func (w *walker) argViews(e *ast.CallExpr, t callTarget) []*lockset {
+	if t.sig == nil || t.sig.Variadic() {
+		return nil
+	}
+	var out []*lockset
+	found := false
+	if t.hasRecv {
+		var v *lockset
+		if t.recvExpr != nil && pointerElem(w.typeOf(t.recvExpr)) != nil {
+			v = w.identView(t.recvExpr)
+		}
+		found = v != nil
+		out = compat.Append(out, v)
+	}
+	for _, a := range e.Args {
+		v := w.identView(a)
+		found = found || v != nil
+		out = compat.Append(out, v)
+	}
+	if !found {
+		return nil
+	}
+	return out
+}
+
+// loadedView reports whether a value with origins val holds a view loaded
+// from memory: the value of a pointer stored in memory, or an address
+// within what such a pointer points to. A parameter's own value, and an
+// address taken within what it points to, were not loaded here.
+func (w *walker) loadedView(val origins) bool {
+	for _, o := range val {
+		d := 0
+		switch o.vp.root.kind {
+		case rGlobal, rFresh, rLocal:
+			d = 1 // memory: its value is loaded
+		case rParam:
+		default:
+			continue
+		}
+		for _, st := range steps(o.vp.path) {
+			if st == "*" || st == "%" || st[0] == '$' || st[0] == '#' {
+				d++
+			}
+		}
+		if d >= 2 || d == 1 && !strings.HasSuffix(o.vp.path, "&") {
+			return true
+		}
+	}
+	return false
 }
 
 // fieldValue returns the value of a field selection whose places are ps.
@@ -1703,11 +2128,19 @@ func (w *walker) addrOf(e ast.Expr) origins {
 		return nil
 	}
 	for _, p := range ps.ps {
-		if p.root.kind == rGlobal {
+		if p.root.kind == rGlobal && !throughView(p.path) {
 			w.a.addrTaken(p.root.v)
 		}
 	}
 	return w.addrsOfPlaces(ps.ps)
+}
+
+// throughView reports whether a place at path from a variable is memory a
+// view the variable holds points to, not the variable's own storage.
+func throughView(path string) bool {
+	i := strings.IndexAny(path, "*%$")
+	j := strings.IndexByte(path, '#')
+	return i >= 0 && (j < 0 || i < j)
 }
 
 func (a *analyzer) addrTaken(v *types2.Var) {

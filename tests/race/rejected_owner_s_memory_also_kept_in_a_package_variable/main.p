@@ -22,6 +22,7 @@ func read(v View) { println(v.c.n) }
 func main() {
 	var v View
 	v.Init()
-	bump(keep[0])
+	p := keep[0]
 	task read(v)
+	bump(p)
 }

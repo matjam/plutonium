@@ -106,6 +106,7 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		if fn.Pkg().Path() == "pluto/sync/atomic" && fn.Type().(*types2.Signature).Recv() == nil {
 			return w.atomicCall(e, fn)
 		}
+		w.atomicPointerLoad(e, fn)
 		if h, trap := w.a.handlerOf(e); h != nil {
 			// Installing an interrupt handler starts a party that runs at
 			// any point where interrupts are enabled, on any processor and
@@ -162,8 +163,10 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		// written: its uses of the frame are not in its summary.
 		return pad(w.inlineLit(t.static.lit, args, false, e.Pos()), nres)
 	case t.static != nil:
-		res, after := w.apply(t.static, args, e.Pos(), t.name, w.st, &applyOpts{noLockEffect: t.syncRecv})
+		opts := &applyOpts{noLockEffect: t.syncRecv, argViews: w.argViews(e, t)}
+		res, after := w.apply(t.static, args, e.Pos(), t.name, w.st, opts)
 		w.st = after
+		w.noteCallView(e, opts.held)
 		res = pad(res, nres)
 		for i := range res {
 			if t.static.sum.freshResult(i) || i == 0 && isAllocFunc(t.static) {
@@ -183,16 +186,29 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 	case t.method != "":
 		var res []origins
 		var out *state
+		var held *lockset
 		for _, f := range w.a.methodCandidates(t.method, t.sig) {
-			r, after := w.apply(f, args, e.Pos(), t.name, w.st, &applyOpts{noLockEffect: isSyncMethod(f)})
+			opts := &applyOpts{noLockEffect: isSyncMethod(f), argViews: w.argViews(e, t)}
+			r, after := w.apply(f, args, e.Pos(), t.name, w.st, opts)
+			if opts.held != nil {
+				if held != nil {
+					m := held.meet(*opts.held)
+					opts.held = pu.New(m)
+				}
+				held = opts.held
+			}
 			res = unionResults(res, r)
 			out = join(out, after)
 		}
 		if out != nil {
 			w.st = out
 		}
+		w.noteCallView(e, held)
 		return pad(res, nres)
 	}
+	// What a func value returns is not followed: a view it returns is
+	// valid under no lock.
+	w.noteCallView(e, pu.New(lockset(nil)))
 	return pad(w.callValue(t.fv, args, e.Pos(), t.sig, exprText(e.Fun)), nres)
 }
 
@@ -301,6 +317,40 @@ func (w *walker) atomicCall(e *ast.CallExpr, fn *types2.Func) []origins {
 		}
 	}
 	return pad(nil, fn.Type().(*types2.Signature).Results().Len())
+}
+
+// atomicPointerLoad records the load that a call of Load or Swap on an
+// atomic.Pointer[T] makes: an atomic read of the view it holds, which is a
+// crossing once tasks run (section 19.3, Crossings case 5). The method's
+// body loads an unsafe.Pointer; the call site knows the view's type.
+func (w *walker) atomicPointerLoad(e *ast.CallExpr, fn *types2.Func) {
+	if fn.Pkg().Path() != "pluto/sync/atomic" || (fn.Name() != "Load" && fn.Name() != "Swap") {
+		return
+	}
+	n := recvNamed(fn)
+	se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr)
+	if n == nil || n.Obj().Name() != "Pointer" || !ok {
+		return
+	}
+	var ps []vpath
+	if pointerElem(w.typeOf(se.X)) != nil {
+		ps = w.quietValue(se.X).derefOr("*", w.unknownFor(se.X))
+	} else if pl, ok := w.place(se.X); ok {
+		ps = pl.ps
+	}
+	w.viewLoad = true
+	for _, p := range ps {
+		w.access(p.extend(".v"), false, true, e.Pos(), w.typeOf(e), false, "")
+	}
+	w.viewLoad = false
+}
+
+// quietValue returns the origins of e without recording its uses again.
+func (w *walker) quietValue(e ast.Expr) origins {
+	w.quiet++
+	v := w.value(e)
+	w.quiet--
+	return v
 }
 
 // conversion evaluates T(x).
@@ -468,7 +518,21 @@ func (w *walker) builtin(e *ast.CallExpr) []origins {
 					return one(w.placeValue(ps.ps))
 				}
 			}
-			return one(w.value(e.Args[0]))
+			// take(p) moves the object p points to out: a write of all of
+			// it that frees it as an object (section 19.3, Memory and data).
+			v := w.value(e.Args[0])
+			if T := pointerElem(w.typeOf(e.Args[0])); T != nil {
+				ps := v.derefOr("*", w.unknownFor(e.Args[0]))
+				for _, p := range ps {
+					w.access(p, false, false, e.Pos(), T, false, "")
+				}
+				w.freeing++
+				for _, p := range ps {
+					w.access(p, true, false, e.Pos(), T, false, "")
+				}
+				w.freeing--
+			}
+			return one(v)
 		}
 		return one(nil)
 	case "panic":
@@ -633,15 +697,19 @@ func (w *walker) unlock(se *ast.SelectorExpr) {
 	if len(ps.ps) == 0 {
 		w.st.locks = nil
 		w.st.rel = released{all: true}
+		w.sum.mayRel = released{all: true}
+		w.st.endViews(nil)
 		return
 	}
 	for _, p := range ps.ps {
 		w.st.locks = w.st.locks.without(p)
+		w.st.endViews(pu.New(p))
 		// A mutex this function locks is not one its caller holds (locking
 		// it again would never return): releasing it releases nothing of
 		// the caller's.
 		if !w.lockedHere[p] {
 			w.st.rel = w.st.rel.with(p)
+			w.sum.mayRel = w.sum.mayRel.with(p)
 		}
 	}
 }
@@ -659,19 +727,26 @@ func (w *walker) condWait(e *ast.CallExpr) {
 	switch {
 	case len(ps) == 0:
 		w.st.rel = released{all: true}
+		w.sum.mayRel = released{all: true}
+		w.st.endViews(nil)
 	case len(ps) == 1:
 		// The Wait returns with the lock held again, so the lock stays
-		// held across it, a lock the caller holds included. That a view
+		// held across it, a lock the caller holds included. A view
 		// loaded before it ends there (section 19.3, Views loaded under a
-		// lock) is not checked yet.
+		// lock).
 		if w.lockedHere[ps[0]] {
 			w.st.locks = w.st.locks.with(ps[0], true)
+		} else {
+			w.sum.mayRel = w.sum.mayRel.with(ps[0])
 		}
+		w.st.endViews(pu.New(ps[0]))
 	default:
 		for _, p := range ps {
 			if !w.lockedHere[p] {
 				w.st.rel = w.st.rel.with(p)
+				w.sum.mayRel = w.sum.mayRel.with(p)
 			}
+			w.st.endViews(pu.New(p))
 		}
 	}
 }
@@ -851,7 +926,12 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []origins {
 	}
 	variadic := sig.Variadic() && !e.Ellipsis.IsValid()
 	for i, a := range e.Args {
-		v := w.value(a)
+		var v origins
+		if dv, ok := w.deferVals[a]; ok && e == w.deferCall {
+			v = dv // evaluated at the defer statement
+		} else {
+			v = w.value(a)
+		}
 		switch {
 		case variadic && i >= n-1:
 			if sl, ok := params.At(n - 1).Type().Underlying().(*types2.Slice); ok {
@@ -877,6 +957,12 @@ func (w *walker) args(e *ast.CallExpr, sig *types2.Signature) []origins {
 // applyOpts adjusts how a summary is applied.
 type applyOpts struct {
 	noLockEffect bool // a method of a synchronised type: it leaves the caller's locks as they were
+	// argViews are the locks of the view each argument passes (argViews),
+	// receiver first; nil for an argument that passes none.
+	argViews []*lockset
+	// held is set by apply to the locks a view the call returns is
+	// valid under (section 19.3, Views loaded under a lock).
+	held *lockset
 }
 
 // apply applies f's summary to a call with args (receiver first), made in
@@ -944,7 +1030,11 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 		var mk applyKey
 		var me *applyMemo
 		var seen map[*access]bool // what me holds, as one access may come from many
-		memo := w.frame == nil && !w.a.cpuOn && !hasFresh(args)
+		var argViews []*lockset
+		if opts != nil {
+			argViews = opts.argViews
+		}
+		memo := w.frame == nil && !w.a.cpuOn && !hasFresh(args) && argViews == nil
 		if memo {
 			mk = applyKey{pos: pos, f: f}
 			ctx := (&edge{args: args, locks: base.locks, rel: base.rel, pre: !base.spawned}).key()
@@ -985,7 +1075,8 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 				}
 				if x.tkey != "" && p.root.kind != rParam {
 					init := w.initializing(p, base) && !s.pubParams.has(x.place.root.idx)
-					w.a.recordType(x.tkey, p, x.write, x.atomic, locks, x.pos, name, init)
+					pre := w.isMain() && !base.spawned && x.pre
+					w.a.recordType(x.tkey, p, x.write, x.atomic, locks, x.pos, name, init || pre)
 				}
 				if !w.a.shareable(p) {
 					continue
@@ -1001,7 +1092,10 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 					pre:    !base.spawned && x.pre,
 					typ:    x.typ,
 					free:   x.free,
+					view:   x.view,
 				})
+				na.hasValid, na.vvalid = viewValid(x, locks, base.locks, args, argViews, s.mayRel)
+				na.vpre = x.hasValid && x.vpre && !base.spawned
 				// The memo holds the summary's own accesses, not copies.
 				acc, ty := w.sum.putAccess(na)
 				if me != nil {
@@ -1116,11 +1210,29 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 	if s.mayAlloc {
 		w.sum.mayAlloc = true
 	}
+	held := base.locks
 	if opts == nil || !opts.noLockEffect {
 		acq := substLocks(s.exitLocks, args)
 		for _, l := range acq {
 			w.noteLocked(l.place)
 		}
+		// A call that may release a lock ends the views loaded under it,
+		// even when it returns with the lock held (section 19.3, Views
+		// loaded under a lock).
+		may := substRel(s.mayRel, args).union(substRel(s.exitRel, args))
+		if may.all {
+			after.endViews(nil)
+		}
+		for _, k := range may.keys {
+			after.endViews(pu.New(k))
+			if !w.lockedHere[k] {
+				w.sum.mayRel = w.sum.mayRel.with(k)
+			}
+		}
+		if may.all {
+			w.sum.mayRel = released{all: true}
+		}
+		held = compose(base.locks, may, nil)
 		rel := substRel(s.exitRel, args)
 		after.locks = compose(base.locks, rel, acq)
 		if !rel.all {
@@ -1135,6 +1247,17 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 			rel = keep
 		}
 		after.rel = base.rel.union(rel)
+	}
+	if opts != nil {
+		// A view the call returns counts as loaded at the call, under the
+		// locks the caller holds across the whole call; one it was passed
+		// is valid no longer than it was.
+		for _, av := range opts.argViews {
+			if av != nil {
+				held = held.meet(*av)
+			}
+		}
+		opts.held = pu.New(held)
 	}
 	var res []origins
 	for _, r := range s.results {
@@ -1164,6 +1287,32 @@ func compose(base lockset, rel released, acq lockset) lockset {
 		out = out.with(l.place, l.excl)
 	}
 	return out
+}
+
+// viewValid works out, for an access x of a callee made through a view
+// (access.vvalid), the locks held from the load of the view to it with no
+// ending event, at a call in a state holding base whose arguments pass
+// views with argViews: what the callee's summary records for a view it
+// loaded, and, for a view an argument passes, the locks held from its
+// load to the call that the callee does not release before x.
+func viewValid(x *access, locks, base lockset, args []origins, argViews []*lockset, mayRel released) (bool, lockset) {
+	var av *lockset
+	if x.place.root.kind == rParam && x.place.root.idx < len(argViews) {
+		av = argViews[x.place.root.idx]
+	}
+	if !x.hasValid && av == nil {
+		return false, nil
+	}
+	vv := locks
+	if x.hasValid {
+		vv = compose(base, substRel(x.rel, args), substLocks(x.vvalid, args))
+	}
+	if av != nil {
+		// A view passed to a call that may release its lock counts as
+		// used after the release.
+		vv = vv.meet(compose(*av, substRel(x.rel, args).union(substRel(mayRel, args)), nil))
+	}
+	return true, vv
 }
 
 // substLocks substitutes the caller's arguments into locks named through

@@ -1596,7 +1596,7 @@ compiler (2026-10-11).
     that starts a task or declares an interrupt handler gets a `main` that starts them: it installs each
     handler and calls each function nothing else in the block uses, and an entry's `main:` lines call one
     that takes parameters. Such a block builds as a program of its own; 19 blocks are built this way.
-    Known failures: 14, waiting on items 148, 149, 168, 201, 208, 214 (5), 215, 218 (2)
+    Known failures: 10, waiting on items 148, 149, 168, 201, 208, 214 (1), 215, 218 (2)
     and 223. A block whose marked lines are errors of one program, not alternatives,
     has `together` in its entry and builds once, whole: every marked line must report its code and no
     other line any error (section 1.3; the 19.3 `type Counter struct {` block, D129). The 12 wrong spec examples were fixed with audit H

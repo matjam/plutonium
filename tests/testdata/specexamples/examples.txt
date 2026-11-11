@@ -785,10 +785,8 @@ known: 168: dropping the old Config is not yet a write in the race check, so the
 known: 215: the wait check of non-migrating regions is not implemented, so the call of record is not an error
 
 == 19-concurrency.md 19.3 | type Node struct{ n int }
-known: 214: a load of a pointer from a package variable is not yet a crossing in the race check, so reader is not an error
 
 == 19-concurrency.md 19.3 | // first lets a pointer into items escape its lock.
-known: 214: a view of guarded owned memory used after its guard is released is not yet E3501, so read is not an error
 
 == 19-concurrency.md 19.3 | type Config struct{ port int }
 known: 218: the race check has no rule for sync.Once: the writes inside f hold cfgOnce's own mutex, so the read of cfg after cfgOnce.Do is still E3503
@@ -797,7 +795,6 @@ known: 218: the race check has no rule for sync.Once: the writes inside f hold c
 known: 218: the race check has no rule for sync.Once, so its E3502 names the write inside limOnce.Do and not the write in reload
 
 == 19-concurrency.md 19.3 | type Logger owner struct {
-known: 214: memory owned by a static object is not yet part of its field, so Push's writes of buf's storage in vec's realloc are E3502 though l.mu is held
 
 == 19-concurrency.md 19.3 | // peekWait keeps a view across a call that may release q.mu.
 known: 214: a view of guarded memory used after its lock is released is not yet E3501, so the use of p after q.waitNonEmpty() is not an error
@@ -808,7 +805,6 @@ known: 223: summaries do not record a call of yield on another party, so the Unl
 == 19-concurrency.md 19.3 | type Job struct{ id int }
 
 == 19-concurrency.md 19.3 | // second keeps a pointer into names across a Wait.
-known: 214: a view of guarded memory used after its lock is released is not yet E3501, so the use of p after ready.Wait is not an error
 
 == 19-concurrency.md 19.3 | type Counter struct {
 together

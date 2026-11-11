@@ -1,0 +1,2 @@
+$PLUTOROOT/pluto/fmt/print_linux.p:17:61: os.Stdout is a view of os.File that may change while another task uses it, so it cannot be loaded once tasks may run
+$DIR/main.p:9:15: os.Stdout is a view of os.File that may change while another task uses it, so it cannot be loaded once tasks may run

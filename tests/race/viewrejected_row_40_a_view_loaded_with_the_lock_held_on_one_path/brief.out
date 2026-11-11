@@ -1,0 +1,3 @@
+$PLUTOROOT/pluto/vec/vec.p:131:42: items.data is read here without holding mu, which guards it
+$DIR/main.p:25:10: items.data[i] is read here through a view that is not valid here: mu, which guards it, was not held from the load of the view to here
+$DIR/main.p:27:3: mu.Unlock() releases mu, which is not held here: it is not held on every path to here

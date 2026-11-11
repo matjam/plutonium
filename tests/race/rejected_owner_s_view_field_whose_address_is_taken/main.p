@@ -23,6 +23,7 @@ func read(v View) { println(v.c.n) }
 func main() {
 	var v View
 	v.Init()
-	bump(last)
+	p := last
 	task read(v)
+	bump(p)
 }

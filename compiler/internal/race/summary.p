@@ -203,6 +203,13 @@ type access struct {
 	typ    types2.Type // the type of what is used, when known (scope.go)
 	cpu    *cpuUse     // a use of a per-CPU variable (region.go), which the rules of sharing do not see
 	free   bool        // a write that frees or drops the memory (free.go)
+	view   bool        // a read that loads a view: a crossing once tasks run (loadCrossings)
+	// Through a view loaded from shared memory (section 19.3, Views loaded
+	// under a lock): vvalid are the locks held from the load to here with
+	// no ending event, relative to the function's start like locks.
+	hasValid bool
+	vvalid   lockset
+	vpre     bool // the view was loaded before any task was started: not a crossing load
 }
 
 // An accKey identifies what matters of an access for the rules; accesses
@@ -232,8 +239,18 @@ func (x *access) key() accKey {
 	if x.free {
 		k.flags |= 8
 	}
+	if x.view {
+		k.flags |= 16
+	}
+	if x.hasValid {
+		k.flags |= 32
+		k.locks = compat.Concat("V", x.vvalid.String(), "|")
+		if x.vpre {
+			k.flags |= 64
+		}
+	}
 	if len(x.locks) > 0 || x.rel.all || len(x.rel.keys) > 0 {
-		k.locks = compat.Concat("L", x.locks.String(), "|R", x.rel.String())
+		k.locks = compat.Concat(k.locks, "L", x.locks.String(), "|R", x.rel.String())
 	}
 	return k
 }
@@ -288,6 +305,8 @@ type crossing struct {
 	expr ast.Expr
 	via  []frame
 	fn   string // the function where the value crosses
+	load bool   // a load of a view from shared memory (loadcross.go)
+	name string // what is loaded, for a load
 }
 
 func (c *crossing) key() string {
@@ -342,6 +361,7 @@ type summary struct {
 
 	exitLocks lockset // taken and still held when it returns
 	exitRel   released
+	mayRel    released // locks its caller holds that it may release, if only for a while
 	maySpawn  bool
 	mayAlloc  bool   // it may allocate, so it may call an allocator's Alloc (section 20.10)
 	pubParams bits   // parameters whose memory it publishes
@@ -354,9 +374,10 @@ func (s *summary) addAccess(x *access) { s.putAccess(x) }
 // putAccess adds x to the summary and returns the access the summary holds
 // for it, and the typed access it adds with it if any.
 func (s *summary) putAccess(x *access) (acc, ty *access) {
-	if x.tkey != "" && x.place.root.kind != rParam {
+	if x.tkey != "" && x.place.root.kind != rParam && x.place.root.kind != rGlobal {
 		// The type rule has seen the use (recordType): only callers that
-		// instantiate a parameter's place read the field again.
+		// instantiate a parameter's place read the field again, and the
+		// parties for a package variable's place (recordGlobalTypes).
 		y := pu.New(*x)
 		y.tkey = ""
 		x = y
@@ -567,7 +588,7 @@ func (s *summary) equal(t *summary) bool {
 		!sameSet(s.spKeys, t.spKeys) || !sameSet(s.crKeys, t.crKeys) {
 		return false
 	}
-	if s.maySpawn != t.maySpawn || s.mayAlloc != t.mayAlloc || s.pubParams != t.pubParams || !s.exitLocks.equal(t.exitLocks) || !s.exitRel.equal(t.exitRel) {
+	if s.maySpawn != t.maySpawn || s.mayAlloc != t.mayAlloc || s.pubParams != t.pubParams || !s.exitLocks.equal(t.exitLocks) || !s.exitRel.equal(t.exitRel) || !s.mayRel.equal(t.mayRel) {
 		return false
 	}
 	if compat.Sprint(s.fresh, s.notFresh) != compat.Sprint(t.fresh, t.notFresh) || len(s.results) != len(t.results) {
@@ -625,7 +646,7 @@ func (s *summary) diff(t *summary) string {
 	if !sameSet(s.spKeys, t.spKeys) || !sameSet(s.crKeys, t.crKeys) {
 		out = compat.Append(out, "spawns/cross")
 	}
-	if s.maySpawn != t.maySpawn || s.mayAlloc != t.mayAlloc || s.pubParams != t.pubParams || !s.exitLocks.equal(t.exitLocks) || !s.exitRel.equal(t.exitRel) {
+	if s.maySpawn != t.maySpawn || s.mayAlloc != t.mayAlloc || s.pubParams != t.pubParams || !s.exitLocks.equal(t.exitLocks) || !s.exitRel.equal(t.exitRel) || !s.mayRel.equal(t.mayRel) {
 		out = compat.Append(out, "flags/locks")
 	}
 	if compat.Sprint(s.fresh, s.notFresh) != compat.Sprint(t.fresh, t.notFresh) {

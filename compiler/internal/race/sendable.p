@@ -417,7 +417,9 @@ func (a *analyzer) sendableIn(T types2.Type, vals origins, part string, written 
 				return nil
 			}
 			if typeSite, typeWhy = a.typeProblem(E); typeSite == nil {
-				return inner()
+				if typeSite = a.freeProblem(E, vals); typeSite == nil {
+					return inner()
+				}
 			}
 		}
 		if !typeOnly && len(vals) > 0 {

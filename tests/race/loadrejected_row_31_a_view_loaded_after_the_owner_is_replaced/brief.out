@@ -1,0 +1,1 @@
+$DIR/main.p:10:25: p is a view of Node that may change while another task uses it, so it cannot be loaded once tasks may run
