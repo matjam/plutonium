@@ -38,8 +38,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   calls outside scoped tasks (19.4). Item 196.
 - A load of a view from a per-CPU variable is not yet a crossing, and a package variable holding a `shared[T]` used
   by two tasks is not yet E2010 (19.3, Crossings; 8.8). Item 214.
-- A view kept across `c.Wait(&mu)` of a `sync.Cond`, or across a helper that waits on one, is not yet E3501
-  (19.3, Views loaded under a lock). Items 214 and 222.
 - A range-over-func body whose iterator calls `yield` from a scoped task still counts as part of the enclosing
   function, so it may release that function's locks, and a `defer` in it is not an error (19.3, Part of the
   enclosing function). Item 223.
