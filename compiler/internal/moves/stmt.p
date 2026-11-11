@@ -420,9 +420,10 @@ func (f *fn) assignLHS(lhs ast.Expr, tok token.Token) {
 }
 
 // renew records that the owner or counted reference v, at id, is given a
-// new value: the views of its old one are stale (views.go).
+// new value: the views of its old one are stale (views.go). A map or
+// channel lent to an interface is such a view (section 7.9).
 func (f *fn) renew(id *ast.Ident, v *types2.Var) {
-	if bounds(v.Type()) && !f.captured(v) {
+	if (bounds(v.Type()) || lendsRef(v.Type())) && !f.captured(v) {
 		f.invalidate(v, move{kind: mvNewValue, pos: id.Pos()})
 	}
 }

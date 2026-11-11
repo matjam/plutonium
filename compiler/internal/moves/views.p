@@ -59,6 +59,10 @@ type view struct {
 	// obj: the view is a pointer to the object of a box (boxView), which
 	// holds what the box owns as an owner's storage does.
 	obj bool
+	// lent: the view is an ordinary interface holding the word of a map or
+	// channel variable (refView). Only such a view of a map or channel
+	// ends when the variable is given a new value; &m stays valid.
+	lent bool
 }
 
 // A pinMark records that a view of an owner went where the walk cannot
@@ -68,6 +72,7 @@ type pinMark struct {
 	text  string    // the expression that made it
 	where token.Pos // where it went
 	how   string    // how: "stored in *q"
+	lent   bool // the view is lent (view.lent)
 }
 
 func (w view) key() string {
@@ -642,7 +647,43 @@ func (f *fn) viewsTo(e ast.Expr, T types2.Type) []view {
 			out = compat.Append(out, f.selfView(e, e)...)
 		}
 	}
+	if lentIface(T) && lendsRef(f.c.typeOf(e)) {
+		out = compat.Append(out, f.refView(e)...)
+	}
 	return out
+}
+
+// lendsRef reports whether a value of type T, put in the data word of an
+// ordinary interface, is lent rather than counted (section 7.9): a map, a
+// channel or a counted box that is not an owner.
+func lendsRef(T types2.Type) bool {
+	if T == nil || isOwner(T) {
+		return false
+	}
+	if isCountedBox(T) {
+		return true
+	}
+	switch T.Underlying().(type) {
+	case *types2.Map, *types2.Chan:
+		return true
+	}
+	return false
+}
+
+// refView returns the view an ordinary interface makes of the local
+// variable whose map, channel or counted box x is, or of the local owner
+// x is part of: the interface holds the variable's word without a count,
+// so it may be used only while the variable keeps that value (section
+// 7.9: after x := any(m), m = nil drops the map and x is stale).
+func (f *fn) refView(x ast.Expr) []view {
+	v, path, box, ok := f.placePath(x)
+	if !ok || box || v == nil || !f.vars[v] {
+		return nil
+	}
+	if len(path) == 0 || isOwner(v.Type()) {
+		return compat.Clone([]view{{of: v, pos: x.Pos(), text: exprText(x), part: path, lent: !isOwner(v.Type())}})
+	}
+	return nil
 }
 
 // lentWord reports whether an ordinary interface that an owner of type T is
@@ -1057,7 +1098,7 @@ func (f *fn) pin(vs []view, where token.Pos, how string) {
 		if ok && s.pin != nil || w.inHeap {
 			continue
 		}
-		s.pin = pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how})
+		s.pin = pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how, lent: w.lent})
 		f.setState(w.of, s)
 	}
 }
@@ -1167,15 +1208,18 @@ func (f *fn) invalidate(v *types2.Var, mv move) {
 	if f.env == nil || !f.vars[v] {
 		return
 	}
-	if !bounds(v.Type()) && (mv.kind != mvScopeEnd || !cleans(v.Type())) {
+	if !bounds(v.Type()) && !lendsRef(v.Type()) && (mv.kind != mvScopeEnd || !cleans(v.Type())) {
 		return
 	}
-	if p := f.env[v].pin; p != nil && f.report {
+	// A map or channel variable that is not released here ends only the
+	// interfaces lent its word: a pointer to the variable stays valid.
+	onlyLent := !bounds(v.Type()) && (mv.kind != mvScopeEnd || !cleans(v.Type()))
+	if p := f.env[v].pin; p != nil && (!onlyLent || p.lent) && f.report {
 		f.c.report(f.c.pinnedDiag(v, p, mv))
 	} else if p := f.env[v].hpin; p != nil && crosses(mv) && f.report {
 		f.c.report(f.c.heapPinnedDiag(v, p, mv))
 	}
-	f.staleViews(v, nil, mv)
+	f.staleWhere(v, mv, func(w view) bool { return !onlyLent || w.lent })
 }
 
 // invalidatePart records that the part of the owner v at path lost its

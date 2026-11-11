@@ -1,0 +1,31 @@
+$DIR/main.p:12:14: x holds a view of m (m, line 10), which was given a new value at line 11, so x can no longer be used here
+    x looks at memory that m refers to, without owning it: the view was made by
+    m at line 10. An ordinary interface made from a map or channel in a local
+    variable holds the variable's word without a count of its own (section 7.9),
+    so it may be used only while the variable keeps that map or channel. At line
+    11 m was given a new value, so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use x before line 11, or give m its new value only after the last use of x
+    Or make the view again after line 11:
+        x = m
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:17:14: y holds a view of c (c, line 15), which was given a new value at line 16, so y can no longer be used here
+    y looks at memory that c refers to, without owning it: the view was made by
+    c at line 15. An ordinary interface made from a map or channel in a local
+    variable holds the variable's word without a count of its own (section 7.9),
+    so it may be used only while the variable keeps that map or channel. At line
+    16 c was given a new value, so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use y before line 16, or give c its new value only after the last use of y
+    Or make the view again after line 16:
+        y = c
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

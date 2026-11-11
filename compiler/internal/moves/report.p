@@ -164,6 +164,8 @@ func (c *checker) staleDiag(e ast.Expr, v *types2.Var, w view) *diag.Diagnostic 
 	owns, rule := "owns", "A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from."
 	if isCountedBox(w.of.Type()) {
 		owns, rule = "refers to", "A view obtained through a counted reference held in a local variable may be used only while the variable keeps the reference the view was made from."
+	} else if w.lent {
+		owns, rule = "refers to", "An ordinary interface made from a map or channel in a local variable holds the variable's word without a count of its own (section 7.9), so it may be used only while the variable keeps that map or channel."
 	} else if !isOwner(w.of.Type()) {
 		owns, rule = "holds", "A view of a local variable whose type has drop glue may be used only until the variable's scope ends, where the variable is released."
 	} else if w.stale.kind == mvReclaim {
@@ -211,7 +213,9 @@ func (c *checker) pinnedDiag(v *types2.Var, p *pinMark, mv move) *diag.Diagnosti
 	owner := v.Name()
 	d := c.newDiag(mv.pos, diag.LostView, "%s %s here, but a view of it (%s, line %d) was %s at line %d, where the compiler cannot check its uses", pu.Box(owner), pu.Box(c.lostVerb(mv)), pu.Box(p.text), c.line(p.pos), pu.Box(p.how), c.line(p.where))
 	rule := "A view of an owner held in a local variable may be used only while the variable keeps the value the view was made from."
-	if !bounds(v.Type()) {
+	if p.lent {
+		rule = "An ordinary interface made from a map or channel in a local variable holds the variable's word without a count of its own (section 7.9), so it may be used only while the variable keeps that map or channel."
+	} else if !bounds(v.Type()) {
 		rule = "A view of a local variable whose type has drop glue may be used only until the variable's scope ends, where the variable is released."
 	}
 	d.Text = compat.Sprintfb("%s The compiler follows views through local variables and their fields, and into the arguments of the calls that store them there, but the view of %s made by %s at line %d went into memory it does not follow, so it cannot check that the view is not used after line %d.", compat.ArgS(rule), compat.ArgS(owner), compat.ArgS(p.text), compat.ArgI(int64(c.line(p.pos))), compat.ArgI(int64(c.line(mv.pos))))

@@ -1,0 +1,2 @@
+$DIR/main.p:12:14: x holds a view of m (m, line 10), which was given a new value at line 11, so x can no longer be used here
+$DIR/main.p:17:14: y holds a view of c (c, line 15), which was given a new value at line 16, so y can no longer be used here
