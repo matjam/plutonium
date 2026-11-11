@@ -683,11 +683,12 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 			return
 		}
 		// Through the address of a local owner the callee frees memory the
-		// owner owns, not memory of the variables the owner holds views of
-		// (an allocator lent to it, section 18.13).
-		own := f.ownerAddressed(val)
+		// owner owns, and memory of the variables the owner holds views of
+		// in its own fields (W{p: &y}, section 18.13), but not of those it
+		// was lent through an interface (an allocator, section 7.9).
+		own, follow := f.ownerAddressed(val)
 		for _, w := range f.viewsTo(val, T) {
-			if own != nil && w.of != own {
+			if own != nil && w.of != own && !follow[heldKey(w)] {
 				continue
 			}
 			// A checked arena's allocations end only at its Reset and
@@ -708,17 +709,65 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 }
 
 // ownerAddressed returns the local owner variable whose address, or the
-// address of a part of it, val is, or nil.
-func (f *fn) ownerAddressed(val ast.Expr) *types2.Var {
+// address of a part of it, val is, or nil; and the views of other variables
+// that part holds outside an interface (by heldKey), which a callee given
+// the address may free through.
+func (f *fn) ownerAddressed(val ast.Expr) (*types2.Var, map[string]bool) {
 	u, ok := ast.Unparen(val).(*ast.UnaryExpr)
 	if !ok || u.Op != token.AND {
-		return nil
+		return nil, nil
 	}
-	v, _, box, ok := f.placePath(u.X)
+	v, path, box, ok := f.placePath(u.X)
 	if !ok || box || v == nil || !f.vars[v] || !isOwner(v.Type()) {
-		return nil
+		return nil, nil
 	}
-	return v
+	follow := map[string]bool{}
+	T := f.c.typeOf(u.X)
+	for _, w := range f.held(v, path) {
+		if w.of != v && !lentAt(T, w.at) {
+			follow[heldKey(w)] = true
+		}
+	}
+	return v, follow
+}
+
+// heldKey names a view by where it was made and what it views, apart from
+// where it is held.
+func heldKey(w view) string {
+	return compat.Concat(strconv.Itoa(int(w.pos)), "|", w.of.Name(), strconv.Itoa(int(w.of.Pos())))
+}
+
+// lentAt reports whether a view held at path in a value of type T is held
+// in an interface there (lentIface), or under one: lent, not owned. A
+// path the types do not follow is taken as not lent.
+func lentAt(T types2.Type, path Path) bool {
+	for i := 0; ; i++ {
+		if T == nil {
+			return false
+		}
+		if lentIface(T) {
+			return true
+		}
+		if i >= len(path) {
+			return false
+		}
+		step := path[i]
+		switch u := T.Underlying().(type) {
+		case *types2.Struct:
+			if !strings.HasPrefix(step, ".") {
+				return false
+			}
+			k, err := strconv.Atoi(strings.SliceFrom(step, 1))
+			if err != nil || k < 0 || k >= u.NumFields() {
+				return false
+			}
+			T = u.Field(k).Type()
+		case *types2.Array:
+			T = u.Elem()
+		default:
+			return false
+		}
+	}
 }
 
 // freeViews records that call may have freed memory, or moved an owner
