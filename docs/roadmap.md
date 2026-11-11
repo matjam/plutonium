@@ -783,14 +783,14 @@ compiler (2026-10-11).
     where the compiler cannot tell which. A `Slice` of length zero records no entry. The count check after
     the entries panics only for an allocation still live then, or an entry recorded while they ran.
     Item 212 widens the race check and E3313 to every object the arena takes back, of every type.
-212. **Arena frees of every type** (planned; sections 19.3 (Frees are writes), 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
+212. **Arena frees of every type** (in progress, `208b5343`: generic allocations for E3501 only; sections 19.3 (Frees are writes), 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
     and 4.1, D86 and D93, findings H1 and H8 of audit H; extends items 168 and 209): a `Reset`, `Release`
     or `Drop` of an arena is a free, and so a write, of every object it takes back, of every type, for
     E3501, E3404 and the E3313 events, not only of objects whose type has drop glue. `Release` counts
     every object of the arena, since the compiler cannot order objects against marks. An arena is named
     by its variable or field, as a lock is: `workers[i].arena` counts as every arena it may be, and an
     arena behind a parameter or a heap pointer stays item 196.
-214. **A load of a view from shared memory is a crossing** (planned, phase 1, wrong acceptance; sections
+214. **A load of a view from shared memory is a crossing** (in progress, `d2a9aee9`: not E2010 or per-CPU loads; phase 1, wrong acceptance; sections
     19.2, 19.3, 8.8, 20.9, 20.10, A, memory-model.md 4.1, D96, D102 to D104, finding I1 of audit I and
     findings J1 to J3 of audit J; extends items 168 and 212): a
     task's or interrupt handler's load of a pointer, slice, interface, func value or method value (or an
@@ -841,7 +841,7 @@ compiler (2026-10-11).
     `vec`, `hash`, `strings` and `bytes` so each type restores its invariants before every check that can
     panic.
 
-168. **Frees count as writes in the race check** (planned; sections 19.3 (Frees are writes), 19.4, D59, finding D1): dropping,
+168. **Frees count as writes in the race check** (done, `70b8df4b`; sections 19.3 (Frees are writes), 19.4, D59, finding D1): dropping,
     freeing or moving an object, or writing an owner that holds it, is a write of the whole object for E3501
     and E3404.
 201. **Deferred calls in a scoped interval** (planned; section 19.4, A.3, D73, finding E4 of audit E; extends
@@ -1219,7 +1219,7 @@ compiler (2026-10-11).
     (preemption count; in kernel mode RFLAGS.IF) after the prologue of every function marked
     `//pu:blocking`, and before each call of one without a body, panicking with "blocking with preemption
     disabled".
-218. **Lazy initialization through `sync.Once`** (planned, phase 1; sections 19.3 (Lazy initialization), 19.7, F.5,
+218. **Lazy initialization through `sync.Once`** (done, `5681d379`, except views carried by an exported function's parameters; phase 1; sections 19.3 (Lazy initialization), 19.7, F.5,
     memory-model.md 3.4 and 4.1, D105, the "Once and Cond" section of the
     [rulings](verification/2026-11-09-spec-rulings.md)): data written only during a call of a function
     passed to `Do` of one Once (a package-level Once for package variables, a Once field for the fields of
@@ -1277,7 +1277,7 @@ compiler (2026-10-11).
     conflicting writes share no lock. Only a lock that guards the datum in place (same base, no pointer
     load between, or package-level) counts, and a `Lock` of a lock with no name holds nothing. Conformance
     rows 59, 60 and 69 of 19.3.
-222. **May-release and returned-view summaries** (planned, phase 1, wrong acceptance; section 19.3 (Held
+222. **May-release and returned-view summaries** (done, `688f64f6`, code in `d2a9aee9`; phase 1, wrong acceptance; section 19.3 (Held
     sets; Views loaded under a lock), D113, finding K3 of audit K; with items 219 and 220): a summary
     records the locks a function may release on some path, to any depth, `c.Wait(l)` included, even if it
     takes them again; a view live across a call that may release its lock is ended (E3501 at the use). A
@@ -1325,7 +1325,7 @@ compiler (2026-10-11).
 230. **`AfterFunc` functions are repeated parties** (planned, phase 1; sections 19.3 (Parties), 19.6, D117,
     finding L2 of audit L): the race check counts a function started by `time.AfterFunc` as a repeated
     party at every call site. Spec rows 77 and 78.
-231. **`pluto/sync` calls and channel operations are atomic accesses** (planned, phase 1; section 19.3
+231. **`pluto/sync` calls and channel operations are atomic accesses** (in progress, `2a85915e`: not channel operations; phase 1; section 19.3
     (Accesses; rule 2 case 3), D118, finding L3 of audit L): collect each such call as an atomic write of
     the value's memory that conflicts only with a plain write of that memory (a new value, or a free, move
     or overwrite of what holds it); add the case 3 condition that crossing sync memory is not freed, moved
@@ -1596,8 +1596,9 @@ compiler (2026-10-11).
     that starts a task or declares an interrupt handler gets a `main` that starts them: it installs each
     handler and calls each function nothing else in the block uses, and an entry's `main:` lines call one
     that takes parameters. Such a block builds as a program of its own; 19 blocks are built this way.
-    Known failures: 10, waiting on items 148, 149, 168, 201, 208, 214 (1), 215, 218 (2)
-    and 223. A block whose marked lines are errors of one program, not alternatives,
+    Known failures: 8, waiting on items 148, 149, 201, 208, 214, 215 and 223, and 1 spec example that
+    misses an error (the 19.3 `type Config struct{ n int }` block). A block whose marked lines are errors
+    of one program, not alternatives,
     has `together` in its entry and builds once, whole: every marked line must report its code and no
     other line any error (section 1.3; the 19.3 `type Counter struct {` block, D129). The 12 wrong spec examples were fixed with audit H
     (D95), and the section 7.9 example now marks both lines of the clash, since the rule names no single
