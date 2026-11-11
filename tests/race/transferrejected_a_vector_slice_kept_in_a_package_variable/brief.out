@@ -1,1 +1,2 @@
+$DIR/main.p:19:12: v is moved to the task started here, but a view of what it holds (v.Slice(), line 18) was stored in keep at line 18, where the compiler cannot check its uses
 $DIR/main.p:18:2: cannot store v.Slice() in package variable keep, which outlives v

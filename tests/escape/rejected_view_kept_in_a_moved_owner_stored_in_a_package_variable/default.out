@@ -1,0 +1,55 @@
+$DIR/main.p:19:2: v is passed to v.Free(), which may free what it looks at or move it out (clear(v.data), vec.p:288) here, but a view of what it holds (v.Slice(), line 17) was stored in keep at line 18, where the compiler cannot check its uses
+    A call that may free what an owner holds ends every view of that memory
+    (language spec section 18.3). The view of v made by v.Slice() at line 17
+    went into memory the compiler does not follow, so it cannot check that the
+    view is not used after line 19.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not make that call while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
+$DIR/main.p:29:2: v is passed to v.Free(), which may free what it looks at or move it out (clear(v.data), vec.p:288) here, but a view of what it holds (v.Slice(), line 26) was stored in keep at line 28, where the compiler cannot check its uses
+    A call that may free what an owner holds ends every view of that memory
+    (language spec section 18.3). The view of v made by v.Slice() at line 26
+    went into memory the compiler does not follow, so it cannot check that the
+    view is not used after line 29.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not make that call while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
+$DIR/main.p:18:2: cannot store o in package variable keep, which outlives v
+    o points into v. v is a local variable of direct (declared at main.p:14).
+    When direct returns, v's memory is reclaimed, but package variables live for
+    the whole program, so package variable keep would be left pointing at
+    reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store values instead of views of v, or allocate v and store its owner, an
+    owned[pluto/vec.Vec[int]], which moves there:
+        keep = new(pluto/vec.Vec[int])
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)
+
+$DIR/main.p:28:2: cannot store p in package variable keep, which outlives v
+    p points into v. v is a local variable of moved (declared at main.p:23).
+    When moved returns, v's memory is reclaimed, but package variables live for
+    the whole program, so package variable keep would be left pointing at
+    reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store values instead of views of v, or allocate v and store its owner, an
+    owned[pluto/vec.Vec[int]], which moves there:
+        keep = new(pluto/vec.Vec[int])
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

@@ -1342,7 +1342,13 @@ func (f *fn) storeViews(lhs ast.Expr, vs []view) {
 	}
 	v, path, box, ok := f.placePath(lhs)
 	if !ok || box || f.captured(v) {
-		f.pin(vs, lhs.Pos(), compat.Concat("stored in ", exprText(lhs)))
+		// Through a pointer, a box or a captured variable: the walk
+		// cannot follow the views, of the owner's storage or of what it
+		// holds on the heap, so a later free of that memory is E3314 too
+		// (section 18.3).
+		how := compat.Concat("stored in ", exprText(lhs))
+		f.pin(vs, lhs.Pos(), how)
+		f.heapPin(vs, lhs.Pos(), how, true)
 		return
 	}
 	if f.kept[v] {
