@@ -1132,6 +1132,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 					typ:    x.typ,
 					free:   x.free,
 					view:   x.view,
+					sync:   x.sync,
 				})
 				na.hasValid, na.vvalid = viewValid(x, locks, base.locks, args, argViews, s.mayRel)
 				na.vpre = x.hasValid && x.vpre && !base.spawned

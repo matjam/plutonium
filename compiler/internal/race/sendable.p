@@ -300,6 +300,9 @@ type problem struct {
 	// what an interface holds.
 	shared types2.Type
 	site   *convSite // a conversion of typ to an interface
+	// syncFree says typ points to pluto/sync memory that glob's write at
+	// gpos may free, move or overwrite while it is shared.
+	syncFree bool
 }
 
 // sendable checks a value of type T with origins vals that crosses to
@@ -397,6 +400,12 @@ func (a *analyzer) sendableIn(T types2.Type, vals origins, part string, written 
 	case *types2.Pointer, *types2.Slice:
 		E := viewElem(T)
 		if isSyncOnly(E) {
+			// Memory of pluto/sync types synchronizes itself, but only
+			// while it exists: what holds it must not be freed, moved or
+			// overwritten while it is shared (section 19.3, rule 2 case 3).
+			if !typeOnly {
+				return a.syncFreed(T, E, vals, part)
+			}
 			return nil
 		}
 		// What it points to is safe by the type rule, or by where it
@@ -460,6 +469,29 @@ func (a *analyzer) byOrigin(T, E types2.Type, vals origins, part string, written
 		}
 		if pos := written(place); pos.IsValid() {
 			return pu.New(problem{part: part, typ: T, elem: E, glob: o.vp.root.v, gpos: pos})
+		}
+	}
+	return nil
+}
+
+// syncFreed returns a problem when a view of pluto/sync memory points into
+// a package variable, through owned[T] boxes only, that a plain write
+// changes once tasks run: a new value of the memory, or a free, move or
+// overwrite of what holds it. The method calls of the sync type are atomic
+// accesses and do not count. A view whose origin is not followed counts
+// as safe here, as it did before; the accesses rule still sees each free.
+func (a *analyzer) syncFreed(T, E types2.Type, vals origins, part string) *problem {
+	for _, o := range vals {
+		if o.vp.root.kind != rGlobal || !o.vp.isAddr() {
+			continue
+		}
+		place := o.vp
+		place.path = strings.Slice(place.path, 0, len(place.path)-1)
+		if !boxedName(place) {
+			continue
+		}
+		if pos := a.plainWritten(place); pos.IsValid() {
+			return pu.New(problem{part: part, typ: T, elem: E, glob: o.vp.root.v, gpos: pos, syncFree: true})
 		}
 	}
 	return nil

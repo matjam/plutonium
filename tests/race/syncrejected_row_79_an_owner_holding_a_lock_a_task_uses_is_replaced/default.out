@@ -1,3 +1,28 @@
+$DIR/main.p:18:2: &b.mu is a view of sync.Mutex that may change while another task uses it, so it cannot be passed to a new task
+    The argument &b.mu of task user gives another task &b.mu, a *sync.Mutex:
+    after this, both tasks can reach the same sync.Mutex. It points to the
+    package variable b, which is written at main.p:19 while tasks run. A
+    sync.Mutex synchronizes itself through its methods, but only while it
+    exists: that write frees, moves or overwrites it while the other task may
+    still use it.
+    A view may cross to another task only if what it points to cannot change
+    while both may use it, or every change is synchronized: a package variable
+    that is not written once tasks run, a struct whose fields are never changed
+    once it is shared or are used only under a lock of the same struct or
+    atomically, memory of a pluto/sync type, or the object of a synced[T].
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Pass a copy of the value instead of a pointer to it, or move an owner (such
+    as a vec.Vec) to the task so that only it has the memory.
+    To share changing data between tasks, put it in a synced[T] and hold a
+    sync.Mutex in it at every access, or use a package variable guarded by a
+    lock.
+    (see "Data race freedom" in the Plutonium spec, section 19.3)
+    (run "pluto explain E3501" for a longer explanation)
+
 $DIR/main.p:19:2: b is written here with no lock that guards it, while another task may use it
     b is written at main.p:19 in main by the main task with no lock held, and
     the task started by task user at main.p:18 uses it at main.p:10 in user. Two

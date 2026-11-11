@@ -295,6 +295,7 @@ type walker struct {
 	noPark    int  // inside the communication of a select: the select decided whether to wait
 	freeing   int  // the writes recorded free or drop the memory (free.go)
 	viewLoad  bool // the read recorded loads a view (loadCrossings)
+	syncing   bool // the access recorded is a call of a pluto/sync method (syncUse)
 	// vvalid, when set, holds the locks of the view the accesses recorded
 	// are made through (viewOf).
 	vvalid *lockset
@@ -1436,7 +1437,7 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 		// no other task can reach it yet.
 		return
 	}
-	x := pu.New(access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T, free: w.freeing > 0, view: w.viewLoad && !write})
+	x := pu.New(access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T, free: w.freeing > 0, view: w.viewLoad && !write, sync: w.syncing})
 	if w.vvalid != nil {
 		x.hasValid, x.vvalid, x.vpre = true, *w.vvalid, w.vpre
 	}
@@ -1508,9 +1509,11 @@ func (a *analyzer) runtimeVar(v *types2.Var) bool {
 // syncUse records a use of a lock or other synchronised value through its
 // methods: an atomic access, which conflicts only with plain writes of it.
 func (w *walker) syncUse(ps []vpath, pos token.Pos) {
+	w.syncing = true
 	for _, p := range ps {
 		w.access(p, false, true, pos, nil, false, "")
 	}
+	w.syncing = false
 }
 
 // ----------------------------------------------------------------------------

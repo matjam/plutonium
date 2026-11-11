@@ -119,6 +119,7 @@ func (a *analyzer) check() {
 	}
 	a.recordGlobalTypes(groups)
 	written := a.writtenAfterInit(groups, false)
+	a.notePlainWrites(groups)
 	a.finishShared(groups)
 	a.checkCrossings(cross, written, nil)
 	a.guardedW = map[string]bool{}
@@ -258,6 +259,7 @@ func (x *expander) expand(f *function, env []origins, locks lockset, pre bool) {
 			cpu:    acc.cpu,
 			free:   acc.free,
 			view:   acc.view,
+			sync:   acc.sync,
 		})
 		if acc.hasValid {
 			na.hasValid, na.vvalid = true, compose(locks, substRel(acc.rel, env), substLocks(acc.vvalid, env))
@@ -515,6 +517,41 @@ func (a *analyzer) writtenAfterInit(groups []*group, unguarded bool) func(vpath)
 	}
 }
 
+// A plainSite is a plain write of a package variable's place once tasks
+// may run.
+type plainSite struct {
+	place vpath
+	pos   token.Pos
+}
+
+// plainSites holds the plain writes of each package variable.
+type plainSites map[*types2.Var][]plainSite
+
+// notePlainWrites records, for plainWritten, the writes of package
+// variables once tasks may run that are not atomic: the atomic accesses of
+// pluto/sync calls and atomic operations do not count.
+func (a *analyzer) notePlainWrites(groups []*group) {
+	a.plainWrites = plainSites{}
+	for _, g := range groups {
+		for _, x := range g.accesses {
+			if x.write && !x.atomic && x.place.root.kind == rGlobal {
+				a.plainWrites[x.place.root.v] = compat.Append(a.plainWrites[x.place.root.v], plainSite{x.place, x.pos})
+			}
+		}
+	}
+}
+
+// plainWritten reports where a plain write of a package variable once
+// tasks may run overlaps place p, or NoPos.
+func (a *analyzer) plainWritten(p vpath) token.Pos {
+	for _, s := range a.plainWrites[p.root.v] {
+		if overlaps(s.place, p) {
+			return s.pos
+		}
+	}
+	return token.NoPos
+}
+
 // checkCrossings applies the sendable rule to every value that crosses to
 // another task.
 //
@@ -606,10 +643,67 @@ func guards(x *access, excl bool, rel func(lock) (string, bool)) map[string]bool
 
 // globalLock names a lock that is one object for the whole program.
 func globalLock(l lock) (string, bool) {
-	if l.place.root.kind == rGlobal && !strings.ContainsAny(l.place.path, "*%$#&") {
+	if l.place.root.kind == rGlobal && (!strings.ContainsAny(l.place.path, "*%$#&") || boxedName(l.place)) {
 		return l.place.key(), true
 	}
 	return "", false
+}
+
+// boxedName reports whether package-variable place p reaches its memory
+// by field selections and array elements, its only loads being of owned[T]
+// boxes: a box is not a pointer, so only a write of what holds the box,
+// which frees the object, changes what the path reaches (section 19.3,
+// Locks and names).
+func boxedName(p vpath) bool {
+	if p.root.v == nil {
+		return false
+	}
+	T := p.root.v.Type()
+	path := p.path
+	for path != "" {
+		switch {
+		case path[0] == '*':
+			if !isOwnedBox(T) {
+				return false
+			}
+			T = pointerElem(T)
+			path = strings.SliceFrom(path, 1)
+		case strings.HasPrefix(path, "[]"):
+			a, ok := underlying(T).(*types2.Array)
+			if !ok {
+				return false
+			}
+			T = a.Elem()
+			path = strings.SliceFrom(path, 2)
+		case path[0] == '.':
+			end := 1
+			for end < len(path) && path[end] != '.' && path[end] != '*' && path[end] != '[' {
+				end++
+			}
+			name := strings.Slice(path, 1, end)
+			st, ok := underlying(T).(*types2.Struct)
+			if !ok {
+				return false
+			}
+			var next types2.Type
+			for i := 0; i < st.NumFields(); i++ {
+				if st.Field(i).Name() == name {
+					next = st.Field(i).Type()
+				}
+			}
+			if next == nil {
+				return false
+			}
+			T = next
+			path = strings.SliceFrom(path, end)
+		default:
+			return false
+		}
+		if T == nil {
+			return false
+		}
+	}
+	return true
 }
 
 func intersect(a, b map[string]bool) map[string]bool {
@@ -906,6 +1000,16 @@ func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text f
 			return g
 		}
 		g := guards(es[i].x, true, rel)
+		if !es[i].x.atomic {
+			for _, j := range conf[i] {
+				if es[j].x.sync {
+					// A pluto/sync call on memory this write changes: no
+					// lock orders the two (section 19.3, Accesses).
+					gs[i] = map[string]bool{}
+					return gs[i]
+				}
+			}
+		}
 		for j, q := range es {
 			if j != i && shared[j] && overlaps(es[i].x.place, q.x.place) {
 				g = intersect(g, guards(q.x, true, rel))
@@ -927,6 +1031,14 @@ func (a *analyzer) checkPlaces(es []entry, rel func(lock) (string, bool), text f
 		// an access it meets.
 		pg := guards(p.x, true, rel)
 		target, other := p, es[conf[i][0]]
+		if !p.x.atomic {
+			for _, j := range conf[i] {
+				if es[j].x.sync {
+					other = es[j] // the pluto/sync call that leaves it no guard
+					break
+				}
+			}
+		}
 		var also *entry // a write of the same party that holds other locks
 		for _, j := range conf[i] {
 			q := es[j]
@@ -1152,7 +1264,11 @@ func (a *analyzer) noLockError(p, other entry, es []entry, rel func(lock) (strin
 	} else {
 		b.WriteString(". Two tasks may run these at the same time, one of them writing, which is a data race: the other may see a value half written, or lose an update.")
 	}
-	b.WriteString("\nThe compiler infers which lock guards shared data from the locks held where it is written: a lock that every write holds. Here no one lock is held at every write.")
+	if other.x.sync {
+		b.WriteString("\nThe use there is a call of a pluto/sync method, which synchronizes only with other such calls: no lock orders it with a write that frees, moves or overwrites the value, whatever locks the write holds.")
+	} else {
+		b.WriteString("\nThe compiler infers which lock guards shared data from the locks held where it is written: a lock that every write holds. Here no one lock is held at every write.")
+	}
 	d.Text = b.String()
 	d.Fix = pu.New(diag.Fix{Intro: "Hold one sync.Mutex at every access, writes and reads (a sync.RWMutex's RLock is enough for reads)", Code: compat.Concat("mu.Lock()\n", strings.TrimPrefix(exprLine(place), ""), "\nmu.Unlock()")})
 	if p.g.handler || other.g.handler {
@@ -1268,6 +1384,8 @@ func (a *analyzer) sendError(c *crossing, p *problem) *diag.Diagnostic {
 		compat.Fprintfb(b, " It points to the package variable %s, which is written at %s while tasks run.", compat.ArgS(p.glob.Name()), compat.ArgS(a.short(p.gpos)))
 	}
 	switch {
+	case p.syncFree:
+		compat.Fprintfb(b, " A %s synchronizes itself through its methods, but only while it exists: that write frees, moves or overwrites it while the other task may still use it.", compat.ArgS(elem))
 	case p.why != "":
 		compat.Fprintfb(b, " %s is not safe to use from two tasks at once. %s", compat.ArgS(elem), compat.ArgS(p.why))
 	case p.write != nil && p.write.expr == "an object of the type":

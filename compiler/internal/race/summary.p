@@ -204,6 +204,7 @@ type access struct {
 	cpu    *cpuUse     // a use of a per-CPU variable (region.go), which the rules of sharing do not see
 	free   bool        // a write that frees or drops the memory (free.go)
 	view   bool        // a read that loads a view: a crossing once tasks run (loadCrossings)
+	sync   bool        // a call of a pluto/sync method: a plain write it meets has no guard (checkPlaces)
 	// Through a view loaded from shared memory (section 19.3, Views loaded
 	// under a lock): vvalid are the locks held from the load to here with
 	// no ending event, relative to the function's start like locks.
@@ -241,6 +242,9 @@ func (x *access) key() accKey {
 	}
 	if x.view {
 		k.flags |= 16
+	}
+	if x.sync {
+		k.flags |= 128
 	}
 	if x.hasValid {
 		k.flags |= 32
