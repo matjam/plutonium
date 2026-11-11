@@ -99,7 +99,7 @@ func AnalyzeWith(prog *load.Program, calls *Calls) (*Info, error) {
 		info: pu.New(Info{Moves: map[*ast.Ident]bool{}, Temps: map[ast.Expr]bool{}, DeferredDrops: map[*ast.CallExpr]bool{},
 			AssertMoves: map[*ast.TypeAssertExpr]bool{}, SwitchMoves: map[*ast.TypeSwitchStmt]bool{},
 			SwitchLends: map[*ast.CaseClause]bool{},
-			Empty: map[ast.Node]Known{}, AtStmt: map[ast.Stmt]Known{}, EmptyResults: map[*ast.ReturnStmt]VarSet{},
+			Empty:       map[ast.Node]Known{}, AtStmt: map[ast.Stmt]Known{}, EmptyResults: map[*ast.ReturnStmt]VarSet{},
 			Fresh: map[ast.Expr]bool{}}),
 		fset:       prog.Fset,
 		types:      map[ast.Expr]types2.TypeAndValue{},
@@ -108,6 +108,7 @@ func AnalyzeWith(prog *load.Program, calls *Calls) (*Info, error) {
 		selections: map[*ast.SelectorExpr]*types2.Selection{},
 		implicits:  map[ast.Node]types2.Object{},
 		seen:       map[string]bool{},
+		tpArgs:     map[*types2.TypeParam][]types2.Type{},
 		scoped:     scoped.Analyze(prog),
 	})
 	for _, p := range prog.Packages {
@@ -125,6 +126,9 @@ func AnalyzeWith(prog *load.Program, calls *Calls) (*Info, error) {
 		}
 		for k, v := range p.Info.Implicits {
 			c.implicits[k] = v
+		}
+		for id, inst := range p.Info.Instances {
+			c.noteInstance(id, inst)
 		}
 	}
 	c.findKeeps(prog)
@@ -182,6 +186,9 @@ type checker struct {
 	frees      map[ast.Node][]keepSite        // through which inputs functions may free memory or move an owner out, by declaration, literal or range body (frees.p)
 	reclaims   map[ast.Node][]keepSite        // through which inputs functions may reset or release a checked arena, likewise (frees.p)
 	asserts    map[ast.Node][]keepSite        // through which inputs functions may assert or type-switch on an interface, likewise (frees.p)
+
+	tpArgs map[*types2.TypeParam][]types2.Type     // the type arguments the program gives each type parameter of a generic function or type (frees.p)
+	recvTP map[*types2.TypeParam]*types2.TypeParam // a method's receiver type parameter, to its type's own (frees.p)
 }
 
 // report records an error once per position and code.

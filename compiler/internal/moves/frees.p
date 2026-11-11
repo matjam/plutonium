@@ -382,6 +382,96 @@ func freeingSeen(T types2.Type, seen map[types2.Type]bool) bool {
 	return false
 }
 
+// freeingStore reports whether assigning to a place of type T may free
+// memory. A method or function is checked against every type argument the
+// program instantiates it with (section 18.3, D81): a place whose type is
+// a type parameter frees when one of those may hold an owner or a counted
+// box. Its summary serves every instantiation, so the type arguments of
+// all of them count, and a type argument that is itself a type parameter
+// counts with its own (tpFrees).
+func (c *checker) freeingStore(T types2.Type) bool {
+	if tp, ok := types2.Unalias(T).(*types2.TypeParam); ok && !isOwner(T) {
+		return c.tpFrees(tp, map[*types2.TypeParam]bool{})
+	}
+	return freeing(T)
+}
+
+// noteInstance records the type arguments of the instantiation at id.
+func (c *checker) noteInstance(id *ast.Ident, inst types2.Instance) {
+	if inst.TypeArgs == nil {
+		return
+	}
+	var tps *types2.TypeParamList
+	switch t := inst.Type.(type) {
+	case *types2.Named:
+		tps = t.Origin().TypeParams()
+	case *types2.Signature:
+		obj := c.uses[id]
+		if obj == nil {
+			obj = c.defs[id]
+		}
+		if fn, ok := obj.(*types2.Func); ok {
+			tps = fn.Signature().TypeParams()
+		}
+	}
+	if tps == nil {
+		return
+	}
+	for i := 0; i < tps.Len() && i < inst.TypeArgs.Len(); i++ {
+		tp := tps.At(i)
+		c.tpArgs[tp] = compat.Append(c.tpArgs[tp], inst.TypeArgs.At(i))
+	}
+}
+
+// tpFrees reports whether a type argument the program gives tp may hold an
+// owner or a counted box. A receiver type parameter of a method stands for
+// its type's own. With no instantiation found, it is the worst case.
+func (c *checker) tpFrees(tp *types2.TypeParam, seen map[*types2.TypeParam]bool) bool {
+	if c.recvTP == nil {
+		c.recvTP = map[*types2.TypeParam]*types2.TypeParam{}
+		for fn := range c.keepDecls {
+			sig := fn.Signature()
+			rps := sig.RecvTypeParams()
+			if rps == nil || sig.Recv() == nil {
+				continue
+			}
+			R := sig.Recv().Type()
+			if p, ok := R.Underlying().(*types2.Pointer); ok {
+				R = p.Elem()
+			}
+			named, ok := types2.Unalias(R).(*types2.Named)
+			if !ok {
+				continue
+			}
+			own := named.Origin().TypeParams()
+			for i := 0; i < rps.Len() && own != nil && i < own.Len(); i++ {
+				c.recvTP[rps.At(i)] = own.At(i)
+			}
+		}
+	}
+	if o := c.recvTP[tp]; o != nil {
+		tp = o
+	}
+	if seen[tp] {
+		return false
+	}
+	seen[tp] = true
+	args, ok := c.tpArgs[tp]
+	if !ok {
+		return true
+	}
+	for _, a := range args {
+		if sub, isTP := types2.Unalias(a).(*types2.TypeParam); isTP && !isOwner(a) {
+			if c.tpFrees(sub, seen) {
+				return true
+			}
+		} else if freeing(a) {
+			return true
+		}
+	}
+	return false
+}
+
 // elemFreeing reports whether the elements of the slice, array or map
 // type T hold an owner or a counted box.
 func elemFreeing(T types2.Type) bool {
@@ -420,7 +510,7 @@ func (s *keepScan) frees(body *ast.BlockStmt, freed func(in int, site keepSite),
 				return true
 			}
 			for _, l := range x.Lhs {
-				if bits := s.through(l); bits != 0 && freeing(s.c.typeOf(l)) {
+				if bits := s.through(l); bits != 0 && s.c.freeingStore(s.c.typeOf(l)) {
 					each(bits, keepSite{pos: x.Pos(), text: compat.Concat(exprText(l), " = ...")})
 				}
 			}

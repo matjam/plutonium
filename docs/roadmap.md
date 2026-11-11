@@ -937,13 +937,15 @@ compiler (2026-10-11).
     `tpTerms` in `compiler/internal/moves/views.p` read the type set from the constraint's terms, and a
     type parameter whose set is not limited to values and views is bounded and has drop glue. The result
     of a method called on a value of such a type parameter is a view of its variable (`tpRecvViews`), as a
-    counted box's `Slice` would be. An element assignment in a generic body frees through the slice, as
-    it does for an owner or counted element type; an assignment that only exchanges places
+    counted box's `Slice` would be. An element assignment in a generic body whose place has a type
+    parameter's type frees through the slice when a type argument the program gives that parameter
+    holds an owner or a counted box, followed through generic code that passes its own type parameter
+    on (`freeingStore` and `tpFrees` in `frees.p`); an assignment that only exchanges places
     (`a[i], a[j] = a[j], a[i]`, `permutes` in `frees.p`) frees nothing, so a sort keeps a view usable.
     `inspectList` in `compiler/internal/syntax/ast/walk.p` indexes its list instead of converting the
     range variable, which the rule now rejects. Tests: `tests/moves/rejected_view_of_a_type_parameter_value`
-    and `accepted_view_of_a_type_parameter_of_values`, `rejected_generic_store_may_free` and
-    `accepted_generic_swap_frees_nothing`; `tests/escape/review2_programs_u12_generic_union_switch` gets the
+    and `accepted_view_of_a_type_parameter_of_values`, `rejected_generic_store_may_free`,
+    `accepted_generic_store_of_values_frees_nothing` and `accepted_generic_swap_frees_nothing`; `tests/escape/review2_programs_u12_generic_union_switch` gets the
     E3314 its `[T any]` binding stored in a package variable now needs.
 173. **Range loops hold a count** (done, `47a958a4`; section 12.10, D64, finding D7): the range temporary over a counted
     value holds its own count until the loop ends. Maps, arrays and channels already did; a range over a

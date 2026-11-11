@@ -1,16 +1,33 @@
-$DIR/main.p:22:14: all holds a view of v (v.Slice(), line 20), which was passed to set(all, alloc.Shared[vec.Vec[int]]()), which may free what it looks at or move it out (data[0] = ..., line 15) at line 21, so all can no longer be used here
+$DIR/main.p:26:14: all holds a view of v (v.Slice(), line 24), which was passed to set(all, alloc.Shared[vec.Vec[int]]()), which may free what it looks at or move it out (data[0] = ..., line 15) at line 25, so all can no longer be used here
     all looks at memory that v owns, without owning it: the view was made by
-    v.Slice() at line 20. A view of an owner held in a local variable may be
+    v.Slice() at line 24. A view of an owner held in a local variable may be
     used only while the variable keeps the value the view was made from. A call
     that may free memory the view looks at, or move an owner out of it, through
     a pointer to the variable or to memory it owns ends the view as well. At
-    line 21 v was passed to set(all, alloc.Shared[vec.Vec[int]]()), which may
+    line 25 v was passed to set(all, alloc.Shared[vec.Vec[int]]()), which may
     free what it looks at or move it out (data[0] = ..., line 15), so the view
     may look at memory that was released, or at a value that now belongs to
     something else.
     Go keeps memory alive for as long as any pointer refers to it. Plutonium has
     no garbage collector: an owner releases its memory when it is dropped, so a
     view must not be used after the value it looks at has gone.
-    Use all before line 21, or make that call only after the last use of all
+    Use all before line 25, or make that call only after the last use of all
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)
+
+$DIR/main.p:29:14: b.buf holds a view of v (v.Slice(), line 27), which was passed to b.Put(alloc.Shared[vec.Vec[int]]()), which may free what it looks at or move it out (b.buf[0] = ..., line 19) at line 28, so b.buf can no longer be used here
+    b.buf, part of b, looks at memory that v owns, without owning it: the view
+    was made by v.Slice() at line 27. A view of an owner held in a local
+    variable may be used only while the variable keeps the value the view was
+    made from. A call that may free memory the view looks at, or move an owner
+    out of it, through a pointer to the variable or to memory it owns ends the
+    view as well. At line 28 v was passed to
+    b.Put(alloc.Shared[vec.Vec[int]]()), which may free what it looks at or move
+    it out (b.buf[0] = ..., line 19), so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use b.buf before line 28, or make that call only after the last use of b.buf
     (see "Views" in the Plutonium spec, section 18.3)
     (run "pluto explain E3313" for a longer explanation)
