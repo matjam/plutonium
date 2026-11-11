@@ -1,0 +1,28 @@
+$DIR/main.p:34:2: ww is passed to ww.Free(), which may free what it looks at or move it out (clear(v.data), vec.p:288) here, but a view of what it holds (ww.Slice()[0].Slice(), line 33) was passed to save, which may keep it at line 33, where the compiler cannot check its uses
+    A call that may free what an owner holds ends every view of that memory
+    (language spec section 18.3). The view of ww made by ww.Slice()[0].Slice()
+    at line 33 went into memory the compiler does not follow, so it cannot check
+    that the view is not used after line 34.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not make that call while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
+$DIR/main.p:33:2: cannot pass ww.Slice()[0].Slice() to save, which keeps it after returning
+    ww.Slice()[0].Slice() points into ww. ww is a local variable of main
+    (declared at main.p:29). save stores s in keep.s (main.p:14), so
+    ww.Slice()[0].Slice() would outlive ww.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If save should keep its own copy of ww, change it to take the value, not a
+    pointer, or an owner it can keep: an
+    owned[pluto/vec.Vec[pluto/vec.Vec[int]]] from new, a
+    shared[pluto/vec.Vec[pluto/vec.Vec[int]]], or a library owner such as a
+    vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

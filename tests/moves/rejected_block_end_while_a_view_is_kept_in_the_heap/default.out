@@ -1,0 +1,83 @@
+$DIR/main.p:21:2: v is dropped at the end of its block here, but a view of what it holds (v.Slice(), line 20) was passed to save, which may keep it at line 20, where the compiler cannot check its uses
+    An owner frees what it holds when it is dropped, at the end of its block or
+    when it is given a new value, and that ends every view of that memory
+    (language spec section 18.3). The view of v made by v.Slice() at line 20
+    went into memory the compiler does not follow, so it cannot check that the
+    view is not used after line 21.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not let its block end while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
+$DIR/main.p:27:2: w is dropped by w.Drop() here, but a view of what it holds (w.Slice(), line 26) was passed to save, which may keep it at line 26, where the compiler cannot check its uses
+    An owner frees what it holds when it is dropped, at the end of its block or
+    when it is given a new value, and that ends every view of that memory
+    (language spec section 18.3). The view of w made by w.Slice() at line 26
+    went into memory the compiler does not follow, so it cannot check that the
+    view is not used after line 27.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not drop it while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
+$DIR/main.p:33:2: x is given a new value here, but a view of what it holds (x.Slice(), line 32) was passed to save, which may keep it at line 32, where the compiler cannot check its uses
+    An owner frees what it holds when it is dropped, at the end of its block or
+    when it is given a new value, and that ends every view of that memory
+    (language spec section 18.3). The view of x made by x.Slice() at line 32
+    went into memory the compiler does not follow, so it cannot check that the
+    view is not used after line 33.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not give it a new value while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
+$DIR/main.p:20:3: cannot pass v.Slice() to save, which keeps it after returning
+    v.Slice() points into v. v is a local variable of main (declared at
+    main.p:18). save stores s in keep.s (main.p:14), so v.Slice() would outlive
+    v.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If save should keep its own copy of v, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[pluto/vec.Vec[int]] from new, a
+    shared[pluto/vec.Vec[int]], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:26:2: cannot pass w.Slice() to save, which keeps it after returning
+    w.Slice() points into w. w is a local variable of main (declared at
+    main.p:24). save stores s in keep.s (main.p:14), so w.Slice() would outlive
+    w.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If save should keep its own copy of w, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[pluto/vec.Vec[int]] from new, a
+    shared[pluto/vec.Vec[int]], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
+
+$DIR/main.p:32:2: cannot pass x.Slice() to save, which keeps it after returning
+    x.Slice() points into x. x is a local variable of main (declared at
+    main.p:30). save stores s in keep.s (main.p:14), so x.Slice() would outlive
+    x.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If save should keep its own copy of x, change it to take the value, not a
+    pointer, or an owner it can keep: an owned[pluto/vec.Vec[int]] from new, a
+    shared[pluto/vec.Vec[int]], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)

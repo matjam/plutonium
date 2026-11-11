@@ -68,6 +68,11 @@ type view struct {
 	// what the owner holds but is not the view itself. Storing it does
 	// not keep the view (heapPin's stored).
 	loaded bool
+	// lowns: the value loaded last on the way to this view frees memory
+	// when it is dropped (an owner, a box, a map), so what was loaded may
+	// look at memory the owner frees through it, and storing it keeps a
+	// view as storing the view itself does.
+	lowns bool
 }
 
 // A pinMark records that a view of an owner went where the walk cannot
@@ -88,6 +93,9 @@ func (w view) key() string {
 	k := compat.Concat(strconv.Itoa(int(w.pos)), "|", w.of.Name(), strconv.Itoa(int(w.of.Pos())), "|", pathKey(w.at))
 	if w.loaded {
 		k = compat.Concat(k, "|loaded")
+	}
+	if w.lowns {
+		k = compat.Concat(k, "|lowns")
 	}
 	return k
 }
@@ -426,12 +434,12 @@ func (f *fn) viewsOf(e ast.Expr) []view {
 		if types2.MapOf(f.c.typeOf(x.X)) != nil {
 			return nil
 		}
-		return loadedViews(f.viewsOf(x.X))
+		return loadedViews(f.viewsOf(x.X), f.c.typeOf(x))
 	case *ast.StarExpr:
 		if !mayView(f.c.typeOf(x)) {
 			return nil
 		}
-		return loadedViews(f.viewsOf(x.X))
+		return loadedViews(f.viewsOf(x.X), f.c.typeOf(x))
 	case *ast.TypeAssertExpr:
 		if from, to := f.c.typeOf(x.X), f.c.typeOf(x); types2.IsInterface(from) && isOwner(from) && to != nil && types2.IsInterface(to) && !isOwner(to) {
 			return compat.Append(f.viewsOf(x.X), f.lentViews(x.X)...)
@@ -668,13 +676,91 @@ func (f *fn) viewsTo(e ast.Expr, T types2.Type) []view {
 	return out
 }
 
-// loadedViews returns vs marked as reaching a value loaded through them.
-func loadedViews(vs []view) []view {
+// loadedViews returns vs marked as reaching a value of type T loaded
+// through them.
+func loadedViews(vs []view, T types2.Type) []view {
 	out := compat.Clone(vs)
+	owns := freesHeld(T)
 	for i := range out {
 		out[i].loaded = true
+		out[i].lowns = owns
 	}
 	return out
+}
+
+// dropFrees reports whether dropping a value of type T may free memory it
+// holds: it has a Drop method, or a part of it frees what it holds
+// (freesHeld). An owner struct whose fields hold only plain pointers and
+// slices frees nothing they point to.
+func dropFrees(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	if hasDrop(T) {
+		return true
+	}
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if freesHeld(u.Field(i).Type()) {
+				return true
+			}
+		}
+		return false
+	case *types2.Pointer, *types2.Slice, *types2.Basic, *types2.Signature:
+		return false
+	}
+	return freesHeld(T)
+}
+
+// freesHeld reports whether a value of type T frees memory it holds when
+// it is dropped, so a view loaded from it may look at memory freed with
+// it: an owner, a box, a map or channel, or a value holding one. A string
+// holds its own count and frees nothing a view of it sees. A type
+// parameter may be any of these (section 18.3, the strictest rule).
+func freesHeld(T types2.Type) bool { return freesHeldSeen(T, map[types2.Type]bool{}) }
+
+func freesHeldSeen(T types2.Type, seen map[types2.Type]bool) bool {
+	if T == nil || seen[T] {
+		return false
+	}
+	seen[T] = true
+	if isOwner(T) {
+		return true
+	}
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if freesHeldSeen(u.Field(i).Type(), seen) {
+				return true
+			}
+		}
+	case *types2.Array:
+		return u.Len() > 0 && freesHeldSeen(u.Elem(), seen)
+	case *types2.Wrapper:
+		switch u.Kind() {
+		case types2.WrapAligned, types2.WrapVolatile, types2.WrapRing:
+			return freesHeldSeen(u.Elem(), seen)
+		}
+		return u.IsBox()
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() && freesHeldSeen(v.Payload(), seen) {
+				return true
+			}
+		}
+	case *types2.Chan, *types2.Map:
+		return true
+	case *types2.Interface:
+		return isOwner(T)
+	}
+	return false
 }
 
 // lendsRef reports whether a value of type T, put in the data word of an
@@ -1214,7 +1300,10 @@ func (f *fn) pin(vs []view, where token.Pos, how string) {
 func (f *fn) heapPin(vs []view, where token.Pos, how string, stored bool) {
 	for _, w := range vs {
 		s, ok := f.env[w.of]
-		kept := stored && !w.loaded
+		// What was loaded through a view is kept as the view itself when
+		// it may look at memory the owner frees through it: an element
+		// that is itself an owner of a buffer (lowns).
+		kept := stored && (!w.loaded || w.lowns)
 		if ok && s.hpin != nil && (s.hpin.stored || !kept) || !w.inHeap {
 			continue
 		}
@@ -1222,6 +1311,67 @@ func (f *fn) heapPin(vs []view, where token.Pos, how string, stored bool) {
 		f.setState(w.of, s)
 	}
 }
+
+// loadFrees reports whether a value loaded through a value of type T may
+// itself free memory when the owner of T's memory is dropped: an element
+// or pointee held inline that is an owner, a box, a map or a channel, as
+// the vectors in the buffer of a vector of vectors. Keeping such a loaded
+// value, or a view through it, keeps a view of the owner's memory. A
+// pointer element points to memory the owner does not free.
+func loadFrees(T types2.Type) bool { return loadFreesSeen(T, map[types2.Type]bool{}) }
+
+func loadFreesSeen(T types2.Type, seen map[types2.Type]bool) bool {
+	if T == nil || seen[T] {
+		return false
+	}
+	seen[T] = true
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return true
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Pointer:
+		return freesHeld(u.Elem())
+	case *types2.Slice:
+		return freesHeld(u.Elem())
+	case *types2.Chan:
+		return freesHeld(u.Elem())
+	case *types2.Map:
+		return freesHeld(u.Key()) || freesHeld(u.Elem())
+	case *types2.Array:
+		return loadFreesSeen(u.Elem(), seen)
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if loadFreesSeen(u.Field(i).Type(), seen) {
+				return true
+			}
+		}
+	case *types2.Wrapper:
+		if u.IsBox() {
+			return freesHeld(u.Elem())
+		}
+		return loadFreesSeen(u.Elem(), seen)
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() && loadFreesSeen(v.Payload(), seen) {
+				return true
+			}
+		}
+	case *types2.Interface:
+		// An ordinary interface lends its value: the callee reaches what
+		// it holds only through the results of its methods (section 7.9),
+		// which loadsOwned follows.
+		return isOwner(T)
+	case *types2.Basic:
+		return u.Kind() == types2.UnsafePointer
+	}
+	return false
+}
+
+// loadsHeld reports whether a value loaded through the view w may be an
+// owner, a box, a map or a channel that the owner of w holds in its heap
+// memory, which it frees with that memory: w looks at that memory and is
+// not lent.
+func loadsHeld(w view) bool { return w.inHeap && !w.lent && !w.obj }
 
 // crosses reports whether a move gives the value to another task.
 func crosses(mv move) bool {
@@ -1251,12 +1401,16 @@ func (f *fn) callStores(args []argView) {
 			// The callee may keep memory loaded through the argument
 			// (keeps.p): what the views point to is then kept as if it
 			// were the heap memory of the owner.
-			var held []view
+			frees := loadFrees(f.c.typeOf(a.key))
 			for _, w := range a.views {
+				// What is loaded through a view of what the owner holds on
+				// the heap may be an owner the buffer holds, freed with it.
+				// The owner's own storage holds its fields, which the
+				// callee may only borrow (section 18.3).
+				stored := frees && loadsHeld(w)
 				w.inHeap = true
-				held = compat.Append(held, w)
+				f.heapPin(compat.Clone([]view{w}), a.call.Pos(), f.c.keepHow(a.call, site), stored)
 			}
-			f.heapPin(held, a.call.Pos(), f.c.keepHow(a.call, site), false)
 		}
 		// A view kept through an unsafe.Pointer is the unsafe code's to
 		// check: it does not make a later free an error.
@@ -1277,7 +1431,13 @@ func (f *fn) callStores(args []argView) {
 			if in.Arg == a.key {
 				continue // stored back into what it came from, which holds it already
 			}
-			f.addViews(a.call, in.Arg, in.Direct, !in.Loaded && !viaUnsafe, a.views)
+			if !in.Loaded || !loadFrees(f.c.typeOf(a.key)) {
+				f.addViews(a.call, in.Arg, in.Direct, !in.Loaded && !viaUnsafe, a.views)
+				continue
+			}
+			for _, w := range a.views {
+				f.addViews(a.call, in.Arg, in.Direct, loadsHeld(w) && !viaUnsafe, compat.Clone([]view{w}))
+			}
 		}
 	}
 }
@@ -1326,10 +1486,22 @@ func (f *fn) invalidate(v *types2.Var, mv move) {
 	// A map or channel variable that is not released here ends only the
 	// interfaces lent its word: a pointer to the variable stays valid.
 	onlyLent := !bounds(v.Type()) && (mv.kind != mvScopeEnd || !cleans(v.Type()))
+	// A view of what v holds on the heap that a call stored where the walk
+	// cannot follow can no longer be checked once v frees that memory: at
+	// its drop, at the end of its block while it holds a value, and when
+	// it is given a new value (section 18.3). The pin then ends with the
+	// memory it looked at.
+	hp := f.env[v].hpin
+	frees := hp != nil && hp.stored && !onlyLent && dropFrees(v.Type()) && (mv.kind == mvDrop || mv.kind == mvNewValue || mv.kind == mvScopeEnd && f.env[v].st != moved)
 	if p := f.env[v].pin; p != nil && (!onlyLent || p.lent) && f.report {
 		f.c.report(f.c.pinnedDiag(v, p, mv))
-	} else if p := f.env[v].hpin; p != nil && crosses(mv) && f.report {
-		f.c.report(f.c.heapPinnedDiag(v, p, mv))
+	} else if hp != nil && (crosses(mv) || frees) && f.report {
+		f.c.report(f.c.heapPinnedDiag(v, hp, mv))
+	}
+	if frees {
+		s := f.env[v]
+		s.hpin = nil
+		f.setState(v, s)
 	}
 	f.staleWhere(v, mv, func(w view) bool { return !onlyLent || w.lent })
 }

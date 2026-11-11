@@ -510,16 +510,11 @@ func (s *keepScan) freeCall(call *ast.CallExpr, each func(bits uint64, site keep
 	targets, known := s.c.keepTargets(call)
 	worst := !known || s.c.bodyless(call)
 	s.c.callArgs(call, func(key, val ast.Expr, j int) {
+		// An ordinary interface loaded through an input lends what it
+		// holds (section 7.9), but what it lends may be the input's own
+		// memory: a method called through it frees what its targets free
+		// of their receiver, and the worst case when they are not known.
 		own, held := s.addrSets(val)
-		if lentIface(s.c.typeOf(val)) {
-			// An ordinary interface loaded through an input lends what it
-			// holds, which the input does not own (section 7.9): what a
-			// call frees through it, as the receiver of a method or as an
-			// argument, is not the input's memory, as an arena's parent
-			// allocator is not the arena's. An input that is itself the
-			// interface still frees through it.
-			held = 0
-		}
 		if own|held == 0 {
 			return
 		}
@@ -781,10 +776,84 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 		if id, ok := ast.Unparen(key).(*ast.Ident); ok && isCountedBox(f.c.typeOf(id)) {
 			if v := f.varOf(id); v != nil && f.vars[v] {
 				out = compat.Append(out, freeArg{w: view{of: v, pos: call.Pos(), text: exprText(id)}, site: site})
+				return
+			}
+		}
+		// A copy of a counted reference reached through the argument (in
+		// a field, behind a pointer, a parameter of a helper) may point to
+		// the object a local reference of the same type points to, so the
+		// call may free through it what views obtained through the local
+		// one look at (section 18.3, 7.19). An interface or type parameter
+		// may hold a copy of any type.
+		types, all := countedReached(f.c.typeOf(val))
+		for u := range f.vars {
+			if !isCountedBox(u.Type()) {
+				continue
+			}
+			hit := all
+			for _, t := range types {
+				hit = hit || types2.Identical(t, u.Type())
+			}
+			if hit {
+				out = compat.Append(out, freeArg{w: view{of: u, pos: call.Pos(), text: exprText(val)}, site: site})
 			}
 		}
 	})
 	return out
+}
+
+// countedReached returns the counted reference types (shared[T],
+// synced[T]) a value of type T holds or reaches through pointers, fields
+// and elements, and true if it may reach one of any type (an interface,
+// a type parameter, an unsafe.Pointer).
+func countedReached(T types2.Type) ([]types2.Type, bool) {
+	var out []types2.Type
+	all := false
+	var walk func(T types2.Type, seen map[types2.Type]bool)
+	walk = func(T types2.Type, seen map[types2.Type]bool) {
+		if T == nil || seen[T] || all {
+			return
+		}
+		seen[T] = true
+		if isCountedBox(T) {
+			out = compat.Append(out, T)
+		}
+		if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+			all = true
+			return
+		}
+		switch u := T.Underlying().(type) {
+		case *types2.Basic:
+			all = all || u.Kind() == types2.UnsafePointer
+		case *types2.Interface:
+			all = true
+		case *types2.Pointer:
+			walk(u.Elem(), seen)
+		case *types2.Slice:
+			walk(u.Elem(), seen)
+		case *types2.Array:
+			walk(u.Elem(), seen)
+		case *types2.Map:
+			walk(u.Key(), seen)
+			walk(u.Elem(), seen)
+		case *types2.Chan:
+			walk(u.Elem(), seen)
+		case *types2.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				walk(u.Field(i).Type(), seen)
+			}
+		case *types2.Wrapper:
+			walk(u.Elem(), seen)
+		case *types2.TaggedUnion:
+			for i := 0; i < u.NumVariants(); i++ {
+				if v := u.Variant(i); v.HasPayload() {
+					walk(v.Payload(), seen)
+				}
+			}
+		}
+	}
+	walk(T, map[types2.Type]bool{})
+	return out, all
 }
 
 // ownerAddressed returns the local owner variable whose address, or the
@@ -885,10 +954,15 @@ func (f *fn) freedPart(v *types2.Var, path Path, mv move) {
 	// A view of what v holds on the heap kept where the walk cannot follow
 	// (hpin, when the view itself was stored) can no longer be checked:
 	// the call may free that memory, so it is E3314 (section 18.3). The
-	// end of v's block is not checked so: the drop there releases the same
-	// memory (item 237).
-	if p := f.env[v].hpin; p != nil && p.stored && mv.kind == mvFree && f.report {
-		f.c.report(f.c.heapPinnedDiag(v, p, mv))
+	// pin ends there, so the drop of v (invalidate) does not report it
+	// again.
+	if p := f.env[v].hpin; p != nil && p.stored && mv.kind == mvFree {
+		if f.report {
+			f.c.report(f.c.heapPinnedDiag(v, p, mv))
+		}
+		s := f.env[v]
+		s.hpin = nil
+		f.setState(v, s)
 	}
 	f.staleWhere(v, mv, func(w view) bool { return !w.itself && overlap(w.part, path) })
 }

@@ -903,14 +903,17 @@ compiler (2026-10-11).
     the variable itself. A map or channel lent to an interface is not followed yet: the move checker bounds
     views by owners and counted boxes only (item 237). Tests: `tests/moves/staleviews_one_word_owner_lent_to_an_interface` and
     `accepted_large_owner_lent_to_an_interface_across_a_call`.
-237. **The freeing events items 170 and 199 leave** (planned; sections 18.3, 7.9, 7.19; moved from items 170
-    and 199): a call through a copy of a counted reference held in a field or parameter does not end the
-    views obtained through a local reference of the same type; a method called through an ordinary
-    interface that a field of the input holds is taken to free nothing of the input's memory, even when the
-    interface points back into it; a view of what a local owner holds kept where the walk cannot follow is
-    not checked at the owner's drop at the end of its block, or when only memory loaded through the view
-    was kept. The map and channel case, unknown and bodyless callees, frees through a call's result and
-    E3314 at a free went to item 170's closing line.
+237. **The freeing events items 170 and 199 leave** (done; sections 18.3, 7.9, 7.19; moved from items 170
+    and 199): a call through a copy of a counted reference held in a field or parameter now ends the views
+    obtained through a local reference of the same type (`countedReached` in `frees.p`); a method called
+    through an ordinary interface is a callee the summaries do not know, so it may free what the input
+    holds; a view of what a local owner holds kept where the walk cannot follow is E3314 at the owner's
+    drop, at the end of its block and when it is given a new value, as at a free; and memory loaded
+    through such a view counts as the view when the loaded value may itself free memory (an element that
+    is an owner, a box, a map or a channel: `loadFrees`, `lowns`). A view a callee only returns is
+    followed in its result rather than pinned. Tests: `tests/moves/rejected_free_through_a_copy_of_a_counted_reference`,
+    `rejected_free_through_an_interface_in_a_field`, `rejected_block_end_while_a_view_is_kept_in_the_heap`,
+    `rejected_free_after_an_owned_element_is_stored` and `accepted_frees_twins_of_item_237`.
 204. **Type-parameter conversions to an interface in generic code** (planned; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end
