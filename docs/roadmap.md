@@ -836,14 +836,14 @@ compiler (2026-10-11).
     kept past an iteration, since `defer` in a loop body is already E2530 (D18). Tests:
     `tests/escape/rejected_loop_objects_kept_past_the_iteration` and
     `accepted_loop_objects_made_with_new_or_copied`.
-207. **Codes for a `//pu:stack` size out of range and for implementation limits** (planned; sections 20.3,
-    21.4, 21.1, D78, findings F12 and F15 of audit F): assign a code to each and add catalog entries; the
-    spec names them only as compile errors until then.
-162. **Explicit nil checks in freestanding builds outside kernel mode** (planned; section 17.5, D56, finding
-    B21): one compare and branch before each dereference not proved non-nil.
-165. **Library invariants at panicking checks** (planned; sections 17.2, 18.12, D53, finding B9): review
-    `vec`, `hash`, `strings` and `bytes` so each type restores its invariants before every check that can
-    panic.
+207. **Codes for a `//pu:stack` size out of range and for implementation limits** (done, `2876a166`; sections
+    20.3, 21.4, 21.1, D78, findings F12 and F15 of audit F): assign a code to each and add catalog entries;
+    the spec names them only as compile errors until then.
+162. **Explicit nil checks in freestanding builds outside kernel mode** (done, `a57c70c6`; section 17.5, D56,
+    finding B21): one compare and branch before each dereference not proved non-nil.
+165. **Library invariants at panicking checks** (done, `96d2496b`; sections 17.2, 18.12, D53, finding B9):
+    review `vec`, `hash`, `strings` and `bytes` so each type restores its invariants before every check that
+    can panic.
 
 168. **Frees count as writes in the race check** (done, `70b8df4b`; sections 19.3 (Frees are writes), 19.4, D59, finding D1): dropping,
     freeing or moving an object, or writing an owner that holds it, is a write of the whole object for E3501
@@ -856,7 +856,7 @@ compiler (2026-10-11).
     a drop of `x` there (`compiler/internal/race/call.p`), and the callee's own reads of `x` are part of
     that drop, not separate accesses (`dropCalls` in `scope.p`). Tests:
     `tests/race/scoperejected_a_deferred_drop_before_the_join` and `scopeaccepted_a_deferred_drop_after_the_join`.
-205. **The deadlock report names a panic in progress** (planned; sections 19.1, 19.4, debugging.md 5,
+205. **The deadlock report names a panic in progress** (done, `584c36a9`; sections 19.1, 19.4, debugging.md 5,
     D79, finding F9 of audit F; extends item 201): a task running deferred calls for a panic when the
     program deadlocks, as a deferred `s.Wait()` can, is listed with a `panicking:` line, the panic's
     message and its trace.
@@ -1152,11 +1152,12 @@ compiler (2026-10-11).
     from every interrupt handler and the panic handler against blocking operations, conservative through
     interfaces and func values.
 
-161. **Safe x86 intrinsics** (planned; section 18.12, D56, finding B14 of the [rulings](verification/2026-11-09-spec-rulings.md)): `pluto vet -unsafe`
-    stops listing `x86.Pause`, `Cpuid`, `Rdtsc` and `Rdtscp`, and lists `//pu:export` functions (D50).
-163. **A handler's print does not wait on its own processor** (planned; sections 13.12, 20.10, D58, finding
-    B15): the console lock records its holder's processor, and an exception or NMI handler that finds its
-    own processor holding it drops its output.
+161. **Safe x86 intrinsics** (done, `7bdc1b25`; section 18.12, D56, finding B14 of the
+    [rulings](verification/2026-11-09-spec-rulings.md)): `pluto vet -unsafe` stops listing `x86.Pause`,
+    `Cpuid`, `Rdtsc` and `Rdtscp`, and lists `//pu:export` functions (D50).
+163. **A handler's print does not wait on its own processor** (done, `9d288d6a`; sections 13.12, 20.10, D58,
+    finding B15): the console lock records its holder's processor, and an exception or NMI handler that finds
+    its own processor holding it drops its output.
 
 ## Concurrency
 
@@ -1534,14 +1535,14 @@ compiler (2026-10-11).
     owner union defined from another, conversions both ways and layout) and
     `tests/types2/uniondefined_errors` (no methods, no implicit conversion, exhaustive switches, the owner
     mark).
-157. **The C boundary refuses boxes** (planned; sections 20.4, 18.12, abi.md 9.1, D50, finding B7): E2511 for
-    `owned`, `shared`, `synced` and `weak` by value in `//pu:extern` and `//pu:export` signatures.
-164. **`owner` as a type parameter name** (planned; section 4.6, D57, finding A2): the parser takes `owner`
-    as the keyword only after the identifier list, before a constraint.
-166. **Conversion checks** (planned; sections 11.12, 11.24, findings C8, C10, C11, C12): E2019 for slicing a
-    type parameter with a string in its type set; packed types to and from byte arrays; `string(c)` only for
-    untyped integer or rune constants and `rune` constants; owner conversions need a valid conversion of
-    the underlying types.
+157. **The C boundary refuses boxes** (done, `53a5fbc1`; sections 20.4, 18.12, abi.md 9.1, D50, finding B7):
+    E2511 for `owned`, `shared`, `synced` and `weak` by value in `//pu:extern` and `//pu:export` signatures.
+164. **`owner` as a type parameter name** (done, `37da753d`; section 4.6, D57, finding A2): the parser takes
+    `owner` as the keyword only after the identifier list, before a constraint.
+166. **Conversion checks** (done, `3f0783f6`; sections 11.12, 11.24, findings C8, C10, C11, C12): E2019 for
+    slicing a type parameter with a string in its type set; packed types to and from byte arrays; `string(c)`
+    only for untyped integer or rune constants and `rune` constants; owner conversions need a valid conversion
+    of the underlying types.
 
 171. **Lending a large owner to an ordinary interface** (planned; sections 7.9, abi.md 5, D61, finding D3): the
     data word points at the variable, and the interface value is a view bounded by it.
@@ -1567,14 +1568,19 @@ compiler (2026-10-11).
     over `MaxFuncArena` whose E3010 a later pass overwrote. `TestCompilerUnits` builds
     `compiler/internal/escape2/typesprobe` up to the end of the checks, which catches the first two in
     about 7 minutes.
-182. **Audit the lowering backstops** (planned; section 21.2): each `unsupportedf` (E2500) site and packed
-    field backstop in `compiler/internal/lower` is either unreachable after the type checker (say so in a
-    comment or remove it) or a missing feature (add an item): `builtin.p:149`, `:219`; `expr.p:117`,
-    `:686`, `:1013`, `:1310`; `stmt.p:126`, `:721`; `packed.p:124`, `:136`, `:192`, `:238`.
-183. **Order of evaluation in the rest of lowering** (planned; section 11.26; moved from item 73): survey the
-    rest of `compiler/internal/lower` and add `testdata/run` and difftest cases (assignments, `x[i] =
-    f()`, operands of operators); every difference from the specified order is a false friend and is
-    fixed.
+182. **Audit the lowering backstops** (done, `ad67f688`; section 21.2): each `unsupportedf` (E2500) site and
+    packed field backstop in `compiler/internal/lower` is either unreachable after the type checker (say so in
+    a comment or remove it) or a missing feature (add an item): `builtin.p:149`, `:219`; `expr.p:117`, `:686`,
+    `:1013`, `:1310`; `stmt.p:126`, `:721`; `packed.p:124`, `:136`, `:192`, `:238`.
+238. **Packed fields lowering cannot access yet** (planned; section 7.14; moved from item 182): these fields
+    are valid and stop the build with E2500: an array field that does not start on a byte, that has elements
+    of several bytes in a `be` type laid out by byte, that is in a `be` integer-backed type, or that is in a
+    `volatile` packed value; a field whose bytes span more than eight bytes (a `uint64` at bit 4); and a
+    nested `be` integer-backed packed field that does not start on a byte. `tests/diag/packed_not_yet` has one
+    of each; each becomes a run test when it works.
+183. **Order of evaluation in the rest of lowering** (done, `ce9c5520`; section 11.26; moved from item 73):
+    survey the rest of `compiler/internal/lower` and add `testdata/run` and difftest cases (assignments, `x[i]
+    = f()`, operands of operators); every difference from the specified order is a false friend and is fixed.
 191. **Counted string efficiency** (planned; sections 7.3, 18.8; moved from item 57): interface boxes hold
     their string until the function returns; `(string, error)` returns through memory;
     `compiler/compat` can drop helpers for what is native.

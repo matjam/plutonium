@@ -51,11 +51,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   12.4). Item 216.
 - In kernel mode, `rt.Park` does not yet panic when interrupts are disabled, so a wait with interrupts disabled and
   no lock held is not caught at run time (19.3, abi.md 12.4). Item 213.
-- A deadlock report does not name a panic in progress (19.1, 19.4). Item 205.
-- Freestanding builds outside kernel mode do not yet insert explicit nil checks (17.5). Item 162.
-- A handler's print can wait on a console lock its own processor holds (13.12, 20.10). Item 163.
-- `vec`, `hash`, `strings` and `bytes` may not restore their invariants before every check that can panic (17.2,
-  18.12). Item 165.
 - A closure region does not yet run drop glue for every captured variable with cleanup (11.5, 18.8). Item 169.
 - A large owner lent to an ordinary interface does not yet give a data word that points at the variable (7.9,
   abi.md 5). Item 171.
@@ -63,9 +58,9 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 ## 3. Checks that are missing or too strict
 
 - Interrupt handlers are not yet race parties from the point one may be installed (19.3). Item 156.
-- `pluto vet -unsafe` still lists `x86.Pause`, `Cpuid`, `Rdtsc` and `Rdtscp`, and does not list `//pu:export`
-  functions (18.12). Item 161.
-- `[owner any]` may not parse as a type parameter named `owner` (4.6). Item 164.
+- Some valid packed fields stop the build with E2500: an array field off a byte boundary, with byte-swapped
+  elements, in a `be` integer-backed type, or in a `volatile` value; a field whose bytes span more than eight
+  bytes; a nested `be` integer-backed field off a byte boundary (7.14). Item 238.
 - Conformance checks for `alloc.Default()`, the arena window, the panic buffer, F.3 and F.6 names and debug
   allocator tags are not all tested. Item 167.
 - The parameters of an exported function are entries of the race check, but views they carry are not followed
