@@ -1,0 +1,1 @@
+$DIR/main.p:28:2: cannot pass &u to fmt.Println, which keeps it after returning
