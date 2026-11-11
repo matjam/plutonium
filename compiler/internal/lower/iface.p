@@ -1001,9 +1001,11 @@ func recvBase(T types2.Type, index []int) types2.Type {
 	return cur
 }
 
+// derefType returns the type a pointer or a box T points at (a box's
+// methods and fields are its object's), or T.
 func derefType(T types2.Type) types2.Type {
-	if p, ok := T.Underlying().(*types2.Pointer); ok {
-		return p.Elem()
+	if e := pointerElem(T); e != nil {
+		return e
 	}
 	return T
 }
