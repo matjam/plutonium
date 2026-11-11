@@ -783,14 +783,14 @@ compiler (2026-10-11).
     where the compiler cannot tell which. A `Slice` of length zero records no entry. The count check after
     the entries panics only for an allocation still live then, or an entry recorded while they ran.
     Item 212 widens the race check and E3313 to every object the arena takes back, of every type.
-212. **Arena frees of every type** (done, `208b5343`, `HASH212`; sections 19.3 (Frees are writes), 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
+212. **Arena frees of every type** (done, `208b5343`, `78ab1281`; sections 19.3 (Frees are writes), 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
     and 4.1, D86 and D93, findings H1 and H8 of audit H; extends items 168 and 209): a `Reset`, `Release`
     or `Drop` of an arena is a free, and so a write, of every object it takes back, of every type, for
     E3501, E3404 and the E3313 events, not only of objects whose type has drop glue. `Release` counts
     every object of the arena, since the compiler cannot order objects against marks. An arena is named
     by its variable or field, as a lock is: `workers[i].arena` counts as every arena it may be, and an
     arena behind a parameter or a heap pointer stays item 196.
-214. **A load of a view from shared memory is a crossing** (in progress, `d2a9aee9`, `HASH214`: not a use of a view after a call that may release its lock, the 19.3 peekWait example; phase 1, wrong acceptance; sections
+214. **A load of a view from shared memory is a crossing** (in progress, `d2a9aee9`, `2b6d38d4`: not a use of a view after a call that may release its lock, the 19.3 peekWait example; phase 1, wrong acceptance; sections
     19.2, 19.3, 8.8, 20.9, 20.10, A, memory-model.md 4.1, D96, D102 to D104, finding I1 of audit I and
     findings J1 to J3 of audit J; extends items 168 and 212): a
     task's or interrupt handler's load of a pointer, slice, interface, func value or method value (or an
@@ -1247,7 +1247,7 @@ compiler (2026-10-11).
     (preemption count; in kernel mode RFLAGS.IF) after the prologue of every function marked
     `//pu:blocking`, and before each call of one without a body, panicking with "blocking with preemption
     disabled".
-218. **Lazy initialization through `sync.Once`** (done, `5681d379`, `HASH218`; phase 1; sections 19.3 (Lazy initialization), 19.7, F.5,
+218. **Lazy initialization through `sync.Once`** (done, `5681d379`, `2156256d`; phase 1; sections 19.3 (Lazy initialization), 19.7, F.5,
     memory-model.md 3.4 and 4.1, D105, the "Once and Cond" section of the
     [rulings](verification/2026-11-09-spec-rulings.md)): data written only during a call of a function
     passed to `Do` of one Once (a package-level Once for package variables, a Once field for the fields of
@@ -1353,7 +1353,7 @@ compiler (2026-10-11).
 230. **`AfterFunc` functions are repeated parties** (planned, phase 1; sections 19.3 (Parties), 19.6, D117,
     finding L2 of audit L): the race check counts a function started by `time.AfterFunc` as a repeated
     party at every call site. Spec rows 77 and 78.
-231. **`pluto/sync` calls and channel operations are atomic accesses** (done, `2a85915e`, `HASH231`; phase 1; section 19.3
+231. **`pluto/sync` calls and channel operations are atomic accesses** (done, `2a85915e`, `0a19f9b4`; phase 1; section 19.3
     (Accesses; rule 2 case 3), D118, finding L3 of audit L): collect each such call as an atomic write of
     the value's memory that conflicts only with a plain write of that memory (a new value, or a free, move
     or overwrite of what holds it); add the case 3 condition that crossing sync memory is not freed, moved
@@ -1585,7 +1585,7 @@ compiler (2026-10-11).
 191. **Counted string efficiency** (planned; sections 7.3, 18.8; moved from item 57): interface boxes hold
     their string until the function returns; `(string, error)` returns through memory;
     `compiler/compat` can drop helpers for what is native.
-192. **Maps kept in place** (in progress, `HASH192`: rows 86 to 89 and 101, not row 120 (another package); phase 1; sections 7.10, 19.3 (Maps kept in place), D120, finding L5 of
+192. **Maps kept in place** (in progress, `d87f712e`: rows 86 to 89 and 101, not row 120 (another package); phase 1; sections 7.10, 19.3 (Maps kept in place), D120, finding L5 of
     audit L; moved from item 60): the race check groups maps by type, so two objects that each guard a map
     with their own mutex are E3502. Find the places (package variables and struct fields of map type, per
     instantiation) that are kept in place: every stored value is a `make`, a map literal or `nil` written
