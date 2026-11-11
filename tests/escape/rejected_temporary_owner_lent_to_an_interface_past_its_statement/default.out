@@ -1,0 +1,62 @@
+$DIR/main.p:17:14: cannot store makeBig() in i, which outlives the temporary
+    The Big that makeBig() returns (at main.p:17) is a temporary: nothing keeps
+    it, so it is the receiver of the method only until the end of the statement.
+    A view of it may be passed to calls in that statement but may not outlive
+    it. At the end of the statement, the temporary is dropped, but i lives
+    longer, so it would be left pointing at a value that has been dropped.
+    The view does not own the memory it looks at. Nothing keeps the temporary
+    after the statement, so a stored view would outlive the value that keeps its
+    memory alive.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and take the view through that variable:
+        v := makeBig()
+        ... v ...
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3009" for a longer explanation)
+
+$DIR/main.p:23:2: cannot store makeBig() in i, which outlives the temporary
+    The Big that makeBig() returns (at main.p:23) is a temporary: nothing keeps
+    it, so it is the receiver of the method only until the end of the statement.
+    A view of it may be passed to calls in that statement but may not outlive
+    it. At the end of the statement, the temporary is dropped, but i lives
+    longer, so it would be left pointing at a value that has been dropped.
+    The view does not own the memory it looks at. Nothing keeps the temporary
+    after the statement, so a stored view would outlive the value that keeps its
+    memory alive.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and take the view through that variable:
+        v := makeBig()
+        ... v ...
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3009" for a longer explanation)
+
+$DIR/main.p:28:9: cannot return makeBig(), which points into the temporary Big that makeBig() returns
+    The Big that makeBig() returns (at main.p:28) is a temporary: nothing keeps
+    it, so it is the receiver of the method only until the end of the statement.
+    A view of it may be passed to calls in that statement but may not outlive
+    it. At the end of the statement, the temporary is dropped, before the caller
+    gets makeBig(), so it would point at a value that has been dropped.
+    The view does not own the memory it looks at. Nothing keeps the temporary
+    after the statement, so a stored view would outlive the value that keeps its
+    memory alive.
+    Return the Big itself, which keeps its memory alive in the caller, or a copy
+    of what the view looks at.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3009" for a longer explanation)
+
+$DIR/main.p:32:2: cannot store makeBig() in package variable sink, which outlives the temporary
+    The Big that makeBig() returns (at main.p:32) is a temporary: nothing keeps
+    it, so it is the receiver of the method only until the end of the statement.
+    A view of it may be passed to calls in that statement but may not outlive
+    it. At the end of the statement, the temporary is dropped, but package
+    variable sink lives longer, so it would be left pointing at a value that has
+    been dropped.
+    The view does not own the memory it looks at. Nothing keeps the temporary
+    after the statement, so a stored view would outlive the value that keeps its
+    memory alive.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and take the view through that variable:
+        v := makeBig()
+        ... v ...
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3009" for a longer explanation)

@@ -59,6 +59,9 @@ func (fb *fnb) exprAsIn(e ast.Expr, T types2.Type, vararg bool) Reg {
 			return fb.convIn(fb.staticAddr(v.Type()), from, T, e.Pos(), true)
 		}
 	}
+	if from := fb.typeOf(e); T != nil && fb.lendsTemp(e, from, T) {
+		return fb.lendTemp(e, from, T)
+	}
 	var r Reg
 	if from := fb.typeOf(e); T != nil && isBox(from) && isInterface(unwrap(T)) && !types2.IsOwner(T) && (!types2.IsCountedError(T) || !isCountedBox(from)) {
 		// An interface that does not own lends the box it holds: its data
@@ -139,6 +142,49 @@ func (fb *fnb) pkgVarOf(e ast.Expr) *types2.Var {
 		return v
 	}
 	return nil
+}
+
+// lendsTemp reports whether e, of type from, is a temporary owner larger
+// than one word converted to I, an interface that does not own: the
+// interface lends the temporary, so its data word points at it (section
+// 7.9) and it is a view of a value dropped when the statement ends
+// (section 18.3, E3009).
+func (fb *fnb) lendsTemp(e ast.Expr, from, I types2.Type) bool {
+	if !isInterface(unwrap(I)) || types2.IsOwner(I) || isInterface(from) {
+		return false
+	}
+	if !types2.IsOwner(from) || fb.isDirect(from) || zeroSized(from) {
+		return false
+	}
+	return fb.b.moves.Temps[e]
+}
+
+// lendsTempExpr reports whether e, converted to I, is a temporary owner
+// lent to an interface (lendsTemp), directly or through a conversion to an
+// interface.
+func (fb *fnb) lendsTempExpr(e ast.Expr, I types2.Type) bool {
+	e = ast.Unparen(e)
+	if c, ok := e.(*ast.CallExpr); ok && len(c.Args) == 1 {
+		if tv := fb.b.types[c.Fun]; tv.IsType() && isInterface(unwrap(tv.Type)) {
+			return fb.lendsTempExpr(c.Args[0], tv.Type)
+		}
+	}
+	return fb.lendsTemp(e, fb.typeOf(e), I)
+}
+
+// lendTemp builds the temporary owner e in an object of its statement and
+// converts it to I in place: the interface is a view of the temporary.
+func (fb *fnb) lendTemp(e ast.Expr, from, I types2.Type) Reg {
+	saved := fb.pos
+	if p := e.Pos(); p.IsValid() {
+		fb.pos = p
+	}
+	r := fb.expr0(e, from)
+	o := fb.newObj(Object{Kind: ObjStmtTemp, Type: from, Life: LifeStmt, Name: "temporary"})
+	fb.store(fb.addr(o), r, from)
+	fb.addTemp(o, from)
+	fb.pos = saved
+	return fb.convIn(fb.addr(o), from, I, e.Pos(), true)
 }
 
 // conv converts r, of concrete type from, to interface I.

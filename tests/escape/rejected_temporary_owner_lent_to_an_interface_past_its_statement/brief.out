@@ -1,0 +1,4 @@
+$DIR/main.p:17:14: cannot store makeBig() in i, which outlives the temporary
+$DIR/main.p:23:2: cannot store makeBig() in i, which outlives the temporary
+$DIR/main.p:28:9: cannot return makeBig(), which points into the temporary Big that makeBig() returns
+$DIR/main.p:32:2: cannot store makeBig() in package variable sink, which outlives the temporary

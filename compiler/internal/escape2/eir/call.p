@@ -559,8 +559,18 @@ func (fb *fnb) args(e *ast.CallExpr, sig *types2.Signature, fn *types2.Func) ([]
 			out = compat.AppendPlain(out, 0)
 		} else {
 			arrT := types2.NewArray(et, int64(len(extra)))
+			lent := false
+			for _, a := range extra {
+				lent = lent || a.e != nil && fb.lendsTempExpr(a.e, et)
+			}
 			var base Reg
-			if fb.f.Key.Init != nil {
+			if lent && !(fb.lasting && fb.root != fb) {
+				// The array holds a view of a temporary owner, which the
+				// callee may use but not keep (section 11.15): it is of
+				// the statement, as the temporary is.
+				o := fb.newObj(Object{Kind: ObjVarargs, Type: arrT, Life: LifeStmt, Name: "variadic arguments", Pos: e.Pos()})
+				base = fb.addr(o)
+			} else if fb.f.Key.Init != nil {
 				base = fb.heap(HeapStatic)
 			} else {
 				// In this frame, or a range body's defer's root (keptObj).

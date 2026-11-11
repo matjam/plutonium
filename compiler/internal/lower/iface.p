@@ -757,7 +757,16 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 	} else {
 		tab = s.symAddr(s.l.types.itab(from, I))
 	}
-	data := s.dataWord(v, from, types2.IsOwner(I) && s.l.needsIfaceDrop(from))
+	var data *ssa.Value
+	if s.lendsPlace(v, from, I) {
+		// An owner larger than one word lent to an ordinary interface is
+		// not copied: the data word points at the variable or temporary
+		// that was converted, so the interface sees its current value
+		// (spec section 7.9, abi.md section 5).
+		data = v.v
+	} else {
+		data = s.dataWord(v, from, types2.IsOwner(I) && s.l.needsIfaceDrop(from))
+	}
 	handsOver := v.cnt == cntOwned && v.tmp != nil && !v.tmp.consumed
 	counts := types2.IsCountedError(I) && isStrongBox(from)
 	if (types2.IsOwner(I) || counts) && s.l.isDirect(from) && s.l.counted(from) && !handsOver && v.cnt != cntStatic {
@@ -774,6 +783,18 @@ func (s *fnState) toInterface(v value, from, I types2.Type) value {
 		return s.ownTemp(tmp, I)
 	}
 	return aggValue(tmp, I)
+}
+
+// lendsPlace reports whether converting v, of type from, to the interface
+// type I lends the place v is: from is an owner larger than one word and I
+// is an ordinary interface. During package initialisation only a place
+// that loadLV gave (a variable, a field, an element) is lent, never a value
+// made for the conversion, which would not outlive the init function.
+func (s *fnState) lendsPlace(v value, from, I types2.Type) bool {
+	if types2.IsOwner(I) || !types2.IsOwner(from) || s.l.isDirect(from) || !v.addr {
+		return false
+	}
+	return !s.staticLits || v.cnt == cntStable || v.cnt == cntUnstable
 }
 
 func isStrongBox(T types2.Type) bool {
