@@ -43,13 +43,13 @@ func (a *analyzer) outBefore(x, y *mapOut) bool {
 type mapPlaces struct {
 	a      *analyzer
 	pkg    string
-	params map[*types2.Var]bool             // map-typed parameters and receivers of declared functions
-	direct map[*types2.Var]*mapOut          // place or parameter: its first occurrence that takes the map out
-	deps   map[*types2.Var][]*types2.Var    // place or parameter: the parameters it is passed to
-	label  map[*types2.Var]string           // field place: "Cache.m"
-	ids    map[*types2.Var][]int            // field place: the map type numbers of its instantiations
-	fields []*types2.Var                    // field places, in the order seen
-	inMemo map[types2.Type][]*types2.Var    // the field places a struct or array value holds
+	params map[*types2.Var]bool          // map-typed parameters and receivers of declared functions
+	direct map[*types2.Var]*mapOut       // place or parameter: its first occurrence that takes the map out
+	deps   map[*types2.Var][]*types2.Var // place or parameter: the parameters it is passed to
+	label  map[*types2.Var]string        // field place: "Cache.m"
+	ids    map[*types2.Var][]int         // field place: the map type numbers of its instantiations
+	fields []*types2.Var                 // field places, in the order seen
+	inMemo map[types2.Type][]*types2.Var // the field places a struct or array value holds
 }
 
 // A field place's key in mapFieldOut: its name and its map type number,

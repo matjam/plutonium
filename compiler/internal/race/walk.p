@@ -271,19 +271,19 @@ type walker struct {
 	sum *summary
 	st  *state
 
-	quiet      int         // inside a loop's trial iterations: record nothing
-	loopPos    []token.Pos // the loops being walked, innermost last
-	loops      int         // loop nesting, for spawns that may run more than once
-	targets    []*target
-	exit       *state
-	defers     []*pendingDefer
-	gotos      map[string]bool
-	depth      int               // nested applications of func-valued arguments
-	created    map[ast.Node]bool // allocations made by this function
+	quiet   int         // inside a loop's trial iterations: record nothing
+	loopPos []token.Pos // the loops being walked, innermost last
+	loops   int         // loop nesting, for spawns that may run more than once
+	targets []*target
+	exit    *state
+	defers  []*pendingDefer
+	gotos   map[string]bool
+	depth   int               // nested applications of func-valued arguments
+	created map[ast.Node]bool // allocations made by this function
 	// linked maps an allocation made here to those made here whose
 	// unpublished memory holds a pointer to it: it is published when any
 	// of them is (isPub).
-	linked     map[ast.Node][]ast.Node
+	linked map[ast.Node][]ast.Node
 	// inner maps an allocation made here and a field path in it to the
 	// allocations made here that were stored there (innerFields).
 	inner      map[ast.Node]map[string]*innerSet
