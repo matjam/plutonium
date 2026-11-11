@@ -15,7 +15,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   (20.4). Item 157.
 - The conversion checks of 11.12 and 11.24 (slicing a type parameter with a string in its type set, packed types and
   byte arrays, `string(c)`, owner conversions) are not all enforced. Item 166.
-- The race check does not yet treat frees, drops and moves as writes (19.3, 19.4). Item 168.
 - A call through a copy of a counted reference in a field or parameter does not end views obtained through a local
   reference; a method called through an ordinary interface held in a field is taken to free nothing of the owner
   holding the field; a view of what a local owner holds kept where the walk cannot follow is not checked at the
