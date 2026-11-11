@@ -63,7 +63,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - A closure region does not yet run drop glue for every captured variable with cleanup (11.5, 18.8). Item 169.
 - A large owner lent to an ordinary interface does not yet give a data word that points at the variable (7.9,
   abi.md 5). Item 171.
-- An owner declared in a for clause may not move between iterations and drop once (12.10, 18.6). Item 174.
 
 ## 3. Checks that are missing or too strict
 
