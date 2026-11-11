@@ -3,9 +3,9 @@ $DIR/main.p:20:2: mu is written here with no lock that guards it, while another 
     the task started by task use at main.p:19 uses it at main.p:11 in use. Two
     tasks may run these at the same time, one of them writing, which is a data
     race: the other may see a value half written, or lose an update.
-    The compiler infers which lock guards shared data from the locks held where
-    it is written: a lock that every write holds. Here no one lock is held at
-    every write.
+    The use there is a call of a pluto/sync method, which synchronizes only with
+    other such calls: no lock orders it with a write that frees, moves or
+    overwrites the value, whatever locks the write holds.
     Go leaves data races to a run-time detector that a program must be run
     under, and a racing Go program can see values half written. Plutonium tasks
     run in parallel with no such detector, so safe code must be free of data

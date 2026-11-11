@@ -1125,130 +1125,134 @@ package pluto/rt
     pluto/rt/goexit.p:67:43: unsafe.Pointer
     pluto/rt/goexit.p:68:2: direct Allocator.Free
     pluto/rt/goexit.p:68:9: unsafe.Pointer
-  safe pluto/rt.ResumeAllocFreeExit pluto/rt/goexit.p:79:1
+  safe pluto/rt.Panicking pluto/rt/goexit.p:75:1
     calls pluto/rt.getg
-      pluto/rt/goexit.p:80:2: call pluto/rt.setGoexit
+      pluto/rt/goexit.p:76:7: call pluto/rt.current
+      pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
+  safe pluto/rt.ResumeAllocFreeExit pluto/rt/goexit.p:87:1
+    calls pluto/rt.getg
+      pluto/rt/goexit.p:88:2: call pluto/rt.setGoexit
       pluto/rt/goexit.p:48:10: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
-  safe pluto/rt.mainGoexit pluto/rt/goexit.p:89:1
+  safe pluto/rt.mainGoexit pluto/rt/goexit.p:97:1
     calls pluto/rt.noTasksLeft
-      pluto/rt/goexit.p:92:3: call pluto/rt.noTasksLeft
+      pluto/rt/goexit.p:100:3: call pluto/rt.noTasksLeft
     calls pluto/rt.mainWait
-      pluto/rt/goexit.p:94:2: call pluto/rt.mainWait
-  unsafe pluto/rt.mainWait pluto/rt/goexit.p:102:1
-    pluto/rt/goexit.p:102:1: function without a body
-  safe pluto/rt.mainWaitDirect pluto/rt/goexit.p:104:1
+      pluto/rt/goexit.p:102:2: call pluto/rt.mainWait
+  unsafe pluto/rt.mainWait pluto/rt/goexit.p:110:1
+    pluto/rt/goexit.p:110:1: function without a body
+  safe pluto/rt.mainWaitDirect pluto/rt/goexit.p:112:1
     calls pluto/rt.noTasksLeft
-      pluto/rt/goexit.p:104:25: call pluto/rt.noTasksLeft
-  safe pluto/rt.mainWaitParked pluto/rt/goexit.p:106:1
+      pluto/rt/goexit.p:112:25: call pluto/rt.noTasksLeft
+  safe pluto/rt.mainWaitParked pluto/rt/goexit.p:114:1
     calls pluto/rt.inc32
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:533:2: call pluto/rt.inc32
     calls pluto/rt.cas32
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:534:5: call pluto/rt.cas32
     calls pluto/rt.dec32
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:535:3: call pluto/rt.dec32
     calls pluto/rt.schedPark
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:539:2: call pluto/rt.schedPark
     calls pluto/rt.schedInit
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:523:2: call pluto/rt.startTasks
       pluto/rt/sched.p:268:2: call pluto/rt.schedInit
     calls pluto/rt.getg
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:524:7: call pluto/rt.current
       pluto/rt/sched_linux.p:161:9: call pluto/rt.getg
     calls pluto/rt.printString
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:496:2: call pluto/rt.printString
     calls pluto/rt.schedInInterrupt
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:531:2: call pluto/rt.checkBlocking
       pluto/rt/sched.p:293:5: call pluto/rt.schedInInterrupt
     calls pluto/rt.getm
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:523:2: call pluto/rt.startTasks
       pluto/rt/sched.p:274:2: call pluto/rt.setCurrent
       pluto/rt/sched_linux.p:185:2: call pluto/rt.getm
     calls pluto/rt.casUint64
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
     calls pluto/rt.loadUint64
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
     calls pluto/rt.lastResort
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
     calls pluto/rt.callerFrame
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:173:2: call pluto/rt.callerFrame
     calls pluto/rt.raise
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:176:2: call pluto/rt.raise
     calls pluto/rt.schedYield
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:541:2: call pluto/rt.enablePreempt
       pluto/rt/sched.p:321:3: call pluto/rt.Yield
       pluto/rt/sched.p:576:2: call pluto/rt.schedYield
     calls pluto/rt.syscall3
-      pluto/rt/goexit.p:108:3: call pluto/rt.park
+      pluto/rt/goexit.p:116:3: call pluto/rt.park
       pluto/rt/sched.p:526:3: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
       pluto/rt/rt_linux.p:319:38: call pluto/rt.syscall3
-  unsafe pluto/rt.noTasksLeft pluto/rt/goexit.p:114:1
-    pluto/rt/goexit.p:116:22: unsafe.Pointer
-    pluto/rt/goexit.p:116:30: unsafe.StringData
-  safe pluto/rt.goexitFromC pluto/rt/goexit.p:122:1
+  unsafe pluto/rt.noTasksLeft pluto/rt/goexit.p:122:1
+    pluto/rt/goexit.p:124:22: unsafe.Pointer
+    pluto/rt/goexit.p:124:30: unsafe.StringData
+  safe pluto/rt.goexitFromC pluto/rt/goexit.p:130:1
     calls pluto/rt.printString
-      pluto/rt/goexit.p:123:2: call pluto/rt.panicMessage
+      pluto/rt/goexit.p:131:2: call pluto/rt.panicMessage
       pluto/rt/rt.p:496:2: call pluto/rt.printString
     calls pluto/rt.casUint64
-      pluto/rt/goexit.p:123:2: call pluto/rt.panicMessage
+      pluto/rt/goexit.p:131:2: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:126:5: call pluto/rt.casUint64
     calls pluto/rt.loadUint64
-      pluto/rt/goexit.p:123:2: call pluto/rt.panicMessage
+      pluto/rt/goexit.p:131:2: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:132:5: call pluto/rt.loadUint64
     calls pluto/rt.lastResort
-      pluto/rt/goexit.p:123:2: call pluto/rt.panicMessage
+      pluto/rt/goexit.p:131:2: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:135:2: call pluto/rt.lastResort
     calls pluto/rt.callerFrame
-      pluto/rt/goexit.p:123:2: call pluto/rt.panicMessage
+      pluto/rt/goexit.p:131:2: call pluto/rt.panicMessage
       pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:173:2: call pluto/rt.callerFrame
     calls pluto/rt.raise
-      pluto/rt/goexit.p:123:2: call pluto/rt.panicMessage
+      pluto/rt/goexit.p:131:2: call pluto/rt.panicMessage
       pluto/rt/rt.p:501:2: call pluto/rt.fatal
       pluto/rt/panic.p:176:2: call pluto/rt.raise
     calls pluto/rt.syscall3
-      pluto/rt/goexit.p:123:2: call pluto/rt.panicMessage
+      pluto/rt/goexit.p:131:2: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:125:8: call pluto/rt.selfID
       pluto/rt/rt_linux.p:319:38: call pluto/rt.syscall3
     calls pluto/rt.inc32
-      pluto/rt/goexit.p:123:2: call pluto/rt.panicMessage
+      pluto/rt/goexit.p:131:2: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:304:3: call pluto/rt.inc32
     calls pluto/rt.getg
-      pluto/rt/goexit.p:123:2: call pluto/rt.panicMessage
+      pluto/rt/goexit.p:131:2: call pluto/rt.panicMessage
       pluto/rt/rt.p:495:2: call pluto/rt.startPanic
       pluto/rt/panic.p:127:3: call pluto/rt.DisablePreemption
       pluto/rt/sched.p:303:10: call pluto/rt.current
