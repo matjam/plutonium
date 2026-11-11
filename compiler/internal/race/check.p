@@ -124,6 +124,7 @@ func (a *analyzer) check() {
 	a.checkCrossings(cross, written, nil)
 	a.guardedW = map[string]bool{}
 	a.checkGlobals(groups)
+	a.checkUnsendableGlobals(groups)
 	loads := a.loadCrossings(groups)
 	a.checkCrossings(loads, written, a.writtenAfterInit(groups, true))
 	cross = compat.Append(cross, loads...)
@@ -569,6 +570,14 @@ func (a *analyzer) checkCrossings(cross []*crossing, written, guarded func(vpath
 			part = c.name
 		}
 		vals := a.resolveVals(c.vals)
+		for _, o := range vals {
+			if c.load && o.vp.root.kind == rGlobal && a.cpuVars[o.vp.root.v] {
+				// The writes of a per-CPU variable are not among the
+				// accesses written counts: its type decides.
+				vals = nil
+				break
+			}
+		}
 		if c.load {
 			// What a view loaded through a pointer, or from a synced
 			// object or a map, points to is not known: its type decides.
@@ -739,6 +748,63 @@ func (a *analyzer) checkGlobals(groups []*group) {
 			rel = staticLock(v)
 		}
 		a.checkPlaces(byVar[v], rel, func(x *access) string { return a.placeText(x.place) })
+	}
+}
+
+// checkUnsendableGlobals reports a package variable whose type is not
+// sendable, one that holds a shared[T], used by two parties once tasks may
+// run (section 19.3, Rule 1, E2010): copying a reference out of it, or
+// dropping one, changes a count with plain arithmetic.
+func (a *analyzer) checkUnsendableGlobals(groups []*group) {
+	byVar := map[*types2.Var][]entry{}
+	var vars []*types2.Var
+	for _, g := range groups {
+		for _, x := range g.accesses {
+			if x.place.root.kind != rGlobal || x.place.root.v == nil || x.pre {
+				continue
+			}
+			v := x.place.root.v
+			if types2.Unsendable(v.Type()) == nil {
+				continue
+			}
+			if byVar[v] == nil {
+				vars = compat.Append(vars, v)
+			}
+			byVar[v] = compat.Append(byVar[v], entry{x, g})
+		}
+	}
+	sort.SortFunc(vars, func(a, b *types2.Var) bool { return a.Pos() < b.Pos() })
+	for _, v := range vars {
+		es := byVar[v]
+		sort.SortStableFunc(es, func(a, b entry) bool { return a.x.pos < b.x.pos })
+		pi, qi := -1, -1
+		for i := range es {
+			for j := range es {
+				if i != j && (es[i].g != es[j].g || es[i].g.multi) {
+					pi, qi = i, j
+					break
+				}
+			}
+			if pi < 0 && es[i].g.multi {
+				pi, qi = i, i
+			}
+			if pi >= 0 {
+				break
+			}
+		}
+		if pi < 0 {
+			continue
+		}
+		p, q := es[pi], es[qi]
+		sh := types2.TypeString(types2.Unsendable(v.Type()), a.qualifier)
+		d := diag.New(a.pos(p.x.pos), diag.CheckerCode(typerr.NotSendable), "%s holds a %s, whose count is not atomic, and two tasks use it; use synced[T] (spec section 19.3)", pu.Box(v.Name()), pu.Box(sh))
+		other := compat.Sprintfb("%s at %s", compat.ArgS(q.g.name(a)), compat.ArgS(a.where(q.x)))
+		if pi == qi {
+			other = "another task that runs the same code"
+		}
+		d.Text = compat.Sprintfb("The package variable %s is not sendable: it holds a %s, whose count changes with plain arithmetic whenever a reference is copied out of it or dropped. Here %s uses it at %s, and %s uses it too, so both may change the count at once.", compat.ArgS(v.Name()), compat.ArgS(sh), compat.ArgS(p.g.name(a)), compat.ArgS(a.where(p.x)), compat.ArgS(other))
+		d.Fix = pu.New(diag.Fix{Intro: "Use a synced[T] instead of the shared[T]: its count is atomic, so several tasks may hold references."})
+		a.add(compat.Concat("unsendable|", v.Name(), "|", itoa(int(v.Pos()))), d)
 	}
 }
 

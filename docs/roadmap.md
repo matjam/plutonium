@@ -790,7 +790,7 @@ compiler (2026-10-11).
     every object of the arena, since the compiler cannot order objects against marks. An arena is named
     by its variable or field, as a lock is: `workers[i].arena` counts as every arena it may be, and an
     arena behind a parameter or a heap pointer stays item 196.
-214. **A load of a view from shared memory is a crossing** (in progress, `d2a9aee9`: not E2010 or per-CPU loads; phase 1, wrong acceptance; sections
+214. **A load of a view from shared memory is a crossing** (in progress, `d2a9aee9`, `HASH214`: not a use of a view after a call that may release its lock, the 19.3 peekWait example; phase 1, wrong acceptance; sections
     19.2, 19.3, 8.8, 20.9, 20.10, A, memory-model.md 4.1, D96, D102 to D104, finding I1 of audit I and
     findings J1 to J3 of audit J; extends items 168 and 212): a
     task's or interrupt handler's load of a pointer, slice, interface, func value or method value (or an

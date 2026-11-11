@@ -652,6 +652,17 @@ func (w *walker) cpuPlace(p vpath, pos token.Pos, locks lockset, rel released, p
 	return p, false
 }
 
+// cpuViewLoad returns the load of a view from place p of a per-CPU
+// variable, by name or through a pointer to it: a crossing once tasks run,
+// like a load from any package variable (section 19.3, Crossings case 5).
+// It is a use of class cpuLone, which section 20.9 lets pass, and it is
+// kept out of rule 1, which per-CPU variables do not follow.
+func cpuViewLoad(p vpath, pos token.Pos, T types2.Type, locks lockset, rel released, pre bool) *access {
+	p.root.idx = 0
+	return pu.New(access{place: p, locks: locks, rel: rel, pos: pos, pre: pre, typ: T, view: true,
+		cpu: pu.New(cpuUse{v: p.root.v, class: cpuLone, text: p.root.v.Name(), pos: pos})})
+}
+
 // addrsOfPlaces returns pointers to places ps; one to a per-CPU variable is
 // tagged with the regions held now.
 func (w *walker) addrsOfPlaces(ps []vpath) origins {

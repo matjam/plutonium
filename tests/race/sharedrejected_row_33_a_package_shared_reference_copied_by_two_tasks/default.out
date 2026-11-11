@@ -1,0 +1,13 @@
+$DIR/main.p:10:7: r holds a shared[Node], whose count is not atomic, and two tasks use it; use synced[T] (spec section 19.3)
+    The package variable r is not sendable: it holds a shared[Node], whose count
+    changes with plain arithmetic whenever a reference is copied out of it or
+    dropped. Here the task started by task reader at main.p:17 uses it at
+    main.p:10 in reader, and the task started by task reader at main.p:18 at
+    main.p:10 in reader uses it too, so both may change the count at once.
+    Go's garbage collector makes every pointer safe to share. Plutonium counts
+    shared references without atomic instructions, which is only correct on one
+    task.
+    Use a synced[T] instead of the shared[T]: its count is atomic, so several
+    tasks may hold references.
+    (see "Sendable types" in the Plutonium spec, section 8.8)
+    (run "pluto explain E2010" for a longer explanation)

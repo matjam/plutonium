@@ -20,8 +20,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   Item 177.
 - The race check does not follow an allocator behind a parameter, a heap pointer or an `alloc.Use` window, or bulk
   calls outside scoped tasks (19.4). Item 196.
-- A load of a view from a per-CPU variable is not yet a crossing, and a package variable holding a `shared[T]` used
-  by two tasks is not yet E2010 (19.3, Crossings; 8.8). Item 214.
 - A range-over-func body whose iterator calls `yield` from a scoped task still counts as part of the enclosing
   function, so it may release that function's locks, and a `defer` in it is not an error (19.3, Part of the
   enclosing function). Item 223.

@@ -1420,6 +1420,9 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 		return
 	}
 	if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] {
+		if w.viewLoad && !write && !hasDeref(p.path) {
+			w.sum.addAccess(cpuViewLoad(p, pos, T, w.st.locks, w.st.rel, !w.st.spawned))
+		}
 		var ok bool
 		if p, ok = w.cpuPlace(p, pos, w.st.locks, w.st.rel, !w.st.spawned, false, write, nil, w.sum.addAccess); !ok {
 			return

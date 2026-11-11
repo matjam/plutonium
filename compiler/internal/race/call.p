@@ -1115,6 +1115,9 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 				if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] {
 					var ok bool
 					inh := compose(base.locks, substRel(x.rel, args), nil)
+					if x.view && !x.write && !hasDeref(p.path) {
+						w.sum.addAccess(cpuViewLoad(p, x.pos, x.typ, locks, rel, !base.spawned && x.pre))
+					}
 					if p, ok = w.cpuPlace(p, x.pos, locks, rel, !base.spawned && x.pre, true, x.write, &inh, w.sum.addAccess); !ok {
 						continue
 					}

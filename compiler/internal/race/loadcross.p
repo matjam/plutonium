@@ -367,7 +367,15 @@ func (a *analyzer) loadCrossings(groups []*group) []*crossing {
 	}
 	seen := map[string]bool{}
 	for _, g := range groups {
-		for _, x := range g.accesses {
+		xs := g.accesses
+		// Loads from per-CPU variables are kept with the uses section 20.9
+		// checks, but cross as loads from any package variable do.
+		for _, e := range g.cpu {
+			if e.x.view && !e.x.pre {
+				xs = compat.Append(xs, e.x)
+			}
+		}
+		for _, x := range xs {
 			if !x.view || x.write || x.typ == nil {
 				continue
 			}
