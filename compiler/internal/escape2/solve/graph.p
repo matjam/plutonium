@@ -181,6 +181,10 @@ type covChains struct {
 	steps, tsteps []domain.Step
 	p, q          [domain.MaxSteps + 1]domain.PathID
 	np, nq        int // how many of p and q are made
+	// held[i] is whether the node holds a wide token of the base at p[i]:
+	// 0 not looked up yet, 1 no, 2 yes. coveredIn walks the chain once
+	// for each lending rank, and the wide table does not change meanwhile.
+	held [domain.MaxSteps + 1]uint8
 }
 
 func (s *solver) chainP(ch *covChains, i int) domain.PathID {
@@ -247,7 +251,13 @@ func (s *solver) coveredByChains(n uint32, t tok, id uint64, ch *covChains) bool
 	wk := wideKey(n, t.base)
 	p := domain.Root
 	for i := 0; ; i++ {
-		_, held := s.wide.get(wk, uint64(p))
+		if ch.held[i] == 0 {
+			ch.held[i] = 1
+			if _, ok := s.wide.get(wk, uint64(p)); ok {
+				ch.held[i] = 2
+			}
+		}
+		held := ch.held[i] == 2
 		c := tok{kind: tIn, base: t.base, path: p, ge: true, lent: t.lent, cnt: t.cnt, dcnt: t.dcnt}
 		for {
 			if !held {
