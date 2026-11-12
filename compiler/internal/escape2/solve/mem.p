@@ -63,14 +63,16 @@ func (t *table) get(k1, k2 uint64) (uint64, bool) {
 	if t.n == 0 {
 		return 0, false
 	}
-	m := uint64(len(t.slots) / 3)
+	sl := t.slots
+	m := uint64(len(sl) / 3)
 	for i := mix(k1, k2) & (m - 1); ; i = (i + 1) & (m - 1) {
-		s := t.slots[3*i : 3*i+3]
-		if s[2] == 0 {
+		j := 3 * i
+		v := sl[j+2]
+		if v == 0 {
 			return 0, false
 		}
-		if s[0] == k1 && s[1] == k2 {
-			return s[2] - 1, true
+		if sl[j] == k1 && sl[j+1] == k2 {
+			return v - 1, true
 		}
 	}
 }
@@ -100,15 +102,16 @@ func (t *table) put(a domain.Arena, k1, k2, v uint64) bool {
 func (t *table) add(a domain.Arena, k1, k2 uint64) bool {
 	if t.n > 0 && 2*(t.n+1) <= len(t.slots)/3 {
 		// One probe finds the pair or the free slot it goes in.
-		m := uint64(len(t.slots) / 3)
+		sl := t.slots
+		m := uint64(len(sl) / 3)
 		for i := mix(k1, k2) & (m - 1); ; i = (i + 1) & (m - 1) {
-			s := t.slots[3*i : 3*i+3]
-			if s[2] == 0 {
-				s[0], s[1], s[2] = k1, k2, 1
+			j := 3 * i
+			if sl[j+2] == 0 {
+				sl[j], sl[j+1], sl[j+2] = k1, k2, 1
 				t.n++
 				return true
 			}
-			if s[0] == k1 && s[1] == k2 {
+			if sl[j] == k1 && sl[j+1] == k2 {
 				return false
 			}
 		}
