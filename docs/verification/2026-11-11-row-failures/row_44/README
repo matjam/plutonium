@@ -1,0 +1,1 @@
+Row 44 requires: a compile error (the tick example: a direct call reaches a send inside rt.DisablePreemption). Printed: nothing; the program compiles (status 0) and runs. Likely item: 215 (the wait check follows calls with a single known target), also 210.

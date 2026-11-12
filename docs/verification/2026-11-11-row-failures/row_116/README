@@ -1,0 +1,1 @@
+Row 116 requires: E3502 (*p += 1 writes sc.v with no lock; a result stored first is a func value). Printed: nothing; the program compiles (status 0). Likely item: 232 (M2, rows 109, 116, 117).

@@ -1,0 +1,1 @@
+Row 4 is ambiguous. Row 4 requires: E3002. Printed: E3003 at main.p:13:15, "cannot pass &echoHandler{} to Register, which keeps it after returning". The 18.3 table gives E3003 for passing a frame view to a function that stores it, which is this program; row 4 cites 18.3 but names E3002. The row and the 18.3 table disagree, so no expected output was committed.

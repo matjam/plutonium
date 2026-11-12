@@ -1,0 +1,1 @@
+Row 3 requires: accepted (rule 2 case 3, static object). Printed: E3501 at main.p:18:14, "std.w (holding a *os.File) is a view of os.File that may change", citing a write of os.File memory in (*Vec).realloc. Likely item: 214 (a static object meets case 3 with the field conditions, so printing from any task compiles).

@@ -1,0 +1,1 @@
+Row 117 requires: E3502 (*p += 1 writes with no lock; an assigned capture carries no name). Printed: nothing; the program compiles (status 0). Likely item: 232 (M2, rows 109, 116, 117).

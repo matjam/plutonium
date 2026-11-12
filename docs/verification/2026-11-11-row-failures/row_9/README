@@ -1,0 +1,1 @@
+Row 9 requires: accepted (rule 2 case 4). Printed: E3502 at main.p:33 (c.id++ on the owned[Conn] that Get popped): "free.data[i].id is written here with no lock". With that write removed the program compiles. A box moved out of the vector by Pop is still taken as memory free owns. Likely item: 214 (memory a package variable owns, guarded owned memory).
