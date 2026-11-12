@@ -150,6 +150,7 @@ func (fs *Filters) atomText(a Atom) string {
 	if t, ok := fs.text[a]; ok {
 		return t
 	}
+	defer scratch.Outer().Restore()
 	if fs.text == nil {
 		fs.text = map[Atom]string{}
 	}
@@ -172,11 +173,15 @@ func (fs *Filters) Intern(f Filter) FilterID {
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	defer scratch.Outer().Restore()
 	return fs.intern(f)
 }
 
-// intern is Intern with fs.mu held.
+// intern is Intern with fs.mu held. The filter's canonical form and its
+// text are made in the current memory, a solve's scratch memory when a
+// solve asks: only a filter not yet in the table is copied into the
+// memory that outlives the solve (scratch.Outer). Most calls find their
+// filter, and with the summary cache's sequential driver, which keeps
+// nothing a solve allocates outside it, their copies took gigabytes.
 func (fs *Filters) intern(f Filter) FilterID {
 	// The canonical form: atoms sorted by their text, without duplicates.
 	type at struct {
@@ -207,19 +212,23 @@ func (fs *Filters) intern(f Filter) FilterID {
 	}
 	f = Filter{Atoms: atoms, Inner: f.Inner, Rel: f.Rel}
 	k := key.String()
-	list := pu.Alloc[[]Filter]()
+	var old []Filter
 	if l := fs.list.Load(); l != nil {
-		(*list) = *l
+		old = *l
 	}
 	for _, id := range fs.byText[k] {
-		if (*list)[id-1].same(f) {
+		if old[id-1].same(f) {
 			return id
 		}
 	}
-	if len((*list)) >= MaxFilters {
+	if len(old) >= MaxFilters {
 		return 0
 	}
-	(*list) = compat.Append((*list), f)
+	defer scratch.Outer().Restore()
+	f.Atoms = compat.Clone(f.Atoms)
+	k = scratch.String(k)
+	list := pu.Alloc[[]Filter]()
+	(*list) = compat.Append(old, f)
 	fs.list.Store(list)
 	id := FilterID(len((*list)))
 	if fs.byText == nil {
@@ -262,7 +271,6 @@ func (fs *Filters) Union(a, b FilterID) FilterID {
 	}
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
-	defer scratch.Outer().Restore()
 	if u, ok := fs.union[[2]FilterID{a, b}]; ok {
 		return u
 	}
@@ -278,6 +286,7 @@ func (fs *Filters) Union(a, b FilterID) FilterID {
 			u = 0
 		}
 	}
+	defer scratch.Outer().Restore()
 	if fs.union == nil {
 		fs.union = map[[2]FilterID]FilterID{}
 	}
@@ -307,7 +316,6 @@ func (fs *Filters) UnionAll(ids []FilterID) FilterID {
 	if same {
 		return ids[0]
 	}
-	defer scratch.Outer().Restore()
 	u := compat.Clone(ids)
 	slices.Sort(u)
 	u = slices.Compact(u)
