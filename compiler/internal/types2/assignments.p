@@ -73,7 +73,11 @@ func (check *Checker) assignment(x *operand, T Type, context string) {
 				msg = compat.Concat(msg, " (overflows)")
 			default:
 				code = IncompatibleAssign
-				if x.mode() == constant_ && isEnum(target) {
+				et := target
+				if w, ok := et.Underlying().(*Wrapper); ok && w.isTransparent() {
+					et = w.elem
+				}
+				if x.mode() == constant_ && isEnum(et) {
 					// Plutonium: an untyped constant is not a member
 					// (spec section 8.4).
 					code = UntypedEnumConstant

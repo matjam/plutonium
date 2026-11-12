@@ -1,0 +1,38 @@
+$DIR/main.p:12:25: cannot use 300 (untyped int constant) as volatile[uint8] value in variable declaration (overflows)
+    A constant does not fit in the type it is used as. Each integer type holds a
+    fixed range: uint8 holds 0 to 255, int8 holds -128 to 127, and so on. Use a
+    wider type, or a smaller constant.
+    (see "Representability" in the Plutonium spec, section 8.5)
+    (run "pluto explain E0044" for a longer explanation)
+
+$DIR/main.p:14:27: cannot use 1.5 (untyped float constant) as aligned[int8, 16] value in variable declaration (truncated)
+    A constant with a fraction is used as an integer. Converting it would lose
+    the fraction, which Plutonium, like Go, does not do silently for constants.
+    Use an integer constant, or convert a variable at run time.
+    (see "Representability" in the Plutonium spec, section 8.5)
+    (run "pluto explain E0043" for a longer explanation)
+
+$DIR/main.p:16:25: cannot use 1 (untyped int constant) as volatile[Color] value in variable declaration
+    A number written in the source is not a member of an enum, so it cannot be
+    used where an enum value is expected. A number that is not a member's value
+    would make an enum value that is not a member, and one that is hides the
+    member's name.
+    Name the member, or convert the number: Color(1) is valid when 1 is a
+    member's value.
+    Go lets an untyped constant become any named integer type. Plutonium enums
+    are closed sets of named members, so a value is always one of them and the
+    source says which.
+    Name the member:
+        var c Color = Color.Green
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E2315" for a longer explanation)
+
+$DIR/main.p:20:34: cannot use 1 (untyped int constant) as volatile[bool] value in return statement
+    g is declared on line 20 to return volatile[bool], so it can only hold
+    values of that type; 1 is an untyped int constant. Plutonium, like Go, does
+    not convert between different types automatically.
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E0023" for a longer explanation)
+
+$DIR/main.p:23:4: cannot use -1 (untyped int constant) as aligned[uint16, 8] value in argument to f (overflows)
+    (explained above; run "pluto explain E0044" for more)

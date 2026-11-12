@@ -488,6 +488,12 @@ func (check *Checker) implicitTypeAndValue(x *operand, target Type) (Type, const
 		// Keep nil untyped - see comment for interfaces, above.
 		return Typ[UntypedNil], constant.Value{}, 0
 	case *Wrapper:
+		if u.isTransparent() {
+			// Plutonium: volatile[T] and aligned[T, N] take what T
+			// takes, so an untyped value becomes a T (spec sections
+			// 7.15 and 7.16).
+			return check.implicitTypeAndValue(x, u.elem)
+		}
 		// Plutonium: owned, shared, synced and weak are nil when empty.
 		if !u.IsBox() || !x.isNil() {
 			return nil, constant.Value{}, InvalidUntypedConversion

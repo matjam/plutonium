@@ -1,0 +1,5 @@
+$DIR/main.p:12:25: cannot use 300 (untyped int constant) as volatile[uint8] value in variable declaration (overflows)
+$DIR/main.p:14:27: cannot use 1.5 (untyped float constant) as aligned[int8, 16] value in variable declaration (truncated)
+$DIR/main.p:16:25: cannot use 1 (untyped int constant) as volatile[Color] value in variable declaration
+$DIR/main.p:20:34: cannot use 1 (untyped int constant) as volatile[bool] value in return statement
+$DIR/main.p:23:4: cannot use -1 (untyped int constant) as aligned[uint16, 8] value in argument to f (overflows)
