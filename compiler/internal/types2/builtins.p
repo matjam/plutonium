@@ -66,6 +66,12 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 	switch id {
 	default:
 		// check all arguments
+		if (id == _Sizeof || id == _Alignof) && len(argList) == 1 {
+			// unsafe.Sizeof and unsafe.Alignof measure the variable an
+			// aligned[T, N] or volatile[T] operand names, not the T it
+			// reads as (spec section 7.16).
+			check.keepWrapper = true
+		}
 		args = check.exprList(argList)
 		nargs = len(args)
 		for _, a := range args {

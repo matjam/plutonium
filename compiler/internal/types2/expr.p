@@ -1045,7 +1045,12 @@ func (check *Checker) rawExpr(T *target, x *operand, e ast.Expr, hint Type, allo
 		x.expr = e
 		return expression
 	}
+	if _, ok := e.(*ast.ParenExpr); ok {
+		// (v) keeps a wrapper as v does, for &(v) and unsafe.Sizeof((v)).
+		check.keepWrapper = keep
+	}
 	kind := check.exprInternal(T, x, e, hint)
+	check.keepWrapper = false
 	check.leave()
 
 	if !allowGeneric {
