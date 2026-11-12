@@ -74,9 +74,9 @@ func (s *seqSolver) solve(t task, rec Recorder) outcome {
 
 // recordingWorker is a worker's view of the program with its reads of
 // facts recorded. Deferred calls and CanRead are decided from the EIR and
-// the call graph, which the cache's digest covers, so they are not. The
-// recorder outlives the solve, so what it records goes to the caller's
-// memory.
+// the call graph, which the cache's digest covers, so they are not. What the
+// recorder records stays in the solve's scratch memory: the recorder is
+// sealed into a digest before that memory is freed (solveStep).
 type recordingWorker struct {
 	*worker
 	rec Recorder
@@ -84,48 +84,36 @@ type recordingWorker struct {
 
 func (w recordingWorker) HeapOnly(T types2.Type, field int) bool {
 	h := w.worker.HeapOnly(T, field)
-	r := scratch.Outer()
 	w.rec.HeapOnly(T, field, h)
-	r.Restore()
 	return h
 }
 
 func (w recordingWorker) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
 	types, known := w.worker.Instantiated(tp)
-	r := scratch.Outer()
 	w.rec.Instantiated(tp, types, known)
-	r.Restore()
 	return types, known
 }
 
 func (w recordingWorker) Methods(t types2.Type, m *types2.Func) []eir.FuncID {
 	ids := w.worker.Methods(t, m)
-	r := scratch.Outer()
 	w.rec.Methods(t, m, ids)
-	r.Restore()
 	return ids
 }
 
 func (w recordingWorker) PointerWrappers(u types2.Type) ([]types2.Type, bool) {
 	types, known := w.worker.PointerWrappers(u)
-	r := scratch.Outer()
 	w.rec.PointerWrappers(u, types, known)
-	r.Restore()
 	return types, known
 }
 
 func (w recordingWorker) Retyped(u, v types2.Type) bool {
 	ok := w.worker.Retyped(u, v)
-	r := scratch.Outer()
 	w.rec.Retyped(u, v, ok)
-	r.Restore()
 	return ok
 }
 
 func (w recordingWorker) Contract(name string) (*summary.Summary, bool) {
 	s, ok := w.worker.Contract(name)
-	r := scratch.Outer()
 	w.rec.Contract(name, s, ok)
-	r.Restore()
 	return s, ok
 }

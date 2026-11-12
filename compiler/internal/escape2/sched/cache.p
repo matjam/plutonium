@@ -57,6 +57,10 @@ type Recorder interface {
 	Methods(t types2.Type, m *types2.Func, ids []eir.FuncID)
 	PointerWrappers(u types2.Type, types []types2.Type, known bool)
 	Retyped(u, v types2.Type, ok bool)
+	// Seal ends the recording, at the end of the solve and in its scratch
+	// memory, where the records were made: the recorder keeps only what
+	// Solved and Matches need of them.
+	Seal()
 }
 
 // CacheView is what the cache reads of the run.

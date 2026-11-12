@@ -50,7 +50,12 @@ type solveStep struct {
 	out outcome // the copy
 }
 
-func (s *solveStep) ScratchWork() { s.o = s.w.run(s.t) }
+func (s *solveStep) ScratchWork() {
+	s.o = s.w.run(s.t)
+	if s.w.rec != nil {
+		s.w.rec.Seal()
+	}
+}
 
 func (s *solveStep) ScratchKeep() {
 	o := &s.o

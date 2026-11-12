@@ -252,12 +252,12 @@ func (c *Cache) Recorder(eir.FuncID) sched.Recorder { return c.newRecorder() }
 
 // Solved implements sched.Cache.
 func (c *Cache) Solved(id eir.FuncID, r sched.Recorder) {
-	c.read[id], c.readOK[id] = r.(*recorder).sum(), true
+	c.read[id], c.readOK[id] = r.(*recorder).readDigest(), true
 }
 
 // Matches implements sched.Cache.
 func (c *Cache) Matches(id eir.FuncID, r sched.Recorder) bool {
-	return r.(*recorder).sum() == c.loaded[id]
+	return r.(*recorder).readDigest() == c.loaded[id]
 }
 
 func pkgOf(f *eir.Func) string {

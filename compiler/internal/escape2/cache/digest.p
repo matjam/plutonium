@@ -6,6 +6,7 @@ import (
 	"compiler/compat"
 	"compiler/internal/escape2/eir"
 	"compiler/internal/escape2/summary"
+	"compiler/internal/scratch"
 	"compiler/internal/types2"
 	"compiler/pu"
 	"pluto/slices"
@@ -70,11 +71,14 @@ func (c *Cache) typeKey(T types2.Type) string {
 	if s, ok := c.types[T]; ok {
 		return s
 	}
+	// A recorder runs in a solve's scratch memory; the memo outlives it.
+	o := scratch.Outer()
 	s := typeString(T)
 	if n, ok := T.(*types2.Named); ok {
 		s = compat.Concat(s, compat.Concat(" = ", typeString(n.Underlying())))
 	}
 	c.types[T] = s
+	o.Restore()
 	return s
 }
 
@@ -234,7 +238,9 @@ func (c *Cache) sumDigest(s *summary.Summary) digest {
 	b, _ := appendSummary(nil, c.paths, s, c.idOrName)
 	h.bytes(b)
 	d := h.sum()
+	o := scratch.Outer()
 	c.sums[s] = d
+	o.Restore()
 	return d
 }
 
@@ -242,8 +248,12 @@ func (c *Cache) sumDigest(s *summary.Summary) digest {
 // the stage B facts and the contract table.
 // Each distinct question is written once, sorted, so the digest does not
 // depend on how often or in what order the solve asked.
+// The records are made in the solve's scratch memory and dropped when the
+// recorder is sealed: only the digest outlives the solve.
 type recorder struct {
 	c        *Cache
+	d        digest
+	sealed   bool
 	heap     map[heapQ]bool
 	contract map[string]*summary.Summary // nil: no entry
 	inst     map[*types2.TypeParam]instA
@@ -270,15 +280,37 @@ type heapQ struct {
 	field int
 }
 
-func (c *Cache) newRecorder() *recorder {
-	return pu.New(recorder{c: c, heap: map[heapQ]bool{}, contract: map[string]*summary.Summary{}, inst: map[*types2.TypeParam]instA{}, methods: map[methQ][]eir.FuncID{}, wrappers: map[types2.Type]instA{}, retyped: map[[2]types2.Type]bool{}})
+func (c *Cache) newRecorder() *recorder { return pu.New(recorder{c: c}) }
+
+// open makes the record tables, in the memory of the solve that records.
+func (r *recorder) open() {
+	if r.heap == nil {
+		r.heap, r.contract, r.inst = map[heapQ]bool{}, map[string]*summary.Summary{}, map[*types2.TypeParam]instA{}
+		r.methods, r.wrappers, r.retyped = map[methQ][]eir.FuncID{}, map[types2.Type]instA{}, map[[2]types2.Type]bool{}
+	}
+}
+
+// Seal implements sched.Recorder.
+func (r *recorder) Seal() {
+	r.d, r.sealed = r.sum(), true
+	r.heap, r.contract, r.inst, r.methods, r.wrappers, r.retyped = nil, nil, nil, nil, nil, nil
+}
+
+// readDigest is the digest of what the solve read.
+func (r *recorder) readDigest() digest {
+	if r.sealed {
+		return r.d
+	}
+	return r.sum()
 }
 
 func (r *recorder) HeapOnly(T types2.Type, field int, heap bool) {
+	r.open()
 	r.heap[heapQ{T, field}] = heap
 }
 
 func (r *recorder) Instantiated(tp *types2.TypeParam, types []types2.Type, known bool) {
+	r.open()
 	if _, ok := r.inst[tp]; ok {
 		return
 	}
@@ -291,10 +323,12 @@ func (r *recorder) Instantiated(tp *types2.TypeParam, types []types2.Type, known
 }
 
 func (r *recorder) Methods(t types2.Type, m *types2.Func, ids []eir.FuncID) {
+	r.open()
 	r.methods[methQ{t, m}] = ids
 }
 
 func (r *recorder) PointerWrappers(u types2.Type, types []types2.Type, known bool) {
+	r.open()
 	a := instA{known: known}
 	for _, T := range types {
 		a.types = compat.Append(a.types, r.c.typeKey(T))
@@ -304,10 +338,12 @@ func (r *recorder) PointerWrappers(u types2.Type, types []types2.Type, known boo
 }
 
 func (r *recorder) Retyped(u, v types2.Type, ok bool) {
+	r.open()
 	r.retyped[[2]types2.Type{u, v}] = ok
 }
 
 func (r *recorder) Contract(name string, s *summary.Summary, ok bool) {
+	r.open()
 	if !ok {
 		s = nil
 	}
