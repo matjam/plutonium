@@ -795,7 +795,7 @@ func (s *fnState) receiverAt(cur lvalue, wantPtr bool, path []int) value {
 		if cur.nilOff != 0 {
 			cur = s.nilGuard(cur)
 		}
-		return scalarValue(s.absAddr(cur.ptr), types2.NewPointer(cur.T))
+		return scalarValue(s.placeAddr(cur), types2.NewPointer(cur.T))
 	}
 	return s.loadLV(cur)
 }

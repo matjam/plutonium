@@ -1,4 +1,4 @@
-$DIR/main.p:53:10: packed field a is an array that does not start on a byte boundary, whose elements are byte-swapped, or in a volatile value
+$DIR/main.p:31:10: packed field h is an array in big-endian storage whose element bytes the spec does not order
     The program is valid, but this compiler cannot compile this construct yet.
     It stops with an error rather than produce wrong code.
     Rewrite the code without the construct, or check whether a newer compiler
@@ -6,17 +6,11 @@ $DIR/main.p:53:10: packed field a is an array that does not start on a byte boun
     (see "No silent failures" in the Plutonium spec, section 21.2)
     (run "pluto explain E2500" for a longer explanation)
 
-$DIR/main.p:53:18: packed field h is an array that does not start on a byte boundary, whose elements are byte-swapped, or in a volatile value
+$DIR/main.p:31:18: packed field a is an array in big-endian storage whose element bytes the spec does not order
     (explained above; run "pluto explain E2500" for more)
 
-$DIR/main.p:53:26: packed field a is an array that does not start on a byte boundary, whose elements are byte-swapped, or in a volatile value
+$DIR/main.p:32:7: the address of a packed field that is not plain memory cannot be taken
     (explained above; run "pluto explain E2500" for more)
 
-$DIR/main.p:53:34: packed field of 64 bits at bit 4 cannot be accessed
-    (explained above; run "pluto explain E2500" for more)
-
-$DIR/main.p:53:39: packed field i is a big-endian integer that does not start on a byte boundary
-    (explained above; run "pluto explain E2500" for more)
-
-$DIR/main.p:53:46: packed field a is an array that does not start on a byte boundary, whose elements are byte-swapped, or in a volatile value
+$DIR/main.p:33:7: the address of a packed field that is not plain memory cannot be taken
     (explained above; run "pluto explain E2500" for more)

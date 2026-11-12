@@ -391,6 +391,10 @@ func (s *fnState) indexRaw(e *ast.IndexExpr) lvalue {
 		} else {
 			arr = s.lvRaw(e.X)
 		}
+		if arr.bits != nil {
+			// An array field of a packed type that is not plain memory.
+			return s.packedIndex(arr, u, e)
+		}
 		i := s.indexValue(e.Index)
 		c, isConst := constIndex(s.info, e.Index)
 		if !isConst || c < 0 || c >= u.Len() {
@@ -400,7 +404,7 @@ func (s *fnState) indexRaw(e *ast.IndexExpr) lvalue {
 			s.boundsCheck(i, s.constInt(ssa.TI64, u.Len()), e.Index.Pos())
 		}
 		elem := s.subst(u.Elem())
-		lv := lvalue{ptr: s.elemAddr(arr.ptr, i, u.Elem()), T: elem, stable: arr.stable}
+		lv := lvalue{ptr: s.elemAddr(arr.ptr, i, u.Elem()), T: elem, stable: arr.stable, win: arr.win}
 		if s.staticLocalAddress(arr.ptr) && (isConst && c >= 0 && c < u.Len() || s.f.Pragmas&ssa.PragmaNoBounds == 0) {
 			if s.shutdownLocal == nil {
 				s.shutdownLocal = map[*ssa.Value]bool{}
@@ -683,7 +687,7 @@ func isAddressable(e ast.Expr, info *types2.Info) bool {
 func (s *fnState) unary(e *ast.UnaryExpr, T types2.Type) value {
 	switch e.Op {
 	case token.AND:
-		return scalarValue(s.absAddr(s.lv(e.X).ptr), T)
+		return scalarValue(s.placeAddr(s.lv(e.X)), T)
 	case token.ADD:
 		return s.expr(e.X)
 	case token.SUB:
@@ -1155,7 +1159,7 @@ func (s *fnState) sliceExpr(e *ast.SliceExpr, T types2.Type) value {
 		// have its length and no memory.
 		lv := s.lvRaw(e.X)
 		nilBase, nilPos = lv.nilBase, lv.nilPos
-		base = s.absAddr(lv.ptr)
+		base = s.placeAddr(lv)
 		length = s.constInt(ssa.TI64, u.Len())
 		capacity = length
 		elem = u.Elem()

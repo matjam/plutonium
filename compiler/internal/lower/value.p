@@ -51,6 +51,19 @@ type lvalue struct {
 	nilBase *ssa.Value
 	nilOff  int64
 	nilPos  token.Pos
+
+	// win is non-nil when ptr points into a copy of a packed field that
+	// has no place of its own in the storage (packed.go): reading the
+	// lvalue fills the copy from the field first, and writing it stores
+	// the copy back.
+	win *packedWindow
+}
+
+// A packedWindow is a temporary holding the value of a packed field in the
+// layout a variable of its type has.
+type packedWindow struct {
+	src lvalue     // the field
+	tmp *ssa.Value // the temporary, of type src.bits.T
 }
 
 // A bitRef locates a packed field inside its container's storage.
@@ -92,6 +105,9 @@ func (s *fnState) loadLV(lv lvalue) value {
 	if lv.elem != nil {
 		return s.containerLoad(lv.elem)
 	}
+	if lv.win != nil || lv.bits != nil && s.l.scalarType(lv.bits.T) == nil {
+		return s.loadPackedPart(lv)
+	}
 	if lv.bits != nil {
 		return scalarValue(s.loadBits(lv), lv.bits.T)
 	}
@@ -128,6 +144,10 @@ func (s *fnState) storeLV(lv lvalue, val value) {
 	lv = s.nilGuard(lv)
 	if lv.elem != nil {
 		s.containerStore(lv.elem, val)
+		return
+	}
+	if lv.win != nil || lv.bits != nil && s.l.scalarType(lv.bits.T) == nil {
+		s.storePackedPart(lv, val)
 		return
 	}
 	s.staticWriteType(lv.ptr, lv.T)
