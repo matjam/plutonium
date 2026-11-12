@@ -144,6 +144,13 @@ func (check *Checker) initConst(lhs *Const, x *operand) {
 
 	// If the lhs doesn't have a type yet, use the type of x.
 	if lhs.typ == nil {
+		if IsOwner(x.typ()) {
+			// Plutonium: a constant never needs an owner (spec
+			// section 10.6).
+			check.errorf(x, InvalidConstType, "invalid constant type %s: a constant cannot have an owner type", x.typ())
+			lhs.typ = Typ[Invalid]
+			return
+		}
 		lhs.typ = x.typ()
 	}
 

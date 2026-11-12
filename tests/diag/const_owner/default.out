@@ -1,0 +1,11 @@
+$DIR/main.p:10:9: invalid constant type F: a constant cannot have an owner type
+    This error occurs when the underlying type in a const declaration is not a
+    valid constant type.
+    (see "Constant declarations" in the Plutonium spec, section 10.6)
+    (run "pluto explain E0015" for a longer explanation)
+
+$DIR/main.p:13:4: invalid constant type Frame: a constant cannot have an owner type
+    (explained above; run "pluto explain E0015" for more)
+
+$DIR/main.p:17:11: invalid constant type F: a constant cannot have an owner type
+    (explained above; run "pluto explain E0015" for more)

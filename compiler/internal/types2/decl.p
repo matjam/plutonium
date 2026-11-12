@@ -396,6 +396,16 @@ func (check *Checker) constDecl(obj *Const, typ, init ast.Expr, inherited bool) 
 			obj.typ = Typ[Invalid]
 			return
 		}
+		if IsOwner(t) {
+			// Plutonium: a constant never needs an owner (spec
+			// section 10.6). A constant of an iota group that repeats
+			// the type is not reported again.
+			if !inherited {
+				check.errorf(typ, InvalidConstType, "invalid constant type %s: a constant cannot have an owner type", t)
+			}
+			obj.typ = Typ[Invalid]
+			return
+		}
 		obj.typ = t
 	}
 

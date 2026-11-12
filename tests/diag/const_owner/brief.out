@@ -1,0 +1,3 @@
+$DIR/main.p:10:9: invalid constant type F: a constant cannot have an owner type
+$DIR/main.p:13:4: invalid constant type Frame: a constant cannot have an owner type
+$DIR/main.p:17:11: invalid constant type F: a constant cannot have an owner type
