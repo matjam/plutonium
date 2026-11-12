@@ -1034,6 +1034,79 @@ type applyOpts struct {
 	held *lockset
 }
 
+// crossLits applies, at a call to f in another unit, each literal of this
+// unit that a function of another unit calls through a func value. That
+// call cannot supply the literal's captures (capArgs), so the literal
+// counts as called here, under the locks held here, when f may reach the
+// function that calls it: a literal that captures variables cannot outlive
+// its creator's frame (section 12.12), so it can only be called during a
+// call its unit makes.
+func (w *walker) crossLits(f *function, pos token.Pos, base *state) {
+	if w.fn == nil || w.u == nil || f.unit == w.u {
+		return
+	}
+	for _, l := range w.u.fns {
+		if l.lit != nil && l.crossCalled && l.sum != nil && len(l.caps) > 0 && reachesUnit(f.unit, l.crossBy) {
+			w.apply(l, nil, pos, l.name, base, nil)
+		}
+	}
+}
+
+// reachesUnit reports whether a call into unit u may reach one of the
+// units in by, through the call graph; a nil entry, or a nil u, may be
+// reached from anywhere.
+func reachesUnit(u *unit, by map[*unit]bool) bool {
+	if u == nil || by[nil] {
+		return true
+	}
+	seen := map[*unit]bool{}
+	work := compat.Clone([]*unit{u})
+	for len(work) > 0 {
+		x := work[len(work)-1]
+		work = work[:len(work)-1]
+		if seen[x] {
+			continue
+		}
+		seen[x] = true
+		if by[x] || x.dynAll {
+			return true
+		}
+		for c := range x.callee {
+			if c == nil {
+				return true
+			}
+			work = compat.Append(work, c)
+		}
+	}
+	return false
+}
+
+// capAssigned gives the variables that literal f assigns (assignCap) the
+// values it assigns at this call, in the caller's terms.
+func (w *walker) capAssigned(f *function, args []origins) {
+	if f.lit == nil || len(f.capVals) == 0 || w.fn == nil || w.fn.unit != f.unit {
+		return
+	}
+	for _, v := range f.caps {
+		vals := f.capVals[v]
+		if len(vals) == 0 || !w.declares(v) {
+			continue
+		}
+		var out origins
+		for _, o := range vals {
+			for _, p := range substitute(o.vp, args) {
+				out = origins(compat.Append(out, origin{vp: p, tag: o.tag}))
+			}
+		}
+		out = out.uniq()
+		if w.isCapture(v) {
+			w.assignCap(v, out)
+		} else {
+			w.setVar(v, out)
+		}
+	}
+}
+
 // apply applies f's summary to a call with args (receiver first), made in
 // state base, and returns the results' origins and the state after it.
 func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, base *state, opts *applyOpts) ([]origins, *state) {
@@ -1064,6 +1137,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 	if unknown || base.dead {
 		return nil, after
 	}
+	w.crossLits(f, pos, base)
 	if w.u != nil && f.unit != nil && f.unit != w.u {
 		// The walk reads f's summary: when it changes, w.u is walked again.
 		if f.unit.users == nil {
@@ -1091,6 +1165,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 		}
 	}
 	args = full
+	w.capAssigned(f, args)
 	fr := frame{pos: pos, callee: name}
 	if w.quiet == 0 {
 		// What the callee does with what its parameters reach depends on

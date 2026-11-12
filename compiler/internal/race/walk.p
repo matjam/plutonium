@@ -1074,7 +1074,11 @@ func (w *walker) assignTo(lhs ast.Expr, val origins, pos token.Pos) {
 				w.newScope(v)
 			}
 			w.cpuCarry(v, val, id.Pos())
-			w.setVar(v, val)
+			if w.isCapture(v) {
+				w.assignCap(v, val)
+			} else {
+				w.setVar(v, val)
+			}
 			held := w.st.locks
 			if pv != nil {
 				held = held.meet(*pv)
@@ -2215,10 +2219,59 @@ func (w *walker) fieldValue(ps places, e *ast.SelectorExpr) origins {
 func (w *walker) varValue(v *types2.Var) origins {
 	if w.frame == nil && w.inlined == 0 && w.fn != nil && w.fn.lit != nil {
 		if k := w.fn.capIdx(v); k >= 0 {
-			return compat.Clone(origins{{vp: vpath{root: root{kind: rParam, idx: k}}}})
+			// What the caller supplies, and what the literal itself
+			// assigns to the variable (assignCap).
+			out := compat.Clone(origins{{vp: vpath{root: root{kind: rParam, idx: k}}}})
+			out.addAll(w.fn.capVals[v])
+			return out
 		}
 	}
 	return w.u.vars[v]
+}
+
+// isCapture reports whether v is a variable that the literal being walked
+// for its own summary captures.
+func (w *walker) isCapture(v *types2.Var) bool {
+	return w.frame == nil && w.inlined == 0 && w.fn != nil && w.fn.lit != nil && w.fn.capIdx(v) >= 0
+}
+
+// assignCap records val, in this walk's terms, as a value of variable v
+// that the literal being walked captures (section 19.3, Locks and names: a
+// capture that a literal assigns carries no name). Its own later uses see
+// it (varValue), and so does the function that declares v, in its terms:
+// a captured variable's value is the caller's (capOuter).
+func (w *walker) assignCap(v *types2.Var, val origins) {
+	f := w.fn
+	if f.capVals == nil {
+		f.capVals = map[*types2.Var]origins{}
+	}
+	cur := f.capVals[v]
+	if cur.addAll(val) {
+		f.capVals[v] = cur
+		w.u.grew = true
+	}
+	w.setVar(v, w.capOuter(f, val, token.NoPos))
+}
+
+// capOuter rewrites values in the terms of literal f's walk into the terms
+// of the functions of its unit: a captured variable's value is that
+// variable's, and a value from one of f's own parameters, which the unit
+// cannot see, is unknown memory.
+func (w *walker) capOuter(f *function, val origins, pos token.Pos) origins {
+	args := compat.Make[origins](len(f.params) + len(f.caps))
+	for i := range f.params {
+		args[i] = compat.Clone(origins{{vp: vpath{root: root{kind: rUnknown, pos: pos, idx: i}}}})
+	}
+	for k, c := range f.caps {
+		args[len(f.params)+k] = w.u.vars[c]
+	}
+	var out origins
+	for _, o := range val {
+		for _, p := range substitute(o.vp, args) {
+			out = origins(compat.Append(out, origin{vp: p, tag: o.tag}))
+		}
+	}
+	return out.uniq()
 }
 
 // capArgs returns args, the arguments of a call of f, followed by the
@@ -2231,7 +2284,28 @@ func (w *walker) capArgs(f *function, args []origins) []origins {
 	if w.fn == nil || w.fn.unit != f.unit {
 		// Called through a func value from another unit: the captured
 		// variables are the creating function's, which this walk cannot
-		// see.
+		// see. The creating unit applies the literal instead at each call
+		// it makes into another unit (crossLits).
+		// The runtime calls through func values only those its own
+		// package variables hold, which cannot hold a literal that
+		// captures variables (section 12.12).
+		if w.fn != nil && w.inRuntime() {
+			return args
+		}
+		var by *unit
+		if w.fn != nil {
+			by = w.fn.unit
+		}
+		if !f.crossCalled || !f.crossBy[by] {
+			f.crossCalled = true
+			if f.crossBy == nil {
+				f.crossBy = map[*unit]bool{}
+			}
+			f.crossBy[by] = true
+			if w.a.dirty != nil && f.unit != nil {
+				w.a.dirty[f.unit] = true
+			}
+		}
 		return args
 	}
 	out := compat.Make[origins](len(f.params) + len(f.caps))

@@ -151,8 +151,18 @@ type function struct {
 	// its walk, the value of caps[k] is that of a parameter numbered
 	// len(params)+k, which the caller supplies (capArgs).
 	caps []*types2.Var
-	pkg  *load.Package
-	unit *unit
+	// capVals holds what the literal assigns to its captures, in the
+	// terms of its own walk (assignCap).
+	capVals map[*types2.Var]origins
+	// crossCalled is set when a function of another unit calls the
+	// literal through a func value, which cannot supply its captures
+	// (capArgs).
+	crossCalled bool
+	// crossBy holds the units whose walks made those calls (nil: a
+	// walk outside any unit).
+	crossBy map[*unit]bool
+	pkg     *load.Package
+	unit    *unit
 
 	inits   bool // a package's variable initialisers and init functions
 	program bool // the whole program: every package's initialisation, then main
@@ -195,6 +205,9 @@ type analyzer struct {
 	applyMemo map[applyKey]*applyMemo
 	prog      *load.Program
 	fset      *token.FileSet
+
+	// dirty holds the units run walks again (run).
+	dirty map[*unit]bool
 
 	scoped *scoped.Info // the scoped tasks of sync.Scope (scope.go)
 	moves  *moves.Info  // what moves, for the uses of scoped tasks
@@ -822,6 +835,7 @@ func (a *analyzer) run() {
 		}
 	}
 	dirty := map[*unit]bool{}
+	a.dirty = dirty
 	for u := range a.reach {
 		dirty[u] = true
 	}
