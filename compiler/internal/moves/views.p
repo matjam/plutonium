@@ -1331,13 +1331,29 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 			out = compat.Append(out, notAddr(whole(f.viewsOf(u.X)))...)
 			return
 		}
-		for _, w := range whole(f.viewsTo(val, T)) {
+		ws := whole(f.viewsTo(val, T))
+		// The one literal the callee may be, when its views name one: the
+		// holds of a literal it uses name another (funcLitViews).
+		var only *ast.FuncLit
+		several := false
+		for _, w := range ws {
+			if w.lit != nil && only == nil && !several {
+				only = w.lit
+			}
+			if w.lit != nil && w.lit != only {
+				only, several = nil, true
+			}
+		}
+		for _, w := range ws {
 			if w.lit != nil {
 				if key != call.Fun || T != nil {
 					if af == nil || af.Returned {
 						out = compat.Append(out, w) // the literal itself, passed on
 					}
 					continue
+				}
+				if w.lit == only && !f.litReturns(only, w.of) {
+					continue // nothing obtained from w.of reaches a return
 				}
 				// What calling the literal returns may be a view of a variable
 				// it uses, or of what that variable holds (section 18.3).

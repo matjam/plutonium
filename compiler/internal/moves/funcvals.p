@@ -58,6 +58,256 @@ func (f *fn) litResultViews(call *ast.CallExpr, u *types2.Var) []view {
 	return out
 }
 
+// plainValue reports whether a value of type T holds no reference at all:
+// a number, a bool or a string, or a tuple of them.
+func plainValue(T types2.Type) bool {
+	if T == nil {
+		return false
+	}
+	if tu, ok := T.(*types2.Tuple); ok {
+		for i := 0; i < tu.Len(); i++ {
+			if !plainValue(tu.At(i).Type()) {
+				return false
+			}
+		}
+		return true
+	}
+	if _, tp := types2.Unalias(T).(*types2.TypeParam); tp {
+		return false
+	}
+	b, ok := T.Underlying().(*types2.Basic)
+	return ok && b.Kind() != types2.UnsafePointer
+}
+
+// litReturns reports whether what calling lit returns may hold the
+// variable u it uses, or something obtained from u. The body is followed
+// from u through the literal's own variables to its return statements; a
+// value obtained from u that goes anywhere else, or into a call that may
+// store it, counts as returned (section 18.3).
+func (f *fn) litReturns(lit *ast.FuncLit, u *types2.Var) bool {
+	own := func(v *types2.Var) bool { return v != nil && v != u && lit.Pos() <= v.Pos() && v.Pos() < lit.End() }
+	from := map[*types2.Var]bool{u: true}
+	var carries, mentions func(e ast.Expr) bool
+	carries = func(e ast.Expr) bool {
+		if e == nil || plainValue(f.c.typeOf(e)) {
+			return false
+		}
+		return mentions(e)
+	}
+	mentions = func(e ast.Expr) bool {
+		switch x := ast.Unparen(e).(type) {
+		case *ast.Ident:
+			v := f.varOf(x)
+			return v != nil && from[v]
+		case *ast.BasicLit:
+			return false
+		case *ast.SelectorExpr:
+			if f.c.selections[x] == nil {
+				return mentions(x.Sel)
+			}
+			return mentions(x.X)
+		case *ast.IndexExpr:
+			return mentions(x.X)
+		case *ast.IndexListExpr:
+			return mentions(x.X)
+		case *ast.SliceExpr:
+			return mentions(x.X)
+		case *ast.StarExpr:
+			return mentions(x.X)
+		case *ast.UnaryExpr:
+			return mentions(x.X)
+		case *ast.TypeAssertExpr:
+			return mentions(x.X)
+		case *ast.BinaryExpr:
+			return carries(x.X) || carries(x.Y)
+		case *ast.KeyValueExpr:
+			return carries(x.Value)
+		case *ast.CompositeLit:
+			for _, el := range x.Elts {
+				if carries(el) {
+					return true
+				}
+			}
+			return false
+		case *ast.CallExpr:
+			tv := f.c.types[x.Fun]
+			if !tv.IsType() && !tv.IsBuiltin() {
+				if f.c.staticCallee(x) == nil {
+					return true // a func value or an interface method
+				}
+				if se, ok := ast.Unparen(x.Fun).(*ast.SelectorExpr); ok && f.c.selections[se] != nil && mentions(se.X) {
+					return true
+				}
+			}
+			for _, a := range x.Args {
+				if carries(a) {
+					return true
+				}
+			}
+			return false
+		}
+		return true
+	}
+	// rootOwn returns the literal's own variable whose storage e is, or nil.
+	rootOwn := func(e ast.Expr) *types2.Var {
+		for {
+			switch x := ast.Unparen(e).(type) {
+			case *ast.Ident:
+				if v := f.varOf(x); own(v) {
+					return v
+				}
+				return nil
+			case *ast.SelectorExpr:
+				sel := f.c.selections[x]
+				if sel == nil || sel.Kind() != types2.FieldVal || sel.Indirect() {
+					return nil
+				}
+				e = x.X
+			case *ast.IndexExpr:
+				T := f.c.typeOf(x.X)
+				if T == nil {
+					return nil
+				}
+				if _, ok := T.Underlying().(*types2.Array); !ok {
+					return nil
+				}
+				e = x.X
+			default:
+				return nil
+			}
+		}
+	}
+	lost, returned, changed := false, false, false
+	mark := func(lhs ast.Expr) {
+		if id, ok := ast.Unparen(lhs).(*ast.Ident); ok && id.Name == "_" || plainValue(f.c.typeOf(lhs)) {
+			return
+		}
+		v := rootOwn(lhs)
+		if v == nil {
+			lost = true
+			return
+		}
+		if !from[v] {
+			from[v], changed = true, true
+		}
+	}
+	assign := func(lhs, rhs []ast.Expr) {
+		if len(lhs) == len(rhs) {
+			for i := range lhs {
+				if carries(rhs[i]) {
+					mark(lhs[i])
+				}
+			}
+			return
+		}
+		for _, r := range rhs {
+			if carries(r) {
+				for _, l := range lhs {
+					mark(l)
+				}
+			}
+		}
+	}
+	// stores follows a call given something obtained from u: it may store
+	// that into memory any of its other inputs reaches.
+	stores := func(call *ast.CallExpr) {
+		tv := f.c.types[call.Fun]
+		if tv.IsType() {
+			return
+		}
+		if tv.IsBuiltin() {
+			id, _ := ast.Unparen(call.Fun).(*ast.Ident)
+			for _, a := range call.Args {
+				if carries(a) && (id == nil || id.Name == "panic" || id.Name == "copy") {
+					lost = true // append, len, min and the rest store into nothing
+				}
+			}
+			return
+		}
+		static := f.c.staticCallee(call) != nil
+		se := funSelector(call.Fun)
+		f.eachArg(call, func(key, val ast.Expr, _ types2.Type) {
+			if lost || !carries(val) {
+				return
+			}
+			af := f.c.calls.Arg(key)
+			if !static || af == nil || af.Kept {
+				lost = true // a func value may store into anything it holds
+				return
+			}
+			if _, kept := f.c.calleeKeeps(call, key); kept {
+				lost = true
+				return
+			}
+			for _, in := range af.Into {
+				if in.Arg == nil {
+					lost = true
+					continue
+				}
+				switch ad, _ := ast.Unparen(in.Arg).(*ast.UnaryExpr); {
+				case ad != nil && ad.Op == token.AND && rootOwn(ad.X) != nil:
+					mark(ad.X)
+				case se != nil && in.Arg == se.X && rootOwn(se.X) != nil:
+					mark(se.X) // the receiver, whose address a pointer method takes
+				default:
+					lost = true
+				}
+			}
+		})
+	}
+	bare := false
+	for {
+		changed = false
+		ast.Inspect(lit.Body, func(n ast.Node) bool {
+			switch s := n.(type) {
+			case *ast.AssignStmt:
+				assign(s.Lhs, s.Rhs)
+			case *ast.ValueSpec:
+				var lhs []ast.Expr
+				for _, id := range s.Names {
+					lhs = compat.Append(lhs, ast.Expr(id))
+				}
+				assign(lhs, s.Values)
+			case *ast.RangeStmt:
+				if carries(s.X) {
+					if s.Key != nil {
+						mark(s.Key)
+					}
+					if s.Value != nil {
+						mark(s.Value)
+					}
+				}
+			case *ast.SendStmt:
+				lost = lost || carries(s.Value)
+			case *ast.ReturnStmt:
+				bare = bare || len(s.Results) == 0
+				for _, r := range s.Results {
+					returned = returned || carries(r)
+				}
+			case *ast.CallExpr:
+				stores(s)
+			}
+			return true
+		})
+		if lost || returned {
+			return true
+		}
+		if !changed {
+			break
+		}
+	}
+	if bare && lit.Type.Results != nil {
+		for _, fl := range lit.Type.Results.List {
+			for _, id := range fl.Names {
+				if v := f.varOf(id); v != nil && from[v] {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // A litEffect is what calling a function value may do to a local variable
 // of this function: free memory or move an owner out of the part at part
 // (nil for all of it), or reset or release the checked arena there.
