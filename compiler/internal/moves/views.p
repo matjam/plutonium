@@ -74,6 +74,15 @@ type view struct {
 	// look at memory the owner frees through it, and storing it keeps a
 	// view as storing the view itself does.
 	lowns bool
+	// lit: the view is a function literal's hold on a variable it uses,
+	// which it reads by reference when it is called (section 11.4): a
+	// view of the variable itself, which a move, drop or the end of its
+	// scope ends, and which marks what holds it as holding the literal
+	// (funcvals.p).
+	lit *ast.FuncLit
+	// litSets: the literal only gives the variable new values (v = x), so
+	// it does not read it and no event of the variable ends the hold.
+	litSets bool
 }
 
 // A pinMark records that a view of an owner went where the walk cannot
@@ -114,6 +123,9 @@ func (w view) key() string {
 	}
 	if w.lowns {
 		k = compat.Concat(k, "|lowns")
+	}
+	if w.lit != nil {
+		k = compat.Concat(k, "|lit")
 	}
 	return k
 }
@@ -478,23 +490,49 @@ func (f *fn) viewsOf(e ast.Expr) []view {
 }
 
 // funcLitViews returns the views a function literal holds: those the local
-// variables it uses hold where it is made. Calling it reads them.
+// variables it uses hold where it is made, which calling it reads, and its
+// hold on each of those variables that may lead to an owner (view.lit).
 func (f *fn) funcLitViews(lit *ast.FuncLit) []view {
 	var out []view
-	seen := map[*types2.Var]bool{}
+	// A variable the literal only gives a new value, v = x, is not read
+	// by it: calling it after v was moved is valid (section 18.5).
+	assigned := map[*ast.Ident]bool{}
+	ast.Inspect(lit.Body, func(n ast.Node) bool {
+		if as, ok := n.(*ast.AssignStmt); ok && as.Tok == token.ASSIGN {
+			for _, l := range as.Lhs {
+				if id, ok := ast.Unparen(l).(*ast.Ident); ok {
+					assigned[id] = true
+				}
+			}
+		}
+		return true
+	})
+	var order []*types2.Var
+	read := map[*types2.Var]bool{}
 	ast.Inspect(lit.Body, func(n ast.Node) bool {
 		id, ok := n.(*ast.Ident)
 		if !ok {
 			return true
 		}
 		v := f.varOf(id)
-		if v == nil || seen[v] || !f.vars[v] || !mayView(v.Type()) {
+		if v == nil || !f.vars[v] {
 			return true
 		}
-		seen[v] = true
-		out = compat.Append(out, whole(f.held(v, nil))...)
+		if _, seen := read[v]; !seen {
+			order = compat.Append(order, v)
+			read[v] = false
+			if mayView(v.Type()) {
+				out = compat.Append(out, whole(f.held(v, nil))...)
+			}
+		}
+		read[v] = read[v] || !assigned[id]
 		return true
 	})
+	for _, v := range order {
+		if mayView(v.Type()) || bounds(v.Type()) || cleans(v.Type()) || lendsRef(v.Type()) {
+			out = compat.Append(out, view{of: v, pos: lit.Pos(), text: exprText(lit), itself: true, lit: lit, litSets: !read[v]})
+		}
+	}
 	return out
 }
 
@@ -1056,6 +1094,18 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 			return
 		}
 		for _, w := range whole(f.viewsTo(val, T)) {
+			if w.lit != nil {
+				if key != call.Fun || T != nil {
+					if af == nil || af.Returned {
+						out = compat.Append(out, w) // the literal itself, passed on
+					}
+					continue
+				}
+				// What calling the literal returns may be a view of a variable
+				// it uses, or of what that variable holds (section 18.3).
+				out = compat.Append(out, f.litResultViews(call, w.of)...)
+				continue
+			}
 			w.itself = false // a view obtained from the variable
 			if af != nil && !af.Returned {
 				switch {
@@ -1371,8 +1421,8 @@ func (c *checker) ownedLeaves(T types2.Type) []types2.Type {
 // under, val the value passed (&x for a receiver whose address the call
 // takes) and T the parameter's type, if known.
 func (f *fn) eachArg(call *ast.CallExpr, fn func(key, val ast.Expr, T types2.Type)) {
-	if se := funSelector(call.Fun); se != nil {
-		if sel := f.c.selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
+	if se := funSelector(call.Fun); se != nil && f.c.selections[se] != nil && f.c.selections[se].Kind() == types2.MethodVal {
+		if sel := f.c.selections[se]; sel != nil {
 			recv := methodRecv(sel.Obj().(*types2.Func))
 			val := se.X
 			// A pointer method of what a counted box points to gets the
@@ -1431,11 +1481,12 @@ func (f *fn) storeViews(lhs ast.Expr, vs []view) {
 		// owners of the views of their own storage. The views of what an
 		// owner holds on the heap pin nothing, so they are followed here
 		// as far as the walk sees v: a function literal that uses v holds
-		// them (funcLitViews).
+		// them (funcLitViews). So are the literals v holds, which a call
+		// of v runs (funcValueEffects).
 		f.pin(vs, lhs.Pos(), compat.Concat("stored in ", exprText(lhs)))
 		var heap []view
 		for _, w := range vs {
-			if w.inHeap {
+			if w.inHeap || w.lit != nil {
 				heap = compat.Append(heap, w)
 			}
 		}
@@ -1512,7 +1563,11 @@ func (f *fn) addViews(call *ast.CallExpr, dst ast.Expr, direct, stored bool, vs 
 func (f *fn) pin(vs []view, where token.Pos, how string) {
 	for _, w := range vs {
 		s, ok := f.env[w.of]
-		if ok && s.pin != nil || w.inHeap {
+		if ok && s.pin != nil || w.inHeap || w.lit != nil {
+			// A function literal's hold on a variable is a view of the
+			// frame, which the type rules keep out of memory the walk does
+			// not follow (E3002); a call of it that the walk does not see
+			// is found by the escape analysis's candidates (funcvals.p).
 			continue
 		}
 		s.pin = pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how, lent: w.lent})
@@ -1686,6 +1741,9 @@ func (f *fn) callStores(args []argView) {
 			// were the heap memory of the owner.
 			frees := loadFrees(f.c.typeOf(a.key))
 			for _, w := range a.views {
+				if w.lit != nil {
+					continue // a hold of the frame, which no callee keeps (E3002)
+				}
 				// What is loaded through a view of what the owner holds on
 				// the heap may be an owner the buffer holds, freed with it.
 				// The owner's own storage holds its fields, which the
@@ -1787,7 +1845,14 @@ func (f *fn) invalidate(v *types2.Var, mv move) {
 		s.hpin = nil
 		f.setState(v, s)
 	}
-	f.staleWhere(v, mv, func(w view) bool { return !onlyLent || w.lent })
+	f.staleWhere(v, mv, func(w view) bool {
+		if w.lit != nil {
+			// The literal reads the variable when it is called: a new value
+			// or take leaves the variable where it was (section 11.4).
+			return (!w.litSets || mv.kind == mvScopeEnd) && !onlyLent && mv.kind != mvNewValue && mv.kind != mvTake
+		}
+		return !onlyLent || w.lent
+	})
 }
 
 // invalidatePart records that the part of the owner v at path lost its
@@ -1991,15 +2056,7 @@ func (f *fn) reclaimArgs(call *ast.CallExpr) []reclaimArg {
 		if !ok {
 			return
 		}
-		how := exprText(call)
-		if site.pos != call.Pos() {
-			at := f.c.fset.Position(site.pos)
-			where := compat.Concat("line ", strconv.Itoa(at.Line))
-			if at.Filename != f.c.fset.Position(call.Pos()).Filename {
-				where = compat.Concat(strings.SliceFrom(at.Filename, strings.LastIndexByte(at.Filename, '/')+1), ":", strconv.Itoa(at.Line))
-			}
-			how = compat.Concat(how, " (", site.text, ", ", where, ")")
-		}
+		how := f.c.reclaimHow(call, site)
 		// The arena may be the variable a view looks at, a part of it, or
 		// held in the object of a box it holds: every allocation of the
 		// part the view reaches is taken as reclaimed.

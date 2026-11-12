@@ -1,0 +1,13 @@
+$DIR/main.p:11:11: p holds a view of a (a.New[int](), line 7), which was reclaimed by f() (a.Reset(), line 9) at line 10, so p can no longer be used here
+    p looks at memory that a owns, without owning it: the view was made by
+    a.New[int]() at line 7. A view of a local arena's memory may be used only
+    until Reset or Release reclaims it. At line 10 a was reclaimed by f()
+    (a.Reset(), line 9), so the view may look at memory that was released, or at
+    a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use p before line 10, or call f() (a.Reset(), line 9) only after the last
+    use of p
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

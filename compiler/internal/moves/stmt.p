@@ -761,13 +761,28 @@ func (f *fn) deferUses(st *ast.DeferStmt) {
 			f.deferHolder(st, x)
 		}
 	}
+	lits := false
 	f.eachArg(call, func(key, val ast.Expr, T types2.Type) {
 		for _, w := range f.viewsTo(val, T) {
+			if w.lit != nil {
+				// A literal reached through a field, an element or a call
+				// result: "defer s.f()", "defer fs[0]()", "defer id(lit)()".
+				f.deferLitUses(st, w.lit, deferStored, exprText(val))
+				lits = lits || key == call.Fun
+				continue
+			}
 			if o := f.ownerVar(w.of); o != nil {
 				f.deferMark(st, o, f.firstIdent(val, o), deferView, "")
 			}
 		}
 	})
+	if !lits && f.c.staticCallee(call) == nil {
+		// The walk lost the literals the deferred func value holds: those
+		// of this function the escape analysis says it may reach count.
+		for _, lit := range f.candidateLits(call) {
+			f.deferLitUses(st, lit, deferStored, exprText(call.Fun))
+		}
+	}
 }
 
 // firstIdent returns the first identifier of e that names v, or else the

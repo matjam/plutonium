@@ -237,9 +237,13 @@ func (f *fn) call(e *ast.CallExpr, kind moveKind) {
 	defer f.callStores(stores)
 	// The views the callee may free through (frees.p).
 	freed := f.freeArgs(e)
-	defer f.freeViews(e, freed)
+	// What the func values called or passed may do (funcvals.p).
+	fv := f.funcValueFrees(e)
 	// The local arenas the callee may reset or release (frees.p).
 	reclaimed := f.reclaimArgs(e)
+	defer f.freeViews(e, freed)
+	f.candidateUses(e)
+	defer f.funcValueViews(e, fv)
 	name := exprText(e.Fun)
 	if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
 		if sel := f.c.selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
