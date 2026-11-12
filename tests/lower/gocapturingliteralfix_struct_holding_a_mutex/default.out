@@ -7,6 +7,12 @@ $DIR/main.p:7:7: a function literal that captures variables cannot be started wi
     a WaitGroup among them. Or pass the values the literal needs as arguments:
     they are copied when the task statement runs. Do not pass a Mutex, a
     WaitGroup or another sync type this way, since the copy is a different one.
+    The compiler reports this where it sees the literal itself: written in the
+    task statement, or held by a local variable whose only assignment is its
+    declaration. Library functions that start a task with a func argument, such
+    as sync.WaitGroup.Task and time.AfterFunc, follow the same rule, as does a
+    function of the program that passes a func parameter on to a task. A method
+    value is E2594.
     s holds a value of type sync.Mutex. Passing it as an argument would copy it,
     and a copy is a separate value: calling Done or Unlock on the copy never
     reaches the original, so a Wait or Lock on the original may never return. A

@@ -32,12 +32,12 @@ var knownEscapeGaps = map[string]string{}
 // loaded program directly. The test requires that code, so that the list
 // stays true.
 var rejectedBeforeEscape = map[string]string{
-	"review3/b03_task_func_param":                         "E2594",
+	"review3/b03_task_func_param":                         "E2590",
 	"review3/b05_scope_returned":                          "E3100",
-	"review3/b09_scope_task_afterfunc":                    "E2594",
-	"review3/b11_scope_in_owner_struct_returned":          "E2594",
-	"review3/b13_waitgroup_task_closure":                  "E2594",
-	"review3/b15_scope_through_pointer_param":             "E2594",
+	"review3/b09_scope_task_afterfunc":                    "E2590",
+	"review3/b11_scope_in_owner_struct_returned":          "E2590",
+	"review3/b13_waitgroup_task_closure":                  "E2590",
+	"review3/b15_scope_through_pointer_param":             "E2590",
 	"review3/b17_scope_loop_body_ptr_via_helper":          "E3401",
 	"review3/b18_scope_loop_body_slice_in_struct":         "E3401",
 	"review3/d09_defer_named_result_closure":              "E3100",

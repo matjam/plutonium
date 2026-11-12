@@ -5,12 +5,13 @@ $DIR/main.p:41:10: cannot pass the method value c.add to wg.Task, which starts a
     them. A func value points to that record. A task statement copies its
     function and arguments, but copying a func value copies only the pointer, so
     the task may call through it after the frame is gone.
-    The compiler reports this where it sees the literal or the method value
-    itself: passed to a task statement, or held by a local variable assigned
-    only once. A func value that reaches the task start any other way (through a
-    parameter, a field, an element, or a variable assigned twice) is reported by
-    the check of views of the frame (E3003, E3004), since it may be such a
-    closure.
+    The compiler reports a method value, or a closure that a function builds in
+    the region this frame provides, by this code where it sees it: passed to a
+    task statement, or held by a local variable assigned only once. A capturing
+    function literal seen this way is E2590. A func value that reaches the task
+    start any other way (through a parameter, a field, an element, or a variable
+    assigned twice) is reported by the check of views of the frame (E3003,
+    E3004), since it may be such a closure.
     Library functions that start a task with a func argument, such as
     sync.WaitGroup.Task and time.AfterFunc, follow the same rule and the
     compiler reports them the same way.

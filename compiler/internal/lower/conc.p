@@ -59,8 +59,8 @@ func (s *fnState) checkSendable(T types2.Type, pos token.Pos, what string) {
 func (s *fnState) goFrameClosures(fun ast.Expr, args []ast.Expr) bool {
 	found := false
 	if id, ok := fun.(*ast.Ident); ok {
-		if what := s.frameClosure(id, 0); what != "" {
-			s.l.errorf(id.Pos(), diag.GoFrameClosure, "cannot start %s with a task statement: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", pu.Box(id.Name), pu.Box(what))
+		if what, code := s.frameClosure(id, 0); what != "" {
+			s.l.errorf(id.Pos(), code, "cannot start %s with a task statement: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", pu.Box(id.Name), pu.Box(what))
 			found = true
 		}
 	}
@@ -80,15 +80,15 @@ func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
 		if _, ok := s.typeOf(a).Underlying().(*types2.Signature); !ok {
 			continue
 		}
-		what := s.frameClosure(a, 0)
+		what, code := s.frameClosure(a, 0)
 		if what == "" {
 			continue
 		}
 		found = true
 		if id, ok := ast.Unparen(a).(*ast.Ident); ok {
-			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", pu.Box(id.Name), pu.Box(dest), pu.Box(what))
+			s.l.errorf(a.Pos(), code, "cannot pass %s to %s: it holds %s, whose closure record lives in the starting frame (spec section 12.12)", pu.Box(id.Name), pu.Box(dest), pu.Box(what))
 		} else {
-			s.l.errorf(a.Pos(), diag.GoFrameClosure, "cannot pass %s to %s: its closure record lives in the starting frame (spec section 12.12)", pu.Box(what), pu.Box(dest))
+			s.l.errorf(a.Pos(), code, "cannot pass %s to %s: its closure record lives in the starting frame (spec section 12.12)", pu.Box(what), pu.Box(dest))
 		}
 	}
 	return found
@@ -103,7 +103,10 @@ func (s *fnState) frameClosureArgs(args []ast.Expr, dest string) bool {
 func (s *fnState) goFuncCall(e *ast.CallExpr, fun ast.Expr) {
 	var cands []int
 	for i, a := range e.Args {
-		if _, ok := s.typeOf(a).Underlying().(*types2.Signature); ok && s.frameClosure(a, 0) != "" {
+		if _, ok := s.typeOf(a).Underlying().(*types2.Signature); !ok {
+			continue
+		}
+		if what, _ := s.frameClosure(a, 0); what != "" {
 			cands = compat.AppendPlain(cands, i)
 		}
 	}
@@ -141,19 +144,22 @@ func (s *fnState) goFuncCall(e *ast.CallExpr, fun ast.Expr) {
 // record is in this frame, and returns "" otherwise: a function literal
 // that captures variables, a method value, or a local variable whose only
 // assignment is its declaration, from one of those. depth bounds the chain
-// of variables followed.
-func (s *fnState) frameClosure(e ast.Expr, depth int) string {
+// of variables followed. The code is the one to report it by: a capturing
+// literal is GoCapturingLiteral (E2590), a method value or a closure built
+// by a call is GoFrameClosure (E2594), by the root the variables lead to
+// (spec section 12.12, Closures).
+func (s *fnState) frameClosure(e ast.Expr, depth int) (string, diag.Code) {
 	if s.staticLits || depth > 8 {
-		return ""
+		return "", ""
 	}
 	switch e := ast.Unparen(e).(type) {
 	case *ast.FuncLit:
 		if caps := s.capturedVars(e); len(caps) > 0 {
-			return compat.Sprintfb("a function literal that captures %s (%s)", compat.ArgS(caps[0].Name()), compat.ArgS(s.l.shortPos(e.Pos())))
+			return compat.Sprintfb("a function literal that captures %s (%s)", compat.ArgS(caps[0].Name()), compat.ArgS(s.l.shortPos(e.Pos()))), diag.GoCapturingLiteral
 		}
 	case *ast.SelectorExpr:
 		if sel := s.info.Selections[e]; sel != nil && sel.Kind() == types2.MethodVal {
-			return compat.Concat("the method value ", types2.ExprString(e))
+			return compat.Concat("the method value ", types2.ExprString(e)), diag.GoFrameClosure
 		}
 	case *ast.Ident:
 		if v, ok := s.info.Uses[e].(*types2.Var); ok {
@@ -167,11 +173,11 @@ func (s *fnState) frameClosure(e ast.Expr, depth int) string {
 		if g := calledFunc(s.info, e); g != nil && regionSig(g.Type().(*types2.Signature)) {
 			f := &closureFlow{l: s.l, info: s.info, tmap: s.tmap, ts: s}
 			if _, targs := f.callee(e); s.l.closureSummary(g, targs).builds {
-				return compat.Sprintfb("the closure %s returns (%s), built in this frame", compat.ArgS(shortExpr(e)), compat.ArgS(s.l.shortPos(e.Pos())))
+				return compat.Sprintfb("the closure %s returns (%s), built in this frame", compat.ArgS(shortExpr(e)), compat.ArgS(s.l.shortPos(e.Pos()))), diag.GoFrameClosure
 			}
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // onlyValue returns the initializer of v, a variable declared in the body
