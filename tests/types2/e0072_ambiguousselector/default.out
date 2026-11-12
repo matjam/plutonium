@@ -1,0 +1,4 @@
+$DIR/test.p:8:11: ambiguous selector x.i
+    This error occurs when a selector is ambiguous.
+    (see "Selectors" in the Plutonium spec, section 11.7)
+    (run "pluto explain E0072" for a longer explanation)

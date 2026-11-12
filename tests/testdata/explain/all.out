@@ -8,13 +8,6 @@ For example:
 
 See "Package clause" in the Plutonium spec, section 14.2.
 
-E0003: MismatchedPkgName
-
-This error occurs when a file's package name doesn't match the package name
-already established by other files.
-
-See "Package clause" in the Plutonium spec, section 14.2.
-
 E0004: InvalidPkgUse
 
 This error occurs when a package identifier is used outside of a selector
@@ -31,29 +24,6 @@ See "Import declarations" in the Plutonium spec, section 14.3.
 E0005: BadImportPath
 
 This error occurs when an import path is not valid.
-
-See "Import declarations" in the Plutonium spec, section 14.3.
-
-E0006: BrokenImport
-
-The imported package could not be loaded. Check the import path: standard
-library packages are under pluto/, and the program's own packages are under the
-module path in pluto.mod.
-
-For example:
-
-    import "amissingpackage"
-
-See "Import declarations" in the Plutonium spec, section 14.3.
-
-E0007: ImportCRenamed
-
-This error occurs when the special import "C" is renamed. "C" is a
-pseudo-package, and must not be renamed.
-
-For example:
-
-    import _ "C"
 
 See "Import declarations" in the Plutonium spec, section 14.3.
 
@@ -124,13 +94,6 @@ Written correctly:
     type Node struct {
         next *Node
     }
-
-See "Type declarations" in the Plutonium spec, section 10.8.
-
-E0012: InvalidTypeCycle
-
-This error occurs when a cycle in type definitions results in a type that is not
-well-defined.
 
 See "Type declarations" in the Plutonium spec, section 10.8.
 
@@ -488,15 +451,6 @@ For example:
 
 See "Package initialization" in the Plutonium spec, section 15.2.
 
-E0038: InvalidInitSig
-
-This error occurs when an init function declares parameters or results.
-
-Deprecated: no longer emitted by the type checker. _InvalidInitDecl is used
-instead.
-
-See "Package initialization" in the Plutonium spec, section 15.2.
-
 E0039: InvalidInitDecl
 
 This error occurs when init is declared as anything other than a function.
@@ -709,18 +663,6 @@ sliceable, or is unaddressable.
 For example:
 
     var x = [...]int{1, 2, 3}[:1]
-
-See "Slice expressions" in the Plutonium spec, section 11.12.
-
-E0055: InvalidSliceExpr
-
-This error occurs when a three-index slice expression (a[x:y:z]) is applied to a
-string.
-
-For example:
-
-    var s = "hello"
-    var x = s[1:2:3]
 
 See "Slice expressions" in the Plutonium spec, section 11.12.
 
@@ -1035,18 +977,6 @@ For example:
 
 See "Built-in functions" in the Plutonium spec, section 13.
 
-E0083: InvalidAppend
-
-append's first argument must be a slice, and the values after it must fit its
-element type. Plutonium has no append (a slice cannot grow); use pluto/vec.Vec
-for a sequence that grows.
-
-For example:
-
-    var _ = append(1, 2)
-
-See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
-
 E0084: InvalidCap
 
 cap takes an array or a pointer to one, a slice or a channel. Unlike len, it
@@ -1097,17 +1027,6 @@ For example:
 
 See "Copying slices" in the Plutonium spec, section 13.2.
 
-E0087: InvalidComplex
-
-This error occurs when the complex built-in function is called with arguments
-with incompatible types.
-
-For example:
-
-    var _ = complex(float32(1), float64(2))
-
-See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
-
 E0088: InvalidDelete
 
 This error occurs when the delete built-in function is called with a first
@@ -1121,17 +1040,6 @@ For example:
     }
 
 See "Deletion of map elements" in the Plutonium spec, section 13.5.
-
-E0089: InvalidImag
-
-This error occurs when the imag built-in function is called with an argument
-that does not have complex type.
-
-For example:
-
-    var _ = imag(int(1))
-
-See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
 
 E0090: InvalidLen
 
@@ -1177,17 +1085,6 @@ For example:
     var x = make(int)
 
 See "Making channels and maps" in the Plutonium spec, section 13.7.
-
-E0093: InvalidReal
-
-This error occurs when the real built-in function is called with an argument
-that does not have complex type.
-
-For example:
-
-    var _ = real(int(1))
-
-See "Built-ins Plutonium does not have" in the Plutonium spec, section 13.1.
 
 E0094: InvalidAssert
 
@@ -1816,12 +1713,6 @@ For example:
 
 See "Package unsafe" in the Plutonium spec, section 20.1.
 
-E0135: UnsupportedFeature
-
-This feature is not available in the language version being compiled.
-
-See "Language version" in the Plutonium spec, section 21.8.
-
 E0136: NotAGenericType
 
 Type arguments in square brackets are given to a type that has no type
@@ -1918,14 +1809,6 @@ For example:
 
 See "Interface types" in the Plutonium spec, section 7.9.
 
-E0143: InvalidMethodTypeParams
-
-This error occurs when methods have type parameters.
-
-It cannot be encountered with an AST parsed using go/parser.
-
-See "Methods with type parameters" in the Plutonium spec, section 10.15.
-
 E0144: MisplacedTypeParam
 
 This error occurs when a type parameter is used in a place where it is not
@@ -2005,15 +1888,6 @@ For example:
     const _ = min(true)
 
 See "Min and max" in the Plutonium spec, section 13.8.
-
-E0151: TooNew
-
-This error indicates that, through build tags or a go.mod file, a source file
-requires a version of Go that is newer than the logic of the type checker. As a
-consequence, the type checker may produce spurious errors or fail to report real
-errors. The solution is to rebuild the application with a newer Go release.
-
-See "Language version" in the Plutonium spec, section 21.8.
 
 E1000: SyntaxError
 

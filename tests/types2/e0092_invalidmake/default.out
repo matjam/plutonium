@@ -1,0 +1,6 @@
+$DIR/test.p:3:14: invalid argument: cannot make int: type must be slice, map, or channel
+    This error occurs when make is called with an unsupported type argument.
+    See https://golang.org/ref/spec#Making_slices_maps_and_channels for
+    information on the types that may be created using make.
+    (see "Making channels and maps" in the Plutonium spec, section 13.7)
+    (run "pluto explain E0092" for a longer explanation)

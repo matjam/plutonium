@@ -54,9 +54,7 @@ const (
 	//  package _
 	BlankPkgName
 
-	// MismatchedPkgName occurs when a file's package name doesn't match the
-	// package name already established by other files.
-	MismatchedPkgName
+	_ // MismatchedPkgName was removed: the loader reports a mismatched package clause.
 
 	// InvalidPkgUse occurs when a package identifier is used outside of a
 	// selector expression.
@@ -70,18 +68,9 @@ const (
 	// BadImportPath occurs when an import path is not valid.
 	BadImportPath
 
-	// BrokenImport occurs when importing a package fails.
-	//
-	// Example:
-	//  import "amissingpackage"
-	BrokenImport
+	_ // BrokenImport was removed: the loader reports an import it cannot load.
 
-	// ImportCRenamed occurs when the special import "C" is renamed. "C" is a
-	// pseudo-package, and must not be renamed.
-	//
-	// Example:
-	//  import _ "C"
-	ImportCRenamed
+	_ // ImportCRenamed was removed: Plutonium has no cgo and no "C" pseudo-package.
 
 	// UnusedImport occurs when an import is unused.
 	//
@@ -120,11 +109,7 @@ const (
 	//  type T [unsafe.Sizeof(T{})]int
 	InvalidDeclCycle
 
-	// TODO(markfreeman): Retire InvalidTypeCycle, as it's never emitted.
-
-	// InvalidTypeCycle occurs when a cycle in type definitions results in a
-	// type that is not well-defined.
-	InvalidTypeCycle
+	_ // InvalidTypeCycle was removed: no check reported it.
 
 	// InvalidConstInit occurs when a const declaration has a non-constant
 	// initializer.
@@ -368,12 +353,7 @@ const (
 	//  func init()
 	MissingInitBody
 
-	// InvalidInitSig occurs when an init function declares parameters or
-	// results.
-	//
-	// Deprecated: no longer emitted by the type checker. _InvalidInitDecl is
-	// used instead.
-	InvalidInitSig
+	_ // InvalidInitSig was removed: InvalidInitDecl reports a bad init signature.
 
 	// InvalidInitDecl occurs when init is declared as anything other than a
 	// function.
@@ -516,13 +496,7 @@ const (
 	//  var y = 1[:1]
 	NonSliceableOperand
 
-	// InvalidSliceExpr occurs when a three-index slice expression (a[x:y:z]) is
-	// applied to a string.
-	//
-	// Example:
-	//  var s = "hello"
-	//  var x = s[1:2:3]
-	InvalidSliceExpr
+	_ // InvalidSliceExpr was removed: StringSliceNotPermitted reports any slice of a string.
 
 	// InvalidShiftCount occurs when the right-hand side of a shift operation is
 	// either non-integer, negative, or too large.
@@ -743,12 +717,7 @@ const (
 	//  var _ = copy
 	UncalledBuiltin
 
-	// InvalidAppend occurs when append is called with a first argument that is
-	// not a slice.
-	//
-	// Example:
-	//  var _ = append(1, 2)
-	InvalidAppend
+	_ // InvalidAppend was removed: AppendNotPermitted reports any call of append.
 
 	// InvalidCap occurs when an argument to the cap built-in function is not of
 	// supported type.
@@ -785,12 +754,7 @@ const (
 	//  }
 	InvalidCopy
 
-	// InvalidComplex occurs when the complex built-in function is called with
-	// arguments with incompatible types.
-	//
-	// Example:
-	//  var _ = complex(float32(1), float64(2))
-	InvalidComplex
+	_ // InvalidComplex was removed: complex is not declared.
 
 	// InvalidDelete occurs when the delete built-in function is called with a
 	// first argument that is not a map.
@@ -802,12 +766,7 @@ const (
 	//  }
 	InvalidDelete
 
-	// InvalidImag occurs when the imag built-in function is called with an
-	// argument that does not have complex type.
-	//
-	// Example:
-	//  var _ = imag(int(1))
-	InvalidImag
+	_ // InvalidImag was removed: imag is not declared.
 
 	// InvalidLen occurs when an argument to the len built-in function is not of
 	// supported type.
@@ -836,12 +795,7 @@ const (
 	//  var x = make(int)
 	InvalidMake
 
-	// InvalidReal occurs when the real built-in function is called with an
-	// argument that does not have complex type.
-	//
-	// Example:
-	//  var _ = real(int(1))
-	InvalidReal
+	_ // InvalidReal was removed: real is not declared.
 
 	// InvalidAssert occurs when a type assertion is applied to a
 	// value that is not of interface type.
@@ -1316,9 +1270,7 @@ const (
 
 	// All codes below were added in Go 1.18.
 
-	// UnsupportedFeature occurs when a language feature is used that is not
-	// supported at this Go version.
-	UnsupportedFeature
+	_ // UnsupportedFeature was removed: Plutonium has one language version.
 
 	// NotAGenericType occurs when a non-generic type is used where a generic
 	// type is expected: in type or function instantiation.
@@ -1391,10 +1343,7 @@ const (
 	//   var _ I
 	MisplacedConstraintIface
 
-	// InvalidMethodTypeParams occurs when methods have type parameters.
-	//
-	// It cannot be encountered with an AST parsed using go/parser.
-	InvalidMethodTypeParams
+	_ // InvalidMethodTypeParams was removed: the parser reports method type parameters.
 
 	// MisplacedTypeParam occurs when a type parameter is used in a place where
 	// it is not permitted.
@@ -1475,11 +1424,5 @@ const (
 	//  var _ = max(s, t)
 	InvalidMinMaxOperand
 
-	// TooNew indicates that, through build tags or a go.mod file,
-	// a source file requires a version of Go that is newer than
-	// the logic of the type checker. As a consequence, the type
-	// checker may produce spurious errors or fail to report real
-	// errors. The solution is to rebuild the application with a
-	// newer Go release.
-	TooNew
+	_ // TooNew was removed: Plutonium has one language version.
 )

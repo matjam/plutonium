@@ -1,0 +1,5 @@
+$DIR/test.p:3:6: method has no receiver
+    This error occurs when a method declaration does not have exactly one
+    receiver parameter.
+    (see "Method declarations" in the Plutonium spec, section 10.14)
+    (run "pluto explain E0031" for a longer explanation)

@@ -1,0 +1,5 @@
+$DIR/test.p:4:8: invalid argument: cannot clear x (variable of type int): argument must be (or constrained by) map or slice
+    This error occurs when clear is called with an argument that is not of map
+    or slice type.
+    (see "Clear" in the Plutonium spec, section 13.3)
+    (run "pluto explain E0148" for a longer explanation)

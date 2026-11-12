@@ -1,0 +1,5 @@
+$DIR/test.p:3:15: cannot use a type parameter as RHS in type declaration
+    This error occurs when a type parameter is used in a place where it is not
+    permitted.
+    (see "Type parameter declarations" in the Plutonium spec, section 10.9)
+    (run "pluto explain E0144" for a longer explanation)

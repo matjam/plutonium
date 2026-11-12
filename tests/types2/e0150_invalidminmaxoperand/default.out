@@ -1,0 +1,5 @@
+$DIR/test.p:3:15: invalid argument: true (untyped bool constant) cannot be ordered
+    This error occurs if min or max is called with an operand that cannot be
+    ordered because it does not support the < operator.
+    (see "Min and max" in the Plutonium spec, section 13.8)
+    (run "pluto explain E0150" for a longer explanation)

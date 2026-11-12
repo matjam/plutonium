@@ -1,0 +1,11 @@
+$DIR/main.p:5:11: invalid import path (invalid character U+0020 ' ')
+    This error occurs when an import path is not valid.
+    (see "Import declarations" in the Plutonium spec, section 14.3)
+    (run "pluto explain E0005" for a longer explanation)
+
+$DIR/main.p:7:15: undefined: ab
+    ab is not declared in any scope that reaches line 7. Check the spelling
+    (names are case-sensitive), declare it before this point with var or :=, or
+    import the package it belongs to.
+    (see "Declarations and scope" in the Plutonium spec, section 10)
+    (run "pluto explain E0075" for a longer explanation)

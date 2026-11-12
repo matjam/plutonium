@@ -1,0 +1,5 @@
+$DIR/test.p:4:8: defer requires function call, not conversion int32(i) (value of type int32)
+    This error occurs when a deferred expression is not a function call, for
+    example if the expression is a type conversion.
+    (see "Defer statements" in the Plutonium spec, section 12.19)
+    (run "pluto explain E0129" for a longer explanation)

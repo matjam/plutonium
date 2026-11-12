@@ -1,0 +1,5 @@
+$DIR/test.p:5:7: assignment operation += requires single-valued expressions
+    This error occurs when an assignment operation (+=, *=, etc) does not have
+    single-valued left-hand or right-hand side.
+    (see "Assignment statements" in the Plutonium spec, section 12.7)
+    (run "pluto explain E0020" for a longer explanation)

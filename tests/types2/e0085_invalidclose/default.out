@@ -1,0 +1,5 @@
+$DIR/test.p:5:8: invalid operation: cannot close non-channel x (variable of type int)
+    This error occurs when close(...) is called with an argument that is not of
+    channel type, or that is a receive-only channel.
+    (see "Close" in the Plutonium spec, section 13.4)
+    (run "pluto explain E0085" for a longer explanation)

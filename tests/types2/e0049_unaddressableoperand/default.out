@@ -1,0 +1,6 @@
+$DIR/test.p:3:10: invalid operation: cannot take address of 1 (untyped int constant)
+    & takes the address of a variable, a field of an addressable struct, a slice
+    element or a composite literal. Other values, such as constants and function
+    results, have no address. Store the value in a variable first.
+    (see "Address operators" in the Plutonium spec, section 11.22)
+    (run "pluto explain E0049" for a longer explanation)

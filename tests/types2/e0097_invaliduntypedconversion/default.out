@@ -1,0 +1,5 @@
+$DIR/test.p:4:13: cannot convert 1024 (untyped int constant) to type T
+    This error occurs when there is no valid implicit conversion from an untyped
+    value satisfying the type constraints of the context in which it is used.
+    (see "Conversions" in the Plutonium spec, section 11.24)
+    (run "pluto explain E0097" for a longer explanation)

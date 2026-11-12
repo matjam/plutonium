@@ -1,0 +1,5 @@
+$DIR/test.p:7:23: a (variable of type [2147483648]E) is too large
+    This error occurs if unsafe.Sizeof or unsafe.Offsetof is called with an
+    expression whose type is too large.
+    (see "Implementation limits" in the Plutonium spec, section 21.4)
+    (run "pluto explain E0149" for a longer explanation)

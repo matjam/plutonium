@@ -261,7 +261,9 @@ func (check *Checker) softErrorf(at positioner, code Code, format string, args .
 
 func (check *Checker) versionErrorf(at positioner, v goVersion, format string, args ...any) {
 	msg := check.sprintf(format, args...)
-	err := check.newError(UnsupportedFeature)
+	// Unreachable: allowVersion allows every feature, as Plutonium has one
+	// language version.
+	err := check.newError(InvalidSyntaxTree)
 	err.addf(at, "%s requires %s or later", pu.Box(msg), pu.Box(v))
 	err.report()
 }

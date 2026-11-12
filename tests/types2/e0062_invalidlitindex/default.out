@@ -1,0 +1,5 @@
+$DIR/test.p:4:18: index i must be integer constant
+    This error occurs when the key in a key-value element of a slice or array
+    literal is not an integer constant.
+    (see "Composite literals" in the Plutonium spec, section 11.3)
+    (run "pluto explain E0062" for a longer explanation)

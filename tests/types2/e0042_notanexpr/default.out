@@ -1,0 +1,5 @@
+$DIR/test.p:6:2: T (type) is not an expression
+    Something that is not a value, such as a type or a package name, is used
+    where a value is needed.
+    (see "Expressions" in the Plutonium spec, section 11)
+    (run "pluto explain E0042" for a longer explanation)

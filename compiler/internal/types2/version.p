@@ -58,8 +58,10 @@ var (
 // allowVersion reports whether the current effective Go version
 // (which may vary from one file to another) is allowed to use the
 // feature version (want).
+//
+// Plutonium has one language version, so every feature is allowed.
 func (check *Checker) allowVersion(want goVersion) bool {
-	return !check.version.isValid() || check.version.cmp(want) >= 0
+	return true
 }
 
 // verifyVersionf is like allowVersion but also accepts a format string and arguments

@@ -1,0 +1,7 @@
+$DIR/test.p:6:7: invalid copy: arguments x (variable of type []int) and y (variable of type []int64) have different element types int and int64
+    This error occurs when the arguments are not of slice type or do not have
+    compatible type.
+    See https://golang.org/ref/spec#Appending_and_copying_slices for more
+    information on the type requirements for the copy built-in.
+    (see "Copying slices" in the Plutonium spec, section 13.2)
+    (run "pluto explain E0086" for a longer explanation)

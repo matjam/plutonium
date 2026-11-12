@@ -1,0 +1,5 @@
+$DIR/test.p:4:10: invalid operation: cannot indirect x (variable of type int)
+    * follows a pointer to the value it points at. The operand here is not a
+    pointer.
+    (see "Address operators" in the Plutonium spec, section 11.22)
+    (run "pluto explain E0050" for a longer explanation)

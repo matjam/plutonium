@@ -1,0 +1,7 @@
+$DIR/test.p:8:25: invalid argument: field f is embedded via a pointer in S
+    This error occurs when unsafe.Offsetof is called with a method selector,
+    rather than a field selector, or when the field is embedded via a pointer.
+    "If f is an embedded field, it must be reachable without pointer
+    indirections through fields of the struct. "
+    (see "Package unsafe" in the Plutonium spec, section 20.1)
+    (run "pluto explain E0099" for a longer explanation)

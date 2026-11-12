@@ -1,0 +1,5 @@
+$DIR/test.p:6:2: embedded field type cannot be a pointer
+    This error occurs when an embedded field is of the pointer form *T, and T
+    itself is itself a pointer, an unsafe.Pointer, or an interface.
+    (see "Struct types" in the Plutonium spec, section 7.6)
+    (run "pluto explain E0030" for a longer explanation)

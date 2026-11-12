@@ -1,0 +1,6 @@
+$DIR/test.p:4:2: i * i (value of type int) is not used
+    The expression computes a value and throws it away, so it has no effect. A
+    statement must do something: call a function, assign, send, and so on.
+    Remove it, or assign the value to _ if computing it is the point.
+    (see "Expression statements" in the Plutonium spec, section 12.4)
+    (run "pluto explain E0100" for a longer explanation)

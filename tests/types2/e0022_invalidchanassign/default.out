@@ -1,0 +1,7 @@
+$DIR/test.p:8:12: cannot use x (variable of chan type T1) as T2 value in variable declaration
+    This error occurs when a chan assignment is invalid.
+    Per the spec, a value x is assignable to a channel type T if: "x is a
+    bidirectional channel value, T is a channel type, x's type V and T have
+    identical element types, and at least one of V or T is not a defined type."
+    (see "Assignability" in the Plutonium spec, section 8.4)
+    (run "pluto explain E0022" for a longer explanation)

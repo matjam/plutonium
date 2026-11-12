@@ -1,0 +1,4 @@
+$DIR/test.p:5:7: select case must be send or receive (possibly with assignment)
+    This error occurs when a select case is not a channel send or receive.
+    (see "Select statements" in the Plutonium spec, section 12.13)
+    (run "pluto explain E0118" for a longer explanation)

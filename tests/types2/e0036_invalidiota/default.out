@@ -1,0 +1,5 @@
+$DIR/test.p:3:9: cannot use iota outside constant declaration
+    This error occurs when the predeclared identifier iota is used outside of a
+    constant declaration.
+    (see "Iota" in the Plutonium spec, section 10.7)
+    (run "pluto explain E0036" for a longer explanation)

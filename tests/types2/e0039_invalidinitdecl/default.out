@@ -1,0 +1,4 @@
+$DIR/test.p:3:5: cannot declare init - must be func
+    This error occurs when init is declared as anything other than a function.
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E0039" for a longer explanation)

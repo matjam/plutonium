@@ -1,0 +1,5 @@
+$DIR/test.p:5:8: invalid receiver type **T
+    This error occurs when a receiver type expression is not of the form T or
+    *T, or T is a pointer type.
+    (see "Method declarations" in the Plutonium spec, section 10.14)
+    (run "pluto explain E0032" for a longer explanation)

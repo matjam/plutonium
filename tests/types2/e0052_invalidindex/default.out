@@ -1,0 +1,5 @@
+$DIR/test.p:4:11: invalid argument: index 5 out of bounds [0:3]
+    An index must be an integer that is not negative, and a constant index must
+    be inside the bounds of an array or constant string.
+    (see "Index expressions" in the Plutonium spec, section 11.10)
+    (run "pluto explain E0052" for a longer explanation)

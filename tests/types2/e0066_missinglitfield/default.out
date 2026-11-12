@@ -1,0 +1,5 @@
+$DIR/test.p:3:23: unknown field j in struct literal of type struct{i int}
+    The struct literal names a field that the struct type does not have. Check
+    the spelling; field names are case-sensitive.
+    (see "Composite literals" in the Plutonium spec, section 11.3)
+    (run "pluto explain E0066" for a longer explanation)

@@ -1,0 +1,5 @@
+$DIR/test.p:5:7: invalid operation: T[int] (T is not a generic type)
+    Type arguments in square brackets are given to a type that has no type
+    parameters.
+    (see "Instantiations" in the Plutonium spec, section 11.16)
+    (run "pluto explain E0136" for a longer explanation)

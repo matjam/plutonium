@@ -17,16 +17,12 @@ These are the type checker's errors as Go has them (numbered as go/types numbers
 | Code | Name | Meaning | Usual fix |
 |---|---|---|---|
 | E0002 | BlankPkgName | This error occurs when a package name is the blank identifier "_". | `pluto explain E0002` |
-| E0003 | MismatchedPkgName | This error occurs when a file's package name doesn't match the package name already established by other files. | `pluto explain E0003` |
 | E0004 | InvalidPkgUse | This error occurs when a package identifier is used outside of a selector expression. | `pluto explain E0004` |
 | E0005 | BadImportPath | This error occurs when an import path is not valid. | `pluto explain E0005` |
-| E0006 | BrokenImport | The imported package could not be loaded. Check the import path: standard library packages are under pluto/, and the program's own packages are under the module path in pluto.mod. | `pluto explain E0006` |
-| E0007 | ImportCRenamed | This error occurs when the special import "C" is renamed. "C" is a pseudo-package, and must not be renamed. | `pluto explain E0007` |
 | E0008 | UnusedImport | The file imports a package but never uses it. Plutonium, like Go, treats an unused import as an error, so that a file's imports always show what it really depends on. | Delete the import, or use the package. |
 | E0009 | InvalidInitCycle | Package-level variables are initialized in an order where each comes after the ones its initial value uses. | `pluto explain E0009` |
 | E0010 | DuplicateDecl | The same name is declared twice in one scope. Each name in a block, or at package level across all the package's files, must be declared once. | Rename one of them, or remove the duplicate. |
 | E0011 | InvalidDeclCycle | A type, constant or variable is defined in terms of itself, so it has no well-defined size or value. | `pluto explain E0011` |
-| E0012 | InvalidTypeCycle | This error occurs when a cycle in type definitions results in a type that is not well-defined. | `pluto explain E0012` |
 | E0013 | InvalidConstInit | A constant's value must be known when compiling: a literal, another constant, or an expression of those. | `pluto explain E0013` |
 | E0014 | InvalidConstVal | This error occurs when a const value cannot be converted to its target type. | `pluto explain E0014` |
 | E0015 | InvalidConstType | This error occurs when the underlying type in a const declaration is not a valid constant type. | `pluto explain E0015` |
@@ -51,7 +47,6 @@ These are the type checker's errors as Go has them (numbered as go/types numbers
 | E0035 | InvalidBlank | The blank identifier _ can be assigned to, to discard a value, but cannot be read. It is not a variable. | `pluto explain E0035` |
 | E0036 | InvalidIota | This error occurs when the predeclared identifier iota is used outside of a constant declaration. | `pluto explain E0036` |
 | E0037 | MissingInitBody | This error occurs when an init function is missing its body. | `pluto explain E0037` |
-| E0038 | InvalidInitSig | This error occurs when an init function declares parameters or results. | `pluto explain E0038` |
 | E0039 | InvalidInitDecl | This error occurs when init is declared as anything other than a function. | `pluto explain E0039` |
 | E0040 | InvalidMainDecl | In package main, the name main must be the function where the program starts. It cannot be a variable or type, and it cannot have type parameters. | `pluto explain E0040` |
 | E0041 | TooManyValues | A function that returns several results is used where one value is expected. Assign the results to variables first, and use the one you need. | `pluto explain E0041` |
@@ -68,7 +63,6 @@ These are the type checker's errors as Go has them (numbered as go/types numbers
 | E0052 | InvalidIndex | An index must be an integer that is not negative, and a constant index must be inside the bounds of an array or constant string. | `pluto explain E0052` |
 | E0053 | SwappedSliceIndices | This error occurs when constant indices in a slice expression are decreasing in value. | `pluto explain E0053` |
 | E0054 | NonSliceableOperand | This error occurs when a slice operation is applied to a value whose type is not sliceable, or is unaddressable. | `pluto explain E0054` |
-| E0055 | InvalidSliceExpr | This error occurs when a three-index slice expression (a[x:y:z]) is applied to a string. | `pluto explain E0055` |
 | E0056 | InvalidShiftCount | The count of a shift, the right operand of << or >>, must be an integer that is not negative. | `pluto explain E0056` |
 | E0057 | InvalidShiftOperand | This error occurs when the shifted operand is not an integer. | `pluto explain E0057` |
 | E0058 | InvalidReceive | This error occurs when there is a channel receive from a value that is either not a channel, or is a send-only channel. | `pluto explain E0058` |
@@ -94,17 +88,13 @@ These are the type checker's errors as Go has them (numbered as go/types numbers
 | E0078 | NonVariadicDotDotDot | This error occurs when a "..." is used on the final argument to a non-variadic function. | `pluto explain E0078` |
 | E0081 | InvalidDotDotDot | This error occurs when a "..." is used in a non-variadic built-in function. | `pluto explain E0081` |
 | E0082 | UncalledBuiltin | A builtin function such as len or cap is used as a value. Builtins can only be called; wrap the call in a function literal if you need a func value. | `pluto explain E0082` |
-| E0083 | InvalidAppend | append's first argument must be a slice, and the values after it must fit its element type. Plutonium has no append (a slice cannot grow); use pluto/vec.Vec for a sequence that grows. | `pluto explain E0083` |
 | E0084 | InvalidCap | cap takes an array or a pointer to one, a slice or a channel. Unlike len, it does not call methods: a library container or a ring reports its capacity with a method of its own. | Call the type's Cap method instead. |
 | E0085 | InvalidClose | This error occurs when close(...) is called with an argument that is not of channel type, or that is a receive-only channel. | `pluto explain E0085` |
 | E0086 | InvalidCopy | This error occurs when the arguments are not of slice type or do not have compatible type. | `pluto explain E0086` |
-| E0087 | InvalidComplex | This error occurs when the complex built-in function is called with arguments with incompatible types. | `pluto explain E0087` |
 | E0088 | InvalidDelete | This error occurs when the delete built-in function is called with a first argument that is not a map. | `pluto explain E0088` |
-| E0089 | InvalidImag | This error occurs when the imag built-in function is called with an argument that does not have complex type. | `pluto explain E0089` |
 | E0090 | InvalidLen | len takes a string, an array or a pointer to one, a slice, a map, a channel, an owned, shared or synced array, or a value whose type has a method Len() int, such as a library container or a ring; len(E) of an enum type E is... | Pass a value of one of these types, or store the value in a variable first. |
 | E0091 | SwappedMakeArgs | This error occurs when make is called with three arguments, and its length argument is larger than its capacity argument. | `pluto explain E0091` |
 | E0092 | InvalidMake | This error occurs when make is called with an unsupported type argument. | `pluto explain E0092` |
-| E0093 | InvalidReal | This error occurs when the real built-in function is called with an argument that does not have complex type. | `pluto explain E0093` |
 | E0094 | InvalidAssert | A type assertion x.(T) asks which concrete type an interface value holds, so x must be an interface. | `pluto explain E0094` |
 | E0095 | ImpossibleAssert | The type in the assertion does not have every method of the interface, so no value of the interface can hold it, and the assertion would always fail. | `pluto explain E0095` |
 | E0096 | InvalidConversion | This conversion is not allowed. T(x) converts between number types, between types with the same underlying type, and between pointers and unsafe.Pointer. | `pluto explain E0096` |
@@ -145,7 +135,6 @@ These are the type checker's errors as Go has them (numbered as go/types numbers
 | E0132 | RepeatedDecl | This error occurs when an identifier occurs more than once on the left hand side of a short variable declaration. | `pluto explain E0132` |
 | E0133 | InvalidUnsafeAdd | This error occurs when unsafe.Add is called with a length argument that is not of integer type. It also occurs if it is used in a package compiled for a language version before go1.17. | `pluto explain E0133` |
 | E0134 | InvalidUnsafeSlice | This error occurs when unsafe.Slice is called with a pointer argument that is not of pointer type or a length argument that is not of integer type, negative, or out of bounds. | `pluto explain E0134` |
-| E0135 | UnsupportedFeature | This feature is not available in the language version being compiled. | `pluto explain E0135` |
 | E0136 | NotAGenericType | Type arguments in square brackets are given to a type that has no type parameters. | `pluto explain E0136` |
 | E0137 | WrongTypeArgCount | A generic function or type gets a different number of type arguments than it has type parameters. Give one for each, or leave out the trailing ones that can be inferred from the arguments. | `pluto explain E0137` |
 | E0138 | CannotInferTypeArgs | A generic function was called without type arguments, and the compiler could not work them out from the call's arguments. | `pluto explain E0138` |
@@ -153,14 +142,12 @@ These are the type checker's errors as Go has them (numbered as go/types numbers
 | E0140 | InvalidInstanceCycle | This error occurs when an invalid cycle is detected within the instantiation graph. | `pluto explain E0140` |
 | E0141 | InvalidUnion | This error occurs when an embedded union or approximation element is not valid. | `pluto explain E0141` |
 | E0142 | MisplacedConstraintIface | This error occurs when a constraint-type interface is used outside of constraint position. | `pluto explain E0142` |
-| E0143 | InvalidMethodTypeParams | This error occurs when methods have type parameters. | `pluto explain E0143` |
 | E0144 | MisplacedTypeParam | This error occurs when a type parameter is used in a place where it is not permitted. | `pluto explain E0144` |
 | E0145 | InvalidUnsafeSliceData | This error occurs when unsafe.SliceData is called with an argument that is not of slice type. It also occurs if it is used in a package compiled for a language version before go1.20. | `pluto explain E0145` |
 | E0146 | InvalidUnsafeString | This error occurs when unsafe.String is called with a length argument that is not of integer type, negative, or out of bounds. | `pluto explain E0146` |
 | E0148 | InvalidClear | This error occurs when clear is called with an argument that is not of map or slice type. | `pluto explain E0148` |
 | E0149 | TypeTooLarge | This error occurs if unsafe.Sizeof or unsafe.Offsetof is called with an expression whose type is too large. | `pluto explain E0149` |
 | E0150 | InvalidMinMaxOperand | This error occurs if min or max is called with an operand that cannot be ordered because it does not support the < operator. | `pluto explain E0150` |
-| E0151 | TooNew | This error indicates that, through build tags or a go.mod file, a source file requires a version of Go that is newer than the logic of the type checker. | `pluto explain E0151` |
 
 ## E1000 to E1999: syntax errors
 
@@ -292,7 +279,8 @@ Directives, C and assembly linkage, per-CPU variables, kernel rules, `defer`, `t
 | E2550 | PerCPUInit | A per-CPU variable can only be initialized with a constant. Package initialization runs before any processor has its per-CPU block, so there is nowhere to store a value computed at run time. | `pluto explain E2550` |
 | E2551 | PerCPUMode | //pu:percpu variables are reached through the GS segment register, which only a kernel sets up. Build with --mode kernel, or remove the directive. | `pluto explain E2551` |
 | E2552 | PerCPUSection | A per-CPU variable always lives in the .percpu section, so it cannot also be placed in another section with //pu:section. | `pluto explain E2552` |
-| E2560 | StackDirective | //pu:stack sets the size of the stack a hosted program runs on: the runtime reserves that much address space before main starts. | Put it on main: `func main() { ... }` |
+| E2560 | StackDirective | //pu:stack sets the size of the stack a hosted program runs on: the runtime reserves that much address space before main starts. | Remove the directive and set up the stack in the program's start code |
+| E2561 | StackSize | //pu:stack takes a size in bytes, with an optional K, M or G suffix, from 64K to 64G. | Use a size in range: `func main() { ... }` |
 | E2570 | InterruptDecl | A //pu:interrupt function is entered by the processor, not called by Plutonium code. | `pluto explain E2570` |
 | E2571 | InterruptSig | An interrupt handler receives what the processor pushes on the stack: a pointer to the interrupt frame, and for some exceptions an error code. | Use one of these signatures: `func timer(frame *x86.InterruptFrame)` |
 | E2572 | GateArg | x86.InterruptGate and x86.TrapGate build the entry of the interrupt table that enters a handler, and the compiler puts the handler's address in it. | Pass the name of a handler of the form the constructor takes: `func timer(f *x86.InterruptFrame) { ... }` |
@@ -426,4 +414,5 @@ A bug in the compiler. Report it with the program.
 | Code | Name | Meaning | Usual fix |
 |---|---|---|---|
 | E9001 | InternalError | The compiler failed on a program that passed type checking. This is a bug in the compiler, not in your program. | `pluto explain E9001` |
+| E9002 | ImplementationLimit | The program goes past a limit of this compiler. The parser accepts expressions, statements and types nested up to 100000 levels deep, and the type checker up to its own nesting limit, which is lower when its stack runs short. | Split the deep expression or type into named parts: `a := f(g(x))` |
 

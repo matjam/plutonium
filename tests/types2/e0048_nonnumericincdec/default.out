@@ -1,0 +1,4 @@
+$DIR/test.p:5:2: invalid operation: c++ (non-numeric type string)
+    ++ and -- work only on numbers.
+    (see "IncDec statements" in the Plutonium spec, section 12.6)
+    (run "pluto explain E0048" for a longer explanation)

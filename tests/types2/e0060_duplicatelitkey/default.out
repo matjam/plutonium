@@ -1,0 +1,4 @@
+$DIR/test.p:3:20: duplicate index 0 in array or slice literal
+    A composite literal gives the same index or key twice.
+    (see "Composite literals" in the Plutonium spec, section 11.3)
+    (run "pluto explain E0060" for a longer explanation)

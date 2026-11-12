@@ -358,7 +358,9 @@ func (check *Checker) initFiles(files []*ast.File) {
 			check.files = compat.Append(check.files, file)
 
 		default:
-			check.errorf(atPos(file.Package), MismatchedPkgName, "package %s; expected package %s", pu.Box(name), pu.Box(pkg.name))
+			// The loader groups files by directory and reports a mismatched
+			// package clause (E4xxx) before type checking starts.
+			check.errorf(atPos(file.Package), InvalidSyntaxTree, "package %s; expected package %s", pu.Box(name), pu.Box(pkg.name))
 			// ignore this file
 		}
 	}
@@ -370,51 +372,13 @@ func (check *Checker) initFiles(files []*ast.File) {
 	}
 	check.versions = versions
 
-	pkgVersion := asGoVersion(check.conf.GoVersion)
-	if pkgVersion.isValid() && len(files) > 0 && pkgVersion.cmp(go_current) > 0 {
-		check.errorf(files[0], TooNew, "package requires newer Go version %v (application built with %v)",
-			pu.Box(pkgVersion), pu.Box(go_current))
-	}
-
-	// determine Go version for each file
+	// Plutonium has one language version, so a file's //go:build line (itself
+	// an error, E2604) and Config.GoVersion never limit the features a file may
+	// use. Every file gets the unaltered Config.GoVersion, which is empty, and
+	// allowVersion then allows every feature.
 	for _, file := range check.files {
-		// use unaltered Config.GoVersion by default
-		// (This version string may contain dot-release numbers as in go1.20.1,
-		// unlike file versions which are Go language versions only, if valid.)
-		v := check.conf.GoVersion
-
-		// If the file specifies a version, use max(fileVersion, go1.21).
-		if fileVersion := asGoVersion(file.GoVersion); fileVersion.isValid() {
-			// Go 1.21 introduced the feature of setting the go.mod
-			// go line to an early version of Go and allowing //go:build lines
-			// to set the Go version in a given file. Versions Go 1.21 and later
-			// can be set backwards compatibly as that was the first version
-			// files with go1.21 or later build tags could be built with.
-			//
-			// Set the version to max(fileVersion, go1.21): That will allow a
-			// downgrade to a version before go1.22, where the for loop semantics
-			// change was made, while being backwards compatible with versions of
-			// go before the new //go:build semantics were introduced.
-			v = string(versionMax(fileVersion, go1_21))
-
-			// Report a specific error for each tagged file that's too new.
-			// (Normally the build system will have filtered files by version,
-			// but clients can present arbitrary files to the type checker.)
-			if fileVersion.cmp(go_current) > 0 {
-				// Use position of 'package [p]' for types/types2 consistency.
-				// (Ideally we would use the //build tag itself.)
-				check.errorf(file.Name, TooNew, "file requires newer Go version %v (application built with %v)", pu.Box(fileVersion), pu.Box(go_current))
-			}
-		}
-		versions[file] = v
+		versions[file] = check.conf.GoVersion
 	}
-}
-
-func versionMax(a, b goVersion) goVersion {
-	if a.cmp(b) < 0 {
-		return b
-	}
-	return a
 }
 
 // Files checks the provided files as part of the checker's package.

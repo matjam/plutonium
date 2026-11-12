@@ -1,0 +1,4 @@
+$DIR/test.p:5:2: cannot assign to struct field m["foo"].i in map
+    This error occurs when trying to assign to a struct field in a map value.
+    (see "Assignment statements" in the Plutonium spec, section 12.7)
+    (run "pluto explain E0024" for a longer explanation)

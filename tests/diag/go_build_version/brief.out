@@ -1,0 +1,1 @@
+$DIR/main.p:1:1: //go:build is a Go directive; write //pu:build

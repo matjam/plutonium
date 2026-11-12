@@ -18,10 +18,6 @@ var goPlain = map[string]Entry{
 		Example: "println(cap(r))",
 		Fixed:   "println(r.Cap())",
 	},
-	"BrokenImport": {
-		Text: "The imported package could not be loaded. Check the import path: standard library packages are under pluto/, and the program's own packages are under the module path in pluto.mod.",
-		Spec: pspec("14.3", "Import declarations"),
-	},
 	"UnusedImport": {
 		Text:    "The file imports a package but never uses it. Plutonium, like Go, treats an unused import as an error, so that a file's imports always show what it really depends on.\nDelete the import, or use the package.",
 		Spec:    pspec("14.3", "Import declarations"),
@@ -213,10 +209,6 @@ var goPlain = map[string]Entry{
 		Text: "A builtin function such as len or cap is used as a value. Builtins can only be called; wrap the call in a function literal if you need a func value.",
 		Spec: pspec("13", "Built-in functions"),
 	},
-	"InvalidAppend": {
-		Text: "append's first argument must be a slice, and the values after it must fit its element type. Plutonium has no append (a slice cannot grow); use pluto/vec.Vec for a sequence that grows.",
-		Spec: pspec("13.1", "Built-ins Plutonium does not have"),
-	},
 	"InvalidAssert": {
 		Text: "A type assertion x.(T) asks which concrete type an interface value holds, so x must be an interface. This value is not an interface; its type is already known.",
 		Spec: pspec("11.13", "Type assertions"),
@@ -292,10 +284,6 @@ var goPlain = map[string]Entry{
 	"UnusedResults": {
 		Text: "The result of this call must be used. Builtins such as len and cap, and conversions, have no effect other than their result.",
 		Spec: pspec("12.4", "Expression statements"),
-	},
-	"UnsupportedFeature": {
-		Text: "This feature is not available in the language version being compiled.",
-		Spec: pspec("21.8", "Language version"),
 	},
 	"NotAGenericType": {
 		Text: "Type arguments in square brackets are given to a type that has no type parameters.",

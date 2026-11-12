@@ -1,0 +1,4 @@
+$DIR/test.p:3:23: invalid field name 1 in struct literal
+    This error occurs when a field name is not a valid identifier.
+    (see "Composite literals" in the Plutonium spec, section 11.3)
+    (run "pluto explain E0069" for a longer explanation)

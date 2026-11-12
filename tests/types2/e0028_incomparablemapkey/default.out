@@ -1,0 +1,5 @@
+$DIR/test.p:3:11: invalid map key type T
+    This error occurs when a map key type does not support the == and !=
+    operators.
+    (see "Map types" in the Plutonium spec, section 7.10)
+    (run "pluto explain E0028" for a longer explanation)

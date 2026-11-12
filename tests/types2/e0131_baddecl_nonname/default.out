@@ -1,0 +1,4 @@
+$DIR/test.p:5:2: non-name s.a on left side of :=
+    This error occurs when a declaration has invalid syntax.
+    (see "Declarations and scope" in the Plutonium spec, section 10)
+    (run "pluto explain E0131" for a longer explanation)

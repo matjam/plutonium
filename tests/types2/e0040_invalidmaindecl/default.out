@@ -1,0 +1,5 @@
+$DIR/test.p:3:5: cannot declare main - must be func
+    In package main, the name main must be the function where the program
+    starts. It cannot be a variable or type, and it cannot have type parameters.
+    (see "Program execution" in the Plutonium spec, section 15.4)
+    (run "pluto explain E0040" for a longer explanation)

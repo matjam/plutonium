@@ -1,0 +1,5 @@
+$DIR/test.p:5:4: invalid operation: cannot receive from non-channel int x (variable of type int)
+    This error occurs when there is a channel receive from a value that is
+    either not a channel, or is a send-only channel.
+    (see "Receive operator" in the Plutonium spec, section 11.23)
+    (run "pluto explain E0058" for a longer explanation)

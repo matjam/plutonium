@@ -1,0 +1,5 @@
+$DIR/test.p:5:15: invalid operation: shift count x (variable of type string) must be integer
+    The count of a shift, the right operand of << or >>, must be an integer that
+    is not negative.
+    (see "Arithmetic operators" in the Plutonium spec, section 11.19)
+    (run "pluto explain E0056" for a longer explanation)

@@ -1,0 +1,5 @@
+$DIR/test.p:3:9: invalid constant type *int
+    This error occurs when the underlying type in a const declaration is not a
+    valid constant type.
+    (see "Constant declarations" in the Plutonium spec, section 10.6)
+    (run "pluto explain E0015" for a longer explanation)

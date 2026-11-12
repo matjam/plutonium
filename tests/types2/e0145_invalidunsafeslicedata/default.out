@@ -1,0 +1,6 @@
+$DIR/test.p:6:26: invalid argument: x (variable of type int) is not a slice
+    This error occurs when unsafe.SliceData is called with an argument that is
+    not of slice type. It also occurs if it is used in a package compiled for a
+    language version before go1.20.
+    (see "Package unsafe" in the Plutonium spec, section 20.1)
+    (run "pluto explain E0145" for a longer explanation)

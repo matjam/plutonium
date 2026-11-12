@@ -1,0 +1,6 @@
+$DIR/test.p:4:10: invalid array length n
+    The length of an array type must be a constant integer that is not negative,
+    since an array's size is fixed when compiling. For a length known only at
+    run time, use a vec.Vec from pluto/vec.
+    (see "Array types" in the Plutonium spec, section 7.4)
+    (run "pluto explain E0026" for a longer explanation)

@@ -1,0 +1,6 @@
+$DIR/test.p:4:9: invalid operation: x (variable of type int) is not an interface
+    A type assertion x.(T) asks which concrete type an interface value holds, so
+    x must be an interface. This value is not an interface; its type is already
+    known.
+    (see "Type assertions" in the Plutonium spec, section 11.13)
+    (run "pluto explain E0094" for a longer explanation)

@@ -1,0 +1,5 @@
+$DIR/test.p:4:7: task discards result of len(a) (value of type int)
+    The result of this call must be used. Builtins such as len and cap, and
+    conversions, have no effect other than their result.
+    (see "Expression statements" in the Plutonium spec, section 12.4)
+    (run "pluto explain E0128" for a longer explanation)

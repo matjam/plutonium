@@ -1,0 +1,7 @@
+$DIR/test.p:5:2: cannot assign to c (neither addressable nor a map index expression)
+    The left side of an assignment must be something that can hold a value: a
+    variable, a pointer dereference, a field of an addressable struct, or a
+    slice or array element. Constants, function results and string bytes cannot
+    be assigned to.
+    (see "Assignment statements" in the Plutonium spec, section 12.7)
+    (run "pluto explain E0018" for a longer explanation)

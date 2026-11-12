@@ -1,0 +1,5 @@
+$DIR/test.p:5:10: method T.m already declared at $DIR/test.p:4:10
+    A type has two methods with the same name. Method names must be unique for
+    each type, whatever their parameters; there is no overloading.
+    (see "Method declarations" in the Plutonium spec, section 10.14)
+    (run "pluto explain E0034" for a longer explanation)

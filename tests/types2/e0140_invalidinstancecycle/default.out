@@ -1,0 +1,8 @@
+$DIR/test.p:3:8: instantiation cycle:
+    This error occurs when an invalid cycle is detected within the instantiation
+    graph.
+    (see "Instantiations" in the Plutonium spec, section 11.16)
+    (run "pluto explain E0140" for a longer explanation)
+
+$DIR/test.p:3:21: 	T instantiated as *T
+    (explained above; run "pluto explain E0140" for more)

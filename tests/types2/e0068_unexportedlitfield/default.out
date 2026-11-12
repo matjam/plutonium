@@ -1,0 +1,9 @@
+$DIR/test.p:5:21: implicit assignment to unexported field sum in struct literal of type hash.FNV32a
+    The literal sets a field of another package's struct whose name starts with
+    a lower-case letter. Such fields are private to their package. Use a
+    constructor function from that package, if it has one.
+    (see "Exported identifiers" in the Plutonium spec, section 10.4)
+    (run "pluto explain E0068" for a longer explanation)
+
+$DIR/test.p:5:24: implicit assignment to unexported field initialized in struct literal of type hash.FNV32a
+    (explained above; run "pluto explain E0068" for more)

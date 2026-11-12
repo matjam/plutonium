@@ -1,0 +1,5 @@
+$DIR/test.p:4:15: invalid operation: division by zero
+    A constant division by zero. Dividing by a constant 0 is always wrong, so
+    the compiler reports it rather than let it panic at run time.
+    (see "Arithmetic operators" in the Plutonium spec, section 11.19)
+    (run "pluto explain E0047" for a longer explanation)

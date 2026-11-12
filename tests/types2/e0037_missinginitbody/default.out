@@ -1,0 +1,4 @@
+$DIR/test.p:3:6: func init must have a body
+    This error occurs when an init function is missing its body.
+    (see "Package initialization" in the Plutonium spec, section 15.2)
+    (run "pluto explain E0037" for a longer explanation)

@@ -1,0 +1,5 @@
+$DIR/test.p:3:32: mixture of field:value and value elements in struct literal
+    A struct literal either names every field it sets (Point{X: 1, Y: 2}) or
+    lists a value for every field in order (Point{1, 2}). It cannot mix the two.
+    (see "Composite literals" in the Plutonium spec, section 11.3)
+    (run "pluto explain E0064" for a longer explanation)

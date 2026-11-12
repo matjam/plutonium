@@ -1,0 +1,5 @@
+$DIR/test.p:3:9: copy (built-in) must be called
+    A builtin function such as len or cap is used as a value. Builtins can only
+    be called; wrap the call in a function literal if you need a func value.
+    (see "Built-in functions" in the Plutonium spec, section 13)
+    (run "pluto explain E0082" for a longer explanation)

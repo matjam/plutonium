@@ -1,0 +1,6 @@
+$DIR/test.p:11:13: cannot use ... in call to non-variadic printArgs
+    This error occurs when a "..." is used on the final argument to a
+    non-variadic function.
+    (see "Passing arguments to ... parameters" in the Plutonium spec, section
+    11.15)
+    (run "pluto explain E0078" for a longer explanation)

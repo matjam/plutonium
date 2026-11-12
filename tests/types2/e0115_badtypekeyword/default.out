@@ -1,0 +1,5 @@
+$DIR/test.p:7:9: use of .(type) outside type switch
+    This error occurs when a .(type) expression is used anywhere other than a
+    type switch.
+    (see "Switch statements" in the Plutonium spec, section 12.9)
+    (run "pluto explain E0115" for a longer explanation)

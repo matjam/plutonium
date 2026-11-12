@@ -297,7 +297,8 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 
 		// both argument types must be identical
 		if !Identical(x.typ(), y.typ()) {
-			check.errorf(x, InvalidComplex, invalidOp+"%v (mismatched types %s and %s)", call, x.typ(), y.typ())
+			// complex, real and imag are not declared (universe.p), so this case is unreachable.
+			check.errorf(x, InvalidSyntaxTree, invalidOp+"%v (mismatched types %s and %s)", call, x.typ(), y.typ())
 			return
 		}
 
@@ -319,7 +320,8 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		}
 		resTyp := check.applyTypeFunc(f, x, id)
 		if resTyp == nil {
-			check.errorf(x, InvalidComplex, invalidArg+"arguments have type %s, expected floating-point", x.typ())
+			// complex, real and imag are not declared (universe.p), so this case is unreachable.
+			check.errorf(x, InvalidSyntaxTree, invalidArg+"arguments have type %s, expected floating-point", x.typ())
 			return
 		}
 
@@ -475,11 +477,8 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 		}
 		resTyp := check.applyTypeFunc(f, x, id)
 		if resTyp == nil {
-			code := InvalidImag
-			if id == _Real {
-				code = InvalidReal
-			}
-			check.errorf(x, code, invalidArg+"argument has type %s, expected complex type", x.typ())
+			// complex, real and imag are not declared (universe.p), so this case is unreachable.
+			check.errorf(x, InvalidSyntaxTree, invalidArg+"argument has type %s, expected complex type", x.typ())
 			return
 		}
 
@@ -1180,18 +1179,8 @@ func (check *Checker) applyTypeFunc(f func(Type) Type, x *operand, id builtinId)
 		// type parameter for the result. It's not clear what the API
 		// implications are here. Report an error for 1.18 (see go.dev/issue/50912),
 		// but continue type-checking.
-		var code Code
-		switch id {
-		case _Real:
-			code = InvalidReal
-		case _Imag:
-			code = InvalidImag
-		case _Complex:
-			code = InvalidComplex
-		default:
-			panic("unreachable")
-		}
-		check.softErrorf(x, code, "%s not supported as argument to built-in %s for go1.18 (see go.dev/issue/50937)", x, pu.Box(predeclaredFuncs[id].name))
+		// complex, real and imag are not declared (universe.p), so this case is unreachable.
+		check.softErrorf(x, InvalidSyntaxTree, "%s not supported as argument to built-in %s for go1.18 (see go.dev/issue/50937)", x, pu.Box(predeclaredFuncs[id].name))
 
 		// Construct a suitable new type parameter for the result type.
 		// The type parameter is placed in the current package so export/import

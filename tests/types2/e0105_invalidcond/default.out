@@ -1,0 +1,5 @@
+$DIR/test.p:4:5: non-boolean condition in if statement
+    The condition of an if or for statement must be a bool. Plutonium, like Go,
+    does not treat numbers or pointers as true or false; compare explicitly.
+    (see "If statements" in the Plutonium spec, section 12.8)
+    (run "pluto explain E0105" for a longer explanation)

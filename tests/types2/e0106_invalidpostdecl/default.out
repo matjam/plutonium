@@ -1,0 +1,4 @@
+$DIR/test.p:4:22: cannot declare in post statement
+    This error occurs when there is a declaration in a for-loop post statement.
+    (see "For statements" in the Plutonium spec, section 12.10)
+    (run "pluto explain E0106" for a longer explanation)

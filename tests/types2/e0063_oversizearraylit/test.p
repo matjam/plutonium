@@ -1,0 +1,5 @@
+package main
+
+var _ = [2]int{1,2,3}
+
+func main() {}

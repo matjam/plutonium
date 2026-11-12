@@ -1,0 +1,5 @@
+$DIR/test.p:6:25: invalid argument: x is not a selector expression
+    This error occurs when unsafe.Offsetof is called with an argument that is
+    not a selector expression.
+    (see "Package unsafe" in the Plutonium spec, section 20.1)
+    (run "pluto explain E0098" for a longer explanation)

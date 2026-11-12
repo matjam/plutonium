@@ -1,0 +1,5 @@
+$DIR/test.p:4:14: invalid operation: invalid use of ... with built-in len
+    This error occurs when a "..." is used in a non-variadic built-in function.
+    (see "Passing arguments to ... parameters" in the Plutonium spec, section
+    11.15)
+    (run "pluto explain E0081" for a longer explanation)

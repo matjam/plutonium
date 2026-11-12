@@ -1,0 +1,4 @@
+$DIR/test.p:4:7: goto L jumps into block
+    This error occurs when a forward jump goes to a label inside a nested block.
+    (see "Goto statements" in the Plutonium spec, section 12.17)
+    (run "pluto explain E0124" for a longer explanation)

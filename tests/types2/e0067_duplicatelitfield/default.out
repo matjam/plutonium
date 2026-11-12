@@ -1,0 +1,4 @@
+$DIR/test.p:3:29: duplicate field name i in struct literal
+    The struct literal sets the same field twice.
+    (see "Composite literals" in the Plutonium spec, section 11.3)
+    (run "pluto explain E0067" for a longer explanation)

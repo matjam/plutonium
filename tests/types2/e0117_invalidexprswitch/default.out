@@ -1,0 +1,5 @@
+$DIR/test.p:5:9: cannot switch on a (variable of type struct{_ func()}) (struct{_ func()} is not comparable)
+    A case value cannot be compared with the switch value: their types differ,
+    or the type cannot be compared with ==.
+    (see "Switch statements" in the Plutonium spec, section 12.9)
+    (run "pluto explain E0117" for a longer explanation)

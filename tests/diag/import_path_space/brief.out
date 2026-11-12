@@ -1,0 +1,2 @@
+$DIR/main.p:5:11: invalid import path (invalid character U+0020 ' ')
+$DIR/main.p:7:15: undefined: ab

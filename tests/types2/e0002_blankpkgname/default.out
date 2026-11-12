@@ -1,0 +1,4 @@
+$DIR/test.p:1:9: invalid package name _
+    This error occurs when a package name is the blank identifier "_".
+    (see "Package clause" in the Plutonium spec, section 14.2)
+    (run "pluto explain E0002" for a longer explanation)

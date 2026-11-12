@@ -1,0 +1,7 @@
+$DIR/test.p:5:9: float64 does not satisfy ~int (float64 missing in ~int)
+    A type argument does not satisfy its type parameter's constraint. The
+    constraint is an interface that lists the methods the type needs, or the set
+    of types allowed (such as ~int | ~float64). The message says which part the
+    type fails.
+    (see "Type parameter declarations" in the Plutonium spec, section 10.9)
+    (run "pluto explain E0139" for a longer explanation)

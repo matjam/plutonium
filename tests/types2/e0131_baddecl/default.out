@@ -1,0 +1,4 @@
+$DIR/test.p:3:6: generic function is missing function body
+    This error occurs when a declaration has invalid syntax.
+    (see "Declarations and scope" in the Plutonium spec, section 10)
+    (run "pluto explain E0131" for a longer explanation)

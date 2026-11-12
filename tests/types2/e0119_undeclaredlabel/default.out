@@ -1,0 +1,4 @@
+$DIR/test.p:4:7: label L not declared
+    This error occurs when an undeclared label is jumped to.
+    (see "Label scopes" in the Plutonium spec, section 10.1)
+    (run "pluto explain E0119" for a longer explanation)

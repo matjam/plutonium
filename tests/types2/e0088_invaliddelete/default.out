@@ -1,0 +1,5 @@
+$DIR/test.p:5:9: invalid argument: m (variable of type string) is not a map
+    This error occurs when the delete built-in function is called with a first
+    argument that is not a map.
+    (see "Deletion of map elements" in the Plutonium spec, section 13.5)
+    (run "pluto explain E0088" for a longer explanation)

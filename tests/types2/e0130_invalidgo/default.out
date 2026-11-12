@@ -1,0 +1,5 @@
+$DIR/test.p:4:7: task requires function call, not conversion int32(i) (value of type int32)
+    This error occurs when a go expression is not a function call, for example
+    if the expression is a type conversion.
+    (see "Task statements" in the Plutonium spec, section 12.12)
+    (run "pluto explain E0130" for a longer explanation)

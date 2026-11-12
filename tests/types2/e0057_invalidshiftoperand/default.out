@@ -1,0 +1,4 @@
+$DIR/test.p:4:9: invalid operation: shifted operand s (variable of type string) must be integer
+    This error occurs when the shifted operand is not an integer.
+    (see "Arithmetic operators" in the Plutonium spec, section 11.19)
+    (run "pluto explain E0057" for a longer explanation)

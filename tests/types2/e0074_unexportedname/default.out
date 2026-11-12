@@ -1,0 +1,5 @@
+$DIR/test.p:5:17: name hashStr not exported by package strings
+    The name starts with a lower-case letter, so it is private to the package
+    that declares it and cannot be used from another package.
+    (see "Exported identifiers" in the Plutonium spec, section 10.4)
+    (run "pluto explain E0074" for a longer explanation)

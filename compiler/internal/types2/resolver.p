@@ -177,7 +177,9 @@ func (check *Checker) importPackage(at positioner, path, dir string) *Package {
 			imp = nil // create fake package below
 		}
 		if err != nil {
-			check.errorf(at, BrokenImport, "could not import %s (%s)", pu.Box(path), err)
+			// The loader reports an import it cannot load (E4xxx) before type
+			// checking starts, so the importer fails only on a broken tree.
+			check.errorf(at, InvalidSyntaxTree, "could not import %s (%s)", pu.Box(path), err)
 			if imp == nil {
 				// create a new fake package
 				// come up with a sensible package name (heuristic)
@@ -285,11 +287,6 @@ func (check *Checker) collectObjects() {
 				name := imp.name
 				if d.spec.Name != nil {
 					name = d.spec.Name.Name
-					if path == "C" {
-						// match 1.17 cmd/compile (not prescribed by spec)
-						check.error(d.spec.Name, ImportCRenamed, `cannot rename import "C"`)
-						return
-					}
 				}
 
 				if name == "init" {

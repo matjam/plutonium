@@ -1,0 +1,5 @@
+$DIR/test.p:3:24: invalid slice indices: 1 < 2
+    This error occurs when constant indices in a slice expression are decreasing
+    in value.
+    (see "Slice expressions" in the Plutonium spec, section 11.12)
+    (run "pluto explain E0053" for a longer explanation)

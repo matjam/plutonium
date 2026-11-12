@@ -1,0 +1,5 @@
+$DIR/test.p:3:9: cannot slice unaddressable value [...]int{…} (value of type [3]int)
+    This error occurs when a slice operation is applied to a value whose type is
+    not sliceable, or is unaddressable.
+    (see "Slice expressions" in the Plutonium spec, section 11.12)
+    (run "pluto explain E0054" for a longer explanation)
