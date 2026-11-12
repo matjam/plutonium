@@ -1,0 +1,4 @@
+$DIR/main.p:7:2: union variant A redeclared
+$DIR/main.p:6:2: 	other declaration of A
+$DIR/main.p:13:2: union variant X redeclared
+$DIR/main.p:12:2: 	other declaration of X

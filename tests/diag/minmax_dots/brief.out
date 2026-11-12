@@ -1,0 +1,2 @@
+$DIR/main.p:8:15: invalid operation: invalid use of ... with built-in min
+$DIR/main.p:9:15: invalid operation: invalid use of ... with built-in max

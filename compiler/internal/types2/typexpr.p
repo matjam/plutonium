@@ -106,6 +106,12 @@ func (check *Checker) ident(x *operand, e *ast.Ident, wantType bool) {
 		x.mode_ = constant_
 
 	case *TypeName:
+		if en := EnumOf(typ); en != nil && en.building && !wantType {
+			// Plutonium: a member value cannot use the enum being
+			// declared, as in B = E.A or B = E(1) (spec section 7.12).
+			check.errorf(e, EnumSelfReference, "invalid use of %s in the declaration of enum %s", pu.Box(e.Name), pu.Box(en.obj.name))
+			return
+		}
 		x.mode_ = typexpr
 
 	case *Var:

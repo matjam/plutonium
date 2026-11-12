@@ -1,0 +1,15 @@
+$DIR/main.p:7:2: union variant A redeclared
+    Each variant of a union has a name of its own, which is not _, followed by
+    its payload type if it has one. Variants have no tags, and in a packed union
+    each variant has its own case clause.
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2404" for a longer explanation)
+
+$DIR/main.p:6:2: 	other declaration of A
+    (explained above; run "pluto explain E2404" for more)
+
+$DIR/main.p:13:2: union variant X redeclared
+    (explained above; run "pluto explain E2404" for more)
+
+$DIR/main.p:12:2: 	other declaration of X
+    (explained above; run "pluto explain E2404" for more)

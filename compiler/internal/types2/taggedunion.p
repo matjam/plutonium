@@ -185,6 +185,20 @@ func unionLayout(s Sizes, t *TaggedUnion) (tag, off, size, al int64) {
 	return tag, off, align(off+psize, al), al
 }
 
+// declareVariant adds variant v to the set of a union's variants. A name
+// already there is an error of the union's declaration (spec section 7.13,
+// E2404).
+func (check *Checker) declareVariant(oset *objset, pos token.Pos, v *Variant) bool {
+	if alt := oset.insert(v); alt != nil {
+		err := check.newError(BadVariantDecl)
+		err.addf(atPos(pos), "union variant %s redeclared", pu.Box(v.Name()))
+		err.addAltDecl(alt)
+		err.report()
+		return false
+	}
+	return true
+}
+
 // definedNamed returns the Named type that def defines, or nil if def is
 // not the name of a type definition (an alias, or no declaration at all).
 func definedNamed(def *TypeName) *Named {
@@ -226,7 +240,7 @@ func (check *Checker) unionType(e *ast.UnionType, def *TypeName) Type {
 			return
 		}
 		v := pu.New(Variant{object: object{pos: id.Pos(), pkg: check.pkg, name: id.Name, typ: payload}, index: len(u.variants), bare: bare})
-		if check.declareInSet(&names, id.Pos(), v) {
+		if check.declareVariant(&names, id.Pos(), v) {
 			check.recordDef(id, v)
 			u.variants = compat.Append(u.variants, v)
 		}
@@ -362,7 +376,7 @@ func (check *Checker) packedUnionType(e *ast.UnionType, def *TypeName) Type {
 		}
 
 		v := pu.New(Variant{object: object{pos: id.Pos(), pkg: check.pkg, name: id.Name, typ: payload}, index: len(p.variants)})
-		if !check.declareInSet(&names, id.Pos(), v) {
+		if !check.declareVariant(&names, id.Pos(), v) {
 			continue
 		}
 		check.recordDef(id, v)

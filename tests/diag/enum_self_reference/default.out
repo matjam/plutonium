@@ -1,0 +1,11 @@
+$DIR/main.p:8:6: invalid use of C in the declaration of enum C
+    An enum's member values cannot use the enum being declared, because those
+    values are what decides the enum's integer type.
+    (see "Enums" in the Plutonium spec, section 7.12)
+    (run "pluto explain E2310" for a longer explanation)
+
+$DIR/main.p:13:6: invalid use of D in the declaration of enum D
+    (explained above; run "pluto explain E2310" for more)
+
+$DIR/main.p:18:10: invalid use of E in the declaration of enum E
+    (explained above; run "pluto explain E2310" for more)

@@ -1,2 +1,2 @@
-$DIR/test.p:88:19: A redeclared
+$DIR/test.p:88:19: union variant A redeclared
 $DIR/test.p:88:16: 	other declaration of A

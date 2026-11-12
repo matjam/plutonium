@@ -27,8 +27,14 @@ func (check *Checker) builtin(x *operand, call *ast.CallExpr, id builtinId) (_ b
 	// append is the only built-in that permits the use of ... for the last argument
 	bin := predeclaredFuncs[id]
 	if hasDots(call) && id != _Append {
+		code := InvalidDotDotDot
+		if id == _Max || id == _Min {
+			// Plutonium: spec section 13.8 gives min(s...) the code of
+			// an operand min and max cannot take (E0150).
+			code = InvalidMinMaxOperand
+		}
 		check.errorf(dddErrPos(call),
-			InvalidDotDotDot,
+			code,
 			invalidOp+"invalid use of ... with built-in %s", pu.Box(bin.name))
 		check.use(argList...)
 		return
