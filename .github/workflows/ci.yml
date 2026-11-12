@@ -7,9 +7,13 @@
 # The compiler job builds compiler/cmd/pluto at the commit with the release
 # compiler (tools/bootstrap's releaseTag), checks that compiler/ and lib/
 # are pluto fmt-formatted, and runs every test with the new compiler: about
-# 10 minutes to build and 50 to test. The fixpoint job then checks that the
-# new compiler rebuilds itself byte for byte (pluto2 == pluto3); it runs
-# weekly and on demand.
+# 10 minutes to build and 50 to test. It does not run on a push to main:
+# every push to main has already passed the same build, tests and a
+# three-stage bootstrap on kraken before it is pushed (the integration
+# gate), and repeating them took one of kraken's build slots for an hour
+# per push. It runs daily on main, on pull requests and on demand. The
+# fixpoint job then checks that the new compiler rebuilds itself byte for
+# byte (pluto2 == pluto3); it runs weekly and on demand.
 #
 # Where the jobs run: the repository variable RUNS_ON, as JSON. While the
 # repository is private it is unset, and the jobs run on the self-hosted
@@ -25,6 +29,7 @@ on:
   pull_request:
   schedule:
     - cron: "47 10 * * 0" # weekly with the fixpoint, Sunday 03:47 Pacific
+    - cron: "17 11 * * 1-6" # daily compiler job, 04:17 Pacific
   workflow_dispatch:
     inputs:
       fixpoint:
@@ -67,6 +72,8 @@ jobs:
 
   compiler:
     needs: quick
+    # Not on a push to main: see the comment at the top.
+    if: github.event_name != 'push'
     runs-on: ${{ fromJSON(vars.RUNS_ON || '["self-hosted","kraken"]') }}
     timeout-minutes: 180
     env:
