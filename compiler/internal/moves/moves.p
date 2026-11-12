@@ -513,6 +513,9 @@ type fn struct {
 	// walk may use: an address kept, a function literal or a deferred call
 	// that uses them (empty.go).
 	kept map[*types2.Var]bool
+	// keptAt is where the first address of each variable in kept is taken
+	// (empty.go).
+	keptAt map[*types2.Var]token.Pos
 	// holders: the owners used by the function literals that local
 	// variables may hold (litHolders), computed when a deferred call needs
 	// them.

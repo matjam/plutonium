@@ -538,6 +538,8 @@ func (c *checker) keepTargets(call *ast.CallExpr) ([]keepTarget, bool) {
 		case cd.Fn != nil:
 			if d := c.keepDecls[cd.Fn]; d != nil {
 				out = compat.Append(out, keepTarget{node: d, shift: cd.Shift})
+			} else if c.bodylessFn(cd.Fn) {
+				return nil, false
 			}
 		case cd.Lit != nil:
 			out = compat.Append(out, keepTarget{node: cd.Lit, shift: cd.Shift})

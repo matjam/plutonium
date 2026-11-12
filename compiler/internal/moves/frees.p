@@ -735,7 +735,16 @@ func (s *keepScan) freePrimitive(call *ast.CallExpr) func(j int) bool {
 // hooks the compiler generates (schedHooks) are known by what the backend
 // interface requires of them.
 func (c *checker) bodyless(call *ast.CallExpr) bool {
-	fn := c.staticCallee(call)
+	return c.bodylessFn(c.staticCallee(call))
+}
+
+// bodylessFn is bodyless for the function fn. A func value that may hold
+// such a function, or the runtime's ReleaseValues or MoveValues, is a call
+// whose callees are not known (keepTargets).
+func (c *checker) bodylessFn(fn *types2.Func) bool {
+	if fn != nil && fn.Pkg() != nil && fn.Pkg().Path() == "pluto/rt" && c.keepDecls[fn] == nil && (fn.Name() == "ReleaseValues" || fn.Name() == "MoveValues") {
+		return true
+	}
 	if fn == nil || fn.Pkg() == nil || c.keepDecls[fn] != nil {
 		return false
 	}

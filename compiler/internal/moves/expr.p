@@ -429,6 +429,9 @@ func (f *fn) builtin(e *ast.CallExpr) {
 				// take(&pn.l) through a pointer to a local owner empties
 				// the same part.
 				f.invalidateThrough(amp.X, move{kind: mvTake, pos: amp.X.Pos(), to: exprText(e)})
+				// In the object of a counted reference: through every
+				// local reference that may point to it.
+				f.countedEmptied(amp.X, move{kind: mvTake, pos: amp.X.Pos(), to: exprText(e)})
 			}
 			return
 		}

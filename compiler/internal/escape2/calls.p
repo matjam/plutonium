@@ -291,10 +291,16 @@ func moveCallee(prog *eir.Program, id eir.FuncID) moves.Callee {
 		return moves.Callee{Unknown: true}
 	}
 	fn := prog.Funcs[id]
+	k := fn.Key
 	if fn.Bodyless {
+		if k.Obj != nil {
+			// Named, so that moves can tell what it frees: the contract
+			// of a runtime function, or the worst for one it has none of
+			// (moves.bodylessFn).
+			return moves.Callee{Fn: k.Obj.Origin()}
+		}
 		return moves.Callee{} // no body: moves has no summary of it
 	}
-	k := fn.Key
 	switch {
 	case k.Obj != nil:
 		return moves.Callee{Fn: k.Obj.Origin()}

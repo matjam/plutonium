@@ -322,6 +322,7 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 		if r, part := f.countedPath(x); r != nil {
 			out = compat.Append(out, view{of: r, pos: made.Pos(), text: exprText(made), inHeap: true, part: part})
 		}
+		out = compat.Append(out, f.boxFieldView(x, made)...)
 		// Part of a temporary owner, dropped at the end of its statement
 		// (temps.p).
 		return compat.Append(out, f.tempView(x, made)...)
@@ -337,6 +338,49 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), part: path, addr: true})
 	}
 	return out
+}
+
+// boxFieldView returns, for a place x in the object of an owned box that
+// is a part of a local owner (n.c.x, with n.c an owned[C] field of n), a
+// view of what the owner holds at the box: a new value of the box, or a
+// move or free of the owner, drops that object (section 18.3).
+func (f *fn) boxFieldView(x ast.Expr, made ast.Expr) []view {
+	e := x
+	for {
+		switch s := ast.Unparen(e).(type) {
+		case *ast.SelectorExpr:
+			sel := f.c.selections[s]
+			if sel == nil || sel.Kind() != types2.FieldVal {
+				return nil
+			}
+			if !sel.Indirect() {
+				e = s.X
+				continue
+			}
+			if !isOwnedBox(f.c.typeOf(s.X)) {
+				return nil
+			}
+			v, path, box, ok := f.placePath(s.X)
+			if !ok || len(path) == 0 {
+				return nil
+			}
+			if box {
+				path = nil
+			}
+			o := f.ownerVar(v)
+			if o == nil {
+				return nil
+			}
+			return compat.Clone([]view{{of: o, pos: made.Pos(), text: exprText(made), inHeap: true, part: path}})
+		case *ast.IndexExpr:
+			if _, isArr := f.c.typeOf(s.X).Underlying().(*types2.Array); !isArr {
+				return nil
+			}
+			e = s.X
+		default:
+			return nil
+		}
+	}
 }
 
 // intoLoaded reports whether the place x is in the object of an owner or
@@ -1750,7 +1794,14 @@ func (f *fn) storeViews(lhs ast.Expr, vs []view) {
 		// as far as the walk sees v: a function literal that uses v holds
 		// them (funcLitViews). So are the literals v holds, which a call
 		// of v runs (funcValueEffects).
-		f.pin(vs, lhs.Pos(), compat.Concat("stored in ", exprText(lhs)))
+		how := compat.Concat("stored in ", exprText(lhs))
+		f.pin(vs, lhs.Pos(), how)
+		if at, ok := f.keptAt[v]; !ok || at < lhs.Pos() || f.loopAround(v, lhs) {
+			// A pointer to v taken before (ps := &s) holds the views v
+			// held then, not these: a later free of the heap memory they
+			// look at is E3314 (section 18.3).
+			f.heapPinIn(vs, lhs.Pos(), how, true, nil)
+		}
 		var heap []view
 		for _, w := range vs {
 			if w.inHeap || w.lit != nil {
@@ -1773,6 +1824,28 @@ func (f *fn) storeViews(lhs ast.Expr, vs []view) {
 	}
 	s.views = sortViews(keep)
 	f.setState(v, s)
+}
+
+// loopAround reports whether x may run again after code that follows it,
+// within the life of v: a loop around x that v is declared outside of, or
+// any goto.
+func (f *fn) loopAround(v *types2.Var, x ast.Node) bool {
+	found := false
+	ast.Inspect(f.topBody, func(n ast.Node) bool {
+		if found || n == nil {
+			return false
+		}
+		switch n := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ForStmt, *ast.RangeStmt:
+			found = n.Pos() > v.Pos() && n.Pos() <= x.Pos() && x.Pos() < n.End()
+		case *ast.BranchStmt:
+			found = n.Tok == token.GOTO
+		}
+		return !found
+	})
+	return found
 }
 
 // addViews records that the views vs may have been stored by call

@@ -1,0 +1,12 @@
+$DIR/main.p:24:10: s holds a view of v (v.Slice(), line 18), which was reclaimed by f(&v) at line 23, so s can no longer be used here
+    s looks at memory that v owns, without owning it: the view was made by
+    v.Slice() at line 18. A view of a local arena's memory may be used only
+    until Reset or Release reclaims it. At line 23 v was reclaimed by f(&v), so
+    the view may look at memory that was released, or at a value that now
+    belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use s before line 23, or call f(&v) only after the last use of s
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

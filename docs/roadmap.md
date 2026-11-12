@@ -968,6 +968,32 @@ compiler (2026-10-11).
     caller that uses the result (`v := r()`, `println(r())`, `r() + 1`) stops with an internal compiler error,
     "bad store types" or "Add needs matching integer operands": lowering takes the result as a scalar of `T`
     while the wrapper is 64 bytes. Found with item 239; a result of type `volatile[T]` works.
+241. **The move check findings of attack-mem** (done; sections 18.3, 18.5, 18.6, 18.9, 11.4, 21.4; findings 01
+    to 17 of `docs/verification/2026-11-11-attack-mem`): what the walk cannot follow falls to the worst case.
+    A view stored through a pointer to a local, an owner field given a new value or taken through an
+    alias, and an arena reached through a pointer or an owner field end as through the variable itself.
+    A function literal holds each variable it uses (`view.lit`), so a call of it, or of a method value,
+    frees, moves and resets what its body does, and returns views of what it uses (`funcvals.p`); a
+    literal made before its owner moves cannot be called after. A deferred call frees where the function
+    returns, in reverse order, and a range over a view is ended by a free in its body (`defers.p`). A
+    view of a temporary owner kept past its statement is E3009, and a holder whose drop reads a view
+    must be declared after what it views (`temps.p`). A counted reference copied by value, through a
+    package variable or into another local frees through every copy (`counted.p`). A new value or
+    `clear` through a slice or pointer drops the old contents and ends views into them (18.6,
+    `dropLoaded`). The move check that has not settled after 2000 passes is E9002 (21.4); before, it
+    stopped at 50 and checked a partial state. A call through a func value that may hold a function
+    without a body is a call of unknown callees. Two false errors go: a pointer to a vector field
+    pushed through twice (`view.addr`), and an owner taken out of a field by a helper whose every return
+    is `return take(&place)` (`takesOut`). `s[0] = take(&s[0])` printing `drop 0` is Drop called on the
+    zero value left behind, as 18.6 allows, not a second drop. An audit of `views.p`, `frees.p` and `stmt.p`
+    after the findings closes more cases the walk treated as safe: a box field of a local owner given a new
+    value ends the views into its object, `take(&t.c)` through a counted copy ends the views through every
+    local reference to the object, a kept variable keeps the literals it holds and may point at any pinned
+    owner, a call that frees through a part ends the addresses inside it, and a view stored in a variable after
+    its address is taken pins the heap memory it looks at. The cases it leaves too
+    strict are in `skill/plutonium/references/known-gaps.md`. Tests: the `tests/moves/rejected_` and
+    `accepted_` directories added with this item, `accepted_valid_view_idioms`, and
+    `localWindowStringKeptPastReset` in `tests/build_arena_live_test.go`.
 204. **Type-parameter conversions to an interface in generic code** (done; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end

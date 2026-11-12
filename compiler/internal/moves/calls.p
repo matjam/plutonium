@@ -55,9 +55,11 @@ type Into struct {
 // of a function literal) may reach, by the escape analysis's candidates:
 // a declared function or method (Fn, by its generic origin), a function
 // literal (Lit) or the body of a range over a function (Range), whose
-// input Shift+j is input j of the call. All nil is a function of which
-// nothing is kept (one without a body); Unknown is one the move checker
-// has no summary of.
+// input Shift+j is input j of the call. A declared function without a
+// body is an Fn with no declaration the checker scans (bodylessFn). All
+// nil is a function of which nothing is kept and that has no name (a
+// union variant's maker); Unknown is one the move checker has no summary
+// of.
 type Callee struct {
 	Fn      *types2.Func
 	Lit     *ast.FuncLit

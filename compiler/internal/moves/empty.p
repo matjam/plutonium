@@ -125,12 +125,19 @@ func (z *zset) equal(o *zset) bool {
 func (f *fn) findNoFacts(body *ast.BlockStmt) {
 	f.noFacts = map[*types2.Var]bool{}
 	f.kept = map[*types2.Var]bool{}
+	f.keptAt = map[*types2.Var]token.Pos{}
+	keep := func(v *types2.Var, at token.Pos) {
+		f.kept[v] = true
+		if p, ok := f.keptAt[v]; !ok || at < p {
+			f.keptAt[v] = at
+		}
+	}
 	all := func(e ast.Node) {
 		ast.Inspect(e, func(n ast.Node) bool {
 			if id, ok := n.(*ast.Ident); ok {
 				if v, ok := f.c.objOf(id).(*types2.Var); ok && f.vars[v] {
 					f.noFacts[v] = true
-					f.kept[v] = true
+					keep(v, e.Pos())
 				}
 			}
 			return true
@@ -147,7 +154,7 @@ func (f *fn) findNoFacts(body *ast.BlockStmt) {
 			return true
 		})
 		if v, _, box, ok := f.placePath(x); ok && !box && f.vars[v] {
-			f.kept[v] = true
+			keep(v, x.Pos())
 		}
 	}
 	called := map[*ast.SelectorExpr]bool{}
