@@ -1,0 +1,1 @@
+$DIR/cache/cache.p:12:2: an element of a map[string]int is written here with no lock that guards it, while another task may use it
