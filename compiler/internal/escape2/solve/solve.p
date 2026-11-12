@@ -149,6 +149,10 @@ type solver struct {
 	objPlaces, objSubs vec   // per object: list heads (+1)
 	subs               vec   // node, path, flags, next
 
+	// One-entry memos in front of tables, for runs of repeats.
+	lastCut [2]lastKey // the last cutKey of a source and of a destination, in front of cuts
+	lastDst lastDst    // the last storeDstOf, in front of dsts
+
 	defs      vec // per register: block<<32 | instr+1
 	siteBlock vec // per call site: its block+1
 
@@ -1163,12 +1167,25 @@ func (s *solver) storeDstOf(did uint64, t tok) domain.Key {
 	if t.tagGE {
 		k2 |= 1 << 32
 	}
-	if k, ok := s.dsts.get(did, k2); ok {
-		return domain.Key(k)
+	if l := &s.lastDst; l.ok && l.did == did && l.k2 == k2 {
+		return l.k
 	}
-	k := s.storeDst(s.tokAt(did), t)
-	s.dsts.put(s.a, did, k2, uint64(k))
-	return k
+	k, ok := s.dsts.get(did, k2)
+	if !ok {
+		k = uint64(s.storeDst(s.tokAt(did), t))
+		s.dsts.put(s.a, did, k2, k)
+	}
+	s.lastDst = lastDst{did: did, k2: k2, k: domain.Key(k), ok: true}
+	return domain.Key(k)
+}
+
+// lastDst is storeDstOf's last result. A constraint fires for every token
+// of its node with the same destination, so the memo table's lookup is
+// mostly a repeat of the one before; the entry gives what the table would.
+type lastDst struct {
+	did, k2 uint64
+	k       domain.Key
+	ok      bool
 }
 
 // storeCode is the code of a frame pointer stored where it outlives the
@@ -1268,7 +1285,7 @@ func (s *solver) addStorePair(src, dst domain.Key, why uint64) {
 // pair past the cut held tens of MB, and took (*unifier).nify of types2
 // past MaxFuncArena.
 func (s *solver) addCutPair(src, dst domain.Key, why uint64) {
-	src, dst = s.cutKey(src), s.cutKey(dst)
+	src, dst = s.cutKeyLast(0, src), s.cutKeyLast(1, dst)
 	if s.sumSeen.add(s.a, uint64(src)|sCutStore<<60, uint64(dst)) {
 		s.store.push(s.a, uint64(src))
 		s.store.push(s.a, uint64(dst))
@@ -1284,6 +1301,25 @@ func (s *solver) cutKey(k domain.Key) domain.Key {
 	}
 	c := summary.CutKey(s.ps, k)
 	s.cuts.put(s.a, uint64(k), 0, uint64(c))
+	return c
+}
+
+// lastKey is a key and its cut.
+type lastKey struct {
+	k, c domain.Key
+	ok   bool
+}
+
+// cutKeyLast is cutKey with a one-entry memo in front, one for sources
+// (i 0) and one for destinations (i 1): the pairs of one constraint mostly
+// share a destination, and the entry gives what cuts would.
+func (s *solver) cutKeyLast(i int, k domain.Key) domain.Key {
+	l := &s.lastCut[i]
+	if l.ok && l.k == k {
+		return l.c
+	}
+	c := s.cutKey(k)
+	*l = lastKey{k: k, c: c, ok: true}
 	return c
 }
 
