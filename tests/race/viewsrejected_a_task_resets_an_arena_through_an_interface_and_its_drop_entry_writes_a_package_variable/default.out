@@ -1,0 +1,18 @@
+$DIR/main.p:23:10: drops is read here while the task started at main.p:22 may write it
+    The task started at main.p:22 writes drops at main.p:12, in (*Node).Drop
+    called at main.p:22, and s waits for it at main.p:24. Meanwhile drops is
+    read at main.p:23 in main, so the two may run at the same time, one of them
+    writing: a data race.
+    Go leaves data races to a run-time detector that a program must be run
+    under, and a racing Go program can see values half written. Plutonium tasks
+    run in parallel with no such detector, so safe code must be free of data
+    races, and the compiler checks it from the program itself, with no
+    annotations.
+    Wait for the tasks before using drops:
+        s.Wait()
+    Or lock one sync.Mutex around every use of it, in the tasks and here:
+        mu.Lock()
+        ...
+        mu.Unlock()
+    (see "Scoped tasks" in the Plutonium spec, section 19.4)
+    (run "pluto explain E3402" for a longer explanation)

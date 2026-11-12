@@ -181,6 +181,7 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		opts := &applyOpts{noLockEffect: t.syncRecv, argViews: w.argViews(e, t)}
 		res, after := w.apply(t.static, args, e.Pos(), t.name, w.st, opts)
 		w.st = after
+		w.runEntries(e, t.static)
 		w.noteCallView(e, opts.held)
 		res = pad(res, nres)
 		for i := range res {
@@ -212,6 +213,7 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		for _, f := range w.a.methodCandidates(t.method, t.sig) {
 			opts := &applyOpts{noLockEffect: isSyncMethod(f), argViews: w.argViews(e, t)}
 			r, after := w.apply(f, args, e.Pos(), t.name, w.st, opts)
+			after = w.entriesAfter(f, nil, e.Pos(), t.name, after)
 			if opts.held != nil {
 				if held != nil {
 					m := held.meet(*opts.held)
@@ -1138,6 +1140,7 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 			locks := compose(base.locks, substRel(x.rel, args), substLocks(x.locks, args))
 			rel := base.rel.union(substRel(x.rel, args))
 			for _, p := range ps {
+				p = w.a.bulkPlace(x, p, w.frame != nil)
 				if w.frame != nil {
 					w.frame.noteSub(w, p, x, locks, pos)
 					continue
@@ -1441,6 +1444,7 @@ func (w *walker) callValueIn(fv origins, args []origins, pos token.Pos, sig *typ
 			a = compat.Append(compat.Clone([]origins{nil}), args...)
 		}
 		r, after := w.apply(f, a, pos, name, base, nil)
+		after = w.entriesAfter(f, nil, pos, name, after)
 		res = unionResults(res, r)
 		out = join(out, after)
 	}

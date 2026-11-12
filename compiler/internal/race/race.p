@@ -282,8 +282,13 @@ type analyzer struct {
 	// it sets to an object of an arena's New or Slice, and that arena
 	// (allocmem.go).
 	arenaVars   map[*function]map[*types2.Var][]vpath
-	tpArgs      map[*types2.TypeParam][]types2.Type // the type arguments each type parameter is instantiated with
-	typeAcc     map[string][]*typeAccess            // uses of each field of objects, for the type rule
+	arenaTakes  map[*function]map[*types2.Var][]*types2.Var // arena variables set by take of others (arenaMoves)
+	entryTypes  map[*types2.Var][]types2.Type               // types with drop entries in each named Fixed or Chunked arena, nil key for the rest (arenaEntryTypes)
+	dropFns     map[types2.Type][]*function                 // the Drop methods a type's drop glue reaches (dropGlueFns)
+	arenaRes    map[*function]bool                          // functions that may return an object of an arena's New or Slice (mayArenaResult)
+	allocUse    map[*function]bool                          // functions whose bodies call alloc.Use (callsAllocUse)
+	tpArgs      map[*types2.TypeParam][]types2.Type         // the type arguments each type parameter is instantiated with
+	typeAcc     map[string][]*typeAccess                    // uses of each field of objects, for the type rule
 	typeSeen    map[typeSeenKey]bool
 	resultNodes map[resultKey]ast.Node // the memory a call's fresh results are
 
@@ -962,6 +967,13 @@ func (a *analyzer) callGraph() {
 			if f.body != nil {
 				a.calleesOf(u, body)
 			}
+			if f.obj != nil && entryRun(f.obj) {
+				// However it is called, a Reset, Release or Drop of an
+				// arena runs the Drop methods of its drop entries.
+				for _, d := range a.entryFns(nil, nil) {
+					u.callee[d.unit] = true
+				}
+			}
 		}
 		delete(u.callee, u)
 	}
@@ -995,6 +1007,12 @@ func (a *analyzer) calleesOf(u *unit, n ast.Node) {
 				if fn, ok := sel.Obj().(*types2.Func); ok {
 					if f := a.funcs[fn.Origin()]; f != nil && f.unit != nil {
 						u.callee[f.unit] = true
+					}
+					if entryRun(fn) {
+						// The Drop methods the arena's drop entries run.
+						for _, d := range a.entryFns(nil, nil) {
+							u.callee[d.unit] = true
+						}
 					}
 					if sig := fn.Type().(*types2.Signature); sig.Recv() != nil && isInterface(sig.Recv().Type()) || isTypeParamRecv(sel) {
 						// The methods the call may reach, as the walker

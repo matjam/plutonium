@@ -1132,6 +1132,11 @@ func holds(S, T types2.Type, depth int) bool {
 // memory; self says they are by different instances of one task. alias
 // says they meet only because two views may point to the same memory.
 func (fc *frameCheck) meet(x, y *frameAcc, p, q *party, self bool) (meets, alias bool) {
+	if isAllocMem(x.place) && isAllocMem(y.place) && (isAnyArena(x.place) || isAnyArena(y.place)) {
+		// An arena the compiler cannot name is every arena (section
+		// 19.3, Frees are writes).
+		return true, false
+	}
 	if x.place.root == y.place.root {
 		pa, pb := stripOwned(x.place.path), stripOwned(y.place.path)
 		if !contains(x.place.path, y.place.path) && !contains(y.place.path, x.place.path) {
@@ -1148,7 +1153,24 @@ func (fc *frameCheck) meet(x, y *frameAcc, p, q *party, self bool) (meets, alias
 	if external(x.place) && external(y.place) && typesMeet(x.typ, y.typ) {
 		return true, true
 	}
+	if (fc.viewedGlobal(x.place) && throughPointer(y.place) || fc.viewedGlobal(y.place) && throughPointer(x.place)) && typesMeet(x.typ, y.typ) {
+		// A package variable whose address is taken may be the memory
+		// any pointer of its type points to.
+		return true, true
+	}
 	return false, false
+}
+
+// viewedGlobal reports whether p is the storage of a package variable
+// whose address is taken.
+func (fc *frameCheck) viewedGlobal(p vpath) bool {
+	return p.root.kind == rGlobal && fc.a.addrGlobals[p.root.v] && !throughView(p.path)
+}
+
+// throughPointer reports whether p is memory reached through a pointer or
+// other view.
+func throughPointer(p vpath) bool {
+	return strings.ContainsAny(p.path, "*%$#")
 }
 
 // common reports whether x and y hold one lock that keeps them apart: held
