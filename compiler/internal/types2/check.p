@@ -206,6 +206,13 @@ type Checker struct {
 	// can be explained (see indexing.go).
 	containerIndexes map[ast.Expr]Type // to the container's type
 
+	// Plutonium: selectors of packed fields, so that taking the address of
+	// one that is not plain memory is an error (see packed_address.go).
+	packedParts map[ast.Expr]packedPart
+	// Expressions that denote a variable of a volatile type, before the
+	// wrapper is taken off (see packed_address.go).
+	volatileExprs map[ast.Expr]bool
+
 	// Plutonium: type switches on union values that name every variant
 	// (or cover every tag value of a packed union) without a default
 	// case. Such a switch is a terminating statement if every case is.

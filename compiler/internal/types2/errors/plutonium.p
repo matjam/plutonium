@@ -123,6 +123,9 @@ const (
 	// BigEndianPackedArray: an array field whose elements are wider than
 	// one byte in a big-endian packed type (decision D131).
 	BigEndianPackedArray
+	// PackedFieldAddress: the address of a packed field that is not
+	// whole bytes of plain memory (decision D131).
+	PackedFieldAddress
 )
 
 // Default parameter values.

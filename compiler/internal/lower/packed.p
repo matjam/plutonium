@@ -180,11 +180,20 @@ func (s *fnState) subField(base lvalue, p *types2.Packed, rel, width int64, ft t
 }
 
 // placeAddr returns the address of the storage lv denotes. A packed field
-// that does not hold whole bytes as a variable of its type would has no
-// address, and section 7.14 does not say what taking it means.
+// has an address only when it is whole bytes of plain memory (section 7.14,
+// decision D131), which the type checker enforces (E2112): a field read
+// with shifts and masks then starts on a byte of storage that is not
+// swapped as a whole, and its bytes are those of a variable of its type.
 func (s *fnState) placeAddr(lv lvalue) *ssa.Value {
-	if lv.bits != nil || lv.win != nil {
+	if lv.win != nil {
 		s.l.unsupportedf(s.pos, "the address of a packed field that is not plain memory cannot be taken")
+		return s.absAddr(lv.ptr)
+	}
+	if ref := lv.bits; ref != nil {
+		if ref.swap || ref.offset%8 != 0 || ref.width != 8*s.l.sizeof(ref.T) || needsSwap(ref.packed_) || isVolatile(lv.T) {
+			s.l.unsupportedf(s.pos, "the address of a packed field that is not plain memory cannot be taken")
+		}
+		return s.absAddr(s.offPtr(lv.ptr, ref.offset/8))
 	}
 	return s.absAddr(lv.ptr)
 }

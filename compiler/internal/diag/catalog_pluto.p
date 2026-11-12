@@ -302,6 +302,13 @@ func init() {
 			Example: "type Ports packed be [4]byte {\n\tport [2]uint16\n}",
 			Fixed:   "type Ports packed be [4]byte {\n\tsrc uint16\n\tdst uint16\n}",
 		}),
+		pu.New(Entry{
+			Code: CheckerCode(typerr.PackedFieldAddress), Name: "PackedFieldAddress",
+			Text:    "The address of a packed field can be taken only when the field is whole bytes of plain memory: a field declared with a type, not bits[T, N], an enum or a flag group, that starts on a byte, is not a bool or an array of bools, lies in a value that is not volatile, and holds its bytes as a variable of its type would. A field of several bytes in a big-endian packed type does not, and no field of a big-endian integer-backed type does. The rule covers &x.f, slicing an array field, and calling a method with a pointer receiver on a field.\nCopy the field to a variable, use the copy, and write it back.",
+			Spec:    pspec("7.14", "packed types"),
+			Example: "type R packed uint8 {\n\tmode bits[uint8, 4]\n\t_    bits[uint8, 4]\n}\n\nfunc set(p *uint8) { *p = 3 }\n\nfunc demo(r *R) {\n\tset(&r.mode)\n}",
+			Fixed:   "type R packed uint8 {\n\tmode bits[uint8, 4]\n\t_    bits[uint8, 4]\n}\n\nfunc set(p *uint8) { *p = 3 }\n\nfunc demo(r *R) {\n\tm := r.mode\n\tset(&m)\n\tr.mode = m\n}",
+		}),
 
 		// Default parameter values.
 		pu.New(Entry{

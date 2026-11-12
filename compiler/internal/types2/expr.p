@@ -153,6 +153,10 @@ func (check *Checker) unary(x *operand, e *ast.UnaryExpr) {
 			x.invalidate()
 			return
 		}
+		if x.mode() == variable && check.packedAddress(x, e.X, "take the address of") {
+			x.invalidate()
+			return
+		}
 		if _, ok := ast.Unparen(e.X).(*ast.CompositeLit); !ok && x.mode() != variable {
 			check.errorf(x, UnaddressableOperand, invalidOp+"cannot take address of %s", x)
 			x.invalidate()
@@ -1067,6 +1071,7 @@ func (check *Checker) rawExpr(T *target, x *operand, e ast.Expr, hint Type, allo
 	// reads or writes a T. Only the operand of & keeps the wrapper, so that
 	// &v has type *volatile[T].
 	if !keep {
+		check.noteVolatile(e, x)
 		check.unwrapTransparent(x)
 	}
 

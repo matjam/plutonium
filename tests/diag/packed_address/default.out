@@ -1,0 +1,39 @@
+$DIR/main.p:49:8: cannot take the address of a.a: it is a packed field that is not whole bytes of plain memory
+    The address of a packed field can be taken only when the field is whole
+    bytes of plain memory: a field declared with a type, not bits[T, N], an enum
+    or a flag group, that starts on a byte, is not a bool or an array of bools,
+    lies in a value that is not volatile, and holds its bytes as a variable of
+    its type would. A field of several bytes in a big-endian packed type does
+    not, and no field of a big-endian integer-backed type does. The rule covers
+    &x.f, slicing an array field, and calling a method with a pointer receiver
+    on a field.
+    Copy the field to a variable, use the copy, and write it back.
+    (see "packed types" in the Plutonium spec, section 7.14)
+    (run "pluto explain E2112" for a longer explanation)
+
+$DIR/main.p:50:7: cannot slice a.a: it is a packed field that is not whole bytes of plain memory
+    (explained above; run "pluto explain E2112" for more)
+
+$DIR/main.p:51:8: cannot take the address of a.a[0]: it is a packed field that is not whole bytes of plain memory
+    (explained above; run "pluto explain E2112" for more)
+
+$DIR/main.p:52:7: cannot call pointer method Set on a.in: it is a packed field that is not whole bytes of plain memory
+    (explained above; run "pluto explain E2112" for more)
+
+$DIR/main.p:53:8: cannot take the address of be.n: it is a packed field that is not whole bytes of plain memory
+    (explained above; run "pluto explain E2112" for more)
+
+$DIR/main.p:54:8: cannot take the address of be.b: it is a packed field that is not whole bytes of plain memory
+    (explained above; run "pluto explain E2112" for more)
+
+$DIR/main.p:55:9: cannot take the address of c.a: it is a packed field that is not whole bytes of plain memory
+    (explained above; run "pluto explain E2112" for more)
+
+$DIR/main.p:56:9: cannot take the address of (c.b): it is a packed field that is not whole bytes of plain memory
+    (explained above; run "pluto explain E2112" for more)
+
+$DIR/main.p:57:9: cannot take the address of v.a: it is a packed field that is not whole bytes of plain memory
+    (explained above; run "pluto explain E2112" for more)
+
+$DIR/main.p:58:8: cannot take the address of f.mode: it is a packed field that is not whole bytes of plain memory
+    (explained above; run "pluto explain E2112" for more)

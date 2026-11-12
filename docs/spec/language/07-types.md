@@ -1446,6 +1446,12 @@ func demo(raw uint32) uint32 {
 - **Defined types.** `type R2 ControlReg` declares a new packed type with the same fields, backing, byte
   order and bit layout, and none of `ControlReg`'s methods. `R2` and `ControlReg` convert to each other
   explicitly, every bit kept, and each converts to and from the integer or byte array as above.
+- **Addresses.** The address of a packed field can be taken (with `&`, by slicing an array field, or by calling
+  a method with a pointer receiver on it) only when the field is whole bytes of plain memory: declared with a
+  type rather than as a bit field, enum or flag group, starting on a byte, not a `bool` or an array of `bool`,
+  in a value that is not volatile, and holding its bytes as a variable of its type would, which a field of
+  several bytes in a big-endian type laid out by byte and any field of a big-endian integer-backed type do not
+  (E2112).
 - **Literals** name their fields: `ControlReg{mode: 5, enable: true}`. The reserved bits are zero in a literal
   and in the zero value.
 - **Comparison.** Packed values are comparable. Two packed values are equal when their bits outside the

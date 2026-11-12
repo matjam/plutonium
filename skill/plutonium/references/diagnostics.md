@@ -206,6 +206,7 @@ Removed constructs, enums, unions, packed types, defaults, the or clause, `error
 | E2109 | BadWrapperSize | The second argument of aligned[T, N] and ring[T, N] must be a positive integer constant, since the layout is fixed when compiling. | `pluto explain E2109` |
 | E2110 | RingLiteralNotEmpty | A ring literal cannot list elements. Write an empty literal, or use the zero value, and add elements with Push. | `pluto explain E2110` |
 | E2111 | BigEndianPackedArray | A big-endian packed type cannot have an array field whose elements are wider than one byte, whatever its backing. | Declare one field for each element instead, or use an array of bytes and put the values together yourself. |
+| E2112 | PackedFieldAddress | The address of a packed field can be taken only when the field is whole bytes of plain memory: a field declared with a type, not bits[T, N], an enum or a flag group, that starts on a byte, is not a bool or an array of bools,... | Copy the field to a variable, use the copy, and write it back. |
 | E2201 | MisplacedDefault | Default parameter values are allowed only on the parameters of a declared function or method. | `pluto explain E2201` |
 | E2202 | VariadicDefault | A variadic function (one whose last parameter is ...T) cannot have default values. | `pluto explain E2202` |
 | E2203 | MissingDefault | A call may leave out only trailing parameters. So once a parameter has a default value, every parameter after it needs one too. | `pluto explain E2203` |

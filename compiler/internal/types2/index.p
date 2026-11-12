@@ -313,6 +313,10 @@ func (check *Checker) sliceExpr(x *operand, e *ast.SliceExpr) {
 			x.invalidate()
 			return
 		}
+		if check.packedAddress(x, e.X, "slice") {
+			x.invalidate()
+			return
+		}
 		x.typ_ = pu.New(Slice{elem: u.elem})
 
 	case *Pointer:

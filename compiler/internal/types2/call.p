@@ -892,6 +892,7 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 
 		// field value
 		check.recordSelection(e, FieldVal, x.typ(), obj, index, indirect)
+		check.recordPackedField(x, e, index, indirect)
 		if x.mode() == variable || indirect {
 			x.mode_ = variable
 		} else {
@@ -950,6 +951,10 @@ func (check *Checker) selector(x *operand, e *ast.SelectorExpr, wantType bool) {
 			// addressability, should we report the type &(x.typ) instead?
 			check.recordSelection(e, MethodVal, x.typ(), obj, index, indirect)
 			check.noteFunc(e.Sel, obj)
+			if sig, _ := obj.typ.(*Signature); sig != nil && sig.recv != nil && isPointer(sig.recv.typ) && !isPointer(x.typ()) &&
+				check.packedAddress(e.Sel, e.X, "call pointer method "+sel+" on") {
+				goto Error
+			}
 
 			// TODO(gri) The verification pass below is disabled for now because
 			//           method sets don't match method lookup in some cases.

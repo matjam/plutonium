@@ -2296,6 +2296,40 @@ Goal: Plain.
 
 Lands with: no compiler change; the compiler already reports these errors.
 
+## D131. Packed array fields in big-endian types, and addresses of packed fields (7.14)
+
+Question: 7.14 is silent on two points, and the compiler stopped with E2500 on both. In which order are the
+bytes of an array field's elements stored in a big-endian packed type, laid out by byte or integer-backed?
+And what is the address of a packed field that does not hold whole bytes of plain memory?
+
+Decision (coordinator ruling): in a big-endian packed type, whatever its backing, an array field whose
+elements are wider than one byte is an error, E2111 (BigEndianPackedArray). Arrays of single bytes are
+allowed, and so is a reserved `_` field. With an integer backing, element `i` of such an array is the byte at
+the field's bit position plus `8i` in the value, by the integer rule, as for every other field.
+
+The address of a packed field can be taken only when the field is whole bytes of plain memory, and
+otherwise it is an error, E2112 (PackedFieldAddress). This covers `&x.f`, slicing an array field and calling
+a method with a pointer receiver on a field. The field must:
+
+- be declared with a type, not as a bit field, enum or flag group;
+- start on a byte;
+- not be a `bool` or an array of `bool`, since a `bool` variable holds only 0 or 1 and packed storage may
+  hold any byte;
+- lie in a value that is not volatile;
+- hold its bytes as a variable of its type would. A field of several bytes in a big-endian type laid out
+  by byte does not, and neither does any field of a big-endian integer-backed type.
+
+Fields that meet these rules are now addressable. Before, only array fields on a byte were.
+
+Why: neither question has an answer in the spec that a program could rely on. An error says so where an
+E2500 said the compiler was not finished. Section 11.22 names struct fields as addressable and not packed
+fields, so 7.14 now says which packed fields are. Goal: Safe, Plain.
+
+Lands with: the type checker reports E2111 and E2112. Lowering compiles arrays of single bytes in
+big-endian integer-backed types and takes the address of every field that the rule allows.
+tests/diag/packed_not_yet is replaced by tests/diag/packed_be_array, tests/diag/packed_address and
+testdata/plutonium/packedaddr.p.
+
 ## Deferred
 
 None open. D105 (lazy initialization through `sync.Once`) and D106 (`sync.Cond.Wait`) were deferred for

@@ -2903,6 +2903,48 @@ Written correctly:
 
 See "packed types" in the Plutonium spec, section 7.14.
 
+E2112: PackedFieldAddress
+
+The address of a packed field can be taken only when the field is whole bytes of
+plain memory: a field declared with a type, not bits[T, N], an enum or a flag
+group, that starts on a byte, is not a bool or an array of bools, lies in a
+value that is not volatile, and holds its bytes as a variable of its type would.
+A field of several bytes in a big-endian packed type does not, and no field of a
+big-endian integer-backed type does. The rule covers &x.f, slicing an array
+field, and calling a method with a pointer receiver on a field.
+
+Copy the field to a variable, use the copy, and write it back.
+
+For example:
+
+    type R packed uint8 {
+        mode bits[uint8, 4]
+        _    bits[uint8, 4]
+    }
+
+    func set(p *uint8) { *p = 3 }
+
+    func demo(r *R) {
+        set(&r.mode)
+    }
+
+Written correctly:
+
+    type R packed uint8 {
+        mode bits[uint8, 4]
+        _    bits[uint8, 4]
+    }
+
+    func set(p *uint8) { *p = 3 }
+
+    func demo(r *R) {
+        m := r.mode
+        set(&m)
+        r.mode = m
+    }
+
+See "packed types" in the Plutonium spec, section 7.14.
+
 E2201: MisplacedDefault
 
 Default parameter values are allowed only on the parameters of a declared

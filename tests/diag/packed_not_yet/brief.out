@@ -1,2 +1,0 @@
-$DIR/main.p:17:7: the address of a packed field that is not plain memory cannot be taken
-$DIR/main.p:18:7: the address of a packed field that is not plain memory cannot be taken

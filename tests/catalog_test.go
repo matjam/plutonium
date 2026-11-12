@@ -562,7 +562,12 @@ func TestCatalogComplete(t *testing.T) {
 
 // untestedCodes are the catalog's codes that no test reaches, each with
 // the reason. Every other code must be in the expected output of a test.
-var untestedCodes = map[string]string{}
+var untestedCodes = map[string]string{
+	// Since D131 every call of unsupportedf in compiler/internal/lower is
+	// a backstop behind a type error (E2111, E2112), so no program
+	// reaches it. A construct that reaches it again needs a corpus case.
+	"E2500": "no program reaches it since D131 (item 238): every lowering site is a backstop",
+}
 
 var (
 	anyCode     = regexp.MustCompile(`E\d{4}`)
