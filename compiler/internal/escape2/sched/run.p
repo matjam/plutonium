@@ -177,15 +177,24 @@ func RunWith(p *eir.Program, opts Options) *Result {
 	}
 	findings := compat.Make[[]solve.Finding](len(p.Funcs))
 
+	// sq runs the sequential driver's solves in scratch memory (seq.go).
+	var sq *seqSolver
 	// solveOne solves one function against the current summaries, with its
-	// reads recorded for the cache when there is one.
-	solveOne := func(id eir.FuncID) (solve.Result, Recorder) {
-		env.solving = id
-		if opts.Cache == nil {
-			return solveGuarded(p.Funcs[id], env, ws), nil
+	// reads of facts recorded for the cache when there is one, and returns
+	// the members of the SCC whose summaries it read as well.
+	solveOne := func(id eir.FuncID, st *SCCStats) (solve.Result, Recorder, []eir.FuncID) {
+		var rec Recorder
+		if opts.Cache != nil {
+			rec = opts.Cache.Recorder(id)
 		}
-		rec := opts.Cache.Recorder(id)
-		return solveGuarded(p.Funcs[id], pu.Box(recordingEnv{env, rec}).(solve.Env), ws), rec
+		o := sq.solve(task{id: id, scc: env.current}, rec)
+		if o.arenaB > st.ArenaBytes {
+			st.ArenaBytes = o.arenaB
+		}
+		if o.setsB > st.SetBytes {
+			st.SetBytes = o.setsB
+		}
+		return o.res, rec, o.reads
 	}
 	// measure notes the workspace a solve used and resets it.
 	measure := func(st *SCCStats) {
@@ -214,7 +223,8 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		}()
 		defer func() {
 			// The summaries are final: a solve of each member against them
-			// gives its findings and well-founded reasons (reasons.go).
+			// gives its findings and well-founded reasons (reasons.go), as
+			// the round driver's final round does.
 			iterated := len(comp) > 1
 			for _, n := range solves {
 				iterated = iterated || n > 1
@@ -224,16 +234,22 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			if !iterated {
 				return
 			}
-			st.Unfounded = wellFounded(comp, env, func(id eir.FuncID) solve.Result {
-				env.solving = id
-				r := solveDerivsFunc(p.Funcs[id], env, ws)
+			derivs := map[eir.FuncID][][]summary.Reason{}
+			for _, id := range comp {
+				o := sq.solve(task{id: id, scc: env.current, final: true}, nil)
 				st.Solves++
-				measure(st)
-				if r.Limit != nil {
-					r = limitResult(p.Funcs[id], env)
+				if o.arenaB > st.ArenaBytes {
+					st.ArenaBytes = o.arenaB
 				}
-				return r
-			}, findings)
+				if o.setsB > st.SetBytes {
+					st.SetBytes = o.setsB
+				}
+				findings[id] = keepLimit(findings[id], o.res.Findings)
+				if o.derivsOK {
+					derivs[id] = o.derivs
+				}
+			}
+			st.Unfounded = chooseReasons(comp, env, derivs)
 		}()
 		for !work.empty() {
 			id := work.pop()
@@ -243,14 +259,16 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			}
 			var r solve.Result
 			var rec Recorder
-			env.beginReads()
+			var reads []eir.FuncID
 			if keep {
+				env.beginReads()
 				env.solving = id
 				r = ret.solve(p.Funcs[id], env, ws)
+				reads = env.endReads()
 			} else {
-				r, rec = solveOne(id)
+				r, rec, reads = solveOne(id, st)
 			}
-			noteReads(id, env.endReads())
+			noteReads(id, reads)
 			if rec != nil {
 				opts.Cache.Solved(id, rec)
 			}
@@ -306,7 +324,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			// (solving from bottom then shows whether the solver itself
 			// does).
 			if !solvesWithoutPanic(func() {
-				r, rec := solveOne(id)
+				r, rec, _ := solveOne(id, st)
 				findings[id] = r.Findings
 				if !leq(env.paths, r.Summary, loaded[i]) || !opts.Cache.Matches(id, rec) {
 					ok = false
@@ -356,11 +374,14 @@ func RunWith(p *eir.Program, opts Options) *Result {
 	if opts.Cache == nil && !sequential {
 		runParallel(p, env, g, comps, findings, finish)
 		seqComps = nil // done
+	} else {
+		sq = newSeqSolver(p, env, comps)
 	}
 	for ci, comp := range seqComps {
 		for _, id := range comp {
 			env.inSCC[id] = int32(ci)
 		}
+		sq.next(ci)
 		readBy = map[eir.FuncID][]eir.FuncID{}
 		readSeen = map[[2]eir.FuncID]bool{}
 		env.current = int32(ci)
@@ -391,6 +412,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		for _, ci := range redoSCCs(comps, g, env.inSCC, fromFile, findings) {
 			comp := comps[ci]
 			env.current = int32(ci)
+			sq.at(ci)
 			for _, id := range comp {
 				env.sums[id] = nil
 				findings[id] = nil

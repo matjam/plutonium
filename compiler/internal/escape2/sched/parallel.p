@@ -134,6 +134,9 @@ type worker struct {
 	reads   []eir.FuncID
 	mark    []uint32
 	stamp   uint32
+	// rec records the solve's reads of facts, for the summary cache (the
+	// sequential driver's solves, seq.go); nil: not recorded.
+	rec Recorder
 }
 
 func newWorker(pf *parFacts, ix *pathIndex) *worker {
@@ -368,6 +371,9 @@ func (w *worker) solve(t task, f *eir.Func, o *outcome) solve.Result {
 		return r
 	}
 	if !t.keep {
+		if w.rec != nil {
+			return solveGuarded(f, pu.Box(recordingWorker{w, w.rec}).(solve.Env), w.ws)
+		}
 		return solveGuarded(f, w, w.ws)
 	}
 	a := newArena()

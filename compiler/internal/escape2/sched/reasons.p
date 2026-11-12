@@ -27,22 +27,6 @@ import (
 // driver's tests).
 var solveDerivsFunc = solve.SolveDerivs
 
-// wellFounded gives every Esc and Store entry of the SCC's final summaries a
-// reason of least depth, from final solves of its members, and their
-// findings. It returns how many entries have none of finite depth.
-func wellFounded(comp []eir.FuncID, env *env, solveOne func(id eir.FuncID) solve.Result, findings [][]solve.Finding) int {
-	derivs := map[eir.FuncID][][]summary.Reason{}
-	for _, id := range comp {
-		r := solveOne(id)
-		findings[id] = keepLimit(findings[id], r.Findings)
-		if r.Limit != nil || r.Summary == nil {
-			continue
-		}
-		derivs[id] = summary.EntryDerivs(env.paths, env.sums[id], r.Summary, r.Derivs)
-	}
-	return chooseReasons(comp, env, derivs)
-}
-
 // chooseReasons gives every entry of the SCC's final summaries a reason of
 // least depth among derivs, the derivations of each member's entries
 // (summary.EntryDerivs of a final solve), and returns how many entries have

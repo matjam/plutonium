@@ -95,54 +95,6 @@ func (v cacheView) Candidates(f *eir.Func, c *eir.Call) []eir.FuncID {
 
 func (v cacheView) Deps(id eir.FuncID) []eir.FuncID { return v.g.deps[id] }
 
-// recordingEnv is the solver's environment with its reads of facts recorded.
-type recordingEnv struct {
-	*env
-	rec Recorder
-}
-
-func (e recordingEnv) HeapOnly(T types2.Type, field int) bool {
-	h := e.env.HeapOnly(T, field)
-	e.rec.HeapOnly(T, field, h)
-	return h
-}
-
-func (e recordingEnv) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
-	types, known := e.env.Instantiated(tp)
-	e.rec.Instantiated(tp, types, known)
-	return types, known
-}
-
-func (e recordingEnv) Methods(t types2.Type, m *types2.Func) []eir.FuncID {
-	ids := e.env.Methods(t, m)
-	e.rec.Methods(t, m, ids)
-	return ids
-}
-
-func (e recordingEnv) PointerWrappers(u types2.Type) ([]types2.Type, bool) {
-	types, known := e.env.PointerWrappers(u)
-	e.rec.PointerWrappers(u, types, known)
-	return types, known
-}
-
-func (e recordingEnv) Retyped(u, v types2.Type) bool {
-	ok := e.env.Retyped(u, v)
-	e.rec.Retyped(u, v, ok)
-	return ok
-}
-
-// Deferred is decided from the EIR, which the cache's digest covers.
-func (e recordingEnv) Deferred(f *eir.Func, c *eir.Call) bool { return e.env.Deferred(f, c) }
-
-// CanRead is decided by the call graph, from the EIR.
-func (e recordingEnv) CanRead(f *eir.Func, id eir.FuncID) bool { return e.env.CanRead(f, id) }
-
-func (e recordingEnv) Contract(name string) (*summary.Summary, bool) {
-	s, ok := e.env.Contract(name)
-	e.rec.Contract(name, s, ok)
-	return s, ok
-}
-
 // redoSCCs returns, callees first, the SCCs to solve again from bottom
 // before findings are reported: those that are tainted (accepted from the
 // file, or reading a tainted summary) and that some function with a finding
