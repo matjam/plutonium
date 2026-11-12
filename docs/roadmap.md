@@ -945,8 +945,8 @@ compiler (2026-10-11).
     `rejected_free_through_an_interface_in_a_field`, `rejected_block_end_while_a_view_is_kept_in_the_heap`,
     `rejected_free_after_an_owned_element_is_stored` and `accepted_frees_twins_of_item_237`.
 239. **Defects of the attack-sem review** (done, `f34bcbf8`, `e387cb89`, `2fbd34f8`, `65297a17`, `f6273109`,
-    `fd7637f4`, `57f626f7`, `96d743ce`, `f0ec73e3`, `29a7a9b4`; findings 01, 02 and 04 to 10 of the
-    attack-sem review of 2026-11-11): `unsafe.Sizeof` and `Alignof` of `aligned[T, N]`
+    `fd7637f4`, `57f626f7`, `96d743ce`, `f0ec73e3`, `29a7a9b4`, `f6f0adc6`, `76cd8b2f`, `10d3e584`;
+    findings 01 to 10 of the attack-sem review of 2026-11-11): `unsafe.Sizeof` and `Alignof` of `aligned[T, N]`
     measure the wrapper (7.16); a tuple assignment makes each target's nil and bounds checks at its own store
     (12.7); an untyped constant takes the element type of `volatile[T]` and `aligned[T, N]` in every
     assignment context (7.15, 7.16); a switch on a value that is not comparable is an error with no case
@@ -954,13 +954,17 @@ compiler (2026-10-11).
     is an error (10.6); `min(s...)` is E0150, a duplicate union variant E2404 and any reference from a member
     value to its own enum E2310; `union` in a type position outside a type declaration is E2401 while a
     variable, field or parameter named `union` still works; `f() or return {` in a for post statement is
-    E2465; and a range clause with `=` evaluates its left side in every iteration (12.10). Panic traces at
+    E2465; a range clause with `=` evaluates its left side in every iteration (12.10); a field off a byte that
+    reaches the end of an odd-sized backing compiles (finding 03, fixed by `0b9b46ec`); and, per D131, an array
+    field of elements wider than a byte in a `be` packed type is E2111 and the address of a packed field that
+    is not whole bytes of plain memory is E2112 (7.14). Panic traces at
     `-O2` already show inlined calls as frames (the inline sites of `debuginfo/trace.p`); 40 probes of
     inlined panics, faults, closures, methods, loops and deferred calls gave the same trace at `-O0` and
-    `-O2`. Tests: `testdata/plutonium/alignedsize.p`, `wrapperinit.p`, `unionident.p`, `rangeassign.p`,
+    `-O2`. Tests: `testdata/plutonium/alignedsize.p`, `wrapperinit.p`, `unionident.p`, `rangeassign.p`, `packedodd.p`,
+    `packedaddr.p`,
     `tests/assignorder_test.go` and the `tests/diag` cases `wrapper_untyped`, `switch_noncomparable`,
     `packed_anonymous`, `const_owner`, `minmax_dots`, `union_duplicate_variant`, `enum_self_reference`,
-    `or_post_return` and `misplaced_union`.
+    `or_post_return`, `misplaced_union`, `packed_be_array` and `packed_address`.
 240. **A result of type `aligned[T, N]`** (planned; section 7.16): `func r() aligned[int, 64]` compiles, but a
     caller that uses the result (`v := r()`, `println(r())`, `r() + 1`) stops with an internal compiler error,
     "bad store types" or "Add needs matching integer operands": lowering takes the result as a scalar of `T`
@@ -1648,15 +1652,13 @@ compiler (2026-10-11).
     packed field backstop in `compiler/internal/lower` is either unreachable after the type checker (say so in
     a comment or remove it) or a missing feature (add an item): `builtin.p:149`, `:219`; `expr.p:117`, `:686`,
     `:1013`, `:1310`; `stmt.p:126`, `:721`; `packed.p:124`, `:136`, `:192`, `:238`.
-238. **Packed fields lowering cannot access yet** (in progress, `0b9b46ec`; section 7.14; moved from item
-    182): an array field that does not start on a byte, an array field of a `volatile` packed value, a field
-    whose bytes span more than eight bytes (a `uint64` at bit 4), and a nested `be` integer-backed packed field
-    that does not start on a byte now compile; `testdata/plutonium/packedspan.p` checks their values and
-    storage bytes at -O0 and -O2. Still E2500, waiting on the spec: an array field with elements of several
-    bytes in a `be` type laid out by byte, and an array field in a `be` integer-backed type (7.14 does not say
-    in which order an element's bytes are stored in big-endian storage); and taking the address of a packed
-    field that is not plain memory (7.14 does not say whether such a field is addressable).
-    `tests/diag/packed_not_yet` has one of each.
+238. **Packed fields lowering cannot access yet** (done, `0b9b46ec`, `76cd8b2f`, `10d3e584`; section 7.14,
+    D131; moved from item 182): an array field that does not start on a byte, an array field of a `volatile` packed value,
+    a field whose bytes span more than eight bytes (a `uint64` at bit 4), and a nested `be` integer-backed
+    packed field that does not start on a byte compile; `testdata/plutonium/packedspan.p` checks their values
+    and storage bytes at -O0 and -O2. Per D131 an array field with elements of several bytes in a `be` packed
+    type is E2111, an array of bytes in a `be` integer-backed type holds element `i` at the field's bit plus
+    `8i`, and taking the address of a packed field that is not whole bytes of plain memory is E2112.
 183. **Order of evaluation in the rest of lowering** (done, `ce9c5520`; section 11.26; moved from item 73):
     survey the rest of `compiler/internal/lower` and add `testdata/run` and difftest cases (assignments, `x[i]
     = f()`, operands of operators); every difference from the specified order is a false friend and is fixed.
