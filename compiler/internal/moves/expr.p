@@ -235,15 +235,26 @@ func (f *fn) call(e *ast.CallExpr, kind moveKind) {
 	// (views.go), as the arguments are before the call moves any.
 	stores := f.argViews(e)
 	defer f.callStores(stores)
+	// A deferred call frees and reclaims where the function returns
+	// (defers.p): the record keeps what it may do until then.
+	var r *deferRec
+	if e == f.deferCall {
+		r = f.curDefer
+		f.deferCall, f.curDefer = nil, nil
+	}
 	// The views the callee may free through (frees.p).
 	freed := f.freeArgs(e)
 	// What the func values called or passed may do (funcvals.p).
 	fv := f.funcValueFrees(e)
 	// The local arenas the callee may reset or release (frees.p).
 	reclaimed := f.reclaimArgs(e)
-	defer f.freeViews(e, freed)
-	f.candidateUses(e)
-	defer f.funcValueViews(e, fv)
+	if r != nil {
+		r.freed, r.fv, r.reclaimed = freed, fv, reclaimed
+	} else {
+		defer f.freeViews(e, freed)
+		f.candidateUses(e)
+		defer f.funcValueViews(e, fv)
+	}
 	name := exprText(e.Fun)
 	if se, ok := ast.Unparen(e.Fun).(*ast.SelectorExpr); ok {
 		if sel := f.c.selections[se]; sel != nil && sel.Kind() == types2.MethodVal {
@@ -262,7 +273,9 @@ func (f *fn) call(e *ast.CallExpr, kind moveKind) {
 		return
 	}
 	f.args(e, sig, name, kind)
-	f.reclaim(e, reclaimed) // views.go
+	if r == nil {
+		f.reclaim(e, reclaimed) // views.go
+	}
 }
 
 // args walks a call's arguments, moving owners into parameters that take

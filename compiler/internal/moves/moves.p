@@ -524,6 +524,16 @@ type fn struct {
 
 	// unitMoves are the moves made in the unit being walked (oneexpr.p).
 	unitMoves []unitMove
+
+	// For deferred calls (defers.p): deferCall is the call a defer
+	// statement is walking, whose frees wait for the exits, and curDefer
+	// its record; defers are the records of the defer statements walked so
+	// far, in the order of the walk.
+	deferCall *ast.CallExpr
+	curDefer  *deferRec
+	defers    []*deferRec
+	deferRecs map[*ast.DeferStmt]*deferRec
+	deferVars map[ast.Node]*types2.Var
 }
 
 // A target is a statement that break or continue may leave.
@@ -599,6 +609,7 @@ func (f *fn) walk(body *ast.BlockStmt) {
 	f.targets = nil
 	f.blocks = nil
 	f.scopes = nil
+	f.defers = nil
 	for _, v := range f.results {
 		f.declaredEmpty(v) // results start with nothing
 	}

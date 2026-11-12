@@ -1,0 +1,19 @@
+$DIR/main.p:13:20: v.Slice() holds a view of v (v.Slice(), line 13), which may have been passed to v.Push(j), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) at line 15, so v.Slice() cannot be used here
+    v.Slice() looks at memory that v owns, without owning it: the view was made
+    by v.Slice() at line 13. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. A call
+    that may free memory the view looks at, or move an owner out of it, through
+    a pointer to the variable or to memory it owns ends the view as well. At
+    line 15 v was passed to v.Push(j), which may free what it looks at or move
+    it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) on some
+    paths to this point, so the view may look at memory that was released, or at
+    a value that now belongs to something else. The range statement evaluates
+    its operand once and reads the next element through it at each iteration,
+    after the body has run.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use v.Slice() before line 15, or make that call only after the last use of
+    v.Slice()
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

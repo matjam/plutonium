@@ -1,0 +1,17 @@
+$DIR/main.p:11:13: p holds a view of v (v.Ptr(0), line 10), which was passed to v.Free(), which may free what it looks at or move it out (clear(v.data), vec.p:288) at line 12, but the call deferred at line 11 uses it when the function returns
+    p looks at memory that v owns, without owning it: the view was made by
+    v.Ptr(0) at line 10. A view of an owner held in a local variable may be used
+    only while the variable keeps the value the view was made from. A call that
+    may free memory the view looks at, or move an owner out of it, through a
+    pointer to the variable or to memory it owns ends the view as well. At line
+    12 v was passed to v.Free(), which may free what it looks at or move it out
+    (clear(v.data), vec.p:288), so the view may look at memory that was
+    released, or at a value that now belongs to something else. The call
+    deferred at line 11 keeps what p held there and runs when the function
+    returns, after the deferred calls made after it (section 12.19).
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use p before line 12, or make that call only after the last use of p
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

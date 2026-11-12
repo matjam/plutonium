@@ -495,6 +495,7 @@ func (f *fn) rangeStmt(st *ast.RangeStmt, label string) {
 	if st.Value != nil && isOwner(elem) && !isBlank(st.Value) && f.report {
 		f.c.report(f.c.rangeDiag(st, elem))
 	}
+	h := f.rangeHold(st) // defers.p
 	f.loop(st, label, func() {
 		for _, e := range []ast.Expr{st.Key, st.Value} {
 			if e != nil {
@@ -506,7 +507,12 @@ func (f *fn) rangeStmt(st *ast.RangeStmt, label string) {
 		}
 	}, func() {
 		f.block(st.Body)
-	}, nil)
+	}, func() {
+		f.rangeNext(st, h)
+	})
+	if h != nil {
+		f.setState(h, vstate{})
+	}
 }
 
 func isBlank(e ast.Expr) bool {
@@ -700,9 +706,12 @@ func (f *fn) deferredDrop(call *ast.CallExpr) (*types2.Var, *ast.Ident) {
 // deferred call may not use an owner of an inner block, which is dropped
 // when that block ends, before the call runs.
 func (f *fn) deferStmt(st *ast.DeferStmt) {
+	r := f.deferRecOf(st)
+	f.deferHold(r) // defers.p
 	if v, id := f.deferredDrop(st.Call); v != nil {
 		// defer x.Drop() ends x's life when the function returns, after
 		// everything else has used it: here it only takes x's address.
+		r.drop = v
 		f.use(id, v)
 		if f.report {
 			f.c.info.DeferredDrops[st.Call] = true
@@ -713,7 +722,9 @@ func (f *fn) deferStmt(st *ast.DeferStmt) {
 			f.setState(v, s)
 		}
 	} else {
+		f.deferCall, f.curDefer = st.Call, r
 		f.call(st.Call, mvArg)
+		f.deferCall, f.curDefer = nil, nil
 		f.deferUses(st)
 	}
 	if !f.report || len(f.blocks) == 0 {
@@ -941,6 +952,7 @@ func (f *fn) deferExit() {
 	if !f.report || f.env == nil {
 		return
 	}
+	f.runDefers() // defers.p
 	var vs []*types2.Var
 	for v, s := range f.env {
 		if s.dl != nil && s.st != live {
