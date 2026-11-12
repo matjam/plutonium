@@ -1,0 +1,17 @@
+$DIR/main.p:16:3: cannot store e in cache[k], which outlives get's frame
+    e points into a composite literal in get's frame. A composite literal whose
+    address is taken (at main.p:15) is made in get's frame, as a local variable
+    would be. When get returns, its frame is reclaimed, but a map keeps its keys
+    and elements in a table on the heap, which every copy of the map shares and
+    which may live longer, so it would be left pointing at reclaimed memory.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    Store the value itself instead of a view of get's frame, changing the map's
+    element type to match.
+    Or keep what the map refers to in memory that lives as long as the map, such
+    as a package variable, or in a counted reference (shared[T] or synced[T])
+    stored in the map.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3002" for a longer explanation)

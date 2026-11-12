@@ -1,0 +1,1 @@
+$DIR/main.p:16:3: cannot store e in cache[k], which outlives get's frame

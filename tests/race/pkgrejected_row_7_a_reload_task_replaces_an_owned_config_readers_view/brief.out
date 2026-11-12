@@ -1,0 +1,1 @@
+$DIR/main.p:23:10: cfg.port is read here through a view that is not valid here: mu, which guards it, was not held from the load of the view to here
