@@ -87,6 +87,23 @@ type pinMark struct {
 	// error (section 18.3).
 	stored bool
 	lent   bool // the view is lent (view.lent)
+	// inOwn says the view went into memory the same owner holds on the
+	// heap (n.next = a.New[node]() for n from a.New): dropping the owner
+	// frees the view with that memory, and a transfer moves it along.
+	inOwn bool
+}
+
+// pinRank orders pins by what they forbid, for the join of two paths.
+func pinRank(p *pinMark) int {
+	switch {
+	case p == nil:
+		return 0
+	case !p.stored:
+		return 1
+	case p.inOwn:
+		return 2
+	}
+	return 3
 }
 
 func (w view) key() string {
@@ -1348,7 +1365,7 @@ func (f *fn) storeViews(lhs ast.Expr, vs []view) {
 		// (section 18.3).
 		how := compat.Concat("stored in ", exprText(lhs))
 		f.pin(vs, lhs.Pos(), how)
-		f.heapPin(vs, lhs.Pos(), how, true)
+		f.heapPinIn(vs, lhs.Pos(), how, true, f.heapOwnersOf(storeBase(f.c, lhs)))
 		return
 	}
 	if f.kept[v] {
@@ -1453,18 +1470,71 @@ func (f *fn) pin(vs []view, where token.Pos, how string) {
 // stored says the view itself was kept, not only memory loaded through
 // it; a later free of such an owner is E3314 too (frees.p, freedPart).
 func (f *fn) heapPin(vs []view, where token.Pos, how string, stored bool) {
+	f.heapPinIn(vs, where, how, stored, nil)
+}
+
+// heapPinIn is heapPin for views stored into memory that the owners own
+// hold on the heap (pinMark.inOwn).
+func (f *fn) heapPinIn(vs []view, where token.Pos, how string, stored bool, own []*types2.Var) {
 	for _, w := range vs {
+		if !w.inHeap {
+			continue
+		}
 		s, ok := f.env[w.of]
 		// What was loaded through a view is kept as the view itself when
 		// it may look at memory the owner frees through it: an element
 		// that is itself an owner of a buffer (lowns).
 		kept := stored && (!w.loaded || w.lowns)
-		if ok && s.hpin != nil && (s.hpin.stored || !kept) || !w.inHeap {
+		p := pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how, stored: kept, inOwn: kept && slices.Contains(own, w.of)})
+		if ok && pinRank(s.hpin) >= pinRank(p) {
 			continue
 		}
-		s.hpin = pu.New(pinMark{pos: w.pos, text: w.text, where: where, how: how, stored: kept})
+		s.hpin = p
 		f.setState(w.of, s)
 	}
+}
+
+// storeBase returns the pointer, slice or box that an assignment to lhs
+// stores through (n for n.next or n.a[i], p for *p, s for s[i]), or nil.
+func storeBase(c *checker, lhs ast.Expr) ast.Expr {
+	e := ast.Unparen(lhs)
+	for {
+		switch x := e.(type) {
+		case *ast.SelectorExpr:
+			if T := c.typeOf(x.X); T != nil {
+				if _, ok := T.Underlying().(*types2.Struct); !ok {
+					return x.X
+				}
+			}
+			e = ast.Unparen(x.X)
+		case *ast.IndexExpr:
+			if T := c.typeOf(x.X); T != nil {
+				if _, ok := T.Underlying().(*types2.Array); !ok {
+					return x.X
+				}
+			}
+			e = ast.Unparen(x.X)
+		case *ast.StarExpr:
+			return x.X
+		default:
+			return nil
+		}
+	}
+}
+
+// heapOwnersOf returns the owners whose heap memory the value of e may
+// point into.
+func (f *fn) heapOwnersOf(e ast.Expr) []*types2.Var {
+	if e == nil {
+		return nil
+	}
+	var out []*types2.Var
+	for _, w := range f.viewsOf(e) {
+		if w.inHeap && !slices.Contains(out, w.of) {
+			out = compat.Append(out, w.of)
+		}
+	}
+	return out
 }
 
 // loadFrees reports whether a value loaded through a value of type T may
@@ -1651,7 +1721,7 @@ func (f *fn) invalidate(v *types2.Var, mv move) {
 	frees := hp != nil && hp.stored && !onlyLent && dropFrees(v.Type()) && (mv.kind == mvDrop || mv.kind == mvNewValue || mv.kind == mvScopeEnd && f.env[v].st != moved)
 	if p := f.env[v].pin; p != nil && (!onlyLent || p.lent) && f.report {
 		f.c.report(f.c.pinnedDiag(v, p, mv))
-	} else if hp != nil && (crosses(mv) || frees) && f.report {
+	} else if hp != nil && !hp.inOwn && (crosses(mv) || frees) && f.report {
 		f.c.report(f.c.heapPinnedDiag(v, hp, mv))
 	}
 	if frees {

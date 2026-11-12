@@ -1,0 +1,13 @@
+$DIR/main.p:19:2: a is dropped by a.Drop() here, but a view of what it holds (a.New[node](), line 17) was stored in m.next at line 17, where the compiler cannot check its uses
+    An owner frees what it holds when it is dropped, at the end of its block or
+    when it is given a new value, and that ends every view of that memory
+    (language spec section 18.3). The view of a made by a.New[node]() at line 17
+    went into memory the compiler does not follow, so it cannot check that the
+    view is not used after line 19.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not drop it while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)

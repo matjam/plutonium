@@ -989,7 +989,11 @@ compiler (2026-10-11).
     `tests/moves/rejected_view_stored_through_a_method_result_pointer_then_its_owner_freed`,
     `rejected_caller_pointer_returned_by_a_method_of_a_moved_owner`,
     `tests/escape/rejected_view_kept_in_a_moved_owner_stored_in_a_package_variable`, each with an
-    accepted twin. Left: a view of a table a map walk retired may outlive the walk while the map lives;
+    accepted twin. A view stored into heap memory of the same owner, through a view of that owner
+    (`n.next = a.New[node]()` for `n` from `a.New`), goes with that memory, so a drop or a transfer of
+    the owner is fine; into memory of another owner it is still E3314. Tests:
+    `tests/moves/accepted_view_stored_in_memory_of_the_same_arena_then_the_arena_dropped` and
+    `rejected_view_stored_in_memory_of_another_arena_then_its_arena_dropped`. Left: a view of a table a map walk retired may outlive the walk while the map lives;
     no program that reaches it has been found yet.
 180. **The escape contract of `rt.ReleaseValues` and `ZeroValues`** (done, `10086fdc`; sections 18.3, 18.6;
     found by the third adversarial review, program `review3/o14_drop_in_vec_of_owners_local`): the
