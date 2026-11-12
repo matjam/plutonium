@@ -377,8 +377,39 @@ func (a *analyzer) sendableIn(T types2.Type, vals origins, part string, written 
 		}
 		return a.sendableIn(u.Elem(), vals, part, written, seen, typeOnly)
 	case *types2.Interface:
+		// When every origin is a package variable of a type that is not an
+		// interface, the interface holds the view one of them held, or
+		// nil: only those types can be in it, judged by those origins.
+		known := !typeOnly && len(vals) > 0
+		for _, o := range vals {
+			if o.vp.root.kind != rGlobal || o.vp.path != "" || o.tag != "" || o.vp.root.v == nil {
+				known = false
+			} else if _, ok := underlying(o.vp.root.v.Type()).(*types2.Interface); ok {
+				known = false
+			}
+		}
 		for _, C := range a.convertedTo(u) {
 			if seen[C] {
+				continue
+			}
+			var held origins
+			if known {
+				for _, o := range vals {
+					if types2.Identical(o.vp.root.v.Type(), C) {
+						held = origins(compat.Append(held, o))
+					}
+				}
+				if len(held) == 0 {
+					continue
+				}
+			}
+			if known && types2.Unsendable(C) == nil {
+				seen[C] = true
+				p := a.sendableIn(C, held, compat.Concat(part, " (holding a ", types2.TypeString(C, a.qualifier), ")"), written, seen, false)
+				delete(seen, C)
+				if p != nil {
+					return p
+				}
 				continue
 			}
 			if bad := types2.Unsendable(C); bad != nil {

@@ -3,6 +3,7 @@ package race
 import (
 	"compiler/compat"
 	"compiler/internal/syntax/ast"
+	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
 	"compiler/pu"
 	"pluto/strings"
@@ -394,4 +395,112 @@ func (a *analyzer) loadCrossings(groups []*group) []*crossing {
 		}
 	}
 	return out
+}
+
+// staticFields replaces each origin of vals that is a field of a static
+// object, loaded through the package variable that refers to it (std.w
+// for var std = &Logger{w: os.Stderr}), by the value the initializer gave
+// the field, when no code writes that field of any object of the type once
+// tasks may run: the field is then unchanged (section 19.3, Rule 2 case 2),
+// and the view it holds is the one the initializer stored. written gives
+// the writes of package variables' places once tasks may run, and
+// a.preWrites those before. Only a field set to a package variable is
+// followed; any other origin stays as it is. It reports whether it
+// replaced one.
+func (a *analyzer) staticFields(vals origins, written func(vpath) token.Pos) (origins, bool) {
+	var out origins
+	changed := false
+	for _, o := range vals {
+		got, ok := a.staticField(o, written)
+		if !ok {
+			out = origins(compat.Append(out, o))
+			continue
+		}
+		changed = true
+		out.addAll(got)
+	}
+	if !changed {
+		return vals, false
+	}
+	return out.uniq(), true
+}
+
+func (a *analyzer) staticField(o origin, written func(vpath) token.Pos) (origins, bool) {
+	if o.vp.root.kind != rGlobal || o.tag != "" {
+		return nil, false
+	}
+	star := strings.IndexByte(o.vp.path, '*')
+	if star < 0 {
+		return nil, false
+	}
+	base := vpath{root: o.vp.root, path: strings.Slice(o.vp.path, 0, star)}
+	rest := strings.SliceFrom(o.vp.path, star+1)
+	if strings.ContainsAny(base.path, "*%$#@&") || len(rest) < 2 || rest[0] != '.' || strings.ContainsAny(strings.SliceFrom(rest, 1), ".*%$#@&[") {
+		return nil, false
+	}
+	name := strings.SliceFrom(rest, 1)
+	if !a.staticVar(base) || written(o.vp).IsValid() {
+		return nil, false
+	}
+	for _, x := range a.preWrites {
+		if overlaps(x.place, o.vp) {
+			return nil, false
+		}
+	}
+	var out origins
+	for _, s := range a.gstores[base.root.v] {
+		for _, so := range s.vals {
+			lit, ok := so.vp.root.node.(*ast.CompositeLit)
+			if !ok {
+				return nil, false
+			}
+			S, ok := underlying(a.types[lit].Type).(*types2.Struct)
+			if !ok {
+				return nil, false
+			}
+			key := compat.Concat("field:", typeKey(a.types[lit].Type), ".", name)
+			for _, x := range a.typeAcc[key] {
+				if x.write {
+					return nil, false
+				}
+			}
+			x := literalField(lit, S, name)
+			if x == nil {
+				return nil, false
+			}
+			var id *ast.Ident
+			switch e := ast.Unparen(x).(type) {
+			case *ast.Ident:
+				id = e
+			case *ast.SelectorExpr:
+				id = e.Sel
+			}
+			if id == nil {
+				return nil, false
+			}
+			v, ok := a.objOf(id).(*types2.Var)
+			if !ok || !isGlobal(v) {
+				return nil, false
+			}
+			out = origins(compat.Append(out, origin{vp: vpath{root: root{kind: rGlobal, v: v}}}))
+		}
+	}
+	return out, len(out) > 0
+}
+
+// literalField returns the value composite literal lit of struct type S
+// gives the field name, or nil.
+func literalField(lit *ast.CompositeLit, S *types2.Struct, name string) ast.Expr {
+	for i, el := range lit.Elts {
+		if kv, ok := el.(*ast.KeyValueExpr); ok {
+			if id, ok := kv.Key.(*ast.Ident); ok && id.Name == name {
+				return kv.Value
+			}
+			continue
+		}
+		if i < S.NumFields() && S.Field(i).Name() == name {
+			return el
+		}
+	}
+	return nil
 }

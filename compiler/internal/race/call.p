@@ -98,6 +98,8 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 			if len(ps.ps) == 1 {
 				w.st.locks = w.st.locks.with(ps.ps[0], op == "lock")
 				w.noteLocked(ps.ps[0])
+			} else if len(ps.ps) > 1 && ps.via != nil {
+				w.st.corr = w.st.corr.with(corrPlace(ps.via, ps.viaFields), op == "lock")
 			}
 		case "unlock":
 			w.unlock(recv)
@@ -185,9 +187,12 @@ func (w *walker) call(e *ast.CallExpr) []origins {
 		w.noteCallView(e, opts.held)
 		res = pad(res, nres)
 		for i := range res {
-			if t.static.sum.freshResult(i) || i == 0 && isAllocFunc(t.static) {
+			if t.static.sum.freshResult(i) || i == 0 && isAllocFunc(t.static) || isOwnedBox(t.sig.Results().At(i).Type()) {
 				// Memory the callee allocated and handed over: this
-				// function's own until it publishes it.
+				// function's own until it publishes it. An owned box a
+				// call returns was moved out of wherever it was, so the
+				// caller holds the only box (section 19.3, Owner transfer
+				// requires exclusivity).
 				site := w.alloc(w.a.resultNode(e, i))
 				if wr, ok := underlying(t.sig.Results().At(i).Type()).(*types2.Wrapper); ok && (wr.Kind() == types2.WrapSynced || wr.Kind() == types2.WrapShared) {
 					// A counted box: its object is reached through the
@@ -763,6 +768,13 @@ func (w *walker) unlock(se *ast.SelectorExpr) {
 	if ps.sync {
 		return
 	}
+	// A mutex locked through a variable is released through the same
+	// variable; any other release may be of it.
+	if ps.via != nil && len(ps.ps) > 1 {
+		w.st.corr = w.st.corr.without(corrPlace(ps.via, ps.viaFields))
+	} else {
+		w.st.corr = nil
+	}
 	if len(ps.ps) == 0 {
 		w.st.locks = nil
 		w.st.rel = released{all: true}
@@ -787,6 +799,7 @@ func (w *walker) unlock(se *ast.SelectorExpr) {
 // waits and held in write mode when it returns.
 func (w *walker) condWait(e *ast.CallExpr) {
 	arg := e.Args[0]
+	w.st.corr = nil
 	var ps []vpath
 	if T := w.typeOf(arg); pointerElem(T) != nil && !isInterface(T) {
 		w.quiet++
@@ -1391,6 +1404,9 @@ func (w *walker) apply(f *function, args []origins, pos token.Pos, name string, 
 			w.sum.mayRel = released{all: true}
 		}
 		held = compose(base.locks, may, nil)
+		if may.all || len(may.keys) > 0 {
+			after.corr = nil // the callee may release a mutex locked through a variable
+		}
 		rel := substRel(s.exitRel, args)
 		after.locks = compose(base.locks, rel, acq)
 		if !rel.all {

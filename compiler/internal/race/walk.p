@@ -33,6 +33,11 @@ type state struct {
 	// was started since entry: not a crossing load once the function is
 	// the program before the start of sharing. Shared like views.
 	vpre map[*types2.Var]bool
+	// corr are the mutexes locked through a local variable that may refer
+	// to several objects: the one it refers to, named by the variable and
+	// the fields from what it points to (corrPlace). An access through the
+	// same variable holds the mutex of the same object.
+	corr lockset
 }
 
 // setView records the locks under which the view in local v was loaded,
@@ -234,6 +239,7 @@ func join(a, b *state) *state {
 	out.snaps = joinSnaps(a.snaps, b.snaps, out.locks)
 	out.views = joinViews(a.views, b.views)
 	out.vpre = joinPre(a, b)
+	out.corr = a.corr.meet(b.corr)
 	for k := range b.pub {
 		out.pub[k] = true
 	}
@@ -244,7 +250,7 @@ func (s *state) equal(t *state) bool {
 	if s.dead || t.dead {
 		return s.dead == t.dead
 	}
-	if !s.locks.equal(t.locks) || !s.rel.equal(t.rel) || s.spawned != t.spawned || s.pubAll != t.pubAll || len(s.pub) != len(t.pub) || !s.running.equal(t.running) || !sameSnaps(s.snaps, t.snaps) || !sameViews(s.views, t.views) || !samePre(s.vpre, t.vpre) {
+	if !s.locks.equal(t.locks) || !s.rel.equal(t.rel) || s.spawned != t.spawned || s.pubAll != t.pubAll || len(s.pub) != len(t.pub) || !s.running.equal(t.running) || !sameSnaps(s.snaps, t.snaps) || !sameViews(s.views, t.views) || !samePre(s.vpre, t.vpre) || !s.corr.equal(t.corr) {
 		return false
 	}
 	for k := range s.pub {
@@ -291,6 +297,11 @@ type walker struct {
 	hasLit     int               // 0 unknown, 1 the body has a function literal, 2 not
 	doArg      ast.Expr          // the method value passed to the Once Do being walked: Do calls it there (onceDo)
 	lockedHere map[vpath]bool    // mutexes this function locks
+	// corrBad holds the locals whose address is taken or that a function
+	// literal uses (corrLocal); corrAcc, for each place just found
+	// through a local, the mutexes of its object held through it.
+	corrBad map[*types2.Var]bool
+	corrAcc map[vpath]lockset
 
 	// The check of scoped tasks (scope.go): the check, and the party whose
 	// code is walked; nil for a summary.
@@ -502,6 +513,7 @@ func (w *walker) setVar(v *types2.Var, o origins) {
 	if len(o) == 0 {
 		return
 	}
+	w.dropCorr(v)
 	cur := w.u.vars[v]
 	if cur.addAll(o) {
 		w.u.vars[v] = cur
@@ -523,6 +535,7 @@ func (w *walker) block(b *ast.BlockStmt) {
 
 func (w *walker) stmt(st ast.Stmt, label string) {
 	w.seeDefers()
+	w.corrAcc = nil
 	switch st := st.(type) {
 	case nil, *ast.EmptyStmt, *ast.BadStmt:
 	case *ast.LabeledStmt:
@@ -1501,9 +1514,10 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 		return
 	}
 	if w.frame != nil {
-		w.frame.note(w, pu.New(frameAcc{place: p, write: write, atomic: atomic, free: w.freeing > 0, pos: pos, typ: T, locks: w.st.locks}))
+		w.frame.note(w, pu.New(frameAcc{place: p, write: write, atomic: atomic, free: w.freeing > 0, pos: pos, typ: T, locks: w.heldAt(p)}))
 		return
 	}
+	locks := w.heldAt(p)
 	if p.root.kind == rGlobal && w.a.cpuVars[p.root.v] {
 		if w.viewLoad && !write && !hasDeref(p.path) {
 			w.sum.addAccess(cpuViewLoad(p, pos, T, w.st.locks, w.st.rel, !w.st.spawned))
@@ -1518,14 +1532,14 @@ func (w *walker) access(p vpath, write, atomic bool, pos token.Pos, T types2.Typ
 		// A use in main before it starts a task is before the start of
 		// sharing: the type rule asks only what changes once an object is
 		// shared (section 19.3, Rule 3).
-		w.a.recordType(key, p, write, atomic, w.st.locks, pos, w.fn.name, init || (w.isMain() && !w.st.spawned))
+		w.a.recordType(key, p, write, atomic, locks, pos, w.fn.name, init || (w.isMain() && !w.st.spawned))
 	}
 	if init || !w.a.shareable(p) {
 		// Memory this function allocated and has not handed to anyone:
 		// no other task can reach it yet.
 		return
 	}
-	x := pu.New(access{place: p, write: write, atomic: atomic, locks: w.st.locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T, free: w.freeing > 0, view: w.viewLoad && !write, sync: w.syncing})
+	x := pu.New(access{place: p, write: write, atomic: atomic, locks: locks, rel: w.st.rel, pos: pos, pre: !w.st.spawned, tkey: key, typ: T, free: w.freeing > 0, view: w.viewLoad && !write, sync: w.syncing})
 	if w.vvalid != nil {
 		x.hasValid, x.vvalid, x.vpre = true, *w.vvalid, w.vpre
 	}
@@ -2377,6 +2391,11 @@ type places struct {
 	ps   []vpath
 	sync bool
 	key  string // "field:T.f": the first field after the last pointer followed, for the type rule
+	// via is the local variable the places were reached through, when
+	// they are fields of what it points to (corrLocal): viaFields are
+	// those fields.
+	via       *types2.Var
+	viaFields string
 }
 
 // place returns where an addressable expression is.
@@ -2448,11 +2467,16 @@ func (w *walker) place(e ast.Expr) (places, bool) {
 func (w *walker) fieldPlace(x ast.Expr, path []int) (places, bool) {
 	T := w.typeOf(x)
 	var cur places
+	var bases []vpath
 	if el := pointerElem(T); el != nil {
 		cur = places{ps: w.value(x).derefOr(w.derefStep(T), w.unknownFor(x))}
+		if v := w.corrLocal(x); v != nil {
+			cur.via, bases = v, cur.ps
+		}
 		T = el
 	} else if ps, ok := w.place(x); ok {
 		cur = ps
+		cur.via, cur.viaFields = nil, ""
 	} else {
 		return places{}, false
 	}
@@ -2473,16 +2497,139 @@ func (w *walker) fieldPlace(x ast.Expr, path []int) (places, bool) {
 			cur.key = compat.Concat("field:", typeKey(S), ".", f.Name())
 		}
 		cur.ps = extendAll(cur.ps, compat.Concat(".", f.Name()))
+		cur.viaFields = compat.Concat(cur.viaFields, ".", f.Name())
 		T = f.Type()
 		if i < len(path)-1 {
 			if el := pointerElem(T); el != nil {
 				// An embedded pointer: load it.
 				cur.ps = w.placeValue(cur.ps).derefOr(w.derefStep(T), root{kind: rUnknown, pos: x.Pos(), idx: i})
 				T = el
+				cur.via = nil
 			}
 		}
 	}
+	w.noteCorr(cur, bases)
 	return cur, true
+}
+
+// Mutexes locked through a local variable that may refer to several
+// objects (section 19.3, Locks and names). After e.mu.Lock(), with e
+// referring to one of several synced objects, the mutex held is the one
+// of the object e refers to: an access e.hits through the same variable,
+// not assigned since, uses a field of the same object, so it holds the
+// mutex of the object it uses. The lock is kept in state.corr, named by
+// the variable and the fields from what it points to; each access
+// through the variable gets the mutex of each object it may use.
+
+// corrLocal returns the local variable x names when locks through it may
+// be followed: one of this function's own whose address is not taken and
+// that no function literal uses, so that only this function's
+// assignments, which drop its locks (dropCorr), change it.
+func (w *walker) corrLocal(x ast.Expr) *types2.Var {
+	id, ok := ast.Unparen(x).(*ast.Ident)
+	if !ok {
+		return nil
+	}
+	v, ok := w.a.objOf(id).(*types2.Var)
+	if !ok || isGlobal(v) || w.isCapture(v) || w.fn.body == nil {
+		return nil
+	}
+	if w.corrBad == nil {
+		w.corrBad = map[*types2.Var]bool{}
+		var visit func(n ast.Node, inLit bool)
+		visit = func(n ast.Node, inLit bool) {
+			ast.Inspect(n, func(m ast.Node) bool {
+				switch m := m.(type) {
+				case *ast.FuncLit:
+					if m != n {
+						visit(m.Body, true)
+						return false
+					}
+				case *ast.UnaryExpr:
+					if m.Op == token.AND {
+						if id, ok := ast.Unparen(m.X).(*ast.Ident); ok {
+							if u, ok := w.a.objOf(id).(*types2.Var); ok {
+								w.corrBad[u] = true
+							}
+						}
+					}
+				case *ast.Ident:
+					if inLit {
+						if u, ok := w.a.objOf(m).(*types2.Var); ok {
+							w.corrBad[u] = true
+						}
+					}
+				}
+				return true
+			})
+		}
+		visit(w.fn.body, false)
+	}
+	if w.corrBad[v] {
+		return nil
+	}
+	return v
+}
+
+// corrPlace names the mutex at fields from what local v points to.
+func corrPlace(v *types2.Var, fields string) vpath {
+	return vpath{root: root{kind: rLocal, v: v}, path: fields}
+}
+
+// noteCorr records, for each place of cur reached through a local
+// variable, the mutexes held through the same variable in the object it
+// is in: bases are the objects, one for each place.
+func (w *walker) noteCorr(cur places, bases []vpath) {
+	for _, p := range cur.ps {
+		delete(w.corrAcc, p)
+	}
+	if cur.via == nil || len(w.st.corr) == 0 || len(bases) != len(cur.ps) {
+		return
+	}
+	for i, p := range cur.ps {
+		var extra lockset
+		for _, l := range w.st.corr {
+			if l.place.root.kind != rLocal || l.place.root.v != cur.via {
+				continue
+			}
+			q := bases[i]
+			for _, st := range steps(l.place.path) {
+				q = q.extend(st)
+			}
+			extra = extra.with(q, l.excl)
+		}
+		if len(extra) > 0 {
+			if w.corrAcc == nil {
+				w.corrAcc = map[vpath]lockset{}
+			}
+			w.corrAcc[p] = extra
+		}
+	}
+}
+
+// dropCorr forgets the mutexes locked through local v, which is assigned.
+func (w *walker) dropCorr(v *types2.Var) {
+	if w.st == nil || len(w.st.corr) == 0 {
+		return
+	}
+	var keep lockset
+	for _, l := range w.st.corr {
+		if l.place.root.v != v {
+			keep = compat.Append(keep, l)
+		}
+	}
+	w.st.corr = keep
+}
+
+// heldAt returns the locks an access of p holds: those held, and the
+// mutexes of its object locked through the variable it was reached
+// through.
+func (w *walker) heldAt(p vpath) lockset {
+	locks := w.st.locks
+	for _, l := range w.corrAcc[p] {
+		locks = locks.with(l.place, l.excl)
+	}
+	return locks
 }
 
 // fieldOf returns field idx of struct type T (or of what T points to).

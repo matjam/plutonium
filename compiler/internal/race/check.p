@@ -56,6 +56,8 @@ func (a *analyzer) check() {
 			cpuUses = compat.Append(cpuUses, e)
 		case !x.pre:
 			mainG.accesses = compat.Append(mainG.accesses, x)
+		case x.write && x.place.root.kind == rGlobal:
+			a.preWrites = compat.Append(a.preWrites, x)
 		}
 	}
 	groups := []*group{mainG}
@@ -584,7 +586,13 @@ func (a *analyzer) checkCrossings(cross []*crossing, written, guarded func(vpath
 		} else if c.name != "" {
 			part = c.name
 		}
-		vals := a.resolveVals(c.vals)
+		cv, static := c.vals, false
+		if c.load {
+			// A field of a static object that nothing writes holds what
+			// the initializer stored.
+			cv, static = a.staticFields(c.vals, written)
+		}
+		vals := a.resolveVals(cv)
 		for _, o := range vals {
 			if c.load && o.vp.root.kind == rGlobal && a.cpuVars[o.vp.root.v] {
 				// The writes of a per-CPU variable are not among the
@@ -596,14 +604,14 @@ func (a *analyzer) checkCrossings(cross []*crossing, written, guarded func(vpath
 		if c.load {
 			// What a view loaded through a pointer, or from a synced
 			// object or a map, points to is not known: its type decides.
-			for _, o := range c.vals {
+			for _, o := range cv {
 				if o.vp.root.kind != rGlobal || strings.ContainsAny(o.vp.path, "*%$#@") {
 					vals = nil
 				}
 			}
 		}
 		wr := written
-		if c.load && guarded != nil && len(vals) > 0 && sameOrigins(vals, c.vals) {
+		if c.load && guarded != nil && !static && len(vals) > 0 && sameOrigins(vals, c.vals) {
 			wr = guarded
 		}
 		p := a.sendable(c.typ, vals, part, wr)
