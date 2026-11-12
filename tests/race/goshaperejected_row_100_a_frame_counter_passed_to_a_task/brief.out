@@ -1,0 +1,1 @@
+$DIR/main.p:18:2: cannot pass c to a task statement: the new task may outlive main's frame
