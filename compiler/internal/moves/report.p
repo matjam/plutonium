@@ -87,6 +87,9 @@ func (c *checker) howMoved(mv *move) string {
 	case mvAssert:
 		return compat.Concat("moved out by the type assertion ", mv.to)
 	case mvNewValue:
+		if mv.to != "" {
+			return compat.Concat("changed by ", mv.to)
+		}
 		return "given a new value"
 	case mvTake:
 		return compat.Concat("emptied by ", mv.to)

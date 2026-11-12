@@ -932,8 +932,18 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 		// the object a local reference of the same type points to, so the
 		// call may free through it what views obtained through the local
 		// one look at (section 18.3, 7.19). An interface or type parameter
-		// may hold a copy of any type.
-		types, all := countedReached(f.c.typeOf(val))
+		// may hold a copy of any type. So may the place the argument is
+		// the address of a part of (&g.c, given to a call that replaces
+		// *p).
+		// A part of a local reference is followed by its views (viewsTo).
+		types, all := countedPrefixes(f.c, val, func(P ast.Expr) bool {
+			if id, ok := ast.Unparen(P).(*ast.Ident); ok && P != val {
+				if v := f.varOf(id); v != nil && f.vars[v] {
+					return false
+				}
+			}
+			return true
+		})
 		for u := range f.vars {
 			if !isCountedBox(u.Type()) {
 				continue
@@ -947,6 +957,13 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 			}
 		}
 	})
+	// A copy in a package variable that the callee, or a function it
+	// calls, frees through (counted.p).
+	if g := f.c.globalFreesOf(call); g.all || len(g.types) > 0 {
+		for _, u := range f.countedLocals(g.hits) {
+			out = compat.Append(out, freeArg{w: view{of: u, pos: call.Pos(), text: exprText(call)}, site: g.site})
+		}
+	}
 	return out
 }
 
@@ -1110,7 +1127,7 @@ func (f *fn) freedPart(v *types2.Var, path Path, mv move) {
 	// the call may free that memory, so it is E3314 (section 18.3). The
 	// pin ends there, so the drop of v (invalidate) does not report it
 	// again.
-	if p := f.env[v].hpin; p != nil && p.stored && mv.kind == mvFree {
+	if p := f.env[v].hpin; p != nil && p.stored && (mv.kind == mvFree || mv.kind == mvNewValue) {
 		if f.report {
 			f.c.report(f.c.heapPinnedDiag(v, p, mv))
 		}

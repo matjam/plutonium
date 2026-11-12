@@ -136,7 +136,9 @@ func (c *checker) findKeeps(prog *load.Program) {
 			if name == nil || i >= maxInputs {
 				continue
 			}
-			if v, ok := c.defs[name].(*types2.Var); ok && mayView(v.Type()) {
+			// A counted reference given by value may share its object with
+			// the caller's (section 18.3): the callee may free through it.
+			if v, ok := c.defs[name].(*types2.Var); ok && (mayView(v.Type()) || isCountedBox(v.Type())) {
 				s.inputs[v] = i
 			}
 		}

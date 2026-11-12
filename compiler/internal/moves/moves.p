@@ -132,6 +132,7 @@ func AnalyzeWith(prog *load.Program, calls *Calls) (*Info, error) {
 		}
 	}
 	c.findKeeps(prog)
+	c.findGlobalFrees(prog)
 	for _, p := range prog.Packages {
 		c.pkg = p.Types
 		for _, file := range p.Files {
@@ -186,6 +187,7 @@ type checker struct {
 	frees      map[ast.Node][]keepSite        // through which inputs functions may free memory or move an owner out, by declaration, literal or range body (frees.p)
 	reclaims   map[ast.Node][]keepSite        // through which inputs functions may reset or release a checked arena, likewise (frees.p)
 	asserts    map[ast.Node][]keepSite        // through which inputs functions may assert or type-switch on an interface, likewise (frees.p)
+	gfrees     map[ast.Node]*globalFree       // what functions may free through package variables, likewise (counted.p)
 
 	tpArgs map[*types2.TypeParam][]types2.Type     // the type arguments the program gives each type parameter of a generic function or type (frees.p)
 	recvTP map[*types2.TypeParam]*types2.TypeParam // a method's receiver type parameter, to its type's own (frees.p)

@@ -1,0 +1,15 @@
+$DIR/main.p:17:11: p holds a view of s (&s.c.x, line 15), which was changed by s.c = ..., which drops the old value of s.c at line 16, so p can no longer be used here
+    p looks at memory that s refers to, without owning it: the view was made by
+    &s.c.x at line 15. A view obtained through a counted reference held in a
+    local variable may be used only while the variable keeps the reference the
+    view was made from. At line 16 s was changed by s.c = ..., which drops the
+    old value of s.c, so the view may look at memory that was released, or at a
+    value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use p before line 16, or give s its new value only after the last use of p
+    Or make the view again after line 16:
+        p = &s.c.x
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

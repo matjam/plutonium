@@ -284,8 +284,8 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 	v, path, box, ok := f.placePath(x)
 	if !ok || v == nil {
 		out := f.viewsOf(baseOf(x))
-		if r := f.countedVar(x); r != nil {
-			out = compat.Append(out, view{of: r, pos: made.Pos(), text: exprText(made), inHeap: true})
+		if r, part := f.countedPath(x); r != nil {
+			out = compat.Append(out, view{of: r, pos: made.Pos(), text: exprText(made), inHeap: true, part: part})
 		}
 		// Part of a temporary owner, dropped at the end of its statement
 		// (temps.p).
@@ -543,33 +543,26 @@ func (f *fn) funcLitViews(lit *ast.FuncLit) []view {
 // dereference, or nil. A view obtained that way is bounded by the
 // reference as a view of an owner is (section 18.3).
 func (f *fn) countedVar(x ast.Expr) *types2.Var {
-	for {
-		switch e := ast.Unparen(x).(type) {
-		case *ast.SelectorExpr:
-			sel := f.c.selections[e]
-			if sel == nil || sel.Kind() != types2.FieldVal {
-				return nil
-			}
-			if sel.Indirect() {
-				id, ok := ast.Unparen(e.X).(*ast.Ident)
-				if !ok || !isCountedBox(f.c.typeOf(e.X)) {
-					return nil
-				}
-				if v := f.varOf(id); v != nil && f.vars[v] {
-					return v
-				}
-				return nil
-			}
-			x = e.X
-		case *ast.IndexExpr:
-			if _, isArr := f.c.typeOf(e.X).Underlying().(*types2.Array); !isArr {
-				return nil
-			}
-			x = e.X
-		default:
-			return nil
-		}
+	v, _ := f.countedPath(x)
+	return v
+}
+
+// countedPath is countedVar, with the path of x in the object the
+// reference points to. When the first dereference is not the only one on
+// the way (an embedded pointer field), the path is nil: the whole object.
+func (f *fn) countedPath(x ast.Expr) (*types2.Var, Path) {
+	X, path, ok := countedPlace(f.c, x)
+	if !ok {
+		return nil, nil
 	}
+	id, isID := ast.Unparen(X).(*ast.Ident)
+	if !isID {
+		return nil, nil
+	}
+	if v := f.varOf(id); v != nil && f.vars[v] {
+		return v, path
+	}
+	return nil, nil
 }
 
 // isCountedBox reports whether T is shared[E] or synced[E].
@@ -773,8 +766,8 @@ func (f *fn) partViews(x ast.Expr) []view {
 			// local counted reference, it looks at what the reference
 			// keeps alive.
 			out := f.viewsOf(se.X)
-			if r := f.countedVar(x); r != nil {
-				out = compat.Append(out, view{of: r, pos: x.Pos(), text: exprText(x), inHeap: true})
+			if r, part := f.countedPath(x); r != nil {
+				out = compat.Append(out, view{of: r, pos: x.Pos(), text: exprText(x), inHeap: true, part: part})
 			}
 			return out
 		}
