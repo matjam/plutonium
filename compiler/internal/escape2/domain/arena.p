@@ -25,6 +25,7 @@ import (
 	"compiler/compat"
 	"compiler/internal/scratch"
 	"compiler/pu"
+	"pluto/rt"
 )
 
 // PoisonWord is what a checked arena writes over its memory at Reset.
@@ -60,7 +61,7 @@ func NewCheckedArena() Arena { return pu.New(arena{checked: true}) }
 // reset ones, for other arenas: blocks of a power of two words, by size,
 // at most maxPooledWords in all.
 var pool struct {
-	mu    compat.Mutex
+	mu    rt.Lock
 	free  [64][][]uint64 // free[k]: blocks of 1<<k words
 	words int
 }

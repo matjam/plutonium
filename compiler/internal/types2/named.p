@@ -11,6 +11,7 @@ import (
 	"compiler/internal/scratch"
 	"compiler/internal/syntax/token"
 	"compiler/pu"
+	"pluto/rt"
 	"pluto/strings"
 	"pluto/sync/atomic"
 	"unsafe"
@@ -115,7 +116,7 @@ type Named struct {
 
 	inst *instance // information for instantiated types; nil otherwise
 
-	mu         compat.Mutex   // guards all fields below
+	mu         rt.Lock        // guards all fields below (a real lock: the escape analysis's solves read types beside each other)
 	state_     uint32         // the current state of this type; must only be accessed atomically or when mu is held
 	fromRHS    Type           // the declaration RHS this type is derived from
 	tparams    *TypeParamList // type parameters, or nil

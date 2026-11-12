@@ -10,6 +10,7 @@ import (
 	"compiler/compat"
 	"compiler/internal/scratch"
 	"compiler/pu"
+	"pluto/rt"
 	"pluto/strconv"
 	"pluto/strings"
 	"unsafe"
@@ -42,7 +43,7 @@ import (
 // The use of a shared context does not guarantee that identical instances are
 // deduplicated in all cases.
 type Context struct {
-	mu        compat.Mutex
+	mu        rt.Lock // a real lock: the escape analysis's solves instantiate beside each other
 	typeMap   map[string][]ctxtEntry // type hash -> instances entries
 	nextID    int                    // next unique ID
 	originIDs map[Type]int           // origin type -> unique ID

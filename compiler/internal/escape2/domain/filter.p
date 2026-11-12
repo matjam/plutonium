@@ -7,8 +7,10 @@ import (
 	"compiler/internal/scratch"
 	"compiler/internal/types2"
 	"compiler/pu"
+	"pluto/rt"
 	"pluto/slices"
 	"pluto/strings"
+	"pluto/sync/atomic"
 )
 
 // Type filters on keys (decision D51; docs/plans/2026-10-24-type-filtered-summaries.md).
@@ -131,13 +133,13 @@ const MaxAtoms = 1024
 // parallel solves do not fix: Canonical renumbers them once the analysis
 // is over, so that its results do not depend on it.
 type Filters struct {
-	mu     compat.Mutex
-	list   compat.AtomicPointer[[]Filter] // by ID-1
-	byText map[string][]FilterID          // by the atoms' texts, in order
-	keys   []string                       // each filter's atoms' texts, by ID-1
-	text   map[Atom]string                // Atom.Text, memoized
-	union  map[[2]FilterID]FilterID       // Union, memoized
-	covers map[[2]FilterID]bool           // filterCovers, memoized
+	mu     rt.Lock
+	list   atomic.Pointer[[]Filter] // by ID-1
+	byText map[string][]FilterID    // by the atoms' texts, in order
+	keys   []string                 // each filter's atoms' texts, by ID-1
+	text   map[Atom]string          // Atom.Text, memoized
+	union  map[[2]FilterID]FilterID // Union, memoized
+	covers map[[2]FilterID]bool     // filterCovers, memoized
 
 	// memo holds what the solvers derive from a filter's program (the
 	// filter of an assertion's type, of a candidate's receiver), for the

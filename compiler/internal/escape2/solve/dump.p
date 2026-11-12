@@ -10,6 +10,7 @@ import (
 	"compiler/pu"
 	"pluto/fmt"
 	"pluto/os"
+	"pluto/rt"
 	"pluto/sort"
 	"pluto/strings"
 )
@@ -26,7 +27,7 @@ var dumpFilter = compat.Getenv("ESCAPE2_DUMP")
 var dumpPass = map[string]int{}
 
 // dumpMu serializes dumps: solves run concurrently.
-var dumpMu compat.Mutex
+var dumpMu rt.Lock
 
 func (s *solver) wantDump() bool {
 	if dumpFilter == "" {

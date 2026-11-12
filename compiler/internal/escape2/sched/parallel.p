@@ -12,6 +12,7 @@ import (
 	"compiler/internal/types2"
 	"compiler/pu"
 	"pluto/os"
+	"pluto/rt"
 	"pluto/slices"
 	"pluto/strconv"
 )
@@ -80,10 +81,10 @@ type parFacts struct {
 	cands  map[*eir.Call][]eir.FuncID
 	defer_ map[*eir.Call]bool
 	contr  map[string]*summary.Summary
-	mu     compat.Mutex
+	mu     rt.Lock
 	// vmu locks the joins of the virtual functions, by virtual function:
 	// computing one fills its cache entry.
-	vmu  [64]compat.Mutex
+	vmu  [64]rt.Lock
 	scc  []int32 // by function
 	done []bool  // by SCC
 }
@@ -204,45 +205,51 @@ func (w *worker) Contract(name string) (*summary.Summary, bool) {
 	if s, ok := w.pf.contr[name]; ok {
 		return s, true
 	}
-	w.pf.mu.Lock()
-	defer w.pf.mu.Unlock()
+	pf := w.pf
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
 	defer scratch.Outer().Restore()
-	return w.pf.e.Contract(name)
+	return pf.e.Contract(name)
 }
 
 func (w *worker) HeapOnly(T types2.Type, field int) bool {
-	w.pf.mu.Lock()
-	defer w.pf.mu.Unlock()
+	pf := w.pf
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
 	defer scratch.Outer().Restore()
-	return w.pf.e.HeapOnly(T, field)
+	return pf.e.HeapOnly(T, field)
 }
 
 func (w *worker) Instantiated(tp *types2.TypeParam) ([]types2.Type, bool) {
-	w.pf.mu.Lock()
-	defer w.pf.mu.Unlock()
+	pf := w.pf
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
 	defer scratch.Outer().Restore()
-	return w.pf.e.Instantiated(tp)
+	return pf.e.Instantiated(tp)
 }
 
 func (w *worker) Methods(t types2.Type, m *types2.Func) []eir.FuncID {
-	w.pf.mu.Lock()
-	defer w.pf.mu.Unlock()
+	pf := w.pf
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
 	defer scratch.Outer().Restore()
-	return w.pf.e.Methods(t, m)
+	return pf.e.Methods(t, m)
 }
 
 func (w *worker) PointerWrappers(u types2.Type) ([]types2.Type, bool) {
-	w.pf.mu.Lock()
-	defer w.pf.mu.Unlock()
+	pf := w.pf
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
 	defer scratch.Outer().Restore()
-	return w.pf.e.PointerWrappers(u)
+	return pf.e.PointerWrappers(u)
 }
 
 func (w *worker) Retyped(u, v types2.Type) bool {
-	w.pf.mu.Lock()
-	defer w.pf.mu.Unlock()
+	pf := w.pf
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
 	defer scratch.Outer().Restore()
-	return w.pf.e.Retyped(u, v)
+	return pf.e.Retyped(u, v)
 }
 
 func (w *worker) Deferred(f *eir.Func, c *eir.Call) bool {
