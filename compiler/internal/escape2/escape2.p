@@ -58,7 +58,7 @@ func checkProgram(prog *load.Program, opts sched.Options) (*eir.Program, *sched.
 	var c *cache.Cache
 	var err error
 	if dir := compat.Getenv(cache.EnvVar); dir != "" && opts.Cache == nil {
-		if c, err = cache.Open(dir, cache.Config{}); err != nil {
+		if c, err = cache.Open(dir, cache.Config{Flags: sched.CacheFlags()}); err != nil {
 			fmt.Fprintf(os.Stderr, "escape2: %v\n", err) // no cache: costs time only
 		} else {
 			opts.Cache = c

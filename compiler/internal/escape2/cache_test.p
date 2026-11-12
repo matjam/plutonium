@@ -189,12 +189,42 @@ func main() {
 }
 `
 
+// recursiveProg is rejected through an SCC of two functions, so the reasons
+// of its diagnostic come from the SCC's well-founded pass (sched/reasons.p).
+const recursiveProg = `package main
+
+import "pluto/fmt"
+
+var g *int
+
+func a(p *int, n int) {
+	if n == 0 {
+		g = p
+		return
+	}
+	b(p, n-1)
+}
+
+func b(p *int, n int) {
+	if n > 5 {
+		return
+	}
+	a(p, n-1)
+}
+
+func main() {
+	x := 1
+	a(&x, 3)
+	fmt.Println(x)
+}
+`
+
 // TestWarm checks that a second run accepts every SCC from the file and
 // gives the diagnostics and summaries of a run without a cache, for a
-// program that is accepted and one that is rejected, and that saving again
-// writes the same bytes.
+// program that is accepted and ones that are rejected, and that saving
+// again writes the same bytes.
 func TestWarm(t *testing.T) {
-	for _, src := range []string{fmtProg, rejectedProg} {
+	for _, src := range []string{fmtProg, rejectedProg, recursiveProg} {
 		prog := loadSrc(t, src)
 		cold := analyse(t, prog, "")
 		// Removed at the end of the iteration: a defer may not run twice

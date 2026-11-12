@@ -51,6 +51,23 @@ var deferralOn = compat.Getenv("PLUTO_ESCAPE2_DEFER") != "0"
 // sequential driver is always used. A variable for the tests.
 var sequential = compat.Getenv("PLUTO_ESCAPE2_SEQUENTIAL") != ""
 
+// CacheFlags are the settings read from the environment that may change
+// the summaries or findings, for a summary cache's key (D44): deferred
+// calls (PLUTO_ESCAPE2_DEFER) and the order in an SCC (ESCAPE2_SCC_ORDER),
+// which widening can make the result depend on. The other switches
+// (PLUTO_ESCAPE2_SEQUENTIAL, NOKEEP, RESUMECHECK, RETAIN_MB, JOBS, MEM_MB)
+// change how the analysis runs, not what it finds.
+func CacheFlags() string {
+	d, o := "defer=1", "order=rank"
+	if !deferralOn {
+		d = "defer=0"
+	}
+	if sccOrderReversed {
+		o = "order=reverse"
+	}
+	return compat.Concat(d, " ", o)
+}
+
 // traceSolve, when set (by a debugging test), is called after each solve
 // in an SCC's iteration with the previous and the new summary, and whether
 // the previous covers the new.
@@ -202,7 +219,9 @@ func RunWith(p *eir.Program, opts Options) *Result {
 			for _, n := range solves {
 				iterated = iterated || n > 1
 			}
-			if !iterated || opts.Cache != nil {
+			// With a cache as well: the findings and reasons of an SCC
+			// solved here must be those of a run without one.
+			if !iterated {
 				return
 			}
 			st.Unfounded = wellFounded(comp, env, func(id eir.FuncID) solve.Result {
