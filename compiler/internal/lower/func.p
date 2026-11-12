@@ -105,6 +105,13 @@ type fnState struct {
 	// (order.go), until the expression uses them.
 	evaluated map[ast.Expr]evaluated
 
+	// laterIndex is the outermost index expression of a target of a tuple
+	// assignment while the target is evaluated; indexRaw puts its nil and
+	// bounds checks in laterChecks, made when the target is stored
+	// (stmt.go, language spec section 12.7).
+	laterIndex  *ast.IndexExpr
+	laterChecks []laterCheck
+
 	// header is the init statement of an if or switch statement about to
 	// be lowered, whose temporaries are the enclosing statement's.
 	header ast.Stmt

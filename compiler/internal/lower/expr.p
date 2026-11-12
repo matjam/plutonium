@@ -366,6 +366,8 @@ func (s *fnState) indexRaw(e *ast.IndexExpr) lvalue {
 	if s.isMapIndex(e) {
 		return s.mapLV(e)
 	}
+	later := s.laterIndex == e
+	s.laterIndex = nil
 	xt := s.typeOf(e.X)
 	u := asPointer(unwrap(xt).Underlying())
 	if p, ok := u.(*types2.Pointer); ok {
@@ -400,8 +402,13 @@ func (s *fnState) indexRaw(e *ast.IndexExpr) lvalue {
 		if !isConst || c < 0 || c >= u.Len() {
 			// Any element may be the one indexed: the whole array must
 			// be within reach of a nil pointer's fault, or checked.
-			arr = s.nilGuard(arr)
-			s.boundsCheck(i, s.constInt(ssa.TI64, u.Len()), e.Index.Pos())
+			if later {
+				s.laterChecks = compat.Append(s.laterChecks, laterCheck{nilLV: arr, i: i, n: s.constInt(ssa.TI64, u.Len()), pos: e.Index.Pos()})
+				arr.nilBase = nil
+			} else {
+				arr = s.nilGuard(arr)
+				s.boundsCheck(i, s.constInt(ssa.TI64, u.Len()), e.Index.Pos())
+			}
 		}
 		elem := s.subst(u.Elem())
 		lv := lvalue{ptr: s.elemAddr(arr.ptr, i, u.Elem()), T: elem, stable: arr.stable, win: arr.win}
@@ -422,7 +429,11 @@ func (s *fnState) indexRaw(e *ast.IndexExpr) lvalue {
 		ptr := s.load(ssa.TPtr, sl.v)
 		n := s.load(ssa.TI64, s.offPtr(sl.v, 8))
 		i := s.indexValue(e.Index)
-		s.boundsCheck(i, n, e.Index.Pos())
+		if later {
+			s.laterChecks = compat.Append(s.laterChecks, laterCheck{i: i, n: n, pos: e.Index.Pos()})
+		} else {
+			s.boundsCheck(i, n, e.Index.Pos())
+		}
 		return lvalue{ptr: s.elemAddr(ptr, i, u.Elem()), T: s.subst(u.Elem())}
 	}
 	s.l.internalf(e.Pos(), "cannot index %s", xt)
@@ -449,6 +460,21 @@ func (s *fnState) elemAddr(base, i *ssa.Value, elem types2.Type) *ssa.Value {
 		off = s.newValue(ssa.OpMul, ssa.TI64, i, s.constInt(ssa.TI64, size))
 	}
 	return s.newValue(ssa.OpAddPtr, ssa.TPtr, base, off)
+}
+
+// A laterCheck is a check of a tuple assignment's target made when the
+// target is stored: the nil check of the pointer nilLV was reached through,
+// if it has one, then the bounds check of index i against length n.
+type laterCheck struct {
+	nilLV lvalue
+	i, n  *ssa.Value
+	pos   token.Pos
+}
+
+// emit makes the check c.
+func (c laterCheck) emit(s *fnState) {
+	s.nilGuard(c.nilLV)
+	s.boundsCheck(c.i, c.n, c.pos)
 }
 
 // boundsCheck panics unless 0 <= i < n (as one unsigned comparison).

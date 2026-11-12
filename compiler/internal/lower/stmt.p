@@ -300,11 +300,18 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 
 	// Left-hand side targets. For :=, new variables get storage after the
 	// right-hand side is evaluated (it may mention a shadowed variable).
+	//
+	// With several targets, the assignments are carried out one by one
+	// after all the operands are evaluated (language spec section 12.7):
+	// a target's own nil and bounds checks are made when it is stored, so
+	// that x[1], x[3] = 4, 5 sets x[1] before it panics setting x[3].
 	type target struct {
-		lv    *lvalue
-		def   *types2.Var // new variable
-		blank bool
+		lv     *lvalue
+		def    *types2.Var // new variable
+		blank  bool
+		checks []laterCheck
 	}
+	tuple := len(st.Lhs) > 1
 	targets := compat.Make[target](len(st.Lhs))
 	for i, lhs := range st.Lhs {
 		if id, ok := lhs.(*ast.Ident); ok && id.Name == "_" {
@@ -317,8 +324,15 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 				continue
 			}
 		}
-		lv := pu.New(s.lv(lhs))
-		targets[i].lv = lv
+		if !tuple {
+			targets[i].lv = pu.New(s.lv(lhs))
+			continue
+		}
+		ix, _ := ast.Unparen(lhs).(*ast.IndexExpr)
+		s.laterIndex, s.laterChecks = ix, nil
+		targets[i].lv = pu.New(s.lvRaw(lhs))
+		targets[i].checks = s.laterChecks
+		s.laterIndex, s.laterChecks = nil, nil
 	}
 	targetType := func(i int) types2.Type {
 		switch t := targets[i]; {
@@ -380,6 +394,12 @@ func (s *fnState) assignStmt(st *ast.AssignStmt) {
 			addr := s.declareVar(t.def)
 			s.assign(lvalue{ptr: addr, T: T}, s.assignConvert(vals[i], T, st), true)
 		default:
+			if tuple {
+				for _, c := range t.checks {
+					c.emit(s)
+				}
+				*t.lv = s.nilGuard(*t.lv)
+			}
 			if t.lv.elem == nil {
 				s.staticWriteType(t.lv.ptr, t.lv.T)
 			}
