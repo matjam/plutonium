@@ -493,7 +493,7 @@ against the corrected specification. The immediate implementation order is:
      writes of the allocator's memory, which the roadmap's first design had: by 18.9 `Alloc` never hands
      out again memory it handed out and `Free` takes back only what it is given, so a task allocating from
      the frame's arena (and freeing its own vector) does not meet a live view of another party. The
-     default allocator needs nothing. What the check does not cover is item 196. Tests:
+     default allocator needs nothing. Allocators reached other ways are item 196. Tests:
      `tests/race/viewsrejected_task_{resets,releases}_the_arena_a_view_points_into`,
      `viewsrejected_task_resets_a_chunked_arena_a_view_points_into`,
      `viewsrejected_task_resets_the_arena_through_a_{helper,field}`, and accepted
@@ -776,12 +776,26 @@ compiler (2026-10-11).
     abi.md 1.3, D77, findings F4 of audit F and G6 of audit G; extends item 198): use plain adds for the
     live-allocation count where the compiler proves that no other task or interrupt handler can reach the
     arena or anything allocated from it.
-209. **The checks follow arena drop entries** (planned; sections 18.9, 18.3, 19.3, 20.10, 17.1, abi.md 1.3,
+209. **The checks follow arena drop entries** (in progress, `3da2f6ac`: the race check; sections 18.9, 18.3, 19.3, 20.10, 17.1, abi.md 1.3,
     D82, findings G2, G8 and G13 of audit G; extends item 202): E2584, the race check (frees are writes,
     E3501, E3404) and the view rules (E3313) follow a `Reset`, `Release` or `Drop` of a Fixed or Chunked
     arena into the drop glue of every type passed to `New` or `Slice` of that arena, or of every arena
     where the compiler cannot tell which. A `Slice` of length zero records no entry. The count check after
     the entries panics only for an allocation still live then, or an entry recorded while they ran.
+    Done: the race check runs, at a static call of `Reset`, `Release` or `Drop`, the Drop methods the
+    drop glue of those types reaches, with every arena's types for an arena it cannot name; tests
+    `tests/race/viewsrejected_a_task_resets_an_arena_whose_drop_entry_writes_a_package_variable`,
+    `viewsaccepted_a_task_resets_an_arena_with_no_drop_entry_while_another_s_drop_writes_a_package_variable`
+    and `viewsaccepted_a_slice_of_length_zero_records_no_drop_entry`. A `Reset` reached through an
+    interface or a func value runs them too (tests
+    `viewsrejected_a_task_resets_an_arena_through_an_interface_and_its_drop_entry_writes_a_package_variable`
+    and `..._through_a_func_value_...`). A Drop method's receiver is memory the check cannot follow, so
+    the scoped-task check now counts a package variable whose address is taken as memory any pointer of
+    its type may reach (tests
+    `viewsrejected_a_drop_entry_writes_a_package_variable_through_a_pointer_in_its_object`,
+    `viewsrejected_a_task_writes_a_package_variable_through_a_pointer_stored_in_an_object` and
+    `viewsaccepted_a_task_writes_through_a_stored_pointer_while_main_reads_a_package_variable_whose_address_is_not_taken`).
+    Left: E2584 and E3313 (in `compiler/internal/lower` and `moves`).
     Item 212 widens the race check and E3313 to every object the arena takes back, of every type.
 212. **Arena frees of every type** (done, `208b5343`, `78ab1281`; sections 19.3 (Frees are writes), 19.4, 18.3, 18.9, 12.12, memory-model.md 3.8
     and 4.1, D86 and D93, findings H1 and H8 of audit H; extends items 168 and 209): a `Reset`, `Release`
@@ -789,8 +803,8 @@ compiler (2026-10-11).
     E3501, E3404 and the E3313 events, not only of objects whose type has drop glue. `Release` counts
     every object of the arena, since the compiler cannot order objects against marks. An arena is named
     by its variable or field, as a lock is: `workers[i].arena` counts as every arena it may be, and an
-    arena behind a parameter or a heap pointer stays item 196.
-214. **A load of a view from shared memory is a crossing** (in progress, `d2a9aee9`, `2b6d38d4`: not a use of a view after a call that may release its lock, the 19.3 peekWait example; phase 1, wrong acceptance; sections
+    arena behind a parameter or a heap pointer is item 196.
+214. **A load of a view from shared memory is a crossing** (in progress, `d2a9aee9`, `2b6d38d4`, `f3c36b3e` (rows 2, 3 and 9): not a use of a view after a call that may release its lock, the 19.3 peekWait example; phase 1, wrong acceptance; sections
     19.2, 19.3, 8.8, 20.9, 20.10, A, memory-model.md 4.1, D96, D102 to D104, finding I1 of audit I and
     findings J1 to J3 of audit J; extends items 168 and 212): a
     task's or interrupt handler's load of a pointer, slice, interface, func value or method value (or an
@@ -812,9 +826,12 @@ compiler (2026-10-11).
     makes it case 3, not case 2 (finding K11). A handler's load crosses from the start of sharing (19.3,
     The start of sharing). Spec examples: the `type Node struct{ n int }`, "first lets a pointer" and
     `type Logger owner struct {` blocks of 19.3.
-217. **Arena names beyond the precision limits and through a move** (planned, phase 1; section 19.3 (Frees are writes; How precise the race check is), D100,
+217. **Arena names beyond the precision limits and through a move** (done, `3da2f6ac`; section 19.3 (Frees are writes; How precise the race check is), D100,
     finding I7 of audit I; extends item 212): a call on an arena that the 18.3 limits cannot name counts as
-    that call on every arena of the program, and an arena's name follows a move (`b := take(a)`).
+    that call on every arena of the program, and an arena's name follows a move (`b := take(a)`). Tests:
+    `tests/race/viewsrejected_an_object_of_an_arena_named_by_an_index_counts_as_every_arena_s`,
+    `viewsrejected_a_task_resets_an_arena_moved_out_of_the_one_an_object_came_from`, and accepted
+    `viewsaccepted_a_task_resets_another_arena_after_a_move`.
 158. **Task exit mid-statement and inside `Drop`** (done, `6fc4a533`, tests only; section 17.3, abi.md 12.10, D51, finding B8):
     `rt.ExitTask` drops operands already evaluated, and a `Drop` method it leaves still finishes the
     object's field drops and free. Tests: `TestTaskExitDrops` (`tests/build_task_exit_drops_test.go`),
@@ -1006,10 +1023,16 @@ compiler (2026-10-11).
     Closed later (`36e91cc0`): a `Drop` that keeps its receiver is E3002 at the `Drop` itself, for every owner
     (section 18.6), so o14 left `knownEscapeGaps`. Tests: `tests/escape/rejected_drop_keeps_its_receiver` and
     `accepted_drop_keeps_a_copy`.
-196. **Allocators the race check does not follow** (planned; sections 19.4, 18.9; moved from item 140): an
-    allocator reached other than through the variable itself or a field holding its address (one behind
-    a parameter or a heap pointer, `alloc.Use` windows), and bulk calls seen by the race checks outside
-    scoped tasks.
+196. **Allocators the race check does not follow** (done, `3da2f6ac`; sections 19.3 (Frees are writes; How precise
+    the race check is), 19.4, 18.9; moved from item 140): an arena behind a parameter or a heap pointer is
+    named by the places its variable may refer to, or counts as every arena when the walk does not follow
+    them; an object a callee may take from an arena (`mk(&a)`), and one made in an `alloc.Use` window,
+    counts as an object of every arena; a bulk call outside scoped tasks frees every arena's objects when
+    its arena cannot be named. `Raw` memory and a container's storage are not taken back by a bulk free
+    (18.9), so they are not writes of it. Tests: `tests/race/viewsrejected_a_task_resets_an_arena_behind_a_{parameter_whose_drop_entries_may_write_a_package_variable,heap_pointer_while_main_reads_its_object}`,
+    `viewsrejected_a_task_resets_an_arena_installed_by_alloc_use_while_main_reads_an_object_made_in_the_window`,
+    `viewsrejected_a_task_resets_an_arena_whose_object_came_from_a_helper_given_the_arena`, with accepted
+    twins.
 211. **A use before a move in one call** (done, `584c7ed5`; sections 11.14, 11.26, 18.5, E3301; extends item
     75): a use of a variable in the same expression or simple statement as its move is E3301 in either
     order: call arguments, receiver and argument, operands, composite literal fields, index and slice
@@ -1616,7 +1639,7 @@ compiler (2026-10-11).
 191. **Counted string efficiency** (planned; sections 7.3, 18.8; moved from item 57): interface boxes hold
     their string until the function returns; `(string, error)` returns through memory;
     `compiler/compat` can drop helpers for what is native.
-192. **Maps kept in place** (in progress, `d87f712e`: rows 86 to 89 and 101, not row 120 (another package); phase 1; sections 7.10, 19.3 (Maps kept in place), D120, finding L5 of
+192. **Maps kept in place** (done, `d87f712e`, `269cdff5` (tests: row 120, generic map fields, another package); phase 1; sections 7.10, 19.3 (Maps kept in place), D120, finding L5 of
     audit L; moved from item 60): the race check groups maps by type, so two objects that each guard a map
     with their own mutex are E3502. Find the places (package variables and struct fields of map type, per
     instantiation) that are kept in place: every stored value is a `make`, a map literal or `nil` written

@@ -14,8 +14,6 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   byte arrays, `string(c)`, owner conversions) are not all enforced. Item 166.
 - A `//pu:stack` size outside 64K to 64G, and a program over an implementation limit, have no code yet (20.3, 21.4).
   Item 207.
-- The race check does not follow an allocator behind a parameter, a heap pointer or an `alloc.Use` window, or bulk
-  calls outside scoped tasks (19.4). Item 196.
 - A range-over-func body whose iterator calls `yield` from a scoped task still counts as part of the enclosing
   function, so it may release that function's locks, and a `defer` in it is not an error (19.3, Part of the
   enclosing function). Item 223.
@@ -26,13 +24,11 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 - A view of a lock-guarded variable in a scoped task is not yet ended by `Unlock` and a new `Lock` (19.4,
   Sharing). Item 227.
 - The memory a per-CPU variable owns is not yet checked as part of the variable (20.9). Item 228.
-- The race check does not yet name an arena beyond the precision limits as every arena, or follow an arena's name
-  through a move (19.3, Frees are writes). Item 217.
 
 ## 2. Behavior that differs at run time
 
-- E2584, the race check and E3313 do not yet follow a `Reset`, `Release` or `Drop` of a Fixed or Chunked arena into
-  the drops its entries would run (18.9, 19.3, 20.10). Item 209.
+- E2584 and E3313 do not yet follow a `Reset`, `Release` or `Drop` of a Fixed or Chunked arena into the drops its
+  entries would run (18.9, 19.3, 20.10). Item 209.
 - Waiting (a channel operation, `Lock`, `Wait`, `rt.Park`) inside a non-migrating region, reached through calls with
   one known target, compiles; it should be a compile error, and today it panics with "blocking with preemption
   disabled" at run time only when it parks (19.3). Items 210 and 215.
