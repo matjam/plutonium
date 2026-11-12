@@ -25,8 +25,10 @@ import (
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	typerr "compiler/internal/types2/errors"
 	"compiler/pu"
 	"pluto/sort"
+	"pluto/strconv"
 )
 
 // Info is what lowering needs to know to destroy owners (spec section 18.6):
@@ -602,16 +604,34 @@ func (c *checker) checkFunc(ft *ast.FuncType, recv *ast.FieldList, body *ast.Blo
 			}
 		}
 	}
-	for i := 0; i < 50; i++ {
+	// The states at loop heads and labels only grow, so the walks settle;
+	// each needs one more walk for each jump the states must cross back.
+	// A function that has not settled within the limit is an error that
+	// names the limit (section 21.4), never a check of a partial state.
+	settled := false
+	for i := 0; i < maxPasses; i++ {
 		f.changed = false
 		f.walk(body)
 		if !f.changed {
+			settled = true
 			break
 		}
+	}
+	if !settled {
+		c.report(pu.New(diag.Diagnostic{
+			Pos:  c.fset.Position(body.Pos()),
+			Code: diag.CheckerCode(typerr.ImplementationLimit),
+			Msg:  compat.Concat("the move check of this function did not settle after ", strconv.Itoa(maxPasses), " passes over its body: the compiler's limit on the number of passes"),
+		}))
+		return
 	}
 	f.report = true
 	f.walk(body)
 }
+
+// maxPasses is the most walks of a function's body the move check makes
+// before its states settle (diag.ImplementationLimit).
+const maxPasses = 2000
 
 func (f *fn) walk(body *ast.BlockStmt) {
 	f.env = env{}

@@ -406,9 +406,9 @@ func (s *keepScan) store(lhs ast.Expr, own, held uint64) {
 }
 
 // taint finds what the local variables of body may hold, to a fixed
-// point.
+// point. The sets only grow, so it settles.
 func (s *keepScan) taint(body *ast.BlockStmt) {
-	for i := 0; i < 20; i++ {
+	for {
 		s.change = false
 		ast.Inspect(body, func(n ast.Node) bool {
 			switch n := n.(type) {

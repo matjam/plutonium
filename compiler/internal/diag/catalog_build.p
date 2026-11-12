@@ -145,7 +145,7 @@ func init() {
 		}),
 		pu.New(Entry{
 			Code: CheckerCode(typerr.ImplementationLimit), Name: "ImplementationLimit",
-			Text: "The program goes past a limit of this compiler. The parser accepts expressions, statements and types nested up to 100000 levels deep, and the type checker up to its own nesting limit, which is lower when its stack runs short. The message names the limit. The program is not wrong, but this compiler cannot build it as written.",
+			Text: "The program goes past a limit of this compiler. The parser accepts expressions, statements and types nested up to 100000 levels deep, the type checker up to its own nesting limit, which is lower when its stack runs short, and the move check makes at most 2000 passes over one function's body before what it knows at each loop and label settles. The message names the limit. The program is not wrong, but this compiler cannot build it as written.",
 			Fix:  pu.New(Fix{Intro: "Split the deep expression or type into named parts", Code: "a := f(g(x))\nb := h(a)"}),
 			Spec: pspec("21.4", "Implementation limits"),
 		}),

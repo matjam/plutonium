@@ -6542,10 +6542,11 @@ shows it. Changing the code near the position shown may work around it.
 E9002: ImplementationLimit
 
 The program goes past a limit of this compiler. The parser accepts expressions,
-statements and types nested up to 100000 levels deep, and the type checker up to
-its own nesting limit, which is lower when its stack runs short. The message
-names the limit. The program is not wrong, but this compiler cannot build it as
-written.
+statements and types nested up to 100000 levels deep, the type checker up to its
+own nesting limit, which is lower when its stack runs short, and the move check
+makes at most 2000 passes over one function's body before what it knows at each
+loop and label settles. The message names the limit. The program is not wrong,
+but this compiler cannot build it as written.
 
 Split the deep expression or type into named parts:
 
