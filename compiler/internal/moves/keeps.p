@@ -219,11 +219,66 @@ func (s *keepScan) local(id *ast.Ident) *types2.Var {
 
 // sets returns the inputs whose own value e may hold (a copy of the
 // input, or the address of a part of what it is), and those through which
-// it may hold memory loaded through them.
+// it may hold memory loaded through them. A value whose type holds no
+// pointer (a number, a boolean, an array or struct of them) holds none:
+// s := atomic.LoadUint32(&m.state) is an integer loaded through m, not a
+// view of it, and passing s on keeps nothing m reaches. Nor does a
+// pointer to a task record of the runtime: rt.Ready(w.t), waking a waiter
+// a sync.Mutex has queued, keeps the task, which is the runtime's record
+// and never memory an owner holds (language spec section 18.12: the
+// records of pluto/rt are outside the rules; section 19.3 counts them as
+// synchronized memory).
 func (s *keepScan) sets(e ast.Expr) (own, held uint64) {
+	if T := s.c.typeOf(e); T != nil && (holdsNoPointer(T) || taskRecord(T)) {
+		return 0, 0
+	}
+	return s.place(e)
+}
+
+// taskRecord reports whether T is *rt.Task, a pointer to the runtime's
+// record of a task.
+func taskRecord(T types2.Type) bool {
+	p, ok := types2.Unalias(T).(*types2.Pointer)
+	if !ok {
+		return false
+	}
+	n, ok := types2.Unalias(p.Elem()).(*types2.Named)
+	if !ok || n.Obj().Pkg() == nil {
+		return false
+	}
+	return n.Obj().Pkg().Path() == "pluto/rt" && n.Obj().Name() == "Task"
+}
+
+// holdsNoPointer reports whether a value of type T holds no pointer: a
+// boolean or a number other than a uintptr (which unsafe code may turn
+// back into a pointer), or an array or struct of them.
+func holdsNoPointer(T types2.Type) bool {
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return false
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Basic:
+		return u.Kind() != types2.Uintptr && u.Info()&(types2.IsNumeric|types2.IsBoolean) != 0
+	case *types2.Array:
+		return holdsNoPointer(u.Elem())
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			if !holdsNoPointer(u.Field(i).Type()) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// place is sets for an expression whatever its type: the operand of &, a
+// selector, an index or a slice expression, whose own type may hold no
+// pointer though the address taken of it does (&m.state).
+func (s *keepScan) place(e ast.Expr) (own, held uint64) {
 	switch x := e.(type) {
 	case *ast.ParenExpr:
-		return s.sets(x.X)
+		return s.place(x.X)
 	case *ast.Ident:
 		v := s.local(x)
 		if v == nil {
@@ -238,13 +293,13 @@ func (s *keepScan) sets(e ast.Expr) (own, held uint64) {
 		if sel == nil {
 			return 0, 0 // a qualified identifier
 		}
-		o, h := s.sets(x.X)
+		o, h := s.place(x.X)
 		if sel.Kind() == types2.FieldVal && sel.Indirect() {
 			return 0, o | h // loaded through a pointer
 		}
 		return o, h // a part of the value, or a method value holding its receiver
 	case *ast.StarExpr:
-		o, h := s.sets(x.X)
+		o, h := s.place(x.X)
 		return 0, o | h
 	case *ast.IndexExpr:
 		T := s.c.typeOf(x.X)
@@ -253,21 +308,21 @@ func (s *keepScan) sets(e ast.Expr) (own, held uint64) {
 		}
 		switch T.Underlying().(type) {
 		case *types2.Array:
-			return s.sets(x.X)
+			return s.place(x.X)
 		case *types2.Slice, *types2.Pointer, *types2.Map:
-			o, h := s.sets(x.X)
+			o, h := s.place(x.X)
 			return 0, o | h
 		}
 		return 0, 0
 	case *ast.SliceExpr:
-		return s.sets(x.X)
+		return s.place(x.X)
 	case *ast.UnaryExpr:
 		if x.Op == token.AND {
-			return s.sets(x.X)
+			return s.place(x.X)
 		}
 		return 0, 0
 	case *ast.TypeAssertExpr:
-		return s.sets(x.X)
+		return s.place(x.X)
 	case *ast.CompositeLit:
 		for _, el := range x.Elts {
 			o, h := s.sets(el)
