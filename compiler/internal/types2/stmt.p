@@ -628,7 +628,9 @@ func (check *Checker) stmt(ctxt stmtContext, s ast.Stmt) {
 			// By checking assignment of x to an invisible temporary
 			// (as a compiler would), we get all the relevant checks.
 			check.assignment(x, nil, "switch expression")
-			if x.isValid() && !Comparable(x.typ()) && !hasNil(x.typ()) {
+			// The tag must be comparable even when no case compares it
+			// (spec section 12.9).
+			if x.isValid() && !Comparable(x.typ()) {
 				check.errorf(x, InvalidExprSwitch, "cannot switch on %s (%s is not comparable)", x, x.typ())
 				x.invalidate()
 			}

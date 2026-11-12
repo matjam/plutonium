@@ -1,0 +1,14 @@
+$DIR/main.p:11:9: cannot switch on s (variable of type []int) ([]int is not comparable)
+    A case value cannot be compared with the switch value: their types differ,
+    or the type cannot be compared with ==.
+    (see "Switch statements" in the Plutonium spec, section 12.9)
+    (run "pluto explain E0117" for a longer explanation)
+
+$DIR/main.p:15:9: cannot switch on m (variable of type map[int]int) (map[int]int is not comparable)
+    (explained above; run "pluto explain E0117" for more)
+
+$DIR/main.p:17:9: cannot switch on f (variable of type func()) (func() is not comparable)
+    (explained above; run "pluto explain E0117" for more)
+
+$DIR/main.p:20:9: cannot switch on s (variable of type []int) ([]int is not comparable)
+    (explained above; run "pluto explain E0117" for more)
