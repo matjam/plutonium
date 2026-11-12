@@ -88,6 +88,12 @@ type view struct {
 	// given to the place holding that owner, or clear of the slice,
 	// drops it and frees what the view points into (section 18.3).
 	into bool
+	// addr: the view is the address of the owner's own storage at part
+	// (&b.v, &b.arr[1]), or a copy of that address. A call that frees
+	// through a pointer to that part frees what the part holds, not the
+	// part's storage, so it does not end the view (section 18.3). What
+	// is loaded through such a view, or a call returns from it, is not.
+	addr bool
 }
 
 // A pinMark records that a view of an owner went where the walk cannot
@@ -131,6 +137,9 @@ func (w view) key() string {
 	}
 	if w.into {
 		k = compat.Concat(k, "|into")
+	}
+	if w.addr {
+		k = compat.Concat(k, "|addr")
 	}
 	if w.lit != nil {
 		k = compat.Concat(k, "|lit")
@@ -292,10 +301,22 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 	v, path, box, ok := f.placePath(x)
 	if !ok || v == nil {
 		out := f.viewsOf(baseOf(x))
-		if f.intoLoaded(x) {
+		into, keep := f.intoLoaded(x), f.storageFrom(x, baseOf(x))
+		var steps Path
+		if keep {
+			// The address of a part of what the pointer points to: the
+			// same storage, at that part.
+			_, steps, _ = f.throughPlace(x)
+		}
+		if into || !keep || len(steps) > 0 {
 			out = compat.Clone(out)
 			for i := range out {
-				out[i].into = true
+				out[i].into = out[i].into || into
+				out[i].addr = out[i].addr && keep
+				if out[i].addr && len(steps) > 0 {
+					out[i].part = Path(compat.Append(compat.Clone(out[i].part), steps...))
+					out[i].itself = false
+				}
 			}
 		}
 		if r, part := f.countedPath(x); r != nil {
@@ -311,9 +332,9 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 	}
 	out = compat.Append(out, whole(f.held(v, path))...)
 	if o := f.ownerVar(v); o != nil {
-		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), inHeap: box, part: path, itself: !box && len(path) == 0})
+		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), inHeap: box, part: path, itself: !box && len(path) == 0, addr: !box})
 	} else if o := f.scopeVar(v); o != nil {
-		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), part: path})
+		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), part: path, addr: true})
 	}
 	return out
 }
@@ -341,6 +362,45 @@ func (f *fn) intoLoaded(x ast.Expr) bool {
 			if _, _, _, ok := f.placePath(e); !ok {
 				return true
 			}
+		}
+	}
+}
+
+// storageFrom reports whether the place x is in the storage that the
+// pointer base points to: reached from *base by fields and array
+// elements alone (p.n, p.arr[1], (*p).in.n), so its address is an
+// address in the same storage.
+func (f *fn) storageFrom(x, base ast.Expr) bool {
+	base = ast.Unparen(base)
+	e := ast.Unparen(x)
+	for {
+		switch y := e.(type) {
+		case *ast.SelectorExpr:
+			sel := f.c.selections[y]
+			if sel == nil || sel.Kind() != types2.FieldVal {
+				return false
+			}
+			if sel.Indirect() {
+				return ast.Unparen(y.X) == base && len(sel.Index()) == 1
+			}
+			e = ast.Unparen(y.X)
+		case *ast.IndexExpr:
+			T := f.c.typeOf(y.X)
+			if T == nil {
+				return false
+			}
+			switch T.Underlying().(type) {
+			case *types2.Array:
+				e = ast.Unparen(y.X)
+			case *types2.Pointer:
+				return ast.Unparen(y.X) == base
+			default:
+				return false
+			}
+		case *ast.StarExpr:
+			return ast.Unparen(y.X) == base
+		default:
+			return e == base
 		}
 	}
 }
@@ -883,13 +943,13 @@ func (f *fn) partViews(x ast.Expr) []view {
 			// memory that pointer reaches: the views it holds. Through a
 			// local counted reference, it looks at what the reference
 			// keeps alive.
-			out := f.viewsOf(se.X)
+			out := notAddr(f.viewsOf(se.X))
 			if r, part := f.countedPath(x); r != nil {
 				out = compat.Append(out, view{of: r, pos: x.Pos(), text: exprText(x), inHeap: true, part: part})
 			}
 			return out
 		}
-		return f.viewsOf(baseOf(x))
+		return notAddr(f.viewsOf(baseOf(x)))
 	}
 	var out []view
 	if box {
@@ -989,6 +1049,17 @@ func loadedViews(vs []view, T types2.Type) []view {
 	for i := range out {
 		out[i].loaded = true
 		out[i].lowns = owns
+		out[i].addr = false
+	}
+	return out
+}
+
+// notAddr returns vs as views held by a value loaded through them, not
+// the address of an owner's storage (view.addr).
+func notAddr(vs []view) []view {
+	out := compat.Clone(vs)
+	for i := range out {
+		out[i].addr = false
 	}
 	return out
 }
@@ -1133,6 +1204,8 @@ func (f *fn) lentViews(x ast.Expr) []view {
 	T := f.c.typeOf(x)
 	heap := T != nil && !types2.IsInterface(T) && (lentWord(T) || tpBounds(T))
 	for i := range vs {
+		// The word lent, not the address of x's storage (view.addr).
+		vs[i].addr = false
 		if vs[i].itself && vs[i].pos == x.Pos() {
 			vs[i].itself = false
 			vs[i].inHeap = vs[i].inHeap || heap
@@ -1206,6 +1279,14 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 			// and that holds no pointer: bytes copied out of a []byte.
 			return
 		}
+		if u, ok := ast.Unparen(val).(*ast.UnaryExpr); ok && u.Op == token.AND && af != nil && af.Returned && !af.Self && len(af.Into) == 0 && f.c.takesOut(call) {
+			// Every callee returns an owner it moves out of memory reached
+			// through its inputs (return take(&q.v)): the result holds what
+			// that owner held, not a view of the place it was in (section
+			// 18.5).
+			out = compat.Append(out, notAddr(whole(f.viewsOf(u.X)))...)
+			return
+		}
 		for _, w := range whole(f.viewsTo(val, T)) {
 			if w.lit != nil {
 				if key != call.Fun || T != nil {
@@ -1220,6 +1301,10 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 				continue
 			}
 			w.itself = false // a view obtained from the variable
+			// A result the callee derives from the argument is the same
+			// address only when it has the argument's type: a pointer of
+			// another type may point anywhere inside (a ring's Peek).
+			w.addr = w.addr && af != nil && af.Self && types2.Identical(f.c.typeOf(call), f.c.typeOf(val))
 			if af != nil && !af.Returned {
 				switch {
 				case f.loadsOwned(call, w, T):
@@ -1242,6 +1327,73 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 		}
 	})
 	return compat.Append(out, f.tpRecvViews(call, out)...)
+}
+
+// takesOut reports whether the call returns one owner that each function
+// it may reach moves out with take: every return statement of each body
+// is return take(&place). Such a result holds the owner taken, which owns
+// its memory, and no pointer to where it was.
+func (c *checker) takesOut(call *ast.CallExpr) bool {
+	if !isOwner(c.typeOf(call)) {
+		return false
+	}
+	targets, known := c.keepTargets(call)
+	if !known || len(targets) == 0 {
+		return false
+	}
+	for _, t := range targets {
+		var body *ast.BlockStmt
+		switch n := t.node.(type) {
+		case *ast.FuncDecl:
+			body = n.Body
+		case *ast.FuncLit:
+			body = n.Body
+		}
+		if body == nil || !c.returnsTaken(body) {
+			return false
+		}
+	}
+	return true
+}
+
+// returnsTaken reports whether body has a return statement and each one
+// returns take(&place), with the builtin take.
+func (c *checker) returnsTaken(body *ast.BlockStmt) bool {
+	if r, ok := c.taken[body]; ok {
+		return r
+	}
+	if c.taken == nil {
+		c.taken = map[*ast.BlockStmt]bool{}
+	}
+	ok, seen := true, false
+	ast.Inspect(body, func(n ast.Node) bool {
+		if !ok {
+			return false
+		}
+		switch x := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.ReturnStmt:
+			seen = true
+			if len(x.Results) != 1 {
+				ok = false
+				return false
+			}
+			call, isCall := ast.Unparen(x.Results[0]).(*ast.CallExpr)
+			if !isCall || len(call.Args) != 1 || !c.types[call.Fun].IsBuiltin() {
+				ok = false
+				return false
+			}
+			id, isID := ast.Unparen(call.Fun).(*ast.Ident)
+			u, isAmp := ast.Unparen(call.Args[0]).(*ast.UnaryExpr)
+			if !isID || id.Name != "take" || !isAmp || u.Op != token.AND {
+				ok = false
+			}
+		}
+		return true
+	})
+	c.taken[body] = ok && seen
+	return ok && seen
 }
 
 // tpRecvViews returns, for a method called on the value of a type parameter

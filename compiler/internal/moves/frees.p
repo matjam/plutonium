@@ -1135,7 +1135,22 @@ func (f *fn) freedPart(v *types2.Var, path Path, mv move) {
 		s.hpin = nil
 		f.setState(v, s)
 	}
-	f.staleWhere(v, mv, func(w view) bool { return !w.itself && overlap(w.part, path) })
+	// The address of the part freed through, or of storage around it,
+	// stays: the call frees what the part holds. An address inside the
+	// part may look at an owner the call moved out (rt.MoveValues, a
+	// ring's Pop) or replaced.
+	f.staleWhere(v, mv, func(w view) bool {
+		return !w.itself && overlap(w.part, path) && !(mv.kind == mvFree && storageOf(w) && len(w.part) <= len(path))
+	})
+}
+
+// storageOf reports whether the view w is the address of v's own storage
+// (&b.v when the call frees through &b.v): the call frees what the
+// storage holds, not the storage, which stays where it was and holds the
+// current value (section 18.3). A variant's payload has no address
+// (section 7.13), so storage never changes its type under the view.
+func storageOf(w view) bool {
+	return w.addr && !w.inHeap && !w.obj && !w.lent && !w.loaded && w.lit == nil
 }
 
 // lentIface reports whether T is an ordinary interface, other than a type
