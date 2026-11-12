@@ -2502,7 +2502,9 @@ func (p *parser) parseReturn() *ast.ReturnStmt {
 	pos := p.pos
 	p.expect(token.RETURN)
 	var x []ast.Expr
-	if p.tok != token.SEMICOLON && p.tok != token.RBRACE {
+	// In the header of an if, for or switch statement (an or clause
+	// there), a "{" after return opens the statement's block.
+	if p.tok != token.SEMICOLON && p.tok != token.RBRACE && (p.tok != token.LBRACE || p.exprLev >= 0) {
 		x = p.parseList(true)
 	}
 	return pu.New(ast.ReturnStmt{Return: pos, Results: x})

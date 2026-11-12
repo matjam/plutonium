@@ -1,0 +1,18 @@
+$DIR/main.p:12:25: an or statement cannot be the post statement of a for statement; test the error in the loop body
+    The post statement of a for statement runs at the end of each iteration. An
+    or statement cannot be the post statement, since a break or continue in its
+    clause would end or repeat the iteration that is ending.
+    Test the error at the end of the loop body instead.
+    Test the error in the body:
+        for i := 0; i < n; {
+            ...
+            i = next(i) or break
+        }
+    (see "Or clauses" in the Plutonium spec, section 11.27)
+    (run "pluto explain E2465" for a longer explanation)
+
+$DIR/main.p:15:29: an or statement cannot be the post statement of a for statement; test the error in the loop body
+    (explained above; run "pluto explain E2465" for more)
+
+$DIR/main.p:17:25: an or statement cannot be the post statement of a for statement; test the error in the loop body
+    (explained above; run "pluto explain E2465" for more)
