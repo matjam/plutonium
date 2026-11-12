@@ -944,6 +944,27 @@ compiler (2026-10-11).
     followed in its result rather than pinned. Tests: `tests/moves/rejected_free_through_a_copy_of_a_counted_reference`,
     `rejected_free_through_an_interface_in_a_field`, `rejected_block_end_while_a_view_is_kept_in_the_heap`,
     `rejected_free_after_an_owned_element_is_stored` and `accepted_frees_twins_of_item_237`.
+239. **Defects of the attack-sem review** (done, `f34bcbf8`, `e387cb89`, `2fbd34f8`, `65297a17`, `f6273109`,
+    `fd7637f4`, `57f626f7`, `96d743ce`, `f0ec73e3`, `29a7a9b4`; findings 01, 02 and 04 to 10 of the
+    attack-sem review of 2026-11-11): `unsafe.Sizeof` and `Alignof` of `aligned[T, N]`
+    measure the wrapper (7.16); a tuple assignment makes each target's nil and bounds checks at its own store
+    (12.7); an untyped constant takes the element type of `volatile[T]` and `aligned[T, N]` in every
+    assignment context (7.15, 7.16); a switch on a value that is not comparable is an error with no case
+    clauses too (12.9); a packed type outside a type definition is E2104 (10.8); a constant of an owner type
+    is an error (10.6); `min(s...)` is E0150, a duplicate union variant E2404 and any reference from a member
+    value to its own enum E2310; `union` in a type position outside a type declaration is E2401 while a
+    variable, field or parameter named `union` still works; `f() or return {` in a for post statement is
+    E2465; and a range clause with `=` evaluates its left side in every iteration (12.10). Panic traces at
+    `-O2` already show inlined calls as frames (the inline sites of `debuginfo/trace.p`); 40 probes of
+    inlined panics, faults, closures, methods, loops and deferred calls gave the same trace at `-O0` and
+    `-O2`. Tests: `testdata/plutonium/alignedsize.p`, `wrapperinit.p`, `unionident.p`, `rangeassign.p`,
+    `tests/assignorder_test.go` and the `tests/diag` cases `wrapper_untyped`, `switch_noncomparable`,
+    `packed_anonymous`, `const_owner`, `minmax_dots`, `union_duplicate_variant`, `enum_self_reference`,
+    `or_post_return` and `misplaced_union`.
+240. **A result of type `aligned[T, N]`** (planned; section 7.16): `func r() aligned[int, 64]` compiles, but a
+    caller that uses the result (`v := r()`, `println(r())`, `r() + 1`) stops with an internal compiler error,
+    "bad store types" or "Add needs matching integer operands": lowering takes the result as a scalar of `T`
+    while the wrapper is 64 bytes. Found with item 239; a result of type `volatile[T]` works.
 204. **Type-parameter conversions to an interface in generic code** (done; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end

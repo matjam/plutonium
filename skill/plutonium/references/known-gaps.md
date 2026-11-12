@@ -37,6 +37,8 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   12.4). Item 216.
 - In kernel mode, `rt.Park` does not yet panic when interrupts are disabled, so a wait with interrupts disabled and
   no lock held is not caught at run time (19.3, abi.md 12.4). Item 213.
+- A function result of type `aligned[T, N]` with a scalar `T` stops the build with an internal compiler error
+  ("bad store types") where the caller uses it (7.16). Item 240.
 
 ## 3. Checks that are missing or too strict
 
