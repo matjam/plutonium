@@ -552,7 +552,7 @@ func (s *fnState) storeWide(lv lvalue, v *ssa.Value, vt *ssa.Type) {
 	if span <= 8 {
 		ptr := s.offPtr(lv.ptr, first)
 		word := s.loadRun(ptr, span)
-		word = s.newValue(ssa.OpAnd, t64, word, s.constInt(t64, int64(^(mask << uint(r)))))
+		word = s.newValue(ssa.OpAnd, t64, word, s.constInt(t64, int64(^(mask<<uint(r)))))
 		if r > 0 {
 			v = s.newValue(ssa.OpShl, t64, v, s.constInt(ssa.TI64, r))
 		}
@@ -565,7 +565,7 @@ func (s *fnState) storeWide(lv lvalue, v *ssa.Value, vt *ssa.Type) {
 	// The low bits of the field go in the top of the first eight bytes.
 	loPtr := s.offPtr(lv.ptr, first)
 	lo := s.load(t64, loPtr)
-	lo = s.newValue(ssa.OpAnd, t64, lo, s.constInt(t64, int64(^(mask << uint(r)))))
+	lo = s.newValue(ssa.OpAnd, t64, lo, s.constInt(t64, int64(^(mask<<uint(r)))))
 	lo = s.newValue(ssa.OpOr, t64, lo, s.newValue(ssa.OpShl, t64, v, s.constInt(ssa.TI64, r)))
 	// The rest go in the bottom of the ninth.
 	hiMask := int64(1)<<uint(r+w-64) - 1
