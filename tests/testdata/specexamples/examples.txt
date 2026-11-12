@@ -777,7 +777,7 @@ main:
 == 19-concurrency.md 19.3 | // finish releases a lock that another task took.
 
 == 19-concurrency.md 19.3 | type Config struct{ n int }
-known: spec example wrong: rule 1 also gives E3502 at the second assignment, since watch reads memory srv owns and the drop writes it with no lock; "Where the type rule decides" says the E3501 comes with it
+together
 
 == 19-concurrency.md 19.3 | var events = make(chan int, 16)
 known: 215: the wait check of non-migrating regions is not implemented, so the call of record is not an error

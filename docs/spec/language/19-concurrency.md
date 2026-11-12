@@ -770,7 +770,7 @@ func watch(c *Config) { for { println(c.n) } }
 func start() {
 	srv.cfg = new(Config)
 	task watch(&*srv.cfg) // error: E3501, the next line frees the Config that watch reads
-	srv.cfg = new(Config) // assigning to the owner drops the old Config: a write of it
+	srv.cfg = new(Config) // error: E3502, assigning to the owner drops the old Config: a write of it with no lock
 }
 ```
 
