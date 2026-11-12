@@ -150,8 +150,9 @@ type solver struct {
 	subs               vec   // node, path, flags, next
 
 	// One-entry memos in front of tables, for runs of repeats.
-	lastCut [2]lastKey // the last cutKey of a source and of a destination, in front of cuts
-	lastDst lastDst    // the last storeDstOf, in front of dsts
+	lastCut  [2]lastKey // the last cutKey of a source and of a destination, in front of cuts
+	lastDst  lastDst    // the last storeDstOf, in front of dsts
+	lastPair lastKey    // the last cut pair added (k source, c destination), in front of sumSeen
 
 	defs      vec // per register: block<<32 | instr+1
 	siteBlock vec // per call site: its block+1
@@ -1286,6 +1287,12 @@ func (s *solver) addStorePair(src, dst domain.Key, why uint64) {
 // past MaxFuncArena.
 func (s *solver) addCutPair(src, dst domain.Key, why uint64) {
 	src, dst = s.cutKeyLast(0, src), s.cutKeyLast(1, dst)
+	// The last pair is in sumSeen already, which only grows: a repeat of
+	// it adds nothing. The cut pairs of one constraint mostly repeat.
+	if l := &s.lastPair; l.ok && l.k == src && l.c == dst {
+		return
+	}
+	s.lastPair = lastKey{k: src, c: dst, ok: true}
 	if s.sumSeen.add(s.a, uint64(src)|sCutStore<<60, uint64(dst)) {
 		s.store.push(s.a, uint64(src))
 		s.store.push(s.a, uint64(dst))
@@ -1304,7 +1311,8 @@ func (s *solver) cutKey(k domain.Key) domain.Key {
 	return c
 }
 
-// lastKey is a key and its cut.
+// lastKey is a key and its cut (lastPair: a cut pair's source and
+// destination).
 type lastKey struct {
 	k, c domain.Key
 	ok   bool
