@@ -30,6 +30,22 @@ func (s *Server) step(n int) {
 var s = Server{arena: arena.NewChunked()}
 func main() { s.step(1); println("unreachable", s.last) }
 `, "arena has live allocations", true},
+		// Attack-mem finding 15: a string made in an alloc.Use window of a
+		// local arena and still referenced at the Reset. The count stops the
+		// Reset before the string is used (section 18.9, Live allocations:
+		// "a Reset or Release that comes before the program has dropped what
+		// it allocated").
+		{"localWindowStringKeptPastReset", `package main
+import ("pluto/alloc"; "pluto/arena"; "pluto/strconv")
+func main() {
+	a := arena.NewFixed(4096)
+	r := alloc.Use(&a)
+	s := strconv.Itoa(123456)
+	r.Restore()
+	a.Reset()
+	println("unreachable", s)
+}
+`, "arena has live allocations", true},
 		// Audit E3: an owner made in the arena and moved away.
 		{"ownerMovedAway", `package main
 import "pluto/arena"
