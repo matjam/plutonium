@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -25,6 +26,36 @@ func TestNestingLimit(t *testing.T) {
 		out, status := compileAndRun(t, []byte(deep(200)), 2)
 		if status != 0 || out != "1\n" {
 			t.Fatalf("exit status %d, output %q; want 0 and 1", status, out)
+		}
+	})
+}
+
+// TestTooManyVariants checks that a union with more variants than its
+// 16-bit tag can number is a compile error with its code (E2405), and that
+// one with exactly 65536 variants is accepted.
+func TestTooManyVariants(t *testing.T) {
+	t.Parallel()
+	union := func(n int) string {
+		var b strings.Builder
+		b.WriteString("package main\n\ntype U union {\n")
+		for i := range n {
+			fmt.Fprintf(&b, "\tV%d\n", i)
+		}
+		b.WriteString("}\n\nfunc main() {\n\tvar u U\n\t_ = u\n}\n")
+		return b.String()
+	}
+	t.Run("past the limit", func(t *testing.T) {
+		t.Parallel()
+		errs := buildFails(t, union(1<<16+1))
+		if !strings.Contains(errs, "union U has 65537 variants") || !strings.Contains(errs, "pluto explain E2405") {
+			t.Fatalf("got errors %q, want E2405", errs)
+		}
+	})
+	t.Run("at the limit", func(t *testing.T) {
+		t.Parallel()
+		dir := writeProgram(t, union(1<<16))
+		if out, status := runPluto(t, dir, nil, "vet", "."); status != 0 {
+			t.Fatalf("exit status %d:\n%s", status, out)
 		}
 	})
 }

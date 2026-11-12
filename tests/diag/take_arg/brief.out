@@ -1,0 +1,1 @@
+$DIR/main.p:7:12: invalid argument: take needs a pointer to the place to take from, not x (variable of type int)

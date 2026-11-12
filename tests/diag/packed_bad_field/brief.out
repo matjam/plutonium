@@ -1,0 +1,1 @@
+$DIR/main.p:6:7: packed field type string must be an integer, bool, float, packed type or array of those

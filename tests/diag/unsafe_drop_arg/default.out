@@ -1,0 +1,8 @@
+$DIR/main.p:9:14: invalid argument: unsafe.Drop needs a pointer to the value to destroy, not x (variable of type int)
+    unsafe.Drop(p) destroys the value p points to, as the end of its owner's
+    life would: it runs the value's Drop method and then drops its fields. It
+    needs a pointer to the value. It belongs to the unchecked layer that owner
+    types are written with, such as alloc.Free: the compiler does not stop the
+    value from being used or dropped again afterwards.
+    (see "Package unsafe" in the Plutonium spec, section 20.1)
+    (run "pluto explain E3209" for a longer explanation)

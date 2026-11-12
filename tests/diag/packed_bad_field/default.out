@@ -1,0 +1,6 @@
+$DIR/main.p:6:7: packed field type string must be an integer, bool, float, packed type or array of those
+    A field of a packed type must have a fixed bit layout: an integer, bool,
+    float, packed type, or an array of those. Strings, slices, pointers and
+    structs have no fixed layout in bits.
+    (see "packed types" in the Plutonium spec, section 7.14)
+    (run "pluto explain E2104" for a longer explanation)

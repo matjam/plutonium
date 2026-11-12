@@ -1,0 +1,1 @@
+$DIR/main.p:6:5: interface method must have no type parameters: a method with type parameters is never called through an interface

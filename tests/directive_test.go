@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 // The tests in this file check the diagnostics of the //pu: directives
@@ -195,5 +196,20 @@ func TestSpecDirectives(t *testing.T) {
 		if !strings.Contains(text, "//pu:"+n) {
 			t.Errorf("the E2601 catalog text does not list the removed directive %s", n)
 		}
+	}
+}
+
+// TestResultHoldsBadName checks that a //pu:resultholds directive in the
+// standard library that names something other than a parameter of its
+// function is an error (E3007), rather than a claim the escape analysis
+// cannot use. The directive is added to a copy of the library.
+func TestResultHoldsBadName(t *testing.T) {
+	t.Parallel()
+	const extra = "package strings\n\n//pu:resultholds q\nfunc ZZHolds(p *int) *int { return p }\n"
+	lib := stdlibWith(t, fstest.MapFS{"pluto/strings/zz_resultholds.p": &fstest.MapFile{Data: []byte(extra)}})
+	dir := writeProgram(t, "package main\n\nimport \"pluto/strings\"\n\nfunc main() {\n\tx := 1\n\tprintln(*strings.ZZHolds(&x))\n}\n")
+	out, status := runPluto(t, dir, []string{"PLUTOROOT=" + lib}, "build", "-o", filepath.Join(t.TempDir(), "prog"), ".")
+	if status == 0 || !strings.Contains(out, "//pu:resultholds names q, which is not a parameter of ZZHolds") || !strings.Contains(out, "pluto explain E3007") {
+		t.Errorf("exit status %d, output:\n%s\nwant the E3007 error", status, out)
 	}
 }

@@ -1,0 +1,8 @@
+$DIR/main.p:7:12: invalid argument: take needs a pointer to the place to take from, not x (variable of type int)
+    take moves a value out of a place, a field, an element or a variable reached
+    through a pointer, and leaves the zero value there. It takes the place's
+    address, so that it can write the zero value back.
+    Pass the address of the place:
+        v := take(&x.field)
+    (see "Moving out of a place" in the Plutonium spec, section 13.10)
+    (run "pluto explain E3208" for a longer explanation)

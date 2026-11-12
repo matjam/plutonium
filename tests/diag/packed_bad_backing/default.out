@@ -1,0 +1,6 @@
+$DIR/main.p:6:19: packed backing type float32 must be an integer or byte array
+    The backing type of a packed type says how its bits are stored. It must be
+    an unsigned or signed integer type (uint32), an array of bytes ([8]byte), or
+    []byte. It can also be left out.
+    (see "packed types" in the Plutonium spec, section 7.14)
+    (run "pluto explain E2101" for a longer explanation)

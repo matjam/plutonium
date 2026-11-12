@@ -1,0 +1,14 @@
+$DIR/main.p:6:7: expected operand, found ':='
+    The parser expected a value here, such as a name, a number or a call, and
+    found an operator or keyword instead. An operand is missing, or there is an
+    extra operator.
+    (see "Operands" in the Plutonium spec, section 11.1)
+    (run "pluto explain E1005" for a longer explanation)
+
+$DIR/main.p:8:3: expected ';', found 'EOF'
+    Statements end at the end of a line, or at a semicolon. The parser found the
+    end of one statement and then more text on the same line that does not start
+    a new one. This usually means a missing operator, comma or bracket, or two
+    statements on one line.
+    (see "Semicolons" in the Plutonium spec, section 4.3)
+    (run "pluto explain E1004" for a longer explanation)

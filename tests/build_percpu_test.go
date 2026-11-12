@@ -252,4 +252,13 @@ func TestPerCPUBadScript(t *testing.T) {
 	if !strings.Contains(errs, "must link section .percpu at address 0") {
 		t.Errorf("errors = %q", errs)
 	}
+	// The full form of the error names its code.
+	r := tryBuild(t, map[string]string{
+		"main.p":        perCPUSource,
+		"start_amd64.s": "\t.section .boot, \"ax\"\n\t.globl _start\n_start:\n\thlt\n\t.section .note.GNU-stack,\"\",@progbits\n",
+		"panic.p":       panicHandlerSource,
+	}, "-O2", "--mode", "kernel", "--gencheck=false", "--ldscript", script)
+	if r.status == 0 || !strings.Contains(r.out, "pluto explain E5007") {
+		t.Errorf("exit status %d, output %q; want E5007", r.status, r.out)
+	}
 }

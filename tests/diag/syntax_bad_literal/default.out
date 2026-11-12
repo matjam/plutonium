@@ -1,0 +1,9 @@
+$DIR/main.p:6:7: string literal not terminated
+    A string, rune or number is not written correctly, or the file contains a
+    character that is not allowed outside strings and comments. Strings in
+    double quotes must end on the same line; use a raw string in backquotes for
+    text over several lines. Rune literals in single quotes hold exactly one
+    character. Curly quotation marks, often pasted from a word processor, are
+    not quotes to the compiler.
+    (see "Lexical elements" in the Plutonium spec, section 4)
+    (run "pluto explain E1008" for a longer explanation)

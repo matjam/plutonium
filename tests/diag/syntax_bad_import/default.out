@@ -1,0 +1,5 @@
+$DIR/main.p:5:13: missing import path
+    An import names a package with a string in double quotes, and all imports
+    come right after the package clause, before any other declaration.
+    (see "Import declarations" in the Plutonium spec, section 14.3)
+    (run "pluto explain E1007" for a longer explanation)

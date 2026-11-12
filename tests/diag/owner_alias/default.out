@@ -1,0 +1,7 @@
+$DIR/main.p:7:14: owner can only be used in a type definition: type Other owner ...
+    An alias (type Other = ...) is another name for an existing type and has
+    that type's kind, owner or not. It cannot add a mark of its own.
+    To make a new owner type, define one:
+        type Other owner ...
+    (see "Owner types" in the Plutonium spec, section 7.18)
+    (run "pluto explain E3205" for a longer explanation)

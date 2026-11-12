@@ -1,0 +1,7 @@
+$DIR/main.p:6:5: interface method must have no type parameters: a method with type parameters is never called through an interface
+    Methods may have type parameters of their own, but an interface cannot
+    declare such a method. A call through an interface does not know which
+    type's method it reaches, so it could not pick an instance of a generic
+    method.
+    (see "Methods with type parameters" in the Plutonium spec, section 10.15)
+    (run "pluto explain E1011" for a longer explanation)

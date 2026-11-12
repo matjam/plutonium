@@ -1,0 +1,6 @@
+$DIR/main.p:7:7: unexpected newline, expecting { after if clause
+    The { that opens a block must be on the same line as the if, for, switch or
+    func that it belongs to. A line break ends the statement there, so a { on
+    the next line is read as a separate block.
+    (see "Semicolons" in the Plutonium spec, section 4.3)
+    (run "pluto explain E1006" for a longer explanation)

@@ -1,0 +1,1 @@
+$DIR/main.p:7:26: aligned argument n (variable of type int) must be a constant

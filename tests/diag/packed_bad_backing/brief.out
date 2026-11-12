@@ -1,0 +1,1 @@
+$DIR/main.p:6:19: packed backing type float32 must be an integer or byte array

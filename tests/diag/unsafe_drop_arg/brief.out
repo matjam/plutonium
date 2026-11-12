@@ -1,0 +1,1 @@
+$DIR/main.p:9:14: invalid argument: unsafe.Drop needs a pointer to the value to destroy, not x (variable of type int)

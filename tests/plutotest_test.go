@@ -2,6 +2,7 @@ package tests
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -287,19 +288,20 @@ func TestPlutoTestErrors(t *testing.T) {
 		code int
 		out  string // in standard output
 		err  string // in standard error
+		diag string // the diagnostic's code, in standard error; "" for none
 	}{
-		{"bad count", []string{"-count", "0", calc}, 2, "", "-count must be at least 1"},
-		{"bad flag", []string{"-nope"}, 2, "", "flag provided but not defined"},
-		{"bad run", []string{"-run", "a/b.c", calc}, 2, "", "may only be literal text"},
-		{"bad regexp", []string{"-run", "(", calc}, 2, "", "invalid -run pattern"},
-		{"bad bench", []string{"-bench", "(", calc}, 2, "", "invalid -bench pattern"},
-		{"missing", []string{"testdata/nonexistent"}, 1, "FAIL\ttestdata/nonexistent [build failed]", "not a package directory"},
-		{"main package", []string{"../examples/01-exit"}, 1, "[build failed]", "testing a main package is not supported"},
-		{"external", []string{"testdata/badtests/external"}, 1, "FAIL\ttestdata/badtests/external [build failed]", "external test packages are not supported"},
+		{"bad count", []string{"-count", "0", calc}, 2, "", "-count must be at least 1", ""},
+		{"bad flag", []string{"-nope"}, 2, "", "flag provided but not defined", ""},
+		{"bad run", []string{"-run", "a/b.c", calc}, 2, "", "may only be literal text", ""},
+		{"bad regexp", []string{"-run", "(", calc}, 2, "", "invalid -run pattern", ""},
+		{"bad bench", []string{"-bench", "(", calc}, 2, "", "invalid -bench pattern", ""},
+		{"missing", []string{"testdata/nonexistent"}, 1, "FAIL\ttestdata/nonexistent [build failed]", "not a package directory", "E4002"},
+		{"main package", []string{"../examples/01-exit"}, 1, "[build failed]", "testing a main package is not supported", "E4004"},
+		{"external", []string{"testdata/badtests/external"}, 1, "FAIL\ttestdata/badtests/external [build failed]", "external test packages are not supported", ""},
 		{"test signature", []string{"testdata/badtests/badsig"}, 1, "FAIL\tbadsig [build failed]",
-			"badsig/y_test.p:5:6: wrong signature for TestTwo, must be: func TestTwo(t *testing.T)\n"},
+			"badsig/y_test.p:5:6: wrong signature for TestTwo, must be: func TestTwo(t *testing.T)\n", "E4018"},
 		{"benchmark signature", []string{"testdata/badtests/badsig"}, 1, "FAIL\tbadsig [build failed]",
-			"badsig/y_test.p:7:6: wrong signature for BenchmarkTwo, must be: func BenchmarkTwo(b *testing.B)\n"},
+			"badsig/y_test.p:7:6: wrong signature for BenchmarkTwo, must be: func BenchmarkTwo(b *testing.B)\n", "E4018"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -313,6 +315,51 @@ func TestPlutoTestErrors(t *testing.T) {
 			if !strings.Contains(stderr, tt.err) {
 				t.Errorf("stderr %q does not contain %q", stderr, tt.err)
 			}
+			if tt.diag != "" && !strings.Contains(stderr, "pluto explain "+tt.diag) {
+				t.Errorf("stderr %q does not name code %s", stderr, tt.diag)
+			}
 		})
 	}
+}
+
+// TestPlutoTestDirErrors checks the errors of pluto test for a directory
+// it cannot test: one named like a standard library package or main
+// outside a module (E4003), and one it cannot read (E4017).
+func TestPlutoTestDirErrors(t *testing.T) {
+	t.Run("reserved name", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "main")
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		src := "package main\n\nfunc F() int { return 1 }\n"
+		if err := os.WriteFile(filepath.Join(dir, "f.p"), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, stderr, code := runTestCommand(t, dir)
+		if code != 1 || !strings.Contains(stderr, "cannot be tested from a directory named \"main\"") || !strings.Contains(stderr, "pluto explain E4003") {
+			t.Errorf("exit status %d, stderr %q; want 1 and E4003", code, stderr)
+		}
+	})
+	t.Run("unreadable", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("root reads any directory")
+		}
+		dir := filepath.Join(t.TempDir(), "calc")
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "pluto.mod"), []byte("module example.com/calc\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// Search but no read permission: the directory exists, and its
+		// entries cannot be listed.
+		if err := os.Chmod(dir, 0o311); err != nil {
+			t.Fatal(err)
+		}
+		defer os.Chmod(dir, 0o755)
+		_, stderr, code := runTestCommand(t, dir)
+		if code != 1 || !strings.Contains(stderr, "reading package") || !strings.Contains(stderr, "pluto explain E4017") {
+			t.Errorf("exit status %d, stderr %q; want 1 and E4017", code, stderr)
+		}
+	})
 }

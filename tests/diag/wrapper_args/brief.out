@@ -1,0 +1,1 @@
+$DIR/main.p:5:9: volatile takes one type argument: volatile[T]

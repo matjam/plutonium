@@ -1,0 +1,5 @@
+$DIR/main.p:7:26: aligned argument n (variable of type int) must be a constant
+    The second argument of aligned[T, N] and ring[T, N] must be a positive
+    integer constant, since the layout is fixed when compiling.
+    (see "aligned[T, N]" in the Plutonium spec, section 7.16)
+    (run "pluto explain E2109" for a longer explanation)

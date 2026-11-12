@@ -1,0 +1,9 @@
+$DIR/main.p:5:6: func main must have no arguments and return nothing or an int64
+    func main takes no arguments. It may return nothing, as in Go, or one int64,
+    which becomes the program's exit status.
+    Read command-line arguments with pluto/os instead of parameters.
+    Either form works:
+        func main() { ... }
+        func main() int64 { return 0 }
+    (see "Function declarations" in the Plutonium spec, section 10.12)
+    (run "pluto explain E2009" for a longer explanation)
