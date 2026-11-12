@@ -4,6 +4,7 @@ package moves
 
 import (
 	"compiler/compat"
+	"compiler/internal/constant"
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
@@ -655,12 +656,14 @@ func isArenaMark(T types2.Type) bool {
 	return false
 }
 
-// arenaAlloc reports whether call allocates from the local arena a: a
-// call of its method New, Slice or Alloc. What it returns is a view of
-// the arena's memory, which Reset and Release reclaim.
-func (f *fn) arenaAlloc(call *ast.CallExpr, a *types2.Var) bool {
+// arenaAlloc reports whether call allocates from a checked arena: a call
+// of its method New, Slice or Alloc. What it returns is a view of the
+// arena's memory, which Reset and Release reclaim, whichever way the
+// receiver reaches the arena: a local arena, a field of a local owner, or
+// a pointer that holds a view of one (section 18.9).
+func (f *fn) arenaAlloc(call *ast.CallExpr) bool {
 	se := funSelector(call.Fun)
-	if se == nil || !isCheckedArena(a.Type()) {
+	if se == nil {
 		return false
 	}
 	switch se.Sel.Name {
@@ -668,8 +671,53 @@ func (f *fn) arenaAlloc(call *ast.CallExpr, a *types2.Var) bool {
 	default:
 		return false
 	}
-	id, ok := ast.Unparen(se.X).(*ast.Ident)
-	return ok && f.varOf(id) == a
+	sel := f.c.selections[se]
+	if sel == nil || sel.Kind() != types2.MethodVal {
+		return false
+	}
+	T := sel.Recv()
+	if p := pointerElem(T); p != nil {
+		T = p
+	}
+	return isCheckedArena(T)
+}
+
+// arenaAt reports whether the part at path of a value of type T may hold
+// a checked arena: one, or something that leads to one.
+func arenaAt(T types2.Type, path Path) bool {
+	P, ok := typeAt(T, path)
+	return !ok || P == nil || reachesArena(P)
+}
+
+// isArenaPart reports whether the part at path of a value of type T is a
+// checked arena.
+func isArenaPart(T types2.Type, path Path) bool {
+	P, ok := typeAt(T, path)
+	return ok && P != nil && isCheckedArena(P)
+}
+
+// typeAt returns the type of the part at path of a value of type T, and
+// false when the path leaves the value's own storage or the types do not
+// follow it.
+func typeAt(T types2.Type, path Path) (types2.Type, bool) {
+	for _, step := range path {
+		if T == nil {
+			return nil, false
+		}
+		switch u := T.Underlying().(type) {
+		case *types2.Struct:
+			k, err := strconv.Atoi(strings.SliceFrom(step, 1))
+			if !strings.HasPrefix(step, ".") || err != nil || k < 0 || k >= u.NumFields() {
+				return nil, false
+			}
+			T = u.Field(k).Type()
+		case *types2.Array:
+			T = u.Elem()
+		default:
+			return nil, false
+		}
+	}
+	return T, true
 }
 
 // partViews returns the views a field or array element read from a local
@@ -987,7 +1035,20 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 		}
 		return out
 	}
+	alloc := f.arenaAlloc(call)
 	f.eachArg(call, func(key, val ast.Expr, T types2.Type) {
+		if alloc && f.isRecv(call, key) {
+			// An allocation from a checked arena looks at the arena's
+			// memory, whichever local the receiver reaches it in: the
+			// arena itself, a field of an owner, or through a pointer
+			// that holds a view of either (section 18.9).
+			for _, w := range whole(f.viewsTo(val, T)) {
+				if w.of != nil && (!w.inHeap || w.obj || isOwnedBox(w.of.Type())) && arenaAt(w.of.Type(), w.part) {
+					out = compat.Append(out, view{of: w.of, pos: call.Pos(), text: exprText(call), inHeap: true, part: w.part})
+				}
+			}
+			return
+		}
 		af := f.c.calls.Arg(key)
 		if af != nil && af.Returned && !af.Self && !loadsMayView(T) {
 			// The result holds only what was loaded through the argument,
@@ -1110,9 +1171,6 @@ func (f *fn) ownerPtrView(a ast.Expr, T types2.Type, made ast.Expr) []view {
 func (f *fn) loadsOwned(call *ast.CallExpr, w view, T types2.Type) bool {
 	if w.inHeap && !w.obj || w.of == nil || !bounds(w.of.Type()) {
 		return false
-	}
-	if f.arenaAlloc(call, w.of) {
-		return true
 	}
 	res := resultLeaves(f.c.typeOf(call), 0)
 	if _, tp := types2.Unalias(T).(*types2.TypeParam); T != nil && !tp && types2.IsInterface(T) && !isOwner(T) {
@@ -1738,7 +1796,94 @@ func (f *fn) invalidatePart(v *types2.Var, path Path, mv move) {
 	if f.env == nil || !isOwner(v.Type()) || !f.vars[v] {
 		return
 	}
-	f.staleViews(v, path, mv)
+	f.staleWhere(v, mv, func(w view) bool { return partEnds(w, path) })
+}
+
+// partEnds reports whether a new value in the part at path of an owner
+// ends the view w of it: w looks at or into that part. The owner's own
+// storage stays, so &v itself, and a pointer to the storage of a part
+// that holds the one at path, still look at a live place (section 18.3:
+// an owner field on the view's path).
+func partEnds(w view, path Path) bool {
+	if w.itself || !overlap(w.part, path) {
+		return false
+	}
+	return w.inHeap || w.obj || len(w.part) == 0 || len(w.part) >= len(path)
+}
+
+// invalidateThrough records that an assignment gives a new value to the
+// owner or counted box lhs, a place reached through a pointer (pn.child,
+// (*pn).child, *pn): where the pointer holds a view of the storage of a
+// local owner, the views of that owner that look at or into the place
+// are stale, as for an assignment to the place by the owner's name
+// (section 18.3). A pointer into memory an owner holds on the heap is
+// left to the generation checks (section 18.11).
+func (f *fn) invalidateThrough(lhs ast.Expr, mv move) {
+	if f.env == nil {
+		return
+	}
+	base, steps, ok := f.throughPlace(lhs)
+	if !ok {
+		return
+	}
+	for _, w := range f.viewsOf(base) {
+		if w.of == nil || w.inHeap || w.obj || w.lent || w.stale != nil && !w.maybe || f.captured(w.of) {
+			continue
+		}
+		f.invalidatePart(w.of, Path(compat.Append(compat.Clone(w.part), steps...)), mv)
+	}
+}
+
+// throughPlace splits the place x, reached through a pointer, into the
+// pointer and the path from what it points to down to x. ok is false when
+// x is not reached through a pointer.
+func (f *fn) throughPlace(x ast.Expr) (ast.Expr, Path, bool) {
+	switch e := ast.Unparen(x).(type) {
+	case *ast.StarExpr:
+		if pointerElem(f.c.typeOf(e.X)) == nil {
+			return nil, nil, false
+		}
+		return e.X, nil, true
+	case *ast.SelectorExpr:
+		sel := f.c.selections[e]
+		if sel == nil || sel.Kind() != types2.FieldVal {
+			return nil, nil, false
+		}
+		idx := sel.Index()
+		if sel.Indirect() {
+			if len(idx) != 1 || pointerElem(f.c.typeOf(e.X)) == nil {
+				// A promoted field reached through an embedded pointer: the
+				// part is not known, so all of what e.X points to.
+				return e.X, nil, pointerElem(f.c.typeOf(e.X)) != nil
+			}
+			var one Path
+			return e.X, compat.Append(one, compat.Concat(".", strconv.Itoa(idx[0]))), true
+		}
+		base, path, ok := f.throughPlace(e.X)
+		if !ok {
+			return nil, nil, false
+		}
+		for _, i := range idx {
+			path = compat.Append(path, compat.Concat(".", strconv.Itoa(i)))
+		}
+		return base, path, true
+	case *ast.IndexExpr:
+		if _, isArr := f.c.typeOf(e.X).Underlying().(*types2.Array); !isArr {
+			return nil, nil, false
+		}
+		base, path, ok := f.throughPlace(e.X)
+		if !ok {
+			return nil, nil, false
+		}
+		step := "[*]"
+		if tv := f.c.types[e.Index]; !tv.Value.IsNil() {
+			if i, exact := constant.Int64Val(constant.ToInt(tv.Value)); exact {
+				step = compat.Concat("[", strconv.FormatInt(i, 10), "]")
+			}
+		}
+		return base, Path(compat.Append(path, step)), true
+	}
+	return nil, nil, false
 }
 
 // staleViews makes the views of v that look at or into the part at path
@@ -1785,53 +1930,55 @@ func (f *fn) reclaim(call *ast.CallExpr, others []reclaimArg) {
 	}
 	for _, r := range others {
 		mv := move{kind: mvReclaim, pos: call.Pos(), to: r.how}
-		f.staleWhere(r.a, mv, func(w view) bool { return w.inHeap })
+		f.staleWhere(r.a, mv, func(w view) bool { return w.inHeap && overlap(w.part, r.part) })
 	}
-	a := f.reclaimDirect(call)
+	a, part := f.reclaimDirect(call)
 	if a == nil {
 		return
 	}
 	se := funSelector(call.Fun)
 	since := token.NoPos
-	if se.Sel.Name == "Release" && len(call.Args) == 1 {
+	if se.Sel.Name == "Release" && len(call.Args) == 1 && len(part) == 0 {
 		if mid, ok := ast.Unparen(call.Args[0]).(*ast.Ident); ok {
 			since = f.markPos(f.varOf(mid), a)
 		}
 	}
 	mv := move{kind: mvReclaim, pos: call.Pos(), to: exprText(call)}
-	f.staleWhere(a, mv, func(w view) bool { return w.inHeap && w.pos > since })
+	f.staleWhere(a, mv, func(w view) bool { return w.inHeap && w.pos > since && overlap(w.part, part) })
 }
 
-// reclaimDirect returns the local checked arena a when call is a.Reset()
-// or a.Release(m), or nil.
-func (f *fn) reclaimDirect(call *ast.CallExpr) *types2.Var {
+// reclaimDirect returns the local variable and the part of it that is the
+// checked arena when call is a.Reset() or a.Release(m) on a local arena or
+// a checked arena field of a local owner (s.a.Reset()), or nil.
+func (f *fn) reclaimDirect(call *ast.CallExpr) (*types2.Var, Path) {
 	se := funSelector(call.Fun)
-	if se == nil || se.Sel.Name != "Reset" && se.Sel.Name != "Release" {
-		return nil
+	if se == nil || se.Sel.Name != "Reset" && se.Sel.Name != "Release" || !isCheckedArena(f.c.typeOf(se.X)) {
+		return nil, nil
 	}
-	id, ok := ast.Unparen(se.X).(*ast.Ident)
-	if !ok {
-		return nil
+	a, path, box, ok := f.placePath(se.X)
+	if !ok || box || a == nil || !f.vars[a] || !bounds(a.Type()) {
+		return nil, nil
 	}
-	a := f.varOf(id)
-	if a == nil || !f.vars[a] || !isCheckedArena(a.Type()) {
-		return nil
-	}
-	return a
+	return a, path
 }
 
-// A reclaimArg is a local checked arena a call may reset or release
-// through one of its arguments, and how, for messages.
+// A reclaimArg is a local variable holding a checked arena that a call may
+// reset or release through one of its arguments, the part of it that leads
+// to the arena (nil for all of it), and how, for messages.
 type reclaimArg struct {
-	a   *types2.Var
-	how string
+	a    *types2.Var
+	part Path
+	how  string
 }
 
 // reclaimArgs returns the local checked arenas that the arguments of call
 // lead to and that the callee may reset or release through them
 // (c.reclaims), other than a.Reset() and a.Release(m) themselves.
 func (f *fn) reclaimArgs(call *ast.CallExpr) []reclaimArg {
-	if f.env == nil || f.reclaimDirect(call) != nil {
+	if f.env == nil {
+		return nil
+	}
+	if a, _ := f.reclaimDirect(call); a != nil {
 		return nil
 	}
 	tv := f.c.types[call.Fun]
@@ -1853,9 +2000,17 @@ func (f *fn) reclaimArgs(call *ast.CallExpr) []reclaimArg {
 			}
 			how = compat.Concat(how, " (", site.text, ", ", where, ")")
 		}
+		// The arena may be the variable a view looks at, a part of it, or
+		// held in the object of a box it holds: every allocation of the
+		// part the view reaches is taken as reclaimed.
 		for _, w := range f.viewsTo(val, T) {
-			if w.of != nil && f.vars[w.of] && isCheckedArena(w.of.Type()) {
+			if w.of == nil || !f.vars[w.of] || !bounds(w.of.Type()) {
+				continue
+			}
+			if isCheckedArena(w.of.Type()) {
 				out = compat.Append(out, reclaimArg{a: w.of, how: how})
+			} else if (!w.inHeap || w.obj || isOwnedBox(w.of.Type())) && arenaAt(w.of.Type(), w.part) {
+				out = compat.Append(out, reclaimArg{a: w.of, part: w.part, how: how})
 			}
 		}
 	})

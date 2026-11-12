@@ -916,7 +916,7 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 			// A checked arena's allocations end only at its Reset and
 			// Release (reclaim, section 18.9) and its drop: a chunk its
 			// other methods return to the parent holds none of them.
-			if w.of != nil && isCheckedArena(w.of.Type()) {
+			if w.of != nil && (isCheckedArena(w.of.Type()) || !w.inHeap && isArenaPart(w.of.Type(), w.part)) {
 				continue
 			}
 			out = compat.Append(out, freeArg{w: w, site: site})

@@ -1,0 +1,14 @@
+$DIR/main.p:12:10: q holds a view of n (&*n.child, line 10), which was given a new value at line 11, so q can no longer be used here
+    q looks at memory that n owns, without owning it: the view was made by
+    &*n.child at line 10. A view of an owner held in a local variable may be
+    used only while the variable keeps the value the view was made from. At line
+    11 n was given a new value, so the view may look at memory that was
+    released, or at a value that now belongs to something else.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Use q before line 11, or give n its new value only after the last use of q
+    Or make the view again after line 11:
+        q = &*n.child
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

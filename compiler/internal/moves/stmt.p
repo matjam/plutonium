@@ -432,6 +432,8 @@ func (f *fn) assignLHS(lhs ast.Expr, tok token.Token) {
 	if T := f.c.typeOf(lhs); T != nil && bounds(T) {
 		if v, path, _, ok := f.placePath(lhs); ok && v != nil && !f.captured(v) {
 			f.invalidatePart(v, path, move{kind: mvNewValue, pos: lhs.Pos()})
+		} else if !ok {
+			f.invalidateThrough(lhs, move{kind: mvNewValue, pos: lhs.Pos()})
 		}
 	}
 	// A part of a variable is written, not read: the views it held are

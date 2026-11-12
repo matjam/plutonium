@@ -408,6 +408,10 @@ func (f *fn) builtin(e *ast.CallExpr) {
 				// take(&h.l) empties the part h.l: the views of it are
 				// stale.
 				f.invalidatePart(v, path, move{kind: mvTake, pos: amp.X.Pos(), to: exprText(e)})
+			} else if !ok {
+				// take(&pn.l) through a pointer to a local owner empties
+				// the same part.
+				f.invalidateThrough(amp.X, move{kind: mvTake, pos: amp.X.Pos(), to: exprText(e)})
 			}
 			return
 		}
