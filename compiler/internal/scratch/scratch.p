@@ -27,23 +27,46 @@ const chunkSize = 1 << 20
 // and steps within it.
 const maxDepth = 3
 
-// A level is the state of the Do running at one nesting depth. Each level
-// has its own arena, and in check mode its own pages, so that the end of
-// an inner step frees and seals only that step's memory.
+// A level is the state of the Do running at one nesting depth of a Stack.
+// Each level has its own arena, and in check mode its own pages, so that
+// the end of an inner step frees and seals only that step's memory. The
+// level is the allocator of its step's work, so that Heap, Outer and Used
+// find the running step's state from the current allocator, on whichever
+// task runs it.
 type level owner struct {
-	scr   mem
+	mem
 	ready bool
 	outer alloc.Allocator // the allocator current when the Do began
+	st    *Stack          // the stack the level is part of
 	pages checkPages
 }
 
-var (
+// A Stack is the levels of Do on one task. The main task's is root, which
+// the package's Do uses; a task that runs steps beside it has a Stack of
+// its own (NewStack) and runs them with its Do.
+type Stack owner struct {
 	levels [maxDepth]level
 	depth  int             // Do's whose work is running
+	heap   alloc.Allocator // the parent of the arenas
+	check  bool            // PLUTO_SCRATCH_CHECK
+}
+
+var (
+	root   Stack
 	heap   alloc.Allocator // the allocator of the first Do, parent of the arenas
 	check  bool            // PLUTO_SCRATCH_CHECK
 	inited bool
 )
+
+// current is the stack of the running task: the one whose step's work is
+// running, or root.
+func current() *Stack {
+	if l, ok := alloc.Default().(*level); ok {
+		return l.st
+	}
+	initOnce()
+	return &root
+}
 
 // A Step is a step of the compiler run by Do. Its methods' names are
 // unique to it: the goexit analysis (internal/lower/goexit.go) takes an
@@ -63,34 +86,42 @@ type Step interface {
 // allocated. Do nests up to maxDepth deep: a Do within another's work
 // uses an arena of its own, and its ScratchKeep copies into the outer
 // step's memory.
-func Do(s Step) { do(s, nil) }
+func Do(s Step) { current().do(s, nil) }
+
+// InitStack readies st, which is empty, for a task that runs steps beside
+// the main task. The task runs them with st.Do and frees st's memory with
+// st.Trim when it is done.
+func InitStack(st *Stack) {
+	initOnce()
+	st.heap = heap
+	st.check = check
+}
+
+// Do is the package's Do on st's levels.
+func (st *Stack) Do(s Step) { st.do(s, nil) }
 
 // do is Do, with s.ScratchKeep allocating from keep when it is not nil.
-func do(s Step, keep alloc.Allocator) {
-	if !inited {
-		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
-		heap = alloc.Default()
-		inited = true
-	}
-	if depth == maxDepth {
+func (st *Stack) do(s Step, keep alloc.Allocator) {
+	if st.depth == maxDepth {
 		panic("scratch.Do nested too deeply")
 	}
-	l := &levels[depth]
+	l := &st.levels[st.depth]
 	if !l.ready {
-		if check {
-			l.scr = newMem(&l.pages)
+		if st.check {
+			l.mem = newMem(&l.pages)
 		} else {
-			l.scr = newMem(heap)
+			l.mem = newMem(st.heap)
 		}
+		l.st = st
 		l.ready = true
 	}
 	l.outer = alloc.Default()
-	m := l.scr.Mark()
-	depth++
-	r := alloc.Use(&l.scr)
+	m := l.mem.Mark()
+	st.depth++
+	r := alloc.Use(l)
 	s.ScratchWork()
 	r.Restore()
-	depth--
+	st.depth--
 	l.outer = nil
 	if keep != nil {
 		k := alloc.Use(keep)
@@ -99,10 +130,20 @@ func do(s Step, keep alloc.Allocator) {
 	} else {
 		s.ScratchKeep()
 	}
-	l.scr.Release(m)
-	if check {
-		l.scr.Trim()
+	l.mem.Release(m)
+	if st.check {
+		l.mem.Trim()
 		l.pages.seal()
+	}
+}
+
+// Trim returns to the heap the spare memory that st's arenas keep for
+// later steps.
+func (st *Stack) Trim() {
+	for i := st.depth; i < maxDepth; i++ {
+		if st.levels[i].ready {
+			st.levels[i].mem.Trim()
+		}
 	}
 }
 
@@ -121,17 +162,13 @@ var (
 // allocates nothing leaves the older version in place. Within a Do's work
 // DoHome is Do.
 func DoHome(key unsafe.Pointer, s Step) {
-	if depth != 0 {
-		Do(s)
+	st := current()
+	if st.depth != 0 {
+		st.do(s, nil)
 		return
 	}
-	if !inited {
-		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
-		heap = alloc.Default()
-		inited = true
-	}
 	filling = newHome()
-	do(s, filling)
+	st.do(s, filling)
 	keepHome(key)
 }
 
@@ -165,6 +202,7 @@ func newHome() *home {
 	}
 	clear(unsafe.Slice((*byte)(unsafe.Pointer(h)), unsafe.Sizeof(home{})))
 	h.init()
+	h.heap = heap
 	return h
 }
 
@@ -187,13 +225,8 @@ var (
 // with the same key to free. It is called outside any Do's work, and
 // EndHome before the next BeginHome.
 func BeginHome(key unsafe.Pointer) {
-	if depth != 0 || homeKey != nil || key == nil {
+	if current().depth != 0 || homeKey != nil || key == nil {
 		panic("scratch.BeginHome within a step's work or another BeginHome")
-	}
-	if !inited {
-		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
-		heap = alloc.Default()
-		inited = true
 	}
 	filling = newHome()
 	homeKey = key
@@ -240,7 +273,8 @@ func Drop(key unsafe.Pointer) {
 // each allocation, so that using one after Release panics and the
 // registrations do not pile up.
 type Region owner struct {
-	regionMem // Alloc and Free; mem_on.p and mem_off.p
+	regionMem                 // Alloc and Free; mem_on.p and mem_off.p
+	heap      alloc.Allocator // for Heap
 }
 
 // A regionSpan is the memory of one chunk of a live region.
@@ -248,6 +282,10 @@ type regionSpan struct {
 	lo, hi uintptr
 	r      uintptr // the *Region as a number; Release removes the span before it frees the Region
 }
+
+// spansMu guards spans: tasks that solve beside each other look up regions
+// through HeapFor.
+var spansMu rt.Lock
 
 var (
 	spans      unsafe.Pointer // [spansCap]regionSpan, sorted by lo, in the heap
@@ -261,6 +299,7 @@ func initOnce() {
 	if !inited {
 		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
 		heap = alloc.Default()
+		root.heap, root.check = heap, check
 		inited = true
 	}
 }
@@ -275,6 +314,7 @@ func NewRegion() *Region {
 	}
 	clear(unsafe.Slice((*byte)(unsafe.Pointer(r)), unsafe.Sizeof(Region{})))
 	r.init()
+	r.heap = heap
 	regions++
 	return r
 }
@@ -317,6 +357,8 @@ func findSpan(p uintptr) int {
 }
 
 func addSpan(s regionSpan) {
+	spansMu.Lock()
+	defer spansMu.Unlock()
 	size := unsafe.Sizeof(regionSpan{})
 	if spansLen == spansCap {
 		n := spansCap * 2
@@ -342,6 +384,8 @@ func addSpan(s regionSpan) {
 }
 
 func removeSpan(lo uintptr) {
+	spansMu.Lock()
+	defer spansMu.Unlock()
 	i := findSpan(lo) - 1
 	if i < 0 || span(i).lo != lo {
 		panic("scratch: region chunk not recorded")
@@ -354,6 +398,8 @@ func removeSpan(lo uintptr) {
 
 // regionOf returns the live region whose memory p is in, or nil.
 func regionOf(p unsafe.Pointer) *Region {
+	spansMu.Lock()
+	defer spansMu.Unlock()
 	if spansLen == 0 {
 		return nil
 	}
@@ -407,24 +453,18 @@ func sealChunk(p unsafe.Pointer, n uintptr) {
 	}
 }
 
-// Trim returns to the heap the spare memory that the arenas keep for later
-// steps, after a large step whose like does not follow.
-func Trim() {
-	for i := depth; i < maxDepth; i++ {
-		if levels[i].ready {
-			levels[i].scr.Trim()
-		}
-	}
-}
+// Trim returns to the heap the spare memory that the main task's arenas
+// keep for later steps, after a large step whose like does not follow.
+func Trim() { current().Trim() }
 
 // Used returns the bytes the innermost running step has allocated from
 // scratch memory, or 0 outside a step's work. A step whose work allocated
 // nothing holds nothing in scratch memory and has nothing to copy out.
 func Used() int {
-	if depth == 0 {
-		return 0
+	if l, ok := alloc.Default().(*level); ok {
+		return l.mem.Used()
 	}
-	return levels[depth-1].scr.Used()
+	return 0
 }
 
 // Outer makes the allocator that was current when the innermost running
@@ -434,13 +474,15 @@ func Used() int {
 // changes nothing.
 func Outer() alloc.Restore {
 	switch a := alloc.Default().(type) {
+	case *level:
+		return alloc.Use(a.outer)
 	case *Worker:
+		if a.outer == nil {
+			return alloc.Use(a)
+		}
 		return alloc.Use(a.outer)
 	case *Locked:
 		return alloc.Use(a)
-	}
-	if depth > 0 {
-		return alloc.Use(levels[depth-1].outer)
 	}
 	return alloc.Use(alloc.Default())
 }
@@ -448,13 +490,19 @@ func Outer() alloc.Restore {
 // Heap makes the heap the current allocator until Restore is called, so
 // that a cache filled lazily by whichever step first asks (the type
 // checker's expanded methods and underlying types) does not come from any
-// step's scratch memory or any Region.
+// step's scratch memory, any Region or any home. It reads no state but the
+// current allocator's, so that tasks that run steps beside each other may
+// call it.
 func Heap() alloc.Restore {
-	if depth > 0 {
-		return alloc.Use(heap)
-	}
-	if _, ok := alloc.Default().(*Region); ok {
-		return alloc.Use(heap)
+	switch a := alloc.Default().(type) {
+	case *level:
+		return alloc.Use(a.st.heap)
+	case *Worker:
+		return alloc.Use(a.heap)
+	case *Region:
+		return alloc.Use(a.heap)
+	case *home:
+		return alloc.Use(a.heap)
 	}
 	return alloc.Use(alloc.Default())
 }
@@ -490,26 +538,25 @@ func (l *Locked) Free(p unsafe.Pointer, size, align uintptr) {
 
 // A Worker runs steps on a task of its own, beside other workers, in
 // scratch memory of its own. Its steps do not nest. Outer within a step
-// makes outer current, which the workers share.
+// makes outer current: a Locked allocator the workers share, or memory of
+// the task's own that outlives the steps. A Worker with no outer is such
+// memory itself, and Outer within it changes nothing.
 //
 // Its Alloc and Free are mem's: a Worker forwarding them would be a custom
 // allocator of its own, whose allocations generation checks register over
 // mem's, and Release, which ends mem's registrations, would leave those.
 type Worker owner struct {
 	mem
-	outer *Locked
-	base  memMark // the arena empty, for Reset
+	outer alloc.Allocator
+	heap  alloc.Allocator // for Heap
+	base  memMark         // the arena empty, for Reset
 }
 
 // NewWorker returns a worker whose steps keep their results in outer. Its
 // arena's chunks come from the heap, which tasks share.
-func NewWorker(outer *Locked) Worker {
-	if !inited {
-		check = os.GetenvLossy("PLUTO_SCRATCH_CHECK") != ""
-		heap = alloc.Default()
-		inited = true
-	}
-	w := Worker{mem: newMem(heap), outer: outer}
+func NewWorker(outer alloc.Allocator) Worker {
+	initOnce()
+	w := Worker{mem: newMem(heap), outer: outer, heap: heap}
 	w.base = w.mem.Mark()
 	return w
 }
@@ -530,7 +577,7 @@ func (w *Worker) Mark() memMark { return w.mem.Mark() }
 
 func (w *Worker) Release(m memMark) { w.mem.Release(m) }
 
-func (w *Worker) Shared() *Locked { return w.outer }
+func (w *Worker) Shared() alloc.Allocator { return w.outer }
 
 // Reset frees everything w's steps allocated.
 func (w *Worker) Reset() { w.mem.Release(w.base) }

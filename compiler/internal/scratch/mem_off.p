@@ -118,9 +118,10 @@ const homeChunk = 32 << 10
 // which drop makes inaccessible, so that a pointer to an older version
 // faults where it is used.
 type home struct {
-	chunks unsafe.Pointer // the chunk being filled, linking to the older ones
-	off    uintptr        // bytes of it in use
-	size   uintptr        // its size
+	chunks unsafe.Pointer  // the chunk being filled, linking to the older ones
+	off    uintptr         // bytes of it in use
+	size   uintptr         // its size
+	heap   alloc.Allocator // for Heap
 }
 
 const homeHeader = 16

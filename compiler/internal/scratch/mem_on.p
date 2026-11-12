@@ -59,6 +59,7 @@ func (m *regionMem) release() {
 // by drop: a Chunked whose chunks come from homeSource.
 type home owner struct {
 	arena.Chunked
+	heap alloc.Allocator // for Heap
 }
 
 var homeSource chunkSource
