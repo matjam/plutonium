@@ -560,6 +560,93 @@ func TestCatalogComplete(t *testing.T) {
 	t.Logf("%d catalog entries, %d checker codes, %d other codes", len(c.entries), len(c.checker), len(c.diag))
 }
 
+// untestedCodes are the catalog's codes that no test reaches, each with
+// the reason. Every other code must be in the expected output of a test.
+var untestedCodes = map[string]string{}
+
+var (
+	anyCode     = regexp.MustCompile(`E\d{4}`)
+	diagCodeRef = regexp.MustCompile(`\b(?:diag|typerr|errors)\.([A-Z]\w*)`)
+)
+
+// TestCatalogTested checks that every code of the catalog has a test that
+// expects it: a corpus case or golden file (*.out) under tests/ or
+// testdata/, a Go test in tests/ that looks for the code, or a unit test of
+// the compiler (*_test.p) that checks a diagnostic for the code by name. The
+// output of pluto explain, which lists every code, does not count.
+func TestCatalogTested(t *testing.T) {
+	t.Parallel()
+	c := readCatalog(t)
+	tested := map[string]bool{}
+	walk := func(root string, match func(path string) bool, scan func(data []byte)) {
+		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() {
+				if filepath.Base(path) == "explain" && filepath.Base(filepath.Dir(path)) == "testdata" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !match(path) {
+				return nil
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			scan(data)
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	scanCodes := func(data []byte) {
+		for _, m := range anyCode.FindAll(data, -1) {
+			tested[string(m)] = true
+		}
+	}
+	expected := func(path string) bool {
+		base := filepath.Base(path)
+		return strings.HasSuffix(base, ".out") || strings.HasSuffix(base, "_test.go") && base != "catalog_test.go"
+	}
+	walk(".", expected, scanCodes)
+	walk(filepath.Join("..", "testdata"), expected, scanCodes)
+	walk(filepath.Join("..", "compiler"), func(path string) bool { return strings.HasSuffix(path, "_test.p") }, func(data []byte) {
+		scanCodes(data)
+		for _, m := range diagCodeRef.FindAllSubmatch(data, -1) {
+			name := string(m[1])
+			if code, ok := c.diag[name]; ok {
+				tested[code] = true
+			}
+			if v, ok := c.checker[name]; ok {
+				tested[checkerCode(v)] = true
+			}
+		}
+	})
+	for code, why := range untestedCodes {
+		switch {
+		case c.entries[code] == nil:
+			t.Errorf("untestedCodes lists %s, which is not in the catalog", code)
+		case tested[code]:
+			t.Errorf("untestedCodes lists %s (%s), which a test now expects: remove it from the list", code, c.entries[code].Name)
+		case strings.TrimSpace(why) == "":
+			t.Errorf("untestedCodes lists %s (%s) without a reason", code, c.entries[code].Name)
+		}
+	}
+	var missing []string
+	for _, code := range c.codes() {
+		if !tested[code] && untestedCodes[code] == "" {
+			missing = append(missing, code+" "+c.entries[code].Name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("%d catalog codes have no test that expects them; add a corpus case under tests/diag or tests/types2 for each:\n\t%s", len(missing), strings.Join(missing, "\n\t"))
+	}
+}
+
 var codeForm = regexp.MustCompile(`^E\d{4}$`)
 
 // TestCatalogStyle checks the catalog's entries against the rules for

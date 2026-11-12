@@ -45,9 +45,10 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
 ## 3. Checks that are missing or too strict
 
 - Interrupt handlers are not yet race parties from the point one may be installed (19.3). Item 156.
-- Some valid packed fields stop the build with E2500: an array field off a byte boundary, with byte-swapped
-  elements, in a `be` integer-backed type, or in a `volatile` value; a field whose bytes span more than eight
-  bytes; a nested `be` integer-backed field off a byte boundary (7.14). Item 238.
+- Some packed fields stop the build with E2500 because 7.14 does not say how the element bytes of an array field
+  are ordered in big-endian storage: an array of several-byte elements in a `be` type laid out by byte, and an
+  array field in a `be` integer-backed type. Taking the address of a packed field that is not plain memory also
+  stops with E2500. Item 238.
 - Conformance checks for `alloc.Default()`, the arena window, the panic buffer, F.3 and F.6 names and debug
   allocator tags are not all tested. Item 167.
 - `rt.Yield` inside a non-migrating region compiles and does not panic, so a task can resume on another processor

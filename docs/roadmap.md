@@ -1443,7 +1443,7 @@ compiler (2026-10-11).
     178, sections 11.9 and 18.5); generation checks for early boot, interrupts and arenas in kernel
     builds (item 101 phases 3 and 4, section 18.11); the four view-tracking cases left by item 138 (item
     179, section 18.3); `rt.ReleaseValues` and `ZeroValues` have no effects in the escape contract
-    table (item 180); and cases for rules that have none (item 184: E3205, E3208, E3209, E3007, the
+    table (item 180); and cases for rules that have none (item 184: the
     embedded, array and interface forms of E3202, most kinds of E3204, a view converted into a box, a
     map lent to an ordinary interface, a send in a `select`; the audit lists them). The 2026-11-09
     rulings add ownership work: moves and views in items 146, 147, 148, 149, 170, 171, 172, 174 and 175;
@@ -1601,12 +1601,15 @@ compiler (2026-10-11).
     packed field backstop in `compiler/internal/lower` is either unreachable after the type checker (say so in
     a comment or remove it) or a missing feature (add an item): `builtin.p:149`, `:219`; `expr.p:117`, `:686`,
     `:1013`, `:1310`; `stmt.p:126`, `:721`; `packed.p:124`, `:136`, `:192`, `:238`.
-238. **Packed fields lowering cannot access yet** (planned; section 7.14; moved from item 182): these fields
-    are valid and stop the build with E2500: an array field that does not start on a byte, that has elements
-    of several bytes in a `be` type laid out by byte, that is in a `be` integer-backed type, or that is in a
-    `volatile` packed value; a field whose bytes span more than eight bytes (a `uint64` at bit 4); and a
-    nested `be` integer-backed packed field that does not start on a byte. `tests/diag/packed_not_yet` has one
-    of each; each becomes a run test when it works.
+238. **Packed fields lowering cannot access yet** (in progress, `0b9b46ec`; section 7.14; moved from item
+    182): an array field that does not start on a byte, an array field of a `volatile` packed value, a field
+    whose bytes span more than eight bytes (a `uint64` at bit 4), and a nested `be` integer-backed packed field
+    that does not start on a byte now compile; `testdata/plutonium/packedspan.p` checks their values and
+    storage bytes at -O0 and -O2. Still E2500, waiting on the spec: an array field with elements of several
+    bytes in a `be` type laid out by byte, and an array field in a `be` integer-backed type (7.14 does not say
+    in which order an element's bytes are stored in big-endian storage); and taking the address of a packed
+    field that is not plain memory (7.14 does not say whether such a field is addressable).
+    `tests/diag/packed_not_yet` has one of each.
 183. **Order of evaluation in the rest of lowering** (done, `ce9c5520`; section 11.26; moved from item 73):
     survey the rest of `compiler/internal/lower` and add `testdata/run` and difftest cases (assignments, `x[i]
     = f()`, operands of operators); every difference from the specified order is a false friend and is fixed.
@@ -1651,14 +1654,17 @@ compiler (2026-10-11).
     visible. The shared classifier also corrects editor labels. Exact CLI goldens, native full tests,
     zero lint, aggregate coverage nondecrease and all floors, SSA checks, generation-off tests and a
     tracked-only archive pass. See the [verification record](verification/2026-10-12-pluto-doc.md).
-184. **Tests for untested diagnostic codes** (planned; section 21.1; the survey's section 3 and the
-    [item 20 audit](verification/2026-10-31-item20-audit.md)): 30 Plutonium codes have no test that
-    expects them, among them E1005 to E1009, E1011, E2009, E2101, E2104, E2106, E2109, E2405, E2500,
-    E3007, E3205, E3208, E3209, E4002 to E4004, E4017, E4018, E5002 to E5008 and E9001; the sub-forms
-    of E3202, E3204, E3210 and E3212 and the rules the audit lists also have none. Of the 103 untested
-    Go-derived codes, first E0036, E0083, E0148, E0085, E0088, E0086, E0091, E0092, E0112, E0114, E0117,
-    E0119, E0120, E0124, E0100, E0128, E0129, E0130, E0150 and E0133 to E0146: check which are tested by
-    message, remove those Plutonium cannot reach, and test the rest.
+184. **Tests for untested diagnostic codes** (in progress, `68fb58f1`, `75100439`; section 21.1; the
+    survey's section 3 and the [item 20 audit](verification/2026-10-31-item20-audit.md)): every code
+    in the catalog now has a test that expects it, and `TestCatalogTested` fails when a code has none.
+    Corpus cases and Go tests cover the 30 Plutonium codes the survey listed; `tests/types2` has a case
+    for each reachable Go-derived code, and `tests/diag/import_path_space` reaches E0005. Thirteen codes
+    no program reaches were removed: InvalidTypeCycle, InvalidInitSig, InvalidSliceExpr, InvalidAppend,
+    InvalidMethodTypeParams, InvalidComplex, InvalidImag, InvalidReal, MismatchedPkgName, BrokenImport,
+    ImportCRenamed, UnsupportedFeature and TooNew. A `//go:build` line no longer sets a Go version, so
+    it is E2604 alone. Left open: the sub-forms of E3202 (embedded, array and interface), most kinds of
+    E3204, the sub-forms of E3210 and E3212, and the rules the audit lists (a view converted into a
+    box, a map lent to an ordinary interface, a send in a `select`).
 185. **Compile the specification's examples** (done, `5280a707`; section 1.3, chapter 2):
     `tests/specexamples_test.go` (`TestSpecExamples`) compiles the go blocks of `docs/spec/language.md`,
     `docs/spec/language/`, `abi.md`, `memory-model.md`, `debugging.md` and `debug-allocator.md`. A line
