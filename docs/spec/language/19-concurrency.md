@@ -967,7 +967,7 @@ held. Here the summary of `waitNonEmpty` records that it may release `q.mu`:
 
 ```go
 // peekWait keeps a view across a call that may release q.mu.
-type Queue struct {
+type Queue owner struct {
 	mu       sync.Mutex
 	nonEmpty sync.Cond
 	items    vec.Vec[int]
