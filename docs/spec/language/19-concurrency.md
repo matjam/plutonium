@@ -1391,7 +1391,7 @@ audit N (docs/verification/2026-11-09-spec-audit-n.md); rows 127 to 129 settle t
 | 1 | `var mu sync.Mutex; var cache = map[string]*Entry{}`; `get` stores `&Entry{}` under `mu` | E3002 | 18.3: a frame view stored in package memory |
 | 2 | `var cache = map[string]synced[Entry]{}`; `get` copies the `synced[Entry]` out under `mu`; the fields of `Entry` that change use its own lock | accepted | rule 1 (map contents, synced object) |
 | 3 | `var std = &Logger{w: os.Stderr, prefix: "app: "}` with a `sync.Mutex` field that `Printf` takes | accepted | rule 2 case 3 (static object) |
-| 4 | `func init() { Register("echo", &echoHandler{}) }` storing into a package map | E3002 | 18.3 |
+| 4 | `func init() { Register("echo", &echoHandler{}) }` storing into a package map | E3003 | 18.3 |
 | 5 | `var handlers = map[string]Handler{"echo": &echoHandler{}}`, read by every task | accepted | Initialization; rule 1 (map contents); rule 2 case 3 |
 | 6 | `var cfg atomic.Pointer[Config]` with `cfg.Store(&Config{...})` in a reload task | E3003 | 18.3 |
 | 7 | `var cfg owned[Config]` replaced by a reload task while readers hold `&*cfg` | E3501 | rule 2 (Frees are writes) |
