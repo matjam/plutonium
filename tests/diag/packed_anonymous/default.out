@@ -1,0 +1,23 @@
+$DIR/main.p:18:4: packed type must be the type of a type definition: type P packed { ... }
+    A packed type can only be the type of a type definition. Its fields are
+    reached through its name, and its layout is fixed by that one declaration.
+    Define the packed type and use its name:
+        type Ctl packed uint8 {
+            ...
+        }
+
+        var c Ctl
+    (see "packed types" in the Plutonium spec, section 7.14)
+    (run "pluto explain E2104" for a longer explanation)
+
+$DIR/main.p:21:10: packed type must be the type of a type definition: type P packed { ... }
+    (explained above; run "pluto explain E2104" for more)
+
+$DIR/main.p:11:7: packed type must be the type of a type definition: type P packed { ... }
+    (explained above; run "pluto explain E2104" for more)
+
+$DIR/main.p:15:10: packed type must be the type of a type definition: type P packed { ... }
+    (explained above; run "pluto explain E2104" for more)
+
+$DIR/main.p:24:8: packed type must be the type of a type definition: type P packed { ... }
+    (explained above; run "pluto explain E2104" for more)

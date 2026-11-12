@@ -289,6 +289,18 @@ func (check *Checker) typInternal(e0 ast.Expr, def *TypeName) (T Type) {
 		return check.instantiatedType(ix)
 
 	case *ast.PackedType:
+		if definedNamed(def) == nil {
+			// Spec section 10.8 gives this error the code of a bad
+			// packed field (E2104).
+			check.explainf(e, BadPackedField, pu.New(Explanation{
+				Text: "A packed type can only be the type of a type definition. Its fields are reached through its name, and its layout is fixed by that one declaration.",
+				Fixes: compat.Clone([]ExplainFix{{
+					Intro: "Define the packed type and use its name",
+					Code:  "type Ctl packed uint8 {\n\t...\n}\n\nvar c Ctl",
+				}}),
+			}), "packed type must be the type of a type definition: type P packed { ... }")
+			return Typ[Invalid]
+		}
 		return check.packedType(e)
 
 	case *ast.EnumType:
