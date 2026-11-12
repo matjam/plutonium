@@ -1,3 +1,17 @@
+$DIR/main.p:15:2: p is dropped at the end of its block here, but a view of what it holds (p, line 13) was stored in G at line 13, where the compiler cannot check its uses
+    An owner frees what it holds when it is dropped, at the end of its block or
+    when it is given a new value, and that ends every view of that memory
+    (language spec section 18.3). The view of p made by p at line 13 went into
+    memory the compiler does not follow, so it cannot check that the view is not
+    used after line 15.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not let its block end while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
 $DIR/main.p:13:3: cannot store (*int)(p) in package variable G, which outlives p
     (*int)(p) points into the object p refers to, which p keeps alive in f. p
     (declared at main.p:12) is an owned[int]: the object it refers to lives only

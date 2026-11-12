@@ -1,0 +1,1 @@
+$DIR/main.p:24:2: o is passed to o.v.Free(), which may free what it looks at or move it out (clear(v.data), vec.p:288) here, but a view of what it holds (o.v.Slice(), line 23) was stored in h.s at line 23, where the compiler cannot check its uses

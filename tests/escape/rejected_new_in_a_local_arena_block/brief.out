@@ -1,1 +1,2 @@
+$DIR/main.p:15:2: p is dropped at the end of its block here, but a view of what it holds (p, line 13) was stored in G at line 13, where the compiler cannot check its uses
 $DIR/main.p:13:3: cannot store (*int)(p) in package variable G, which outlives p

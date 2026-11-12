@@ -1,1 +1,2 @@
+$DIR/main.p:21:12: v is moved to the task started here, but a view of what it holds (v.Slice(), line 20) was stored in r.s at line 20, where the compiler cannot check its uses
 $DIR/main.p:20:2: cannot store v.Slice() in r.s, which outlives v

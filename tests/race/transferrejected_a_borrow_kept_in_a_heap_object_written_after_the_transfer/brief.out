@@ -1,1 +1,1 @@
-$DIR/main.p:52:2: the field head of l is a view of node that may change while another task uses it, so l cannot be passed to a new task
+$DIR/main.p:52:11: l is moved to the task started here, but a view of what it holds (l.head, line 51) was stored in r.n at line 51, where the compiler cannot check its uses
