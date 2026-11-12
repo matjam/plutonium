@@ -1,0 +1,5 @@
+$DIR/main.p:11:4: union type must be the type of a type definition: type U union { ... }
+$DIR/main.p:6:7: union type must be the type of a type definition: type U union { ... }
+$DIR/main.p:8:9: union type must be the type of a type definition: type U union { ... }
+$DIR/main.p:14:10: union type must be the type of a type definition: type U union { ... }
+$DIR/main.p:17:8: union type must be the type of a type definition: type U union { ... }

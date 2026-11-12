@@ -1,7 +1,6 @@
-$DIR/test.p:88:13: expected ';', found '{'
-    Statements end at the end of a line, or at a semicolon. The parser found the
-    end of one statement and then more text on the same line that does not start
-    a new one. This usually means a missing operator, comma or bracket, or two
-    statements on one line.
-    (see "Semicolons" in the Plutonium spec, section 4.3)
-    (run "pluto explain E1004" for a longer explanation)
+$DIR/test.p:88:7: union type must be the type of a type definition: type U union { ... }
+    A union type can only be the type of a type definition, type U union { ...
+    }. It cannot be written inline in a variable or field, or be an alias,
+    because its variants are reached through its name (U.V).
+    (see "Unions" in the Plutonium spec, section 7.13)
+    (run "pluto explain E2401" for a longer explanation)

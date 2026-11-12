@@ -72,6 +72,12 @@ type parser struct {
 	exprLev int  // < 0: in control clause, >= 0: in expression
 	inRhs   bool // if set, the parser is parsing a rhs expression
 
+	// declType is set while the parser reads the type of a variable,
+	// field or parameter, where no "{" can follow a type: there "union"
+	// followed by "{" is a union type outside a type declaration, which
+	// the checker reports (E2401).
+	declType bool
+
 	// pre, if not nil, is an operand the parser has already read (the
 	// identifier "task" at the start of a statement) and that
 	// parseUnaryExpr returns as the start of the next operand.
@@ -712,7 +718,7 @@ func (p *parser) parseFieldDecl() *ast.Field {
 				}
 			} else {
 				// T P
-				typ = p.parseType()
+				typ = p.parseDeclType()
 			}
 		}
 	case token.MUL:
@@ -1092,6 +1098,8 @@ func (p *parser) parseParameterList(name0 *ast.Ident, typ0 ast.Expr, closing tok
 	if p.trace {
 		defer un(trace(p, "ParameterList"))
 	}
+
+	defer p.setDeclType(p.setDeclType(true))
 
 	// Type parameters are the only parameter list closed by ']'.
 	tparams := closing == token.RBRACK
@@ -1621,6 +1629,9 @@ func (p *parser) tryIdentOrType() ast.Expr {
 	switch p.tok {
 	case token.IDENT:
 		typ := p.parseTypeName(nil)
+		if id, ok := typ.(*ast.Ident); ok && id.Name == "union" && p.tok == token.LBRACE && p.declType {
+			return p.parseUnionBody(pu.New(ast.UnionType{Union: id.NamePos}), false)
+		}
 		if p.tok == token.LBRACK {
 			typ = p.parseTypeInstance(typ)
 		}
@@ -2161,7 +2172,28 @@ func (p *parser) parseExpr() ast.Expr {
 		defer un(trace(p, "Expression"))
 	}
 
-	return p.parseBinaryExpr(nil, token.LowestPrec+1)
+	old := p.declType
+	p.declType = false
+	x := p.parseBinaryExpr(nil, token.LowestPrec+1)
+	p.declType = old
+	return x
+}
+
+// setDeclType sets parser.declType to on and returns its old value.
+func (p *parser) setDeclType(on bool) bool {
+	old := p.declType
+	p.declType = on
+	return old
+}
+
+// parseDeclType parses the type of a variable, field or parameter (see
+// parser.declType).
+func (p *parser) parseDeclType() ast.Expr {
+	old := p.declType
+	p.declType = true
+	typ := p.parseType()
+	p.declType = old
+	return typ
 }
 
 func (p *parser) parseRhs() ast.Expr {
@@ -3028,7 +3060,7 @@ func (p *parser) parseValueSpec(doc *ast.CommentGroup, keyword token.Token, iota
 		}
 	case token.VAR:
 		if p.tok != token.ASSIGN {
-			typ = p.parseType()
+			typ = p.parseDeclType()
 		}
 		if p.tok == token.ASSIGN {
 			p.next()
