@@ -435,6 +435,17 @@ func (f *fn) builtin(e *ast.CallExpr) {
 		for _, a := range e.Args {
 			f.expr(a)
 		}
+	case "clear":
+		for _, a := range e.Args {
+			f.expr(a)
+		}
+		// clear of a slice of owners or boxes drops each element: the
+		// views into their objects are stale (section 18.3).
+		if len(e.Args) == 1 {
+			if s, ok := f.c.typeOf(e.Args[0]).Underlying().(*types2.Slice); ok && bounds(s.Elem()) {
+				f.dropLoaded(e.Args[0], move{kind: mvNewValue, pos: e.Pos(), to: exprText(e)})
+			}
+		}
 	default:
 		// len, make and the rest only look at their operands.
 		for _, a := range e.Args {

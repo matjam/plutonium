@@ -83,6 +83,11 @@ type view struct {
 	// litSets: the literal only gives the variable new values (v = x), so
 	// it does not read it and no event of the variable ends the hold.
 	litSets bool
+	// into: the view points into the object of an owner or box that was
+	// loaded through a view (&s[0].x for a slice of boxes). A new value
+	// given to the place holding that owner, or clear of the slice,
+	// drops it and frees what the view points into (section 18.3).
+	into bool
 }
 
 // A pinMark records that a view of an owner went where the walk cannot
@@ -123,6 +128,9 @@ func (w view) key() string {
 	}
 	if w.lowns {
 		k = compat.Concat(k, "|lowns")
+	}
+	if w.into {
+		k = compat.Concat(k, "|into")
 	}
 	if w.lit != nil {
 		k = compat.Concat(k, "|lit")
@@ -284,6 +292,12 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 	v, path, box, ok := f.placePath(x)
 	if !ok || v == nil {
 		out := f.viewsOf(baseOf(x))
+		if f.intoLoaded(x) {
+			out = compat.Clone(out)
+			for i := range out {
+				out[i].into = true
+			}
+		}
 		if r, part := f.countedPath(x); r != nil {
 			out = compat.Append(out, view{of: r, pos: made.Pos(), text: exprText(made), inHeap: true, part: part})
 		}
@@ -302,6 +316,110 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 		out = compat.Append(out, view{of: o, pos: made.Pos(), text: exprText(made), part: path})
 	}
 	return out
+}
+
+// intoLoaded reports whether the place x is in the object of an owner or
+// box loaded through a view: a part of x, other than x itself, is an
+// element of a slice or what a pointer points to, of a type that frees
+// what it holds, and is not in a local's own storage (s[0].x, p.c.x).
+func (f *fn) intoLoaded(x ast.Expr) bool {
+	e := ast.Unparen(x)
+	for {
+		var next ast.Expr
+		switch y := e.(type) {
+		case *ast.SelectorExpr:
+			next = y.X
+		case *ast.IndexExpr:
+			next = y.X
+		case *ast.StarExpr:
+			next = y.X
+		default:
+			return false
+		}
+		e = ast.Unparen(next)
+		if e != ast.Unparen(x) && freesHeld(f.c.typeOf(e)) && f.loadedPlace(e) {
+			if _, _, _, ok := f.placePath(e); !ok {
+				return true
+			}
+		}
+	}
+}
+
+// loadedPlace reports whether the place x is reached through a view: an
+// element of a slice, what a pointer points to, or a field through one.
+func (f *fn) loadedPlace(x ast.Expr) bool {
+	switch y := ast.Unparen(x).(type) {
+	case *ast.StarExpr:
+		return true
+	case *ast.IndexExpr:
+		T := f.c.typeOf(y.X)
+		if T == nil {
+			return false
+		}
+		switch T.Underlying().(type) {
+		case *types2.Slice, *types2.Pointer:
+			return true
+		case *types2.Array:
+			return f.loadedPlace(y.X)
+		}
+		return false
+	case *ast.SelectorExpr:
+		sel := f.c.selections[y]
+		if sel == nil || sel.Kind() != types2.FieldVal {
+			return false
+		}
+		return sel.Indirect() || f.loadedPlace(y.X)
+	}
+	return false
+}
+
+// dropLoaded records that the owner or box held at a place reached
+// through base (an element of the slice base, what the pointer base
+// points to) is dropped, by a new value or by clear: the views into its
+// object, which point into memory an owner holds through base's views,
+// are stale (section 18.3).
+func (f *fn) dropLoaded(base ast.Expr, mv move) {
+	if f.env == nil || base == nil {
+		return
+	}
+	for _, w := range f.viewsOf(base) {
+		if w.of == nil || w.lit != nil || w.lent || f.captured(w.of) {
+			continue
+		}
+		part := w.part
+		f.staleWhere(w.of, mv, func(u view) bool { return u.into && overlap(u.part, part) })
+	}
+}
+
+// loadBase returns the expression through which the place x is loaded:
+// the slice of an element, the pointer of what it points to, or nil
+// when x is in a local's own storage.
+func (f *fn) loadBase(x ast.Expr) ast.Expr {
+	switch y := ast.Unparen(x).(type) {
+	case *ast.StarExpr:
+		return y.X
+	case *ast.IndexExpr:
+		T := f.c.typeOf(y.X)
+		if T == nil {
+			return nil
+		}
+		switch T.Underlying().(type) {
+		case *types2.Slice, *types2.Pointer:
+			return y.X
+		case *types2.Array:
+			return f.loadBase(y.X)
+		}
+	case *ast.SelectorExpr:
+		sel := f.c.selections[y]
+		if sel == nil || sel.Kind() != types2.FieldVal {
+			return nil
+		}
+		if sel.Indirect() {
+			return y.X
+		}
+		return f.loadBase(y.X)
+	}
+	return nil
 }
 
 // boxView returns the view that a pointer to the object of the box at the
