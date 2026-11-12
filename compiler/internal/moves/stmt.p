@@ -35,10 +35,15 @@ func (f *fn) block(b *ast.BlockStmt) {
 // by (break or continue) leaves it there: the views of the variables
 // declared in it are stale from here on (section 18.3, A local's scope).
 func (f *fn) endScope(n ast.Node, pos token.Pos, by string) {
+	var vs []*types2.Var
 	for v, in := range f.scopeIn {
 		if in == n {
-			f.invalidate(v, move{kind: mvScopeEnd, pos: pos, to: by, typ: v.Type()})
+			vs = compat.Append(vs, v)
 		}
+	}
+	f.dropOrder(vs) // temps.p
+	for _, v := range vs {
+		f.invalidate(v, move{kind: mvScopeEnd, pos: pos, to: by, typ: v.Type()})
 	}
 }
 
@@ -55,6 +60,11 @@ func (f *fn) leaveScopes(depth int, st *ast.BranchStmt) {
 func (f *fn) stmt(st ast.Stmt, label string) {
 	if _, isLabel := st.(*ast.LabeledStmt); !isLabel && st != nil {
 		f.recordStmt(st)
+	}
+	if st != nil {
+		// The temporaries the statement made are dropped where it ends,
+		// after the variables of its implicit block (temps.p).
+		defer f.endTemps(st)
 	}
 	switch st.(type) {
 	case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.SwitchStmt, *ast.TypeSwitchStmt, *ast.SelectStmt:
@@ -90,6 +100,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 	case *ast.BlockStmt:
 		f.block(st)
 	case *ast.IfStmt:
+		f.markHeader(st.Init)
 		f.stmt(st.Init, "")
 		f.exprUnit(st.Cond)
 		entry := f.env.clone()
@@ -114,6 +125,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 	case *ast.RangeStmt:
 		f.rangeStmt(st, label)
 	case *ast.SwitchStmt:
+		f.markHeader(st.Init)
 		f.stmt(st.Init, "")
 		if st.Tag != nil {
 			f.exprUnit(st.Tag)
@@ -126,6 +138,7 @@ func (f *fn) stmt(st ast.Stmt, label string) {
 			return cc.Body
 		})
 	case *ast.TypeSwitchStmt:
+		f.markHeader(st.Init)
 		f.stmt(st.Init, "")
 		var x ast.Expr
 		switch a := st.Assign.(type) {
@@ -671,6 +684,7 @@ func (f *fn) returnStmt(st *ast.ReturnStmt) {
 		}
 		return
 	}
+	f.returnTemps(st) // temps.p
 	sig := f.sig
 	if len(st.Results) == 1 && sig != nil && sig.Results().Len() > 1 {
 		f.multi(st.Results[0])
@@ -952,7 +966,8 @@ func (f *fn) deferExit() {
 	if !f.report || f.env == nil {
 		return
 	}
-	f.runDefers() // defers.p
+	f.exitDropOrder() // temps.p
+	f.runDefers()     // defers.p
 	var vs []*types2.Var
 	for v, s := range f.env {
 		if s.dl != nil && s.st != live {

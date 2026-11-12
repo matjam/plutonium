@@ -287,7 +287,9 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 		if r := f.countedVar(x); r != nil {
 			out = compat.Append(out, view{of: r, pos: made.Pos(), text: exprText(made), inHeap: true})
 		}
-		return out
+		// Part of a temporary owner, dropped at the end of its statement
+		// (temps.p).
+		return compat.Append(out, f.tempView(x, made)...)
 	}
 	var out []view
 	if box {
@@ -1121,7 +1123,9 @@ func (f *fn) callViews(call *ast.CallExpr) []view {
 				// result loaded through the argument looks at what the
 				// owner holds rather than at the owner.
 				w.pos, w.text = call.Pos(), exprText(call)
-				w.inHeap = w.inHeap || af != nil && !af.Self
+				// Of a temporary, with no facts for the receiver: the
+				// result may look at what the temporary holds (temps.p).
+				w.inHeap = w.inHeap || af != nil && !af.Self || af == nil && f.isTemp(w.of)
 			}
 			out = compat.Append(out, w)
 		}

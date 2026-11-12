@@ -1,0 +1,12 @@
+$DIR/main.p:16:6: h is declared before v, but it holds a view of v (v.Ptr(0), line 19) that its drop uses, and v is dropped first
+    Variables are dropped in reverse order of declaration, so v is dropped
+    before h. Dropping h reads or releases what it holds, and the view made by
+    v.Ptr(0) at line 19 would then look at memory v has freed. A variable whose
+    drop releases or writes through a view of another local variable must be
+    declared after that variable (section 18.3).
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Declare h after v
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3313" for a longer explanation)

@@ -1,0 +1,14 @@
+$DIR/main.p:14:2: mk().Ptr(0) is kept in h, but it points into memory the temporary mk() owns, which is dropped at the end of the statement
+    mk().Ptr(0) looks at memory that the pluto/vec.Vec[int] returned by mk()
+    holds, without owning it. Nothing keeps that temporary after its statement:
+    it is dropped there, and its memory is freed. A view of a temporary owner
+    may be passed to calls in its statement but may not outlive it (section
+    18.3, Views; section 18.6, Drops).
+    The view does not own the memory it looks at. Nothing keeps the temporary
+    after the statement, so a stored view would outlive the value that keeps its
+    memory alive.
+    Keep the owner in a variable, so that it lives until the end of its scope,
+    and make the view from the variable:
+        v := mk()
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3009" for a longer explanation)

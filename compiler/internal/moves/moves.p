@@ -534,6 +534,13 @@ type fn struct {
 	defers    []*deferRec
 	deferRecs map[*ast.DeferStmt]*deferRec
 	deferVars map[ast.Node]*types2.Var
+
+	// For temporaries (temps.p): the stand-in of each temporary owner a
+	// pointer method is called on, by its expression and back, and the
+	// header statements whose temporaries live until their statement ends.
+	tempVars map[ast.Node]*types2.Var
+	tempOf   map[*types2.Var]ast.Expr
+	headers  map[ast.Stmt]bool
 }
 
 // A target is a statement that break or continue may leave.
