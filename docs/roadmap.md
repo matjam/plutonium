@@ -790,8 +790,11 @@ compiler (2026-10-11).
     interface or a func value runs them too (tests
     `viewsrejected_a_task_resets_an_arena_through_an_interface_and_its_drop_entry_writes_a_package_variable`
     and `..._through_a_func_value_...`). A Drop method's receiver is memory the check cannot follow, so
-    the scoped-task check now counts a package variable whose address is taken as memory any pointer of
-    its type may reach (tests
+    the scoped-task check now counts a package variable whose address is taken as memory that a pointer
+    of its type it does not follow may reach: what an unknown pointer points to, or a pointer loaded from
+    memory. The object of a local or an allocation and a map's contents have a known origin and never
+    meet it (tests
+    `viewsaccepted_tasks_write_a_local_cache_map_under_its_lock_while_strconv_reads_a_package_int`,
     `viewsrejected_a_drop_entry_writes_a_package_variable_through_a_pointer_in_its_object`,
     `viewsrejected_a_task_writes_a_package_variable_through_a_pointer_stored_in_an_object` and
     `viewsaccepted_a_task_writes_through_a_stored_pointer_while_main_reads_a_package_variable_whose_address_is_not_taken`).

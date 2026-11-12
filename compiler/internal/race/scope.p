@@ -1153,9 +1153,9 @@ func (fc *frameCheck) meet(x, y *frameAcc, p, q *party, self bool) (meets, alias
 	if external(x.place) && external(y.place) && typesMeet(x.typ, y.typ) {
 		return true, true
 	}
-	if (fc.viewedGlobal(x.place) && throughPointer(y.place) || fc.viewedGlobal(y.place) && throughPointer(x.place)) && typesMeet(x.typ, y.typ) {
+	if (fc.viewedGlobal(x.place) && unknownTarget(y.place) || fc.viewedGlobal(y.place) && unknownTarget(x.place)) && typesMeet(x.typ, y.typ) {
 		// A package variable whose address is taken may be the memory
-		// any pointer of its type points to.
+		// a pointer of its type that the check does not follow points to.
 		return true, true
 	}
 	return false, false
@@ -1167,10 +1167,34 @@ func (fc *frameCheck) viewedGlobal(p vpath) bool {
 	return p.root.kind == rGlobal && fc.a.addrGlobals[p.root.v] && !throughView(p.path)
 }
 
-// throughPointer reports whether p is memory reached through a pointer or
-// other view.
-func throughPointer(p vpath) bool {
-	return strings.ContainsAny(p.path, "*%$#")
+// unknownTarget reports whether p is memory reached through a pointer
+// whose value the check does not follow: what an unknown pointer points
+// to, or a pointer or slice loaded from memory. The object of a local
+// variable or of an allocation, and a map's or synced object's contents,
+// have a known origin and are never a package variable's storage.
+func unknownTarget(p vpath) bool {
+	switch p.root.kind {
+	case rUnknown:
+		return true
+	case rLocal, rParam, rGlobal, rFresh:
+	default:
+		return false
+	}
+	ss := steps(p.path)
+	for i, s := range ss {
+		if s[0] == '#' {
+			return false
+		}
+		if s != "*" && s != "%" {
+			continue
+		}
+		if i == 0 && p.root.kind == rFresh {
+			// The object or elements of an allocation made here.
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // common reports whether x and y hold one lock that keeps them apart: held
