@@ -93,7 +93,7 @@ func TestParseDeclErrors(t *testing.T) {
 		{"union value", "package p\ntype U union { 1 }", "expected '}'"},
 		{"union empty case", "package p\ntype U packed union uint8 { A case { } }", "expected operand"},
 		{"union case", "package p\ntype U packed union uint8 { A case 1 x }", "expected '{'"},
-		{"union var", "package p\nvar x union { A int }", "expected ';'"},
+		{"union var", "package p\nvar x union { A int }", "union type must be the type of a type definition"},
 		{"interface generic method", "package p\n\ntype I interface {\n\tM[T any](x T) T\n}\n", "interface method must have no type parameters: a method with type parameters is never called through an interface"},
 		{"shared default", "package p\n\nfunc f(a, b int = 1) {}\n", defaultErr},
 		{"default without type", "package p\n\nfunc f(a = 1, b int) {}\n", defaultErr},
