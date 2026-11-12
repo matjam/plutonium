@@ -2878,6 +2878,31 @@ Written correctly:
 
 See "ring[T, N]" in the Plutonium spec, section 7.17.
 
+E2111: BigEndianPackedArray
+
+A big-endian packed type cannot have an array field whose elements are wider
+than one byte, whatever its backing. The spec gives no order for the bytes of
+such elements in big-endian storage. An array of single bytes, such as [4]byte
+or [2]uint8, is allowed, and so is a reserved _ field.
+
+Declare one field for each element instead, or use an array of bytes and put the
+values together yourself.
+
+For example:
+
+    type Ports packed be [4]byte {
+        port [2]uint16
+    }
+
+Written correctly:
+
+    type Ports packed be [4]byte {
+        src uint16
+        dst uint16
+    }
+
+See "packed types" in the Plutonium spec, section 7.14.
+
 E2201: MisplacedDefault
 
 Default parameter values are allowed only on the parameters of a declared

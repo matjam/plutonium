@@ -1,4 +1,2 @@
-$DIR/main.p:31:10: packed field h is an array in big-endian storage whose element bytes the spec does not order
-$DIR/main.p:31:18: packed field a is an array in big-endian storage whose element bytes the spec does not order
-$DIR/main.p:32:7: the address of a packed field that is not plain memory cannot be taken
-$DIR/main.p:33:7: the address of a packed field that is not plain memory cannot be taken
+$DIR/main.p:17:7: the address of a packed field that is not plain memory cannot be taken
+$DIR/main.p:18:7: the address of a packed field that is not plain memory cannot be taken

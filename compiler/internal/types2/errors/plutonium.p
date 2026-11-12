@@ -120,6 +120,9 @@ const (
 	BadWrapperSize
 	// RingLiteralNotEmpty: a ring literal with elements.
 	RingLiteralNotEmpty
+	// BigEndianPackedArray: an array field whose elements are wider than
+	// one byte in a big-endian packed type (decision D131).
+	BigEndianPackedArray
 )
 
 // Default parameter values.

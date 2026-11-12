@@ -1419,7 +1419,9 @@ func demo(raw uint32) uint32 {
   - `name bits { A B C }`: a group of one-bit `bool` flags, accessed as `x.name.A`.
   - `name T`, where `T` is an integer, boolean, floating-point or packed type or an array of those: a
     byte-level field of `T`'s full size, at the next bit position (it need not be byte-aligned, except in a
-    big-endian array-backed type; see Byte order).
+    big-endian array-backed type; see Byte order). In a big-endian packed type, whatever its backing, an array
+    field other than `_` must have elements of one byte (E2111); with an integer backing, element `i` is the
+    byte at the field's bit position plus `8i`.
   - `name E`, where `E` is an enum type: a bit field as wide as the members of `E` need (unsigned, or two's complement if a member is negative), as section 7.12 (Enums) says.
   - `name aligned[T, N]`, where `T` is one of the types of the byte-level bullet: a byte-level field of `T` that starts on an `N`-byte boundary (see Layout).
   - `_` names reserve bits. The **reserved bits** of a packed type are the bits of its `_` fields and the bits

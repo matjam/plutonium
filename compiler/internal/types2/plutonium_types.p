@@ -411,11 +411,37 @@ func (check *Checker) packedFields(p *Packed, fset *objset, list []*ast.Field, o
 				typ = w.elem
 			}
 			for _, name := range f.Names {
+				check.packedArrayOrder(p, name, typ)
 				add(name, typ, width, isBits)
 			}
 		}
 	}
 	return offset
+}
+
+// packedArrayOrder reports E2111 for an array field of the big-endian
+// packed type p whose elements are wider than one byte, whatever p's
+// backing: section 7.14 gives no order for the bytes of such elements.
+// Reserved fields (named _) hold no value, so they may be such arrays.
+func (check *Checker) packedArrayOrder(p *Packed, ident *ast.Ident, typ Type) {
+	if p.order != ast.BigEndian || ident.Name == "_" {
+		return
+	}
+	a, ok := typ.Underlying().(*Array)
+	if !ok {
+		return
+	}
+	elem := a.elem
+	for {
+		inner, ok := elem.Underlying().(*Array)
+		if !ok {
+			break
+		}
+		elem = inner.elem
+	}
+	if size := check.conf.sizeof(elem); size > 1 {
+		check.errorf(ident, BigEndianPackedArray, "packed field %s is an array of %s, whose elements are %d bytes wide, in a big-endian packed type", pu.Box(ident.Name), elem, size)
+	}
 }
 
 // packedBytePlacement reports E2021 for a field of p at bit offset that a

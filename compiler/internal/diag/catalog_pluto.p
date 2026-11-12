@@ -295,6 +295,13 @@ func init() {
 			Example: "r := ring[int, 4]{1, 2}",
 			Fixed:   "var r ring[int, 4]\nr.Push(1)\nr.Push(2)",
 		}),
+		pu.New(Entry{
+			Code: CheckerCode(typerr.BigEndianPackedArray), Name: "BigEndianPackedArray",
+			Text:    "A big-endian packed type cannot have an array field whose elements are wider than one byte, whatever its backing. The spec gives no order for the bytes of such elements in big-endian storage. An array of single bytes, such as [4]byte or [2]uint8, is allowed, and so is a reserved _ field.\nDeclare one field for each element instead, or use an array of bytes and put the values together yourself.",
+			Spec:    pspec("7.14", "packed types"),
+			Example: "type Ports packed be [4]byte {\n\tport [2]uint16\n}",
+			Fixed:   "type Ports packed be [4]byte {\n\tsrc uint16\n\tdst uint16\n}",
+		}),
 
 		// Default parameter values.
 		pu.New(Entry{

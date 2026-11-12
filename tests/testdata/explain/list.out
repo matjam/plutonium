@@ -173,6 +173,7 @@ E2107  NotPowerOfTwo
 E2108  BadVolatileElem
 E2109  BadWrapperSize
 E2110  RingLiteralNotEmpty
+E2111  BigEndianPackedArray
 E2201  MisplacedDefault
 E2202  VariadicDefault
 E2203  MissingDefault

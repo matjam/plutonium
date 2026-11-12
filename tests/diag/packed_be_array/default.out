@@ -1,0 +1,15 @@
+$DIR/main.p:8:2: packed field h is an array of uint16, whose elements are 2 bytes wide, in a big-endian packed type
+    A big-endian packed type cannot have an array field whose elements are wider
+    than one byte, whatever its backing. The spec gives no order for the bytes
+    of such elements in big-endian storage. An array of single bytes, such as
+    [4]byte or [2]uint8, is allowed, and so is a reserved _ field.
+    Declare one field for each element instead, or use an array of bytes and put
+    the values together yourself.
+    (see "packed types" in the Plutonium spec, section 7.14)
+    (run "pluto explain E2111" for a longer explanation)
+
+$DIR/main.p:9:2: packed field m is an array of int32, whose elements are 4 bytes wide, in a big-endian packed type
+    (explained above; run "pluto explain E2111" for more)
+
+$DIR/main.p:13:2: packed field a is an array of uint16, whose elements are 2 bytes wide, in a big-endian packed type
+    (explained above; run "pluto explain E2111" for more)

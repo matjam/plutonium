@@ -146,19 +146,19 @@ func (s *fnState) subField(base lvalue, p *types2.Packed, rel, width int64, ft t
 		return lvalue{ptr: base.ptr, T: base.T, bits: ref, win: base.win}
 	}
 	if _, isArray := unwrap(ft).Underlying().(*types2.Array); isArray {
-		if !s.plainBytes(ref.packed_, ft) {
-			// The elements of an array field in a big-endian integer, or
-			// several-byte elements in a big-endian type laid out by byte:
-			// section 7.14 does not say in which order their bytes are
-			// stored (roadmap item 238).
-			s.l.unsupportedf(s.pos, "packed field %s is an array in big-endian storage whose element bytes the spec does not order", pu.Box(name))
-			return lvalue{ptr: s.offPtr(base.ptr, ref.offset/8), T: ft, stable: base.stable}
+		if byteLevel && p.Order() == ast.BigEndian && !s.singleBytes(ft) {
+			// The type checker rejects an array of elements wider than a
+			// byte in a big-endian packed type (E2111, decision D131).
+			s.l.internalf(s.pos, "packed field %s is an array of elements wider than a byte in a big-endian packed type", pu.Box(name))
 		}
 		// An array field (section 7.14, Fields) is plain memory when it
-		// starts on a byte. A volatile packed value is read and written
-		// whole (section 7.15), so its array fields are reached as part of
-		// the value, like one that does not start on a byte.
-		if ref.offset%8 == 0 && !isVolatile(base.T) {
+		// starts on a byte, unless the storage is a big-endian integer,
+		// whose bytes are swapped as a whole: element i is then the byte
+		// at bit 8i of the field in the swapped value (decision D131). A
+		// volatile packed value is read and written whole (section 7.15),
+		// so its array fields are reached as part of the value, like one
+		// that does not start on a byte.
+		if ref.offset%8 == 0 && !isVolatile(base.T) && !needsSwap(ref.packed_) {
 			return lvalue{ptr: s.offPtr(base.ptr, ref.offset/8), T: ft, stable: base.stable, win: base.win}
 		}
 		return lvalue{ptr: base.ptr, T: base.T, bits: ref, win: base.win}
@@ -331,17 +331,9 @@ func (s *fnState) packedChunk(lv lvalue, off, n int64) lvalue {
 	return out
 }
 
-// plainBytes reports whether a field of type ft inside the storage of the
-// packed type outer, starting on a byte, holds its bytes as a variable of
-// type ft would: the storage is not swapped as a whole, and in a big-endian
-// type laid out by byte the field's elements are single bytes.
-func (s *fnState) plainBytes(outer *types2.Packed, ft types2.Type) bool {
-	if isIntegerBacked(outer) {
-		return !needsSwap(outer)
-	}
-	if outer.Order() != ast.BigEndian {
-		return true
-	}
+// singleBytes reports whether the elements of the array type ft, and of
+// the arrays it holds, are single bytes.
+func (s *fnState) singleBytes(ft types2.Type) bool {
 	elem := unwrap(ft)
 	for {
 		a, ok := elem.Underlying().(*types2.Array)
