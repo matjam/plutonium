@@ -143,8 +143,8 @@ func (v *virtuals) summaryIn(ov *overlay, id eir.FuncID, sum func(eir.FuncID) *s
 		ps = tmp
 	}
 	// The join's work is garbage once it is done: in a solve it runs in
-	// the solve's scratch memory, and only the joined summary, which the
-	// cache keeps past the solve, is copied to the caller's memory.
+	// the solve's scratch memory, and only a joined summary the cache
+	// keeps past the solve is copied to the caller's memory.
 	s := join(v.p, ps, v.sets[i], v.iface[i], v.field[i], sum)
 	own := tmp != nil && anyPath(s, tmp.made)
 	if own {
@@ -164,12 +164,14 @@ func (v *virtuals) summaryIn(ov *overlay, id eir.FuncID, sum func(eir.FuncID) *s
 			return q
 		})
 	}
+	if own {
+		// Not cached: the solve uses it, in its own memory.
+		return s
+	}
 	r := scratch.Outer()
 	s = clone(s)
 	r.Restore()
-	if !own {
-		v.cache[i], v.dirty[i] = s, false
-	}
+	v.cache[i], v.dirty[i] = s, false
 	return s
 }
 
