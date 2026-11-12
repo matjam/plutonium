@@ -1671,13 +1671,12 @@ compiler (2026-10-11).
     that starts a task or declares an interrupt handler gets a `main` that starts them: it installs each
     handler and calls each function nothing else in the block uses, and an entry's `main:` lines call one
     that takes parameters. Such a block builds as a program of its own; 19 blocks are built this way.
-    Known failures: 4, waiting on items 214, 215 and 223, and 1 spec example that
-    misses an error (the 19.3 `type Config struct{ n int }` block). A block whose marked lines are errors
+    Known failures: 2, waiting on items 215 and 223. A block whose marked lines are errors
     of one program, not alternatives,
     has `together` in its entry and builds once, whole: every marked line must report its code and no
     other line any error (section 1.3; the 19.3 `type Counter struct {` block, D129). The 12 wrong spec examples were fixed with audit H
     (D95), and the section 7.9 example now marks both lines of the clash, since the rule names no single
-    line.
+    line. D130 fixed the 19.3 `peekWait` and `type Config struct{ n int }` examples and table row 4.
 186. **CI gaps** (planned): CI installs only `binutils` and `qemu-system-x86`, so the gdb tests in
     `tests/dwarf_test.go` skip; the heavy compiler unit tests need `PLUTO_UNIT_HEAVY=1`, which CI does not
     set; nothing runs difftest (item 32), which needs a Go toolchain. Coverage measurement of

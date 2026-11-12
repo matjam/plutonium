@@ -2277,6 +2277,25 @@ rule into rule 1 was rejected: the objects no party names would lose their only 
 
 Lands with: no compiler change; the checker already reports both errors.
 
+## D130. Two examples and a table cell of 19.3 follow the rule text (19.3, 18.3)
+
+Question: the conformance row sweep of 2026-11-11 found three places in 19.3 that disagree with the
+rules they illustrate. Table row 4 names E3002 for `Register("echo", &echoHandler{})` in `init`, but the
+18.3 table gives E3003 for passing a view of the frame to a function that stores it, which is this
+program. The `peekWait` example's `Queue` holds a `vec.Vec`, an owner, in a struct not declared `owner`.
+The `type Config struct{ n int }` example marks the E3501 at the task statement, but the drop of the old
+`Config` at the second assignment is also a write with no lock under rule 1 (E3502), as D129 says such an
+example must show.
+
+Decision: row 4 names E3003. `Queue` is declared `type Queue owner struct`, and the compiler reports the
+marked E3501. The `Config` example marks both lines (E3501 and E3502), and its entry has `together`, as the
+`Counter` block does (D129).
+
+Why: these are corrections of examples and of one table cell to agree with the rule text. No rule changes.
+Goal: Plain.
+
+Lands with: no compiler change; the compiler already reports these errors.
+
 ## Deferred
 
 None open. D105 (lazy initialization through `sync.Once`) and D106 (`sync.Cond.Wait`) were deferred for
