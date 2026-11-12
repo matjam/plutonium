@@ -106,7 +106,8 @@ type fnState struct {
 	evaluated map[ast.Expr]evaluated
 
 	// laterIndex is the outermost index expression of a target of a tuple
-	// assignment while the target is evaluated; indexRaw puts its nil and
+	// assignment or a range clause with = while the target is evaluated;
+	// indexRaw puts its nil and
 	// bounds checks in laterChecks, made when the target is stored
 	// (stmt.go, language spec section 12.7).
 	laterIndex  *ast.IndexExpr

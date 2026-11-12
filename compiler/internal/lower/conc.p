@@ -729,7 +729,7 @@ func (s *fnState) rangeChan(st *ast.RangeStmt, label *types2.Label) {
 	c := s.holdOwned(s.materialize(s.expr(st.X)))
 	cslot := s.temp(ct, "rangechan")
 	s.store(ssa.TPtr, cslot, s.wordOf(c))
-	keyLV := s.rangeVar(st, st.Key)
+	key, _ := s.rangeTargets(st, false, nil, nil)
 	tmp := s.temp(et, "recv")
 
 	head := s.newBlock(ssa.BlockInvalid)
@@ -743,12 +743,14 @@ func (s *fnState) rangeChan(st *ast.RangeStmt, label *types2.Label) {
 	s.seal(body)
 	s.startBlock(body)
 	counted := s.l.counted(et)
-	if keyLV != nil {
+	key, _ = s.rangeTargets(st, true, key, nil)
+	if key != nil {
+		keyLV := key.at(s)
 		v := s.materialize(s.loadFrom(tmp, et))
 		if counted {
 			v.cnt = cntStable
 		}
-		s.assign(*keyLV, s.assignConvert(v, unwrap(keyLV.T), st), false)
+		s.assign(keyLV, s.assignConvert(v, unwrap(keyLV.T), st), false)
 	}
 	if counted {
 		// The variable took its own reference; drop the one received.

@@ -303,12 +303,16 @@ func (bs *fnState) rangeBody(rf *rangeFunc, in []value) {
 	// counting is concerned: its facts and label scopes cover the body.
 	bs.varFacts = rf.parent.varFacts
 	bs.labelScopes = rf.parent.labelScopes
-	for i, e := range []ast.Expr{st.Key, st.Value} {
+	// The body is a function of its own, entered once per iteration, so
+	// both kinds of clause set up their targets here.
+	key, val := bs.rangeTargets(st, st.Tok != token.DEFINE, nil, nil)
+	for i, t := range []*rangeTarget{key, val} {
 		if i >= len(in) {
 			break
 		}
-		if lv := bs.rangeVar(st, e); lv != nil {
-			bs.assign(*lv, bs.assignConvert(in[i], unwrap(lv.T), st), st.Tok == token.DEFINE)
+		if t != nil {
+			lv := t.at(bs)
+			bs.assign(lv, bs.assignConvert(in[i], unwrap(lv.T), st), st.Tok == token.DEFINE)
 		}
 	}
 	bs.targets = compat.Clone([]*target{pu.New(target{label: rf.label, rf: rf})})

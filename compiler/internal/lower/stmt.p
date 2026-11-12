@@ -640,6 +640,70 @@ func (s *fnState) rangeVar(st *ast.RangeStmt, e ast.Expr) *lvalue {
 	return lv
 }
 
+// A rangeTarget is where one iteration of a range loop stores its key or
+// its value, with the nil and bounds checks made at that store.
+type rangeTarget struct {
+	lv     *lvalue
+	checks []laterCheck
+}
+
+// at makes t's checks and returns where the iteration stores.
+func (t *rangeTarget) at(s *fnState) lvalue {
+	for _, c := range t.checks {
+		c.emit(s)
+	}
+	return s.nilGuard(*t.lv)
+}
+
+// rangeTargets returns where a range statement stores its key and value,
+// nil for a target that is absent or blank. A clause with := declares its
+// variables once, before the loop (inBody false). A clause with = assigns
+// the iteration values as an assignment statement does (language spec
+// sections 12.7 and 12.10), so its left side is evaluated in every
+// iteration, at the start of the body (inBody true): the operands of both
+// targets first, then the stores in order, each with its own checks. So
+// for i, x[i] = range x stores each value at the index the previous
+// iteration left in i. Called at the other time, it returns key and val.
+func (s *fnState) rangeTargets(st *ast.RangeStmt, inBody bool, key, val *rangeTarget) (*rangeTarget, *rangeTarget) {
+	if (st.Tok == token.DEFINE) == inBody {
+		return key, val
+	}
+	if st.Tok == token.DEFINE {
+		if lv := s.rangeVar(st, st.Key); lv != nil {
+			key = pu.New(rangeTarget{lv: lv})
+		}
+		if lv := s.rangeVar(st, st.Value); lv != nil {
+			val = pu.New(rangeTarget{lv: lv})
+		}
+		return key, val
+	}
+	return s.rangeAssignTarget(st.Key), s.rangeAssignTarget(st.Value)
+}
+
+// rangeAssignTarget evaluates the operands of e, a target on the left of a
+// range clause with =, leaving its checks for its store.
+func (s *fnState) rangeAssignTarget(e ast.Expr) *rangeTarget {
+	if !rangeHas(e) {
+		return nil
+	}
+	ix, _ := ast.Unparen(e).(*ast.IndexExpr)
+	s.laterIndex, s.laterChecks = ix, nil
+	t := pu.New(rangeTarget{lv: pu.New(s.lvRaw(e))})
+	t.checks = s.laterChecks
+	s.laterIndex, s.laterChecks = nil, nil
+	return t
+}
+
+// rangeHas reports whether e, the key or value of a range clause, is
+// present and not blank.
+func rangeHas(e ast.Expr) bool {
+	if e == nil {
+		return false
+	}
+	id, ok := e.(*ast.Ident)
+	return !ok || id.Name != "_"
+}
+
 func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 	if s.info.Types[st.X].IsType() {
 		s.rangeEnum(st, label) // range E over an enum type's members
@@ -650,10 +714,10 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		return
 	}
 	xt := unwrap(s.typeOf(st.X))
-	assign := func(lv *lvalue, v value) {
-		if lv != nil {
-			T := unwrap(lv.T)
-			s.assign(*lv, s.assignConvert(v, T, st), false)
+	assign := func(t *rangeTarget, v value) {
+		if t != nil {
+			lv := t.at(s)
+			s.assign(lv, s.assignConvert(v, unwrap(lv.T), st), false)
 		}
 	}
 	intT := types2.Typ[types2.Int]
@@ -666,11 +730,12 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 		}
 		// range over an integer
 		n := s.exprAs(st.X, xt).v
-		keyLV := s.rangeVar(st, st.Key)
+		key, _ := s.rangeTargets(st, false, nil, nil)
 		keyT := xt
 		n64 := s.convertScalar(n, xt, intT)
 		s.countedLoop(n64, label, func(i *ssa.Value) {
-			assign(keyLV, scalarValue(s.convertScalar(i, intT, keyT), keyT))
+			key, _ := s.rangeTargets(st, true, key, nil)
+			assign(key, scalarValue(s.convertScalar(i, intT, keyT), keyT))
 			s.block(st.Body, st.Body.List)
 		})
 		return
@@ -717,12 +782,12 @@ func (s *fnState) rangeStmt(st *ast.RangeStmt, label *types2.Label) {
 			base, n, _ = s.sliceParts(sl)
 			et = s.subst(u.Elem())
 		}
-		keyLV := s.rangeVar(st, st.Key)
-		valLV := s.rangeVar(st, st.Value)
+		key, val := s.rangeTargets(st, false, nil, nil)
 		s.countedLoop(n, label, func(i *ssa.Value) {
-			assign(keyLV, scalarValue(i, intT))
-			if valLV != nil {
-				assign(valLV, s.materialize(s.loadFrom(s.elemAddr(base, i, et), et)))
+			key, val := s.rangeTargets(st, true, key, val)
+			assign(key, scalarValue(i, intT))
+			if val != nil {
+				assign(val, s.materialize(s.loadFrom(s.elemAddr(base, i, et), et)))
 			}
 			s.block(st.Body, st.Body.List)
 		})
@@ -767,8 +832,7 @@ func (s *fnState) rangeString(st *ast.RangeStmt, label *types2.Label) {
 	// spec section 12.10). An untyped constant takes the type string.
 	str := s.holdOwned(s.materialize(s.exprAs(st.X, types2.Typ[types2.String])))
 	ptr, n := s.stringParts(str)
-	keyLV := s.rangeVar(st, st.Key)
-	valLV := s.rangeVar(st, st.Value)
+	key, val := s.rangeTargets(st, false, nil, nil)
 	intT := types2.Typ[types2.Int]
 	runeT := types2.Typ[types2.Rune]
 
@@ -789,11 +853,12 @@ func (s *fnState) rangeString(st *ast.RangeStmt, label *types2.Label) {
 	s.store(ssa.TI64, idx, i)
 	res := s.callRuntime("decodeRune", compat.Clone([]*ssa.Type{ssa.TI32, ssa.TI64}), []*ssa.Value{ptr, n, i})
 	s.store(ssa.TI64, next, s.newValue(ssa.OpAdd, ssa.TI64, i, res[1]))
-	if keyLV != nil {
-		s.storeLV(*keyLV, scalarValue(i, intT))
+	key, val = s.rangeTargets(st, true, key, val)
+	if key != nil {
+		s.storeLV(key.at(s), scalarValue(i, intT))
 	}
-	if valLV != nil {
-		s.storeLV(*valLV, scalarValue(res[0], runeT))
+	if val != nil {
+		s.storeLV(val.at(s), scalarValue(res[0], runeT))
 	}
 	s.targets = compat.Append(s.targets, pu.New(target{label: label, breakTo: done, contTo: post, depth: len(s.cleanups)}))
 	s.block(st.Body, st.Body.List)

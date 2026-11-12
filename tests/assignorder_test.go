@@ -103,6 +103,14 @@ func show(x []int) { println(x[0], x[1], x[2], a[0], g) }
 		return
 	}`,
 			"1 2 6 0 0\npanic: runtime error: index out of range [5] with length 3\n"},
+		// A range clause with = assigns as an assignment statement does
+		// (section 12.10): the key is stored before the value's check.
+		{"range", `x := []int{1, 2, 3}
+	defer show(x)
+	g = 5
+	for g, x[g] = range x {
+	}`,
+			"1 2 3 0 0\npanic: runtime error: index out of range [5] with length 3\n"},
 	}
 	for _, c := range cases {
 		src := header + "func main() {\n\t" + c.body + "\n}\n"

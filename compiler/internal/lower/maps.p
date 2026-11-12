@@ -239,8 +239,7 @@ func (s *fnState) rangeMap(st *ast.RangeStmt, label *types2.Label) {
 	itPtr := scalarValue(it, types2.NewPointer(itT))
 	s.mapIterCall("Start", m, itT, itPtr, []value{s.mapTable(mv, m)}, st.Pos())
 
-	keyLV := s.rangeVar(st, st.Key)
-	valLV := s.rangeVar(st, st.Value)
+	key, val := s.rangeTargets(st, false, nil, nil)
 	head := s.newBlock(ssa.BlockInvalid)
 	body := s.newBlock(ssa.BlockInvalid)
 	post := s.newBlock(ssa.BlockInvalid)
@@ -252,7 +251,7 @@ func (s *fnState) rangeMap(st *ast.RangeStmt, label *types2.Label) {
 	e := s.pushCleanup(st, false)
 	var k, v value
 	var ok *ssa.Value
-	if valLV != nil {
+	if rangeHas(st.Value) {
 		res := s.mapIterCall("Next", m, itT, itPtr, nil, st.Pos())
 		k, v, ok = res[0], res[1], res[2].v
 	} else {
@@ -265,11 +264,14 @@ func (s *fnState) rangeMap(st *ast.RangeStmt, label *types2.Label) {
 	s.seal(more)
 	s.seal(exit)
 	s.startBlock(more)
-	if keyLV != nil {
-		s.assign(*keyLV, s.assignConvert(k, unwrap(keyLV.T), st), false)
+	key, val = s.rangeTargets(st, true, key, val)
+	if key != nil {
+		keyLV := key.at(s)
+		s.assign(keyLV, s.assignConvert(k, unwrap(keyLV.T), st), false)
 	}
-	if valLV != nil {
-		s.assign(*valLV, s.assignConvert(v, unwrap(valLV.T), st), false)
+	if val != nil {
+		valLV := val.at(s)
+		s.assign(valLV, s.assignConvert(v, unwrap(valLV.T), st), false)
 	}
 	s.popCleanup(e)
 	s.endPlain(body)

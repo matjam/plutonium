@@ -212,7 +212,7 @@ func (s *fnState) rangeEnum(st *ast.RangeStmt, label *types2.Label) {
 	T := s.subst(s.info.Types[st.X].Type)
 	en := types2.EnumOf(T)
 	intT := types2.Typ[types2.Int]
-	keyLV := s.rangeVar(st, st.Key)
+	key, _ := s.rangeTargets(st, false, nil, nil)
 	n := s.constInt(ssa.TI64, int64(en.Len()))
 
 	var table *ssa.Sym
@@ -221,7 +221,9 @@ func (s *fnState) rangeEnum(st *ast.RangeStmt, label *types2.Label) {
 		table = s.l.enumValues(en, t)
 	}
 	s.countedLoop(n, label, func(i *ssa.Value) {
-		if keyLV != nil {
+		key, _ := s.rangeTargets(st, true, key, nil)
+		if key != nil {
+			keyLV := key.at(s)
 			var v *ssa.Value
 			if table == nil {
 				v = s.convertScalar(i, intT, T)
@@ -229,7 +231,7 @@ func (s *fnState) rangeEnum(st *ast.RangeStmt, label *types2.Label) {
 				off := s.newValue(ssa.OpMul, ssa.TI64, i, s.constInt(ssa.TI64, t.Size))
 				v = s.load(t, s.newValue(ssa.OpAddPtr, ssa.TPtr, s.symAddr(table), off))
 			}
-			s.storeLV(*keyLV, s.assignConvert(scalarValue(v, T), unwrap(keyLV.T), st))
+			s.storeLV(keyLV, s.assignConvert(scalarValue(v, T), unwrap(keyLV.T), st))
 		}
 		s.block(st.Body, st.Body.List)
 	})
