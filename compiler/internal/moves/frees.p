@@ -62,14 +62,17 @@ func (c *checker) findFrees(funcs []keepFunc) {
 	})
 }
 
-// assertsIn finds, in body, the type assertions and type switches on a
-// value loaded from an input or that is one, the calls that pass an input
-// on to a function that does (edge), and the calls whose callees are not
-// known, or of a function without a body, given something that may hold
-// an interface (the worst case). An assertion on an ordinary interface
-// yields what was lent to it (the C2 ruling,
+// assertsIn finds, in body, the type assertions and type switches on an
+// input's own value (a copy of it, or a part of it), the calls that pass
+// an input on to a function that does (edge), and the calls whose callees
+// are not known, or of a function without a body, given an input that may
+// hold an interface (the worst case). An assertion on an ordinary
+// interface yields what was lent to it (the C2 ruling,
 // docs/verification/2026-11-09-spec-rulings.md): a view of the variable
-// lent.
+// lent. A value loaded through an input is not what the caller lent: an
+// assertion on f.poll inside a Read method of a lent *File yields what the
+// file holds, which the callee reaches only through the results of the
+// interface's methods (section 7.9, loadsOwned), not the file.
 func (s *keepScan) assertsIn(body *ast.BlockStmt, found func(in int, site keepSite), edge func(to ast.Node, j, in int)) {
 	each := func(bits uint64, site keepSite) {
 		for i := 0; i < maxInputs; i++ {
@@ -81,8 +84,8 @@ func (s *keepScan) assertsIn(body *ast.BlockStmt, found func(in int, site keepSi
 	ast.Inspect(body, func(n ast.Node) bool {
 		switch x := n.(type) {
 		case *ast.TypeAssertExpr:
-			o, h := s.sets(x.X)
-			each(o|h, keepSite{pos: x.Pos(), text: exprText(x)})
+			o, _ := s.sets(x.X)
+			each(o, keepSite{pos: x.Pos(), text: exprText(x)})
 		case *ast.CallExpr:
 			tv := s.c.types[x.Fun]
 			if tv.IsType() || tv.IsBuiltin() {
@@ -92,8 +95,7 @@ func (s *keepScan) assertsIn(body *ast.BlockStmt, found func(in int, site keepSi
 			targets, known := s.c.keepTargets(x)
 			worst := !known || s.c.bodyless(x)
 			s.c.callArgs(x, func(key, val ast.Expr, j int) {
-				o, h := s.sets(val)
-				bits := o | h
+				bits, _ := s.sets(val)
 				if bits == 0 {
 					return
 				}
