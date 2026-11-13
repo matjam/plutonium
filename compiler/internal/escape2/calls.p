@@ -372,6 +372,7 @@ func noteCall(calls *moves.Calls, env solve.Env, ps domain.Paths, p *eir.Program
 func merge(af, o *moves.ArgFacts) {
 	af.Self = af.Self || o.Self
 	af.Kept = af.Kept || o.Kept
+	af.Escaped = af.Escaped || o.Escaped
 	af.Returned = af.Returned || o.Returned
 	af.Into = compat.Append(af.Into, o.Into...)
 }
@@ -463,7 +464,7 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int, passed []*summary.S
 	if cd.sum == nil || i >= cd.inputs {
 		// Nothing is known of the callee, or the input is one it does
 		// not have (a candidate of another arity): the worst.
-		af.Self, af.Kept, af.Returned = true, true, true
+		af.Self, af.Kept, af.Escaped, af.Returned = true, true, true, true
 		af.Into = compat.Append(af.Into, moves.Into{})
 		return af
 	}
@@ -477,21 +478,28 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int, passed []*summary.S
 	sum := cd.sum
 	for _, k := range sum.Esc {
 		if k.Input() == i && self(k) {
-			af.Self, af.Kept = true, true
+			af.Self, af.Kept, af.Escaped = true, true, true
 		}
 	}
 	for _, st := range sum.Store {
 		if st.Src.Input() != i {
 			continue
 		}
-		if self(st.Src) {
-			af.Self, af.Kept = true, true
-		}
 		var dst ast.Expr
 		direct := false
-		if j := st.Dst.Input(); j < len(sl) && sl[j] != nil && !sl[j].packed_ && len(sl[j].exprs) == 1 {
+		j := st.Dst.Input()
+		if j >= 0 && j < len(sl) && sl[j] != nil && !sl[j].packed_ && len(sl[j].exprs) == 1 {
 			dst = sl[j].exprs[0]
 			direct = sl[j].exact && ps.Loads(st.Dst.Path()) == 0 && !st.Dst.Deep() && !st.Dst.GE()
+		}
+		if self(st.Src) {
+			// A store into an argument moves follows (Into), unless the
+			// callee may keep or return that argument too: then what is
+			// stored reaches memory moves does not follow.
+			af.Self, af.Kept = true, true
+			if dst == nil || leaves(sum, j) {
+				af.Escaped = true
+			}
 		}
 		af.Into = compat.Append(af.Into, moves.Into{Arg: dst, Direct: direct, Loaded: !self(st.Src)})
 	}
@@ -529,6 +537,7 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int, passed []*summary.S
 		given := fn && self(d.Fn)
 		af.Self = af.Self || given
 		af.Kept = af.Kept || given
+		af.Escaped = af.Escaped || given
 		for a, x := range d.Args {
 			for _, k := range x.Keys {
 				if k.Input() != i {
@@ -541,6 +550,7 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int, passed []*summary.S
 				given = true
 				af.Self = af.Self || self(k)
 				af.Kept = af.Kept || self(k)
+				af.Escaped = af.Escaped || self(k)
 			}
 		}
 		if given {
@@ -551,4 +561,39 @@ func argFacts(ps domain.Paths, cd callee, sl []*slot, i int, passed []*summary.S
 		}
 	}
 	return af
+}
+
+// leaves reports whether the callee of sum may keep, store or return
+// anything of input j, or pass it to a deferred call.
+func leaves(sum *summary.Summary, j int) bool {
+	for _, k := range sum.Esc {
+		if k.Input() == j {
+			return true
+		}
+	}
+	for _, st := range sum.Store {
+		if st.Src.Input() == j {
+			return true
+		}
+	}
+	for _, r := range sum.Res {
+		for _, rk := range r.From {
+			if rk.Key.Input() == j {
+				return true
+			}
+		}
+	}
+	for _, d := range sum.Deferred {
+		if d.Fn.Input() == j {
+			return true
+		}
+		for _, x := range d.Args {
+			for _, k := range x.Keys {
+				if k.Input() == j {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

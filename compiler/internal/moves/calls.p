@@ -31,6 +31,10 @@ type ArgFacts struct {
 	Self bool
 	// Kept: Self, other than by returning it.
 	Kept bool
+	// Escaped: Kept, other than by a store into an argument expression
+	// of the call that Into names (an entry with Arg set), which moves
+	// follows into that argument.
+	Escaped bool
 	// Returned: a result may hold pointers derived from the argument.
 	Returned bool
 	// Into are the arguments into whose memory the callee may store
@@ -127,6 +131,7 @@ func (c *Calls) Add(e ast.Expr, af *ArgFacts) {
 func (af *ArgFacts) merge(o *ArgFacts) {
 	af.Self = af.Self || o.Self
 	af.Kept = af.Kept || o.Kept
+	af.Escaped = af.Escaped || o.Escaped
 	af.Returned = af.Returned || o.Returned
 	af.Into = compat.Append(af.Into, o.Into...)
 }

@@ -2334,7 +2334,7 @@ func (f *fn) callStores(args []argView) {
 			// Self covers a callee that only returns the argument: the
 			// result's views are followed where it goes (callViews), so
 			// only one that keeps it elsewhere stores the view.
-			f.heapPin(a.views, a.call.Pos(), how, af.Kept && !viaUnsafe)
+			f.heapPin(a.views, a.call.Pos(), how, af.Escaped && !viaUnsafe)
 		}
 		for _, in := range af.Into {
 			if in.Arg == a.key {

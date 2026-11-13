@@ -1012,7 +1012,14 @@ compiler (2026-10-11).
     `accepted_view_into_one_slice_element_lives_across_a_new_value_for_another`,
     `rejected_view_into_a_slice_element_after_a_new_value_for_it_through_a_resliced_slice`,
     `accepted_view_used_before_a_deferred_clear_runs` and
-    `rejected_view_used_by_a_deferred_call_after_a_deferred_clear`.
+    `rejected_view_used_by_a_deferred_call_after_a_deferred_clear`. A view that a setter stores into an argument
+    whose memory stays in the caller, such as a local struct passed by pointer, is followed into that argument
+    instead of counting as kept by the callee: escape analysis now reports a store as an escape only when its
+    destination argument itself escapes (`argFacts`, the Escaped fact), and the check follows the stored view as
+    before. Tests: `accepted_view_stored_by_a_setter_into_a_local_is_followed`,
+    `accepted_slice_stored_by_a_setter_into_a_local_is_followed`,
+    `rejected_view_stored_by_a_setter_into_a_local_used_after_a_push` and
+    `rejected_view_stored_by_a_setter_whose_receiver_escapes`.
 204. **Type-parameter conversions to an interface in generic code** (done; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end

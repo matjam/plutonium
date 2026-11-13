@@ -1,0 +1,26 @@
+$DIR/main.p:28:2: v is passed to v.Push(3), which may free what it looks at or move it out (rt.MoveValues(&v.data[0], &old[0], len(old)), vec.p:434) here, but a view of what it holds (v.Slice(), line 27) was passed to g.set, which may keep it at line 27, where the compiler cannot check its uses
+    A call that may free what an owner holds ends every view of that memory
+    (language spec section 18.3). The view of v made by v.Slice() at line 27
+    went into memory the compiler does not follow, so it cannot check that the
+    view is not used after line 28.
+    Go keeps memory alive for as long as any pointer refers to it. Plutonium has
+    no garbage collector: an owner releases its memory when it is dropped, so a
+    view must not be used after the value it looks at has gone.
+    Keep the view in a local variable or a field of one, where the compiler
+    follows it, or do not make that call while the view is kept
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3314" for a longer explanation)
+
+$DIR/main.p:27:2: cannot pass v.Slice() to (*H).set, which keeps it after returning
+    v.Slice() points into v. v is a local variable of main (declared at
+    main.p:23). (*H).set stores it in h.p (main.p:18), so v.Slice() would
+    outlive v.
+    Go would move this memory to the heap, and its garbage collector would free
+    it later. Plutonium has no garbage collector and never moves memory to the
+    heap behind the program's back, so that every allocation is visible in the
+    code.
+    If (*H).set should keep its own copy of v, change it to take the value, not
+    a pointer, or an owner it can keep: an owned[pluto/vec.Vec[int]] from new, a
+    shared[pluto/vec.Vec[int]], or a library owner such as a vec.Vec.
+    (see "Views" in the Plutonium spec, section 18.3)
+    (run "pluto explain E3003" for a longer explanation)
