@@ -996,12 +996,16 @@ compiler (2026-10-11).
     strict are in `skill/plutonium/references/known-gaps.md`. Tests: the `tests/moves/rejected_` and
     `accepted_` directories added with this item, `accepted_valid_view_idioms`, and
     `localWindowStringKeptPastReset` in `tests/build_arena_live_test.go`.
-242. **False errors of item 241** (done; section 18.3): correct programs the move check rejected after
-    item 241. An assertion on a value loaded through an input, such as a poller's wait in the Read method
-    of a lent file, yields what that value holds, not what the caller lent (the C2 ruling): only an
-    assertion on the input's own value makes a result a view of it, so `pluto/compat/os.p` builds again
-    (`assertsIn`). Tests: `tests/moves/accepted_result_of_a_reader_helper_used_after_close` and
-    `rejected_result_of_a_reader_helper_that_asserts_used_after_close`.
+242. **False errors of item 241** (done; section 18.3): correct programs the move check rejected after item 241.
+    An assertion on a value loaded through an input, such as a poller's wait in the Read method of a lent file,
+    yields what that value holds, not what the caller lent (the C2 ruling): only an assertion on the input's own
+    value makes a result a view of it, so `pluto/compat/os.p` builds again (`assertsIn`). Tests:
+    `tests/moves/accepted_result_of_a_reader_helper_used_after_close` and
+    `rejected_result_of_a_reader_helper_that_asserts_used_after_close`. A view into the object of an owned box
+    field of a local owner keeps the path past the box (`n.c.x` is part `.c * .x`), so a call that frees through
+    another field of that object (`n.c.v.Push(1)`) leaves it, while a new value of the box still ends it
+    (`boxFieldView`). Tests: `accepted_view_into_a_box_field_lives_across_a_free_through_another_field` and
+    `rejected_view_into_a_box_field_after_the_box_gets_a_new_value`.
 204. **Type-parameter conversions to an interface in generic code** (done; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end

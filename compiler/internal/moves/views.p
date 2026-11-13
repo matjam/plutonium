@@ -343,9 +343,15 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 // boxFieldView returns, for a place x in the object of an owned box that
 // is a part of a local owner (n.c.x, with n.c an owned[C] field of n), a
 // view of what the owner holds at the box: a new value of the box, or a
-// move or free of the owner, drops that object (section 18.3).
+// move or free of the owner, drops that object (section 18.3). The view's
+// part goes on past the box ("*") to the place in its object, so a call
+// that frees through another field of the object (n.c.v.Push(1)) frees
+// what that field holds and leaves the view of n.c.x, as for the fields of
+// the owner's own storage.
 func (f *fn) boxFieldView(x ast.Expr, made ast.Expr) []view {
 	e := x
+	var inner Path // the steps from the box's object to x, outermost last
+	exact := true  // inner names the place: no step it cannot name
 	for {
 		switch s := ast.Unparen(e).(type) {
 		case *ast.SelectorExpr:
@@ -353,6 +359,10 @@ func (f *fn) boxFieldView(x ast.Expr, made ast.Expr) []view {
 			if sel == nil || sel.Kind() != types2.FieldVal {
 				return nil
 			}
+			if len(sel.Index()) != 1 {
+				exact = false
+			}
+			inner = compat.Append(inner, compat.Concat(".", strconv.Itoa(sel.Index()[len(sel.Index())-1])))
 			if !sel.Indirect() {
 				e = s.X
 				continue
@@ -371,11 +381,25 @@ func (f *fn) boxFieldView(x ast.Expr, made ast.Expr) []view {
 			if o == nil {
 				return nil
 			}
+			if exact && path != nil {
+				part := Path(compat.Append(compat.Clone(path), "*"))
+				for i := len(inner) - 1; i >= 0; i-- {
+					part = Path(compat.Append(part, inner[i]))
+				}
+				path = part
+			}
 			return compat.Clone([]view{{of: o, pos: made.Pos(), text: exprText(made), inHeap: true, part: path}})
 		case *ast.IndexExpr:
 			if _, isArr := f.c.typeOf(s.X).Underlying().(*types2.Array); !isArr {
 				return nil
 			}
+			step := "[*]"
+			if tv := f.c.types[s.Index]; !tv.Value.IsNil() {
+				if i, ok := constant.Int64Val(constant.ToInt(tv.Value)); ok {
+					step = compat.Concat("[", strconv.FormatInt(i, 10), "]")
+				}
+			}
+			inner = compat.Append(inner, step)
 			e = s.X
 		default:
 			return nil
