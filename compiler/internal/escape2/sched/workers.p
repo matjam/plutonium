@@ -69,6 +69,7 @@ func (s *solveStep) ScratchKeep() {
 	}
 	out.res.Findings = compat.Append([]solve.Finding(nil), o.res.Findings...)
 	out.res.Summary = clone(o.res.Summary)
+	out.res.Steps = o.res.Steps
 	if o.ov != nil {
 		out.ov = copyOverlay(o.ov)
 	}
