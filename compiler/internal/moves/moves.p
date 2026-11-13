@@ -190,10 +190,14 @@ type checker struct {
 	reclaims   map[ast.Node][]keepSite        // through which inputs functions may reset or release a checked arena, likewise (frees.p)
 	asserts    map[ast.Node][]keepSite        // through which inputs functions may assert or type-switch on an interface, likewise (frees.p)
 	gfrees     map[ast.Node]*globalFree       // what functions may free through package variables, likewise (counted.p)
+	dyn        []dynType                      // the types a value held in an interface may have (frees.p, dynTypes)
+	dynDone    bool                           // dyn is made
+	reachedBy  map[types2.Type]*countedReach  // countedReached, by type
 	taken      map[*ast.BlockStmt]bool        // whether each body returns only take(&place) (views.p, returnsTaken)
 
 	tpArgs map[*types2.TypeParam][]types2.Type     // the type arguments the program gives each type parameter of a generic function or type (frees.p)
 	recvTP map[*types2.TypeParam]*types2.TypeParam // a method's receiver type parameter, to its type's own (frees.p)
+	wild   map[types2.Type]*types2.Interface       // wildBox markers, by marker (frees.p)
 }
 
 // report records an error once per position and code.

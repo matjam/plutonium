@@ -39,13 +39,13 @@ type globalFree struct {
 }
 
 // add merges types and all into g, and reports whether g grew.
-func (g *globalFree) add(types []types2.Type, all bool, site keepSite) bool {
+func (g *globalFree) add(c *checker, types []types2.Type, all bool, site keepSite) bool {
 	grew := false
 	if all && !g.all {
 		g.all, grew = true, true
 	}
 	for _, t := range types {
-		if !slices.ContainsFunc(g.types, func(u types2.Type) bool { return types2.Identical(t, u) }) {
+		if !slices.ContainsFunc(g.types, func(u types2.Type) bool { return c.sameCounted(t, u) }) {
 			g.types = compat.Append(g.types, t)
 			grew = true
 		}
@@ -56,15 +56,15 @@ func (g *globalFree) add(types []types2.Type, all bool, site keepSite) bool {
 	return grew
 }
 
-// hits reports whether g may free through a reference of type T.
-func (g *globalFree) hits(T types2.Type) bool {
+// globalHits reports whether g may free through a reference of type T.
+func (c *checker) globalHits(g *globalFree, T types2.Type) bool {
 	if g == nil {
 		return false
 	}
 	if g.all {
 		return true
 	}
-	return slices.ContainsFunc(g.types, func(u types2.Type) bool { return types2.Identical(T, u) })
+	return slices.ContainsFunc(g.types, func(u types2.Type) bool { return c.countedHit(u, T) })
 }
 
 // anyValue is the key, in c.gfrees, of the union over the functions whose
@@ -76,7 +76,47 @@ var anyValue ast.Node = &ast.BadExpr{}
 // variables.
 type gfScan struct {
 	c    *checker
-	from map[*types2.Var]bool // locals that may hold a reference reached from a package variable
+	from map[*types2.Var]bool       // locals that may hold a reference reached from a package variable
+	part map[*types2.Var][]partFrom // fields of locals that may, when the local as a whole does not
+}
+
+// A partFrom is a field of a local, given a value that may be reached from
+// a package variable (v.a = alloc.Default()): the field path, as the
+// indices of the selections, and the type of the field.
+type partFrom struct {
+	path []int
+	T    types2.Type
+}
+
+// fieldPath returns, for a local variable v or a field of it reached by
+// field selections only (v.a, v.s.b, through pointers too), the variable
+// and the path of the field, as the indices of the selections.
+func (c *checker) fieldPath(x ast.Expr) (*types2.Var, []int, bool) {
+	var path []int
+	for {
+		switch e := ast.Unparen(x).(type) {
+		case *ast.SelectorExpr:
+			sel := c.selections[e]
+			if sel == nil || sel.Kind() != types2.FieldVal {
+				return nil, nil, false
+			}
+			path = compat.Append(compat.Clone(sel.Index()), path...)
+			x = e.X
+		case *ast.Ident:
+			v, ok := c.objOf(e).(*types2.Var)
+			if !ok || v.IsField() || isGlobal(v) {
+				return nil, nil, false
+			}
+			return v, path, true
+		default:
+			return nil, nil, false
+		}
+	}
+}
+
+// pathPrefix reports whether p is a prefix of q.
+func pathPrefix(p, q []int) bool {
+	return len(p) <= len(q) && slices.Equal(p, q[:len(p)])
 }
 
 // findGlobalFrees computes c.gfrees, after findFrees.
@@ -163,7 +203,7 @@ func (c *checker) findGlobalFrees(prog *load.Program) {
 		s := c.gfScan(b.body)
 		g := c.gfrees[b.node]
 		s.direct(b.body, func(types []types2.Type, all bool, site keepSite) {
-			g.add(types, all, site)
+			g.add(c, types, all, site)
 		}, func(to ast.Node) {
 			into[to] = compat.Append(into[to], b.node)
 		})
@@ -183,7 +223,7 @@ func (c *checker) findGlobalFrees(prog *load.Program) {
 		work = work[:len(work)-1]
 		g := c.gfrees[n]
 		for _, from := range into[n] {
-			if c.gfrees[from].add(g.types, g.all, g.site) {
+			if c.gfrees[from].add(c, g.types, g.all, g.site) {
 				work = compat.Append(work, from)
 			}
 		}
@@ -209,8 +249,16 @@ func calledName(fun ast.Expr) *ast.Ident {
 // gfScan finds the locals of body that may hold a reference reached from a
 // package variable, to a fixed point.
 func (c *checker) gfScan(body *ast.BlockStmt) *gfScan {
-	s := pu.New(gfScan{c: c, from: map[*types2.Var]bool{}})
+	s := pu.New(gfScan{c: c, from: map[*types2.Var]bool{}, part: map[*types2.Var][]partFrom{}})
 	mark := func(l ast.Expr) bool {
+		// A field of a local: only that field may hold what is reached.
+		if v, path, ok := c.fieldPath(l); ok && len(path) > 0 {
+			if s.from[v] || slices.ContainsFunc(s.part[v], func(p partFrom) bool { return pathPrefix(p.path, path) }) {
+				return false
+			}
+			s.part[v] = compat.Append(s.part[v], partFrom{path: path, T: c.typeOf(l)})
+			return true
+		}
 		id, ok := ast.Unparen(baseOf(l)).(*ast.Ident)
 		if !ok {
 			return false
@@ -286,13 +334,20 @@ func (s *gfScan) reached(e ast.Expr) bool {
 			return false
 		}
 		if isGlobal(v) {
-			types, all := countedReached(v.Type())
+			types, all := s.c.countedReached(v.Type())
 			return all || len(types) > 0
 		}
-		return s.from[v]
+		return s.from[v] || len(s.part[v]) > 0
 	case *ast.SelectorExpr:
 		if s.c.selections[x] == nil {
 			return s.reached(x.Sel) // a qualified identifier
+		}
+		if v, path, ok := s.c.fieldPath(x); ok && !s.from[v] {
+			// A field of a local: reached when it is in, or holds, a
+			// field given such a value.
+			return slices.ContainsFunc(s.part[v], func(p partFrom) bool {
+				return pathPrefix(p.path, path) || pathPrefix(path, p.path)
+			})
 		}
 		return s.reached(x.X)
 	case *ast.StarExpr:
@@ -358,7 +413,24 @@ func (s *gfScan) reached(e ast.Expr) bool {
 // through) that are reached from a package variable, by reached; all is
 // true when a prefix may lead to a reference of any type.
 func (s *gfScan) prefixTypes(x ast.Expr) ([]types2.Type, bool) {
-	return countedPrefixes(s.c, x, s.reached)
+	// A local or field that holds fields given such a value, without
+	// being in one, leads only to what those fields lead to.
+	var out []types2.Type
+	all := false
+	types, a := countedPrefixes(s.c, x, func(P ast.Expr) bool {
+		v, path, ok := s.c.fieldPath(P)
+		if !ok || s.from[v] || slices.ContainsFunc(s.part[v], func(p partFrom) bool { return pathPrefix(p.path, path) }) {
+			return s.reached(P)
+		}
+		for _, p := range s.part[v] {
+			if pathPrefix(path, p.path) {
+				ts, pa := s.c.countedReached(p.T)
+				out, all = compat.Append(out, ts...), all || pa
+			}
+		}
+		return false
+	})
+	return compat.Append(out, types...), all || a
 }
 
 // countedPrefixes returns the counted reference types reached from the
@@ -368,7 +440,7 @@ func countedPrefixes(c *checker, x ast.Expr, want func(ast.Expr) bool) ([]types2
 	all := false
 	for x != nil {
 		if want(x) {
-			types, a := countedReached(c.typeOf(x))
+			types, a := c.countedReached(c.typeOf(x))
 			out, all = compat.Append(out, types...), all || a
 		}
 		switch e := ast.Unparen(x).(type) {
@@ -411,7 +483,7 @@ func (s *gfScan) direct(body *ast.BlockStmt, found func(types []types2.Type, all
 			for _, l := range x.Lhs {
 				X, _, ok := countedPlace(s.c, l)
 				if ok && s.reached(X) && freeing(s.c.typeOf(l)) {
-					types, all := countedReached(s.c.typeOf(X))
+					types, all := s.c.countedReached(s.c.typeOf(X))
 					found(types, all, keepSite{pos: x.Pos(), text: compat.Concat(exprText(l), " = ...")})
 				}
 			}
@@ -526,11 +598,11 @@ func (c *checker) globalFreesOf(call *ast.CallExpr) *globalFree {
 	out := pu.New(globalFree{})
 	if !known {
 		g := c.gfrees[anyValue]
-		out.add(g.types, g.all, g.site)
+		out.add(c, g.types, g.all, g.site)
 	}
 	for _, t := range targets {
 		if g := c.gfrees[t.node]; g != nil {
-			out.add(g.types, g.all, g.site)
+			out.add(c, g.types, g.all, g.site)
 		}
 	}
 	return out

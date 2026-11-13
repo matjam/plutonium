@@ -1019,7 +1019,14 @@ compiler (2026-10-11).
     before. Tests: `accepted_view_stored_by_a_setter_into_a_local_is_followed`,
     `accepted_slice_stored_by_a_setter_into_a_local_is_followed`,
     `rejected_view_stored_by_a_setter_into_a_local_used_after_a_push` and
-    `rejected_view_stored_by_a_setter_whose_receiver_escapes`.
+    `rejected_view_stored_by_a_setter_whose_receiver_escapes`. A vector in a package variable whose allocator is
+    an interface no longer ends the views of every counted local when it grows: a field of a local given a value
+    reached from a package variable (`v.a = alloc.Default()` in `realloc`) marks only that field, so the elements
+    of `v.data` are not counted as reached (`gfScan`, `partFrom`); an implementation of `alloc.Allocator` reaches
+    nothing through its unsafe pointers (`isAllocatorType`); and a box of a type parameter whose type arguments
+    are not all found reaches a box of a type that has the interface's methods, not a reference of any type
+    (`wildBox`). Tests: `accepted_package_vector_with_an_interface_allocator_frees_no_counted_local` and
+    `rejected_package_vector_with_an_allocator_that_holds_a_counted_reference`.
 204. **Type-parameter conversions to an interface in generic code** (done; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end

@@ -6,6 +6,7 @@ import (
 	"compiler/internal/syntax/ast"
 	"compiler/internal/syntax/token"
 	"compiler/internal/types2"
+	"compiler/pu"
 	"pluto/strconv"
 	"pluto/strings"
 )
@@ -429,6 +430,32 @@ func (c *checker) noteInstance(id *ast.Ident, inst types2.Instance) {
 // owner or a counted box. A receiver type parameter of a method stands for
 // its type's own. With no instantiation found, it is the worst case.
 func (c *checker) tpFrees(tp *types2.TypeParam, seen map[*types2.TypeParam]bool) bool {
+	if o := c.recvTPOf(tp); o != nil {
+		tp = o
+	}
+	if seen[tp] {
+		return false
+	}
+	seen[tp] = true
+	args, ok := c.tpArgs[tp]
+	if !ok {
+		return true
+	}
+	for _, a := range args {
+		if sub, isTP := types2.Unalias(a).(*types2.TypeParam); isTP && !isOwner(a) {
+			if c.tpFrees(sub, seen) {
+				return true
+			}
+		} else if freeing(a) {
+			return true
+		}
+	}
+	return false
+}
+
+// recvTPOf returns, for a method's receiver type parameter, its type's
+// own, or nil.
+func (c *checker) recvTPOf(tp *types2.TypeParam) *types2.TypeParam {
 	if c.recvTP == nil {
 		c.recvTP = map[*types2.TypeParam]*types2.TypeParam{}
 		for fn := range c.keepDecls {
@@ -451,27 +478,7 @@ func (c *checker) tpFrees(tp *types2.TypeParam, seen map[*types2.TypeParam]bool)
 			}
 		}
 	}
-	if o := c.recvTP[tp]; o != nil {
-		tp = o
-	}
-	if seen[tp] {
-		return false
-	}
-	seen[tp] = true
-	args, ok := c.tpArgs[tp]
-	if !ok {
-		return true
-	}
-	for _, a := range args {
-		if sub, isTP := types2.Unalias(a).(*types2.TypeParam); isTP && !isOwner(a) {
-			if c.tpFrees(sub, seen) {
-				return true
-			}
-		} else if freeing(a) {
-			return true
-		}
-	}
-	return false
+	return c.recvTP[tp]
 }
 
 // elemFreeing reports whether the elements of the slice, array or map
@@ -961,7 +968,7 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 			}
 			hit := all
 			for _, t := range types {
-				hit = hit || types2.Identical(t, u.Type())
+				hit = hit || f.c.countedHit(t, u.Type())
 			}
 			if hit {
 				out = compat.Append(out, freeArg{w: view{of: u, pos: call.Pos(), text: exprText(val)}, site: site})
@@ -971,7 +978,7 @@ func (f *fn) freeArgs(call *ast.CallExpr) []freeArg {
 	// A copy in a package variable that the callee, or a function it
 	// calls, frees through (counted.p).
 	if g := f.c.globalFreesOf(call); g.all || len(g.types) > 0 {
-		for _, u := range f.countedLocals(g.hits) {
+		for _, u := range f.countedLocals(func(T types2.Type) bool { return f.c.globalHits(g, T) }) {
 			out = compat.Append(out, freeArg{w: view{of: u, pos: call.Pos(), text: exprText(call)}, site: g.site})
 		}
 	}
@@ -986,56 +993,324 @@ func (f *fn) isRecv(call *ast.CallExpr, key ast.Expr) bool {
 
 // countedReached returns the counted reference types (shared[T],
 // synced[T]) a value of type T holds or reaches through pointers, fields
-// and elements, and true if it may reach one of any type (an interface,
-// a type parameter, an unsafe.Pointer).
-func countedReached(T types2.Type) ([]types2.Type, bool) {
-	var out []types2.Type
-	all := false
-	var walk func(T types2.Type, seen map[types2.Type]bool)
-	walk = func(T types2.Type, seen map[types2.Type]bool) {
-		if T == nil || seen[T] || all {
+// and elements, and true if it may reach one of any type (an interface
+// without methods, a type parameter, an unsafe.Pointer). An interface
+// with methods holds a value of a type that has them: it reaches what
+// the types of the program that may have them reach (dynTypes).
+func (c *checker) countedReached(T types2.Type) ([]types2.Type, bool) {
+	if T == nil {
+		return nil, false
+	}
+	if r := c.reachedBy[T]; r != nil {
+		return r.types, r.all
+	}
+	r := pu.New(countedReach{})
+	c.reachWalk(T, true, map[types2.Type]int{}, r)
+	if c.reachedBy == nil {
+		c.reachedBy = map[types2.Type]*countedReach{}
+	}
+	c.reachedBy[T] = r
+	return r.types, r.all
+}
+
+// reachWalk adds to r what a value of type T reaches, for countedReached.
+// An unsafe.Pointer may lead to a reference of any type (raw), except in
+// an allocator: an implementation of alloc.Allocator is unsafe code that
+// takes back only the memory it is given in Free (section 18.9), and what
+// it reaches through its unsafe pointers is its own responsibility
+// (section 18.12). seen records, by type, the walks done: 1 with raw, 2
+// without.
+func (c *checker) reachWalk(T types2.Type, raw bool, seen map[types2.Type]int, r *countedReach) {
+	if T == nil || r.all {
+		return
+	}
+	if raw && isAllocatorType(T) {
+		raw = false
+	}
+	if raw && seen[T]&1 != 0 || !raw && seen[T] != 0 {
+		return
+	}
+	if raw {
+		seen[T] |= 1
+	} else {
+		seen[T] |= 2
+	}
+	if isCountedBox(T) {
+		r.types = compat.Append(r.types, T)
+	}
+	if tp, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		// What each type argument the program gives it reaches.
+		args, ok := c.tpConcrete(tp)
+		if !ok {
+			r.all = true
 			return
 		}
-		seen[T] = true
-		if isCountedBox(T) {
-			out = compat.Append(out, T)
+		for _, a := range args {
+			c.reachWalk(a, raw, seen, r)
 		}
-		if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
-			all = true
+		return
+	}
+	switch u := T.Underlying().(type) {
+	case *types2.Basic:
+		r.all = r.all || raw && u.Kind() == types2.UnsafePointer
+	case *types2.Interface:
+		if u.NumMethods() == 0 {
+			r.all = true
 			return
 		}
-		switch u := T.Underlying().(type) {
-		case *types2.Basic:
-			all = all || u.Kind() == types2.UnsafePointer
-		case *types2.Interface:
-			all = true
-		case *types2.Pointer:
-			walk(u.Elem(), seen)
-		case *types2.Slice:
-			walk(u.Elem(), seen)
-		case *types2.Array:
-			walk(u.Elem(), seen)
-		case *types2.Map:
-			walk(u.Key(), seen)
-			walk(u.Elem(), seen)
-		case *types2.Chan:
-			walk(u.Elem(), seen)
-		case *types2.Struct:
-			for i := 0; i < u.NumFields(); i++ {
-				walk(u.Field(i).Type(), seen)
+		for _, d := range c.dynTypes() {
+			if d.elem == nil {
+				if mayHaveMethods(d.T, u) {
+					c.reachWalk(d.T, raw, seen, r)
+				}
+				continue
 			}
-		case *types2.Wrapper:
-			walk(u.Elem(), seen)
-		case *types2.TaggedUnion:
-			for i := 0; i < u.NumVariants(); i++ {
-				if v := u.Variant(i); v.HasPayload() {
-					walk(v.Payload(), seen)
+			// A box of a type parameter: a box of each type argument
+			// the program gives it. When they are not all found, the box
+			// holds a value of some type that has the methods: a box of
+			// any such type (wildBox), whose value is one of the types
+			// this loop walks.
+			args, ok := c.tpConcrete(d.elem)
+			if !ok {
+				if isCountedBox(d.T) {
+					r.types = compat.Append(r.types, c.wildBox(u))
+				}
+				continue
+			}
+			for _, a := range args {
+				if mayHaveMethods(a, u) {
+					if isCountedBox(d.T) {
+						r.types = compat.Append(r.types, types2.Type(types2.NewWrapper(d.T.Underlying().(*types2.Wrapper).Kind(), a, 0)))
+					}
+					c.reachWalk(a, raw, seen, r)
 				}
 			}
 		}
+	case *types2.Pointer:
+		c.reachWalk(u.Elem(), raw, seen, r)
+	case *types2.Slice:
+		c.reachWalk(u.Elem(), raw, seen, r)
+	case *types2.Array:
+		c.reachWalk(u.Elem(), raw, seen, r)
+	case *types2.Map:
+		c.reachWalk(u.Key(), raw, seen, r)
+		c.reachWalk(u.Elem(), raw, seen, r)
+	case *types2.Chan:
+		c.reachWalk(u.Elem(), raw, seen, r)
+	case *types2.Struct:
+		for i := 0; i < u.NumFields(); i++ {
+			c.reachWalk(u.Field(i).Type(), raw, seen, r)
+		}
+	case *types2.Wrapper:
+		c.reachWalk(u.Elem(), raw, seen, r)
+	case *types2.TaggedUnion:
+		for i := 0; i < u.NumVariants(); i++ {
+			if v := u.Variant(i); v.HasPayload() {
+				c.reachWalk(v.Payload(), raw, seen, r)
+			}
+		}
 	}
-	walk(T, map[types2.Type]bool{})
-	return out, all
+}
+
+// isAllocatorType reports whether T, or a pointer to it, has the methods of
+// alloc.Allocator: Alloc(size, align uintptr) unsafe.Pointer and
+// Free(p unsafe.Pointer, size, align uintptr).
+func isAllocatorType(T types2.Type) bool {
+	if types2.IsInterface(T) {
+		return false
+	}
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return false
+	}
+	names := [2]string{"Alloc", "Free"}
+	params := [2]int{2, 3}
+	for i, name := range names {
+		n := params[i]
+		obj, _, _ := types2.LookupFieldOrMethod(T, true, nil, name)
+		fn, ok := obj.(*types2.Func)
+		if !ok {
+			return false
+		}
+		sig, ok := fn.Type().(*types2.Signature)
+		if !ok || sig.Params().Len() != n {
+			return false
+		}
+	}
+	return true
+}
+
+// wildBox returns the marker, in the types countedReached returns, of a
+// counted reference to a value of any type that has the methods of I.
+func (c *checker) wildBox(I *types2.Interface) types2.Type {
+	for m, J := range c.wild {
+		if J == I {
+			return m
+		}
+	}
+	m := types2.Type(types2.NewWrapper(types2.WrapShared, I, 0))
+	if c.wild == nil {
+		c.wild = map[types2.Type]*types2.Interface{}
+	}
+	c.wild[m] = I
+	return m
+}
+
+// countedHit reports whether a counted reference of type U may be one of
+// the type t countedReached returned: t itself, or, for a wildBox marker,
+// a box of a type that may have its methods (mayHaveMethods, which also
+// takes a box of such a type).
+func (c *checker) countedHit(t, U types2.Type) bool {
+	if I, ok := c.wild[t]; ok {
+		w, ok := types2.Unalias(U).Underlying().(*types2.Wrapper)
+		return ok && w.IsBox() && mayHaveMethods(w.Elem(), I)
+	}
+	return types2.Identical(t, U)
+}
+
+// sameCounted reports whether t and u are the same entry of a list of
+// counted reference types: a wildBox marker is only itself.
+func (c *checker) sameCounted(t, u types2.Type) bool {
+	_, wt := c.wild[t]
+	_, wu := c.wild[u]
+	if wt || wu {
+		return t == u
+	}
+	return types2.Identical(t, u)
+}
+
+// A countedReach is what countedReached found for a type.
+type countedReach struct {
+	types []types2.Type
+	all   bool
+}
+
+// A dynType is a type of the program a value converted to an interface
+// may have: a named type, a struct type that embeds a field and so may
+// have its methods, or a box of one (owned[T], shared[T], synced[T]).
+// elem is set for a box of a type parameter.
+type dynType struct {
+	T    types2.Type
+	elem *types2.TypeParam
+}
+
+// dynTypes returns the types a value held in an interface may have, by
+// the declarations and expressions of the program. A pointer to a type
+// has the methods of the type and reaches what it reaches, so it is not
+// listed.
+func (c *checker) dynTypes() []dynType {
+	if c.dynDone {
+		return c.dyn
+	}
+	c.dynDone = true
+	seen := map[types2.Type]bool{}
+	add := func(T types2.Type) {
+		if T == nil || seen[T] || types2.IsInterface(T) {
+			return
+		}
+		seen[T] = true
+		c.dyn = compat.Append(c.dyn, dynType{T: T})
+	}
+	for _, obj := range c.defs {
+		if tn, ok := obj.(*types2.TypeName); ok && !tn.IsAlias() {
+			add(tn.Type())
+		}
+	}
+	var boxes []types2.Type
+	for e, tv := range c.types {
+		T := tv.Type
+		if T == nil || tv.IsType() && !isStructLit(e) {
+			continue
+		}
+		switch u := types2.Unalias(T).(type) {
+		case *types2.Struct:
+			for i := 0; i < u.NumFields(); i++ {
+				if u.Field(i).Embedded() {
+					add(T)
+					break
+				}
+			}
+		case *types2.Wrapper:
+			if u.IsBox() && !seen[T] {
+				seen[T] = true
+				boxes = compat.Append(boxes, T)
+			}
+		}
+	}
+	for _, B := range boxes {
+		E := types2.Unalias(B.Underlying().(*types2.Wrapper).Elem())
+		if tp, ok := E.(*types2.TypeParam); ok {
+			c.dyn = compat.Append(c.dyn, dynType{T: B, elem: tp})
+		} else {
+			c.dyn = compat.Append(c.dyn, dynType{T: B})
+		}
+	}
+	return c.dyn
+}
+
+// isStructLit reports whether e is a struct type written in place, whose
+// type may be that of a value converted to an interface.
+func isStructLit(e ast.Expr) bool {
+	_, ok := e.(*ast.StructType)
+	return ok
+}
+
+// mayHaveMethods reports whether a value of type T, or the box or pointer
+// T is, may have the methods of the interface I: T or a pointer to T has a
+// method of each name, or T is a type parameter.
+func mayHaveMethods(T types2.Type, I *types2.Interface) bool {
+	if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+		return true
+	}
+	if w, ok := types2.Unalias(T).Underlying().(*types2.Wrapper); ok && w.IsBox() {
+		T = w.Elem()
+		if _, ok := types2.Unalias(T).(*types2.TypeParam); ok {
+			return true
+		}
+	}
+	for i := 0; i < I.NumMethods(); i++ {
+		m := I.Method(i)
+		obj, _, _ := types2.LookupFieldOrMethod(T, true, m.Pkg(), m.Name())
+		if _, ok := obj.(*types2.Func); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// tpConcrete returns the type arguments the program gives tp that are not
+// themselves type parameters, through those that are; false when one has
+// no instantiation found.
+func (c *checker) tpConcrete(tp *types2.TypeParam) ([]types2.Type, bool) {
+	var out []types2.Type
+	if !c.tpVisit(tp, map[*types2.TypeParam]bool{}, &out) {
+		return nil, false
+	}
+	return out, true
+}
+
+// tpVisit adds to out the type arguments of tp, for tpConcrete.
+func (c *checker) tpVisit(tp *types2.TypeParam, seen map[*types2.TypeParam]bool, out *[]types2.Type) bool {
+	if o := c.recvTPOf(tp); o != nil {
+		tp = o
+	}
+	if seen[tp] {
+		return true
+	}
+	seen[tp] = true
+	args, ok := c.tpArgs[tp]
+	if !ok {
+		return false
+	}
+	for _, a := range args {
+		if sub, isTP := types2.Unalias(a).(*types2.TypeParam); isTP {
+			if !c.tpVisit(sub, seen, out) {
+				return false
+			}
+		} else {
+			*out = compat.Append(*out, a)
+		}
+	}
+	return true
 }
 
 // ownerAddressed returns the local owner variable whose address, or the
