@@ -65,13 +65,13 @@ func SolveKeep(f *eir.Func, env Env, ws *Workspace) (Result, *State) {
 func (s *solver) finish() Result {
 	s.run()
 	if s.limit != nil {
-		return Result{Limit: s.limit}
+		return Result{Limit: s.limit, Steps: s.nsteps}
 	}
 	s.checkDrops()
 	s.measure()
 	sum := s.summary()
 	s.dump(sum)
-	return Result{Summary: sum, Findings: compat.Append([]Finding(nil), s.findings...), Derivs: s.derivOut}
+	return Result{Summary: sum, Findings: compat.Append([]Finding(nil), s.findings...), Derivs: s.derivOut, Steps: s.nsteps}
 }
 
 // State is a solve kept to be resumed.

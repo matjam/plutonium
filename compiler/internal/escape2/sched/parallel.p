@@ -336,6 +336,7 @@ func (w *worker) run(t task) outcome {
 		r := w.solve(t, f, &o)
 		o.res.Findings = compat.Append([]solve.Finding(nil), r.Findings...)
 		o.res.Summary = clone(r.Summary)
+		o.res.Steps = r.Steps
 		o.ov = w.ov
 		o.reads = compat.AppendPlain([]eir.FuncID(nil), w.reads...)
 	}
@@ -389,7 +390,9 @@ func (w *worker) solve(t task, f *eir.Func, o *outcome) solve.Result {
 	o.ownWS = ws.Arena.Bytes() + ws.Sets.Bytes()
 	if r.Limit != nil {
 		o.spare = a
-		return limitResult(f, w)
+		lr := limitResult(f, w)
+		lr.Steps = r.Steps
+		return lr
 	}
 	if len(w.ov.parent) == 0 {
 		o.kept = pu.New(keptSolve{ws: ws, st: st, bytes: st.Bytes()})
@@ -502,6 +505,36 @@ func (r *sccRun) ready(id eir.FuncID, g *callGraph, scc []int32) bool {
 	return true
 }
 
+// holdSteps orders the re-solves of an SCC: while a member whose last
+// solve took fewer than holdSteps steps (or that was never solved) is
+// dirty and ready, members whose last solve took holdSteps or more wait,
+// and solve, callees first as ready orders them, once the cheap members
+// are quiet. A callee that grows one step at a time then grows to its
+// fixpoint before the costly caller that reads it solves again, not once
+// for each step. Every solve starts from scratch and the fixpoint does not
+// depend on the order, so the result is the same; on typesprobe the
+// escape analysis takes 3.9G steps without it and 1.0G with it.
+// PLUTO_ESCAPE2_HOLD_STEPS=n sets it; 0 holds nothing.
+var holdSteps = envInt("PLUTO_ESCAPE2_HOLD_STEPS", 1000000)
+
+func envInt(name string, def int) int {
+	if v, err := strconv.Atoi(compat.Getenv(name)); err == nil && v >= 0 {
+		return v
+	}
+	return def
+}
+
+// cheapReady reports whether a member of comp whose last solve took fewer
+// than holdSteps steps (or that was never solved) is dirty and ready.
+func (r *sccRun) cheapReady(comp []eir.FuncID, holdLast []int64, g *callGraph, scc []int32) bool {
+	for _, id := range comp {
+		if r.dirty[id] && holdLast[id] < int64(holdSteps) && r.ready(id, g, scc) {
+			return true
+		}
+	}
+	return false
+}
+
 // runParallel analyses the SCCs comps (callees first) in rounds, filling
 // env's summaries and findings; finish is called for each SCC when it is
 // done.
@@ -558,6 +591,9 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 	// which retainBudget does not see; on the translated compiler kept
 	// states took the analysis past 10 GB within a minute.
 	keep := keepParallel && solveKeepFunc != nil && !noKeep && env.facts.def == nil
+	// holdLast is the steps of each function's last solve that was not
+	// final, for holdSteps.
+	holdLast := compat.Make[int64](len(p.Funcs))
 	start := func(ci int32) {
 		r := pu.New(sccRun{ci: ci, dirty: map[eir.FuncID]bool{}, solves: map[eir.FuncID]int{},
 			readBy: map[eir.FuncID][]eir.FuncID{}, readSeen: map[[2]eir.FuncID]bool{},
@@ -590,10 +626,11 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 		// last solve, fit in retainBudget.
 		planned := ks.bytes
 		for _, r := range active {
+			hold := holdSteps > 0 && !r.final && len(comps[r.ci]) > 1 && r.cheapReady(comps[r.ci], holdLast, g, pf.scc)
 			for _, id := range comps[r.ci] {
 				if r.final {
 					tasks = compat.Append(tasks, task{id: id, scc: r.ci, final: true})
-				} else if r.dirty[id] && r.ready(id, g, pf.scc) {
+				} else if r.dirty[id] && r.ready(id, g, pf.scc) && !(hold && holdLast[id] >= int64(holdSteps)) {
 					t := task{id: id, scc: r.ci}
 					if keep && len(comps[r.ci]) > 1 {
 						if k := ks.m[id]; k != nil {
@@ -640,6 +677,9 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 			o := &outs[i]
 			r.st.Solves++
 			lastDur[t.id] = o.dur
+			if !t.final {
+				holdLast[t.id] = int64(o.res.Steps)
+			}
 			sccStatsSolve(t.id, int64(o.dur), t.final)
 			lastBytes[t.id] = o.arenaB + o.setsB
 			if o.arenaB > r.st.ArenaBytes {

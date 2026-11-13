@@ -116,4 +116,7 @@ type Result struct {
 	// (summary.Widen) and with no store pairs cut as they are collected:
 	// every entry the solve derived, as it derived it.
 	Unwidened *summary.Summary
+	// Steps is the constraint firings and edge transforms the solve made
+	// (Measurement.Steps), also when it went past the limits.
+	Steps int
 }

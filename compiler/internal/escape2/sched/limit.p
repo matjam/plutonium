@@ -28,7 +28,9 @@ const codeEscapeLimit = diag.EscapeLimit
 func solveGuarded(f *eir.Func, env solve.Env, ws *solve.Workspace) solve.Result {
 	r := solveFunc(f, env, ws)
 	if r.Limit != nil {
+		steps := r.Steps
 		r = limitResult(f, env)
+		r.Steps = steps
 	}
 	return r
 }
