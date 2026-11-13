@@ -88,6 +88,13 @@ type view struct {
 	// given to the place holding that owner, or clear of the slice,
 	// drops it and frees what the view points into (section 18.3).
 	into bool
+	// slot, slotAt: for a view into, the element of a slice it points
+	// into, when that is known: element slotAt ("[2]") of the slice in
+	// the local slot, which no statement but its declaration gives a
+	// value (intoSlot). A new value given to another element of that
+	// slice does not drop the object the view points into.
+	slot   *types2.Var
+	slotAt string
 	// addr: the view is the address of the owner's own storage at part
 	// (&b.v, &b.arr[1]), or a copy of that address. A call that frees
 	// through a pointer to that part frees what the part holds, not the
@@ -137,6 +144,9 @@ func (w view) key() string {
 	}
 	if w.into {
 		k = compat.Concat(k, "|into")
+	}
+	if w.slot != nil {
+		k = compat.Concat(k, "|", w.slot.Name(), strconv.Itoa(int(w.slot.Pos())), w.slotAt)
 	}
 	if w.addr {
 		k = compat.Concat(k, "|addr")
@@ -310,7 +320,15 @@ func (f *fn) selfView(x ast.Expr, made ast.Expr) []view {
 		}
 		if into || !keep || len(steps) > 0 {
 			out = compat.Clone(out)
+			var slot *types2.Var
+			var slotAt string
+			if into {
+				slot, slotAt = f.intoSlot(x)
+			}
 			for i := range out {
+				if into && !out[i].into {
+					out[i].slot, out[i].slotAt = slot, slotAt
+				}
 				out[i].into = out[i].into || into
 				out[i].addr = out[i].addr && keep
 				if out[i].addr && len(steps) > 0 {
@@ -506,17 +524,187 @@ func (f *fn) loadedPlace(x ast.Expr) bool {
 // points to) is dropped, by a new value or by clear: the views into its
 // object, which point into memory an owner holds through base's views,
 // are stale (section 18.3).
-func (f *fn) dropLoaded(base ast.Expr, mv move) {
+//
+// at is the place given a new value, nil for clear: when it is a known
+// element of a slice (intoSlot), the views into the objects of the other
+// elements of that slice stay valid.
+func (f *fn) dropLoaded(base, at ast.Expr, mv move) {
 	if f.env == nil || base == nil {
 		return
 	}
-	for _, w := range f.viewsOf(base) {
+	var slot *types2.Var
+	var slotAt string
+	if at != nil {
+		slot, slotAt = f.intoSlot(at)
+	}
+	f.dropThrough(f.viewsOf(base), slot, slotAt, mv)
+}
+
+// dropThrough is dropLoaded for a base whose views are vs: the views into
+// the objects reached through them are stale, but for those into another
+// element of the slice in slot than slotAt.
+func (f *fn) dropThrough(vs []view, slot *types2.Var, slotAt string, mv move) {
+	for _, w := range vs {
 		if w.of == nil || w.lit != nil || w.lent || f.captured(w.of) {
 			continue
 		}
 		part := w.part
-		f.staleWhere(w.of, mv, func(u view) bool { return u.into && overlap(u.part, part) })
+		f.staleWhere(w.of, mv, func(u view) bool {
+			if slot != nil && u.slot == slot && u.slotAt != slotAt {
+				return false // another element of the same slice
+			}
+			return u.into && overlap(u.part, part)
+		})
 	}
+}
+
+// intoSlot returns, for a place x in an element of a slice or in the
+// objects that element owns (s[2], s[2].f, s[2].b.x with b an owned box),
+// the local variable holding the slice and the element's index, when the
+// index is a constant and the variable keeps the value its declaration
+// gives it (stableLocal). The objects two elements own are disjoint, so
+// what one element drops is not in the other's. Otherwise it returns nil.
+func (f *fn) intoSlot(x ast.Expr) (*types2.Var, string) {
+	e := ast.Unparen(x)
+	for {
+		switch y := e.(type) {
+		case *ast.SelectorExpr:
+			sel := f.c.selections[y]
+			if sel == nil || sel.Kind() != types2.FieldVal {
+				return nil, ""
+			}
+			if sel.Indirect() && (len(sel.Index()) != 1 || !isOwnedBox(f.c.typeOf(y.X))) {
+				return nil, ""
+			}
+			e = ast.Unparen(y.X)
+		case *ast.StarExpr:
+			if !isOwnedBox(f.c.typeOf(y.X)) {
+				return nil, ""
+			}
+			e = ast.Unparen(y.X)
+		case *ast.IndexExpr:
+			T := f.c.typeOf(y.X)
+			if T == nil {
+				return nil, ""
+			}
+			switch T.Underlying().(type) {
+			case *types2.Array:
+				e = ast.Unparen(y.X)
+				continue
+			case *types2.Slice:
+			default:
+				return nil, ""
+			}
+			id, ok := ast.Unparen(y.X).(*ast.Ident)
+			if !ok {
+				return nil, ""
+			}
+			v, ok := f.c.objOf(id).(*types2.Var)
+			if !ok || v.IsField() || isGlobal(v) || !f.vars[v] || !f.stableLocal(v) {
+				return nil, ""
+			}
+			at := f.c.indexStep(y)
+			if at == "[*]" {
+				return nil, ""
+			}
+			return v, at
+		default:
+			return nil, ""
+		}
+	}
+}
+
+// stableLocal reports whether the local variable v keeps the value its
+// declaration gives it while the function body runs: the body has no
+// goto, v is not declared inside a loop of the body, and nothing else
+// gives it a value, takes its address, calls a pointer method on it or
+// uses it in a function literal.
+func (f *fn) stableLocal(v *types2.Var) bool {
+	if r, ok := f.stable[v]; ok {
+		return r
+	}
+	ok := true
+	decls := 0
+	// The function literals met so far: the walk is in order, so a node
+	// inside one comes after it.
+	var lits []*ast.FuncLit
+	inLit := func(pos token.Pos) bool {
+		for _, l := range lits {
+			if l.Pos() <= pos && pos < l.End() {
+				return true
+			}
+		}
+		return false
+	}
+	ast.Inspect(f.topBody, func(m ast.Node) bool {
+		if !ok || m == nil {
+			return false
+		}
+		switch x := m.(type) {
+		case *ast.FuncLit:
+			lits = compat.Append(lits, x)
+		case *ast.BranchStmt:
+			if x.Tok == token.GOTO {
+				ok = false
+			}
+		case *ast.ForStmt:
+			if v.Pos() >= x.Pos() && v.Pos() < x.End() {
+				ok = false
+			}
+		case *ast.Ident:
+			if f.c.defs[x] == v {
+				decls++
+			} else if f.c.uses[x] == v && inLit(x.Pos()) {
+				ok = false
+			}
+		case *ast.AssignStmt:
+			for _, l := range x.Lhs {
+				if f.namesVar(l, v) && f.c.defs[ast.Unparen(l).(*ast.Ident)] != v {
+					ok = false
+				}
+			}
+		case *ast.IncDecStmt:
+			if f.namesVar(x.X, v) {
+				ok = false
+			}
+		case *ast.RangeStmt:
+			if v.Pos() >= x.Pos() && v.Pos() < x.End() {
+				ok = false
+			}
+			if x.Tok != token.DEFINE && (f.namesVar(x.Key, v) || f.namesVar(x.Value, v)) {
+				ok = false
+			}
+		case *ast.UnaryExpr:
+			if x.Op == token.AND && f.namesVar(x.X, v) {
+				ok = false
+			}
+		case *ast.SelectorExpr:
+			if sel := f.c.selections[x]; sel != nil && sel.Kind() != types2.FieldVal && f.namesVar(x.X, v) {
+				if sig, isSig := sel.Obj().Type().(*types2.Signature); !isSig || sig.Recv() == nil {
+					ok = false
+				} else if _, ptr := sig.Recv().Type().Underlying().(*types2.Pointer); ptr {
+					ok = false
+				}
+			}
+		}
+		return ok
+	})
+	ok = ok && decls <= 1
+	if f.stable == nil {
+		f.stable = map[*types2.Var]bool{}
+	}
+	f.stable[v] = ok
+	return ok
+}
+
+// namesVar reports whether e, without parentheses, is an identifier
+// naming v.
+func (f *fn) namesVar(e ast.Expr, v *types2.Var) bool {
+	if e == nil {
+		return false
+	}
+	id, ok := ast.Unparen(e).(*ast.Ident)
+	return ok && (f.c.uses[id] == v || f.c.defs[id] == v)
 }
 
 // loadBase returns the expression through which the place x is loaded:

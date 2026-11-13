@@ -52,11 +52,11 @@ do not "fix" the compiler's behavior in application code. Never rely on a progra
   (19.3, Part of the enclosing function). This includes the method shape `range sc.All()`, whose closure locks
   `s.mu` (19.3, Locks and names). Item 232.
 - The move check is stricter than 18.3 in some cases it does not follow: a literal that gives a moved owner a new
-  value and then reads it, a literal passed to a function that escape analysis says may keep it, a view kept
-  past a deferred builtin (which frees at the `defer` statement, not at the return), views stored by a call
+  value and then reads it, a literal passed to a function that escape analysis says may keep it, views stored by a call
   (which lose the field they came from), a pointer to a local (which keeps the views
   the local held when the pointer was made, after the local is given new ones), a slice element
-  given a new value (which ends the views of every element), and a vector in a package variable whose allocator
+  given a new value through an index that is not a constant, or of a slice variable that is given other values
+  (which ends the views into every element), and a vector in a package variable whose allocator
   is an interface (which may free through every counted local). Item 241.
 
 ## 4. Smaller notes

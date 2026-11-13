@@ -446,7 +446,13 @@ func (f *fn) builtin(e *ast.CallExpr) {
 		// views into their objects are stale (section 18.3).
 		if len(e.Args) == 1 {
 			if s, ok := f.c.typeOf(e.Args[0]).Underlying().(*types2.Slice); ok && bounds(s.Elem()) {
-				f.dropLoaded(e.Args[0], move{kind: mvNewValue, pos: e.Pos(), to: exprText(e)})
+				if e == f.deferCall && f.curDefer != nil {
+					// A deferred clear runs where the function returns,
+					// on the slice the defer statement evaluates (defers.p).
+					f.curDefer.cleared = f.viewsOf(e.Args[0])
+					return
+				}
+				f.dropLoaded(e.Args[0], nil, move{kind: mvNewValue, pos: e.Pos(), to: exprText(e)})
 			}
 		}
 	default:

@@ -549,6 +549,9 @@ type fn struct {
 	tempVars map[ast.Node]*types2.Var
 	tempOf   map[*types2.Var]ast.Expr
 	headers  map[ast.Stmt]bool
+
+	// stable caches stableLocal (views.p).
+	stable map[*types2.Var]bool
 }
 
 // A target is a statement that break or continue may leave.

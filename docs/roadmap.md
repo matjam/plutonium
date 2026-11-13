@@ -1005,7 +1005,14 @@ compiler (2026-10-11).
     field of a local owner keeps the path past the box (`n.c.x` is part `.c * .x`), so a call that frees through
     another field of that object (`n.c.v.Push(1)`) leaves it, while a new value of the box still ends it
     (`boxFieldView`). Tests: `accepted_view_into_a_box_field_lives_across_a_free_through_another_field` and
-    `rejected_view_into_a_box_field_after_the_box_gets_a_new_value`.
+    `rejected_view_into_a_box_field_after_the_box_gets_a_new_value`. A new value for an element of a slice ends
+    only the views into that element when the index is a constant and the slice is in a local that keeps the
+    value of its declaration (`intoSlot`, `stableLocal`). A deferred `clear(s)` drops the old contents where the
+    function returns, not at the `defer` statement (`deferRec.cleared`). Tests:
+    `accepted_view_into_one_slice_element_lives_across_a_new_value_for_another`,
+    `rejected_view_into_a_slice_element_after_a_new_value_for_it_through_a_resliced_slice`,
+    `accepted_view_used_before_a_deferred_clear_runs` and
+    `rejected_view_used_by_a_deferred_call_after_a_deferred_clear`.
 204. **Type-parameter conversions to an interface in generic code** (done; sections 18.3, A.3, D75,
     finding F2 of audit F; extends item 199): a conversion of a value of a type parameter to an interface
     is a frame copy for every instantiation, and for `[T owner any]` also a view that the D3 events end

@@ -36,6 +36,7 @@ type deferRec struct {
 	fv        []litEffect
 	reclaimed []reclaimArg
 	drop      *types2.Var // defer x.Drop()
+	cleared   []view      // defer clear(s): the views of s
 }
 
 // A deferHolder holds the views the deferred call uses through e.
@@ -55,7 +56,7 @@ func (f *fn) deferRecOf(st *ast.DeferStmt) *deferRec {
 		r = pu.New(deferRec{st: st, reg: f.standIn(st.Pos(), "defer")})
 		f.deferRecs[st] = r
 	}
-	r.holders, r.freed, r.fv, r.reclaimed, r.drop = nil, nil, nil, nil, nil
+	r.holders, r.freed, r.fv, r.reclaimed, r.drop, r.cleared = nil, nil, nil, nil, nil, nil
 	if !slices.Contains(f.defers, r) {
 		f.defers = compat.Append(f.defers, r)
 	}
@@ -159,6 +160,9 @@ func (f *fn) runDefers() {
 		call := r.st.Call
 		f.freeViews(call, r.freed)
 		f.funcValueViews(call, r.fv)
+		if r.cleared != nil {
+			f.dropThrough(r.cleared, nil, "", move{kind: mvNewValue, pos: r.st.Pos(), to: exprText(call)})
+		}
 		if r.drop != nil {
 			mv := move{kind: mvDrop, pos: r.st.Pos(), to: exprText(call.Fun)}
 			f.staleWhere(r.drop, mv, func(w view) bool { return !w.itself && w.lit == nil })

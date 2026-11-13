@@ -448,7 +448,7 @@ func (f *fn) assignLHS(lhs ast.Expr, tok token.Token) {
 		} else if !ok {
 			f.invalidateThrough(lhs, move{kind: mvNewValue, pos: lhs.Pos()})
 			f.countedNewValue(lhs)
-			f.dropLoaded(f.loadBase(lhs), move{kind: mvNewValue, pos: lhs.Pos()})
+			f.dropLoaded(f.loadBase(lhs), lhs, move{kind: mvNewValue, pos: lhs.Pos()})
 		}
 	}
 	// A part of a variable is written, not read: the views it held are
