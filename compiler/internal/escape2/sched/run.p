@@ -130,6 +130,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 	f := stageB(p)
 	g := buildGraphD(p, f.rule, f.def)
 	comps := g.sccs()
+	sccStatsBegin(p, f, comps)
 
 	env := pu.New(env{
 		p:       p,
@@ -447,6 +448,7 @@ func RunWith(p *eir.Program, opts Options) *Result {
 		return a.Code < b.Code
 	})
 	res.Env = env
+	sccStatsReport(p, f, comps, env.inSCC)
 	return res
 }
 

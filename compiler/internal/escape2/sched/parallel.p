@@ -627,6 +627,7 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 			r := byCI[t.scc]
 			delete(r.dirty, t.id)
 			r.lastReads[t.id] = outs[i].reads
+			sccStatsTake(t.id, outs[i].reads)
 			for _, rd := range outs[i].reads {
 				if k := [2]eir.FuncID{rd, t.id}; !r.readSeen[k] {
 					r.readSeen[k] = true
@@ -639,6 +640,7 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 			o := &outs[i]
 			r.st.Solves++
 			lastDur[t.id] = o.dur
+			sccStatsSolve(t.id, int64(o.dur), t.final)
 			lastBytes[t.id] = o.arenaB + o.setsB
 			if o.arenaB > r.st.ArenaBytes {
 				r.st.ArenaBytes = o.arenaB
@@ -679,6 +681,7 @@ func runParallel(p *eir.Program, env *env, g *callGraph, comps [][]eir.FuncID, f
 				env.sums[t.id] = joinSums(env.paths, prev, s)
 			}
 			env.virt.changedFunc(t.id)
+			sccStatsGrew(t.id, r.readBy[t.id])
 			for _, rd := range r.readBy[t.id] {
 				r.dirty[rd] = true
 			}
