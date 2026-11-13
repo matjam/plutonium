@@ -114,6 +114,37 @@ it dear is the work around it, a hash lookup or two each (the constraint
 de-duplication in `addCons`, the subsumption check in `addID`, the store
 pair tables).
 
+### The largest SCC (2026-11-13)
+
+`PLUTO_ESCAPE2_SCC_STATS=1` prints where the steps go (sched/sccstats.p;
+the output is the same with and without it). On the self-build at
+86fe8280, one SCC of 1994 functions (lower 787, types2 677, eir 112,
+race 111, moves 87) takes 8.09 of 8.14 billion steps and 48,883 of
+62,009 solves.
+
+The deferral edges do not glue it, although a first reading of the
+edges said they did: with no deferral edges it is still 1994 functions. Interface edges and the fallback joins of deferred calls each
+glue it without the other: without interface edges 1197, without both
+390, static edges only 95. The fallback edges are 59,146 of its 68,535
+edges, nearly all from about 16 deferred calls of func values whose
+fallback is the same 327 functions, but the solves read only about 230
+of them (9,316 edges read in all), and an edge not read makes no solve
+run again.
+
+Of its 44,895 re-solves (7.96 billion steps), 18,323 left the summary
+unchanged; they took 5.50 billion steps, two thirds of the analysis.
+Most re-solves follow a static callee's summary growing (35,327 with
+static triggers only). `types2.(*unifier).nify` alone is 4.65 billion
+steps: 58 re-solves of median 55 million steps, 10 of which changed its
+summary.
+
+So the lever is fewer re-solves that change nothing, while the summaries
+stay byte-identical: skip a reader when what its callee gained cannot
+reach anything its call sites bind (to be measured first). Resuming kept
+states (incr.go) would cut more but changes summaries (drift). Scheduling
+the deferral deps outside the graph gains nothing; resolving interface
+calls exactly would split the SCC but changes summaries.
+
 ## Done
 
 All in the solver's own structures (`escape2/solve`, `escape2/domain`):
