@@ -69,6 +69,11 @@ func checkProgram(prog *load.Program, opts sched.Options) (*eir.Program, *sched.
 		return nil, nil, err
 	}
 	if c != nil {
+		if compat.Getenv("PLUTO_PHASES") != "" {
+			s := res.Stats
+			fmt.Fprintf(os.Stderr, "pluto: escape cache: %d accepted, %d missed, %d rejected, %d redone SCCs, %d offered\n",
+				s.CacheAccepted, s.CacheMissed, s.CacheRejected, s.CacheRedone, c.Stats.Offered)
+		}
 		if err := c.Save(res); err != nil {
 			fmt.Fprintf(os.Stderr, "escape2: %v\n", err)
 		}
