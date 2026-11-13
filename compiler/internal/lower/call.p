@@ -449,6 +449,12 @@ func (s *fnState) emitCall(c callee, sig *types2.Signature, recv *value, args []
 			out = compat.Append(out, s.ownTemp(tmp, p.typ))
 			continue
 		}
+		if unwrap(p.typ) != p.typ {
+			// An aligned[T, N] wider than T: its value is T's, read from
+			// the temporary as from a variable of the wrapper type.
+			out = compat.Append(out, s.loadFrom(tmp, p.typ))
+			continue
+		}
 		out = compat.Append(out, aggValue(tmp, p.typ))
 	}
 	return out

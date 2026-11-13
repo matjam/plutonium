@@ -964,10 +964,12 @@ compiler (2026-10-11).
     `tests/assignorder_test.go` and the `tests/diag` cases `wrapper_untyped`, `switch_noncomparable`,
     `packed_anonymous`, `const_owner`, `minmax_dots`, `union_duplicate_variant`, `enum_self_reference`,
     `or_post_return`, `misplaced_union`, `packed_be_array` and `packed_address`.
-240. **A result of type `aligned[T, N]`** (planned; section 7.16): `func r() aligned[int, 64]` compiles, but a
-    caller that uses the result (`v := r()`, `println(r())`, `r() + 1`) stops with an internal compiler error,
-    "bad store types" or "Add needs matching integer operands": lowering takes the result as a scalar of `T`
-    while the wrapper is 64 bytes. Found with item 239; a result of type `volatile[T]` works.
+240. **A result of type `aligned[T, N]`** (done; section 7.16): `func r() aligned[int, 64]` compiled, but a
+    caller that used the result (`v := r()`, `println(r())`, `r() + 1`) stopped with an internal compiler
+    error, "bad store types" or "Add needs matching integer operands": lowering took the result as a scalar
+    of `T` while the wrapper is 64 bytes. A result returned in memory whose type is a wrapper over a scalar
+    is now loaded as the wrapper's own type (`lower/call.p`). Found with item 239. Test:
+    `testdata/plutonium/alignedresult.p`.
 241. **The move check findings of attack-mem** (done; sections 18.3, 18.5, 18.6, 18.9, 11.4, 21.4; findings 01
     to 17 of `docs/verification/2026-11-11-attack-mem`): what the walk cannot follow falls to the worst case.
     A view stored through a pointer to a local, an owner field given a new value or taken through an
