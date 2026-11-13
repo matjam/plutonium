@@ -1,0 +1,1 @@
+item 241: a pointer to a local keeps the views the local held when the pointer was made; following the views the local is given after needs their provenance per pointer

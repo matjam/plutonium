@@ -1,0 +1,1 @@
+item 241: a literal that gives a moved captured owner a new value is checked as if the owner were still moved; accepting it needs a run-time drop flag for the owner at the end of the function
